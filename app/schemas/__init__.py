@@ -1,0 +1,106 @@
+"""Pydantic schemas package."""
+
+from app.schemas.tenant import (
+    TenantCreate,
+    TenantUpdate,
+    TenantResponse,
+    TenantListResponse,
+    TenantAIConfigCreate,
+    TenantAIConfigUpdate,
+    TenantAIConfigResponse,
+    TenantCapabilitiesCreate,
+    TenantCapabilitiesUpdate,
+    TenantCapabilitiesResponse,
+)
+from app.schemas.knowledge import (
+    KnowledgeSourceCreate,
+    KnowledgeSourceUpdate,
+    KnowledgeSourceResponse,
+    KnowledgeSourceDetailResponse,
+    KnowledgeChunkCreate,
+    KnowledgeChunkResponse,
+    KnowledgeUploadRequest,
+    KnowledgeUploadResponse,
+)
+from app.schemas.conversation import (
+    ConversationSessionCreate,
+    ConversationSessionUpdate,
+    SessionResponse,
+    SessionDetailResponse,
+    MessageCreate,
+    MessageRequest,
+    MessageResponse,
+    ChatResponse,
+)
+from app.schemas.ticket import (
+    TicketCreate,
+    TicketManualCreate,
+    TicketUpdate,
+    TicketAssign,
+    TicketResolve,
+    TicketResponse,
+    TicketListResponse,
+)
+from app.schemas.user import (
+    UserCreate,
+    UserRegister,
+    UserUpdate,
+    UserPasswordUpdate,
+    UserResponse,
+    UserListResponse,
+    CurrentUserResponse,
+    LoginRequest,
+    Token,
+    TokenData,
+)
+
+__all__ = [
+    # Tenant schemas
+    "TenantCreate",
+    "TenantUpdate",
+    "TenantResponse",
+    "TenantListResponse",
+    "TenantAIConfigCreate",
+    "TenantAIConfigUpdate",
+    "TenantAIConfigResponse",
+    "TenantCapabilitiesCreate",
+    "TenantCapabilitiesUpdate",
+    "TenantCapabilitiesResponse",
+    # Knowledge schemas
+    "KnowledgeSourceCreate",
+    "KnowledgeSourceUpdate",
+    "KnowledgeSourceResponse",
+    "KnowledgeSourceDetailResponse",
+    "KnowledgeChunkCreate",
+    "KnowledgeChunkResponse",
+    "KnowledgeUploadRequest",
+    "KnowledgeUploadResponse",
+    # Conversation schemas
+    "ConversationSessionCreate",
+    "ConversationSessionUpdate",
+    "SessionResponse",
+    "SessionDetailResponse",
+    "MessageCreate",
+    "MessageRequest",
+    "MessageResponse",
+    "ChatResponse",
+    # Ticket schemas
+    "TicketCreate",
+    "TicketManualCreate",
+    "TicketUpdate",
+    "TicketAssign",
+    "TicketResolve",
+    "TicketResponse",
+    "TicketListResponse",
+    # User schemas
+    "UserCreate",
+    "UserRegister",
+    "UserUpdate",
+    "UserPasswordUpdate",
+    "UserResponse",
+    "UserListResponse",
+    "CurrentUserResponse",
+    "LoginRequest",
+    "Token",
+    "TokenData",
+]

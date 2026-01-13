@@ -42,6 +42,17 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
+    # Qdrant Vector Database
+    QDRANT_URL: str = "http://localhost:6333"
+    QDRANT_API_KEY: Optional[str] = None
+    QDRANT_COLLECTION_NAME: str = "luran_knowledge"
+
+    # Google AI
+    GOOGLE_API_KEY: Optional[str] = None
+    EMBEDDING_MODEL: str = "models/embedding-001"
+    GEMINI_MODEL: str = "gemini-2.5-flash-lite"
+    EMBEDDING_DIMENSION: int = 768
+
     # Email (optional)
     SMTP_TLS: bool = True
     SMTP_PORT: int = 587

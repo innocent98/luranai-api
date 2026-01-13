@@ -1,0 +1,664 @@
+"""Knowledge service for managing documents and knowledge chunks."""
+
+import hashlib
+from typing import Optional, Dict, Any
+from uuid import UUID, uuid4
+
+from sqlalchemy.orm import Session
+from sqlalchemy import select, and_
+from loguru import logger
+
+from app.db.models.knowledge import (
+    KnowledgeSource,
+    KnowledgeChunk,
+    SourceType,
+    SourceStatus,
+    ChunkVisibility,
+)
+from app.schemas.knowledge import (
+    KnowledgeSourceCreate,
+    KnowledgeSourceUpdate,
+    KnowledgeSourceResponse,
+    KnowledgeSourceDetailResponse,
+    KnowledgeChunkCreate,
+    KnowledgeChunkResponse,
+)
+
+
+class KnowledgeService:
+    """Service for knowledge management and document processing."""
+
+    def __init__(self, db: Session):
+        """Initialize knowledge service with database session."""
+        self.db = db
+
+    def _compute_content_hash(self, content: str) -> str:
+        """
+        Compute SHA256 hash of content.
+
+        Args:
+            content: Content to hash
+
+        Returns:
+            Hex digest of SHA256 hash
+        """
+        return hashlib.sha256(content.encode()).hexdigest()
+
+    def create_source(self, source_data: KnowledgeSourceCreate) -> KnowledgeSourceResponse:
+        """
+        Create a new knowledge source.
+
+        Args:
+            source_data: Source creation data
+
+        Returns:
+            Created source response
+
+        Raises:
+            ValueError: If duplicate source exists with same hash
+        """
+        # Check for duplicate by content hash
+        stmt = select(KnowledgeSource).where(
+            and_(
+                KnowledgeSource.tenant_id == source_data.tenant_id,
+                KnowledgeSource.content_hash == source_data.content_hash,
+                KnowledgeSource.status != SourceStatus.INACTIVE,
+            )
+        )
+        existing = self.db.execute(stmt).scalar_one_or_none()
+
+        if existing:
+            # Increment version if same content
+            version = existing.version + 1
+        else:
+            version = 1
+
+        db_source = KnowledgeSource(
+            tenant_id=source_data.tenant_id,
+            name=source_data.name,
+            source_type=source_data.source_type,
+            file_url=source_data.file_url,
+            content_hash=source_data.content_hash,
+            version=version,
+            status=SourceStatus.PROCESSING,
+            chunk_count=0,
+            meta=source_data.meta or {},
+        )
+
+        self.db.add(db_source)
+        self.db.commit()
+        self.db.refresh(db_source)
+
+        return KnowledgeSourceResponse.model_validate(db_source)
+
+    def get_source(self, source_id: UUID, include_chunks: bool = False) -> Optional[KnowledgeSourceResponse]:
+        """
+        Get knowledge source by ID.
+
+        Args:
+            source_id: Source UUID
+            include_chunks: Whether to include all chunks
+
+        Returns:
+            Source response if found, None otherwise
+        """
+        stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
+        source = self.db.execute(stmt).scalar_one_or_none()
+
+        if not source:
+            return None
+
+        if include_chunks:
+            return KnowledgeSourceDetailResponse.model_validate(source)
+        else:
+            return KnowledgeSourceResponse.model_validate(source)
+
+    def update_source(self, source_id: UUID, source_data: KnowledgeSourceUpdate) -> KnowledgeSourceResponse:
+        """
+        Update knowledge source.
+
+        Args:
+            source_id: Source UUID
+            source_data: Updated source data
+
+        Returns:
+            Updated source response
+
+        Raises:
+            ValueError: If source not found
+        """
+        stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
+        source = self.db.execute(stmt).scalar_one_or_none()
+
+        if not source:
+            raise ValueError("Knowledge source not found")
+
+        # Update fields
+        update_data = source_data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(source, field, value)
+
+        self.db.commit()
+        self.db.refresh(source)
+
+        return KnowledgeSourceResponse.model_validate(source)
+
+    def mark_source_active(self, source_id: UUID) -> KnowledgeSourceResponse:
+        """
+        Mark a source as active after successful processing.
+
+        Args:
+            source_id: Source UUID
+
+        Returns:
+            Updated source response
+
+        Raises:
+            ValueError: If source not found
+        """
+        stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
+        source = self.db.execute(stmt).scalar_one_or_none()
+
+        if not source:
+            raise ValueError("Knowledge source not found")
+
+        source.status = SourceStatus.ACTIVE
+
+        self.db.commit()
+        self.db.refresh(source)
+
+        return KnowledgeSourceResponse.model_validate(source)
+
+    def mark_source_failed(self, source_id: UUID) -> KnowledgeSourceResponse:
+        """
+        Mark a source as failed during processing.
+
+        Args:
+            source_id: Source UUID
+
+        Returns:
+            Updated source response
+
+        Raises:
+            ValueError: If source not found
+        """
+        stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
+        source = self.db.execute(stmt).scalar_one_or_none()
+
+        if not source:
+            raise ValueError("Knowledge source not found")
+
+        source.status = SourceStatus.FAILED
+
+        self.db.commit()
+        self.db.refresh(source)
+
+        return KnowledgeSourceResponse.model_validate(source)
+
+    def deactivate_old_versions(self, tenant_id: UUID, content_hash: str, current_version: int) -> None:
+        """
+        Deactivate old versions of a knowledge source.
+
+        Args:
+            tenant_id: Tenant UUID
+            content_hash: Content hash
+            current_version: Current version number
+        """
+        # Deactivate old source versions
+        stmt = select(KnowledgeSource).where(
+            and_(
+                KnowledgeSource.tenant_id == tenant_id,
+                KnowledgeSource.content_hash == content_hash,
+                KnowledgeSource.version < current_version,
+                KnowledgeSource.status == SourceStatus.ACTIVE,
+            )
+        )
+        old_sources = self.db.execute(stmt).scalars().all()
+
+        for source in old_sources:
+            source.status = SourceStatus.INACTIVE
+
+        # Deactivate associated chunks
+        for source in old_sources:
+            stmt_chunks = select(KnowledgeChunk).where(
+                and_(KnowledgeChunk.source_id == source.id, KnowledgeChunk.is_active == True)
+            )
+            chunks = self.db.execute(stmt_chunks).scalars().all()
+
+            for chunk in chunks:
+                chunk.is_active = False
+
+        self.db.commit()
+
+    def create_chunk(self, chunk_data: KnowledgeChunkCreate) -> KnowledgeChunkResponse:
+        """
+        Create a knowledge chunk.
+
+        Args:
+            chunk_data: Chunk creation data
+
+        Returns:
+            Created chunk response
+        """
+        db_chunk = KnowledgeChunk(
+            tenant_id=chunk_data.tenant_id,
+            source_id=chunk_data.source_id,
+            content=chunk_data.content,
+            chunk_index=chunk_data.chunk_index,
+            vector_id=chunk_data.vector_id,
+            meta=chunk_data.meta,
+            visibility=chunk_data.visibility,
+            language=chunk_data.language,
+            version=chunk_data.version,
+            is_active=True,
+        )
+
+        self.db.add(db_chunk)
+
+        # Update source chunk count
+        stmt = select(KnowledgeSource).where(KnowledgeSource.id == chunk_data.source_id)
+        source = self.db.execute(stmt).scalar_one_or_none()
+
+        if source:
+            source.chunk_count += 1
+
+        self.db.commit()
+        self.db.refresh(db_chunk)
+
+        return KnowledgeChunkResponse.model_validate(db_chunk)
+
+    def get_chunk(self, chunk_id: UUID) -> Optional[KnowledgeChunkResponse]:
+        """
+        Get knowledge chunk by ID.
+
+        Args:
+            chunk_id: Chunk UUID
+
+        Returns:
+            Chunk response if found, None otherwise
+        """
+        stmt = select(KnowledgeChunk).where(KnowledgeChunk.id == chunk_id)
+        chunk = self.db.execute(stmt).scalar_one_or_none()
+
+        if not chunk:
+            return None
+
+        return KnowledgeChunkResponse.model_validate(chunk)
+
+    def get_source_chunks(
+        self, source_id: UUID, active_only: bool = True
+    ) -> list[KnowledgeChunkResponse]:
+        """
+        Get all chunks for a source.
+
+        Args:
+            source_id: Source UUID
+            active_only: Whether to return only active chunks
+
+        Returns:
+            List of chunk responses
+        """
+        stmt = select(KnowledgeChunk).where(KnowledgeChunk.source_id == source_id)
+
+        if active_only:
+            stmt = stmt.where(KnowledgeChunk.is_active == True)
+
+        stmt = stmt.order_by(KnowledgeChunk.chunk_index)
+
+        chunks = self.db.execute(stmt).scalars().all()
+
+        return [KnowledgeChunkResponse.model_validate(c) for c in chunks]
+
+    def get_tenant_sources(
+        self, tenant_id: UUID, status: Optional[SourceStatus] = None
+    ) -> list[KnowledgeSourceResponse]:
+        """
+        Get all knowledge sources for a tenant.
+
+        Args:
+            tenant_id: Tenant UUID
+            status: Optional status filter
+
+        Returns:
+            List of source responses
+        """
+        stmt = select(KnowledgeSource).where(KnowledgeSource.tenant_id == tenant_id)
+
+        if status:
+            stmt = stmt.where(KnowledgeSource.status == status)
+
+        stmt = stmt.order_by(KnowledgeSource.created_at.desc())
+
+        sources = self.db.execute(stmt).scalars().all()
+
+        return [KnowledgeSourceResponse.model_validate(s) for s in sources]
+
+    def get_active_chunks_for_tenant(self, tenant_id: UUID) -> list[KnowledgeChunkResponse]:
+        """
+        Get all active chunks for a tenant (for RAG retrieval).
+
+        Args:
+            tenant_id: Tenant UUID
+
+        Returns:
+            List of active chunk responses
+        """
+        stmt = select(KnowledgeChunk).where(
+            and_(KnowledgeChunk.tenant_id == tenant_id, KnowledgeChunk.is_active == True)
+        )
+
+        chunks = self.db.execute(stmt).scalars().all()
+
+        return [KnowledgeChunkResponse.model_validate(c) for c in chunks]
+
+    def delete_source(self, source_id: UUID) -> bool:
+        """
+        Delete a knowledge source and its chunks (soft delete).
+
+        Args:
+            source_id: Source UUID
+
+        Returns:
+            True if deleted successfully
+
+        Raises:
+            ValueError: If source not found
+        """
+        stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
+        source = self.db.execute(stmt).scalar_one_or_none()
+
+        if not source:
+            raise ValueError("Knowledge source not found")
+
+        # Soft delete: mark as inactive
+        source.status = SourceStatus.INACTIVE
+
+        # Deactivate associated chunks
+        stmt_chunks = select(KnowledgeChunk).where(KnowledgeChunk.source_id == source_id)
+        chunks = self.db.execute(stmt_chunks).scalars().all()
+
+        for chunk in chunks:
+            chunk.is_active = False
+
+        self.db.commit()
+
+        # Delete vectors from Qdrant
+        try:
+            from app.utils.qdrant_client import qdrant_manager
+            qdrant_manager.delete_by_source_id(source_id)
+        except Exception as e:
+            logger.warning(f"Failed to delete vectors from Qdrant: {e}")
+
+        return True
+
+    async def create_source_and_chunks(
+        self,
+        tenant_id: UUID,
+        document_text: str,
+        document_name: str,
+        source_type: SourceType = SourceType.HELP_DOC,
+        document_metadata: Optional[Dict[str, Any]] = None,
+        uploaded_by: Optional[UUID] = None,
+    ) -> KnowledgeSourceResponse:
+        """
+        Create source and chunks WITHOUT embeddings.
+
+        This is used by the background worker to prepare chunks before
+        rate-limited embedding generation.
+
+        Steps:
+        1. Compute content hash
+        2. Create knowledge source (status: PROCESSING)
+        3. Chunk document text
+        4. Create chunk records in database (without vector_id)
+
+        Args:
+            tenant_id: Tenant UUID
+            document_text: Full document text
+            document_name: Document name/filename
+            source_type: Type of knowledge source
+            document_metadata: Optional metadata
+            uploaded_by: Optional user ID
+
+        Returns:
+            Created knowledge source
+
+        Raises:
+            ValueError: If chunking fails
+        """
+        from app.utils.chunking import text_chunker
+
+        logger.info(f"Creating source and chunks (without embeddings) for '{document_name}'")
+
+        source = None  # Initialize to avoid UnboundLocalError in except block
+
+        try:
+            # Step 1: Compute content hash
+            content_hash = self._compute_content_hash(document_text)
+
+            # Step 2: Create knowledge source
+            source_data = KnowledgeSourceCreate(
+                tenant_id=tenant_id,
+                name=document_name,
+                source_type=source_type,
+                content_hash=content_hash,
+                meta=document_metadata or {},
+            )
+            source = self.create_source(source_data)
+            logger.info(f"Created knowledge source: {source.id} (version {source.version})")
+
+            # Step 3: Chunk the document text
+            logger.info("Chunking document text...")
+            chunks_data = text_chunker.chunk_text(
+                text=document_text,
+                metadata={
+                    'source_name': document_name,
+                    'source_type': source_type.value,
+                    **(document_metadata or {}),
+                }
+            )
+            logger.info(f"Created {len(chunks_data)} chunks")
+
+            if not chunks_data:
+                logger.warning("No chunks created from document")
+                self.mark_source_failed(source.id)
+                raise ValueError("No chunks could be created from document text")
+
+            # Step 4: Create chunk records (without embeddings)
+            for i, chunk_data in enumerate(chunks_data):
+                chunk_create = KnowledgeChunkCreate(
+                    tenant_id=tenant_id,
+                    source_id=source.id,
+                    content=chunk_data['content'],
+                    chunk_index=i,
+                    vector_id=None,  # Will be set by background worker
+                    meta=chunk_data.get('metadata', {}),
+                    visibility=ChunkVisibility.PUBLIC,
+                    language='en',
+                    version=source.version,
+                )
+                self.create_chunk(chunk_create)
+
+            logger.success(f"Created {len(chunks_data)} chunk records (awaiting embedding)")
+
+            return source
+
+        except Exception as e:
+            logger.error(f"Error creating source and chunks: {e}")
+            if source:
+                self.mark_source_failed(source.id)
+            raise
+
+    async def process_document(
+        self,
+        tenant_id: UUID,
+        document_text: str,
+        document_name: str,
+        source_type: SourceType = SourceType.HELP_DOC,
+        document_metadata: Optional[Dict[str, Any]] = None,
+        uploaded_by: Optional[UUID] = None,
+    ) -> KnowledgeSourceResponse:
+        """
+        Process a document: chunk, embed, and store in PostgreSQL + Qdrant.
+
+        This is the main ingestion pipeline that orchestrates:
+        1. Content hashing and versioning
+        2. Source creation
+        3. Text chunking
+        4. Embedding generation
+        5. Dual storage (PostgreSQL + Qdrant)
+
+        Args:
+            tenant_id: Tenant UUID
+            document_text: Full document text
+            document_name: Document name/filename
+            source_type: Type of knowledge source
+            document_metadata: Optional metadata for the source
+            uploaded_by: Optional user ID who uploaded
+
+        Returns:
+            Created knowledge source response
+
+        Raises:
+            Exception: If processing fails
+        """
+        from app.utils.chunking import text_chunker
+        from app.utils.embedding import embedding_service
+        from app.utils.qdrant_client import qdrant_manager
+
+        logger.info(f"Starting document processing for '{document_name}' (tenant: {tenant_id})")
+
+        try:
+            # Step 1: Compute content hash for versioning
+            content_hash = self._compute_content_hash(document_text)
+
+            # Step 2: Create knowledge source
+            source_data = KnowledgeSourceCreate(
+                tenant_id=tenant_id,
+                name=document_name,
+                source_type=source_type,
+                content_hash=content_hash,
+                meta=document_metadata or {},
+            )
+            source = self.create_source(source_data)
+            logger.info(f"Created knowledge source: {source.id} (version {source.version})")
+
+            # Step 3: Chunk the document text
+            logger.info("Chunking document text...")
+            chunks_data = text_chunker.chunk_text(
+                text=document_text,
+                metadata={
+                    'source_name': document_name,
+                    'source_type': source_type.value,
+                    **(document_metadata or {}),
+                }
+            )
+            logger.info(f"Created {len(chunks_data)} chunks")
+
+            if not chunks_data:
+                logger.warning("No chunks created from document")
+                self.mark_source_failed(source.id)
+                raise ValueError("No chunks could be created from document text")
+
+            # Step 4: Generate embeddings for all chunks
+            logger.info("Generating embeddings...")
+            chunk_texts = [chunk['content'] for chunk in chunks_data]
+            embeddings = await embedding_service.generate_batch_embeddings(
+                texts=chunk_texts,
+                task_type="retrieval_document"
+            )
+
+            # Check for failed embeddings
+            failed_count = sum(1 for emb in embeddings if emb is None)
+            if failed_count > 0:
+                logger.warning(f"{failed_count} embeddings failed to generate")
+
+            # Step 5: Store chunks in PostgreSQL and Qdrant
+            logger.info("Storing chunks in database and vector store...")
+            created_chunks = []
+
+            for i, (chunk_data, embedding) in enumerate(zip(chunks_data, embeddings)):
+                if embedding is None:
+                    logger.warning(f"Skipping chunk {i} due to failed embedding")
+                    continue
+
+                # Generate unique vector ID
+                vector_id = f"{source.id}_{i}"
+
+                # Create chunk in PostgreSQL
+                chunk_create = KnowledgeChunkCreate(
+                    tenant_id=tenant_id,
+                    source_id=source.id,
+                    content=chunk_data['content'],
+                    chunk_index=i,
+                    vector_id=vector_id,
+                    meta={
+                        'token_count': chunk_data.get('token_count'),
+                        **chunk_data.get('metadata', {}),
+                    },
+                    visibility=ChunkVisibility.PUBLIC,
+                    language='en',
+                    version=source.version,
+                )
+                created_chunk = self.create_chunk(chunk_create)
+                created_chunks.append(created_chunk)
+
+                # Store vector in Qdrant
+                qdrant_manager.upsert_vector(
+                    vector_id=vector_id,
+                    embedding=embedding,
+                    tenant_id=tenant_id,
+                    chunk_id=created_chunk.id,
+                    source_id=source.id,
+                    content=chunk_data['content'],
+                    metadata={
+                        'chunk_index': i,
+                        'source_name': document_name,
+                        'source_type': source_type.value,
+                        'version': source.version,
+                    }
+                )
+
+            logger.info(f"Successfully stored {len(created_chunks)} chunks")
+
+            # Step 6: Mark source as active
+            self.mark_source_active(source.id)
+            logger.info(f"Document processing complete for '{document_name}'")
+
+            # Step 7: Deactivate old versions if this is a new version
+            if source.version > 1:
+                logger.info(f"Deactivating old versions (version < {source.version})")
+                self.deactivate_old_versions(tenant_id, content_hash, source.version)
+
+            # Refresh source to get updated chunk count
+            refreshed_source = self.get_source(source.id)
+            return refreshed_source
+
+        except Exception as e:
+            logger.error(f"Error processing document '{document_name}': {e}")
+            # Mark source as failed if it was created
+            try:
+                if 'source' in locals() and source:
+                    self.mark_source_failed(source.id)
+            except Exception:
+                pass
+            raise
+
+    async def reprocess_source(self, source_id: UUID) -> KnowledgeSourceResponse:
+        """
+        Reprocess an existing source (re-chunk and re-embed).
+
+        Useful for updating embeddings or chunk strategy without uploading new document.
+
+        Args:
+            source_id: Source UUID to reprocess
+
+        Returns:
+            Updated knowledge source
+
+        Raises:
+            ValueError: If source not found or has no original content
+        """
+        # Note: This would require storing original document content
+        # For now, this is a placeholder for future implementation
+        raise NotImplementedError("Reprocessing requires storing original document content")

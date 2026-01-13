@@ -10,8 +10,13 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import settings
 from app.db.base import Base
-# Import all models here
-# from app.db.models import user, item, etc.
+# Import all models so Alembic can detect them
+from app.db.models import (
+    Tenant, TenantAIConfig, TenantCapabilities,
+    KnowledgeSource, KnowledgeChunk,
+    ConversationSession, Message, Ticket,
+    User, AuditLog, AnalyticsMetric
+)
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

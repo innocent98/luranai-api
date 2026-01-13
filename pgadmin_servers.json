@@ -1,0 +1,14 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Luran Database",
+      "Group": "Servers",
+      "Host": "luran_db",
+      "Port": 5432,
+      "MaintenanceDB": "luran_db",
+      "Username": "user",
+      "SSLMode": "prefer",
+      "PassFile": "/tmp/pgpassfile"
+    }
+  }
+}
