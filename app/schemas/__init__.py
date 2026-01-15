@@ -76,6 +76,19 @@ from app.schemas.auth import (
     PasswordResetConfirm,
     PasswordResetConfirmResponse,
 )
+from app.schemas.api_key import (
+    APIKeyCreate,
+    APIKeyResponse,
+    APIKeyCreateResponse,
+    APIKeyListResponse,
+    APIKeyUpdate,
+)
+from app.schemas.widget import (
+    WidgetConfigUpdate,
+    WidgetConfigResponse,
+    PublicWidgetConfigResponse,
+    WidgetInstallCodeResponse,
+)
 
 __all__ = [
     # Tenant schemas
@@ -147,4 +160,15 @@ __all__ = [
     "PasswordResetResponse",
     "PasswordResetConfirm",
     "PasswordResetConfirmResponse",
+    # API Key schemas
+    "APIKeyCreate",
+    "APIKeyResponse",
+    "APIKeyCreateResponse",
+    "APIKeyListResponse",
+    "APIKeyUpdate",
+    # Widget schemas
+    "WidgetConfigUpdate",
+    "WidgetConfigResponse",
+    "PublicWidgetConfigResponse",
+    "WidgetInstallCodeResponse",
 ]

@@ -6,6 +6,8 @@ from app.api.v1.endpoints import (
     platform_admin_auth,
     company_registration,
     users,
+    api_keys,
+    widget,
     tenants,
     knowledge,
     chat,
@@ -40,6 +42,20 @@ api_router.include_router(
     users.router,
     prefix="/users",
     tags=["user-management"],
+)
+
+# API key management endpoints
+api_router.include_router(
+    api_keys.router,
+    prefix="/api-keys",
+    tags=["api-keys"],
+)
+
+# Widget configuration endpoints
+api_router.include_router(
+    widget.router,
+    prefix="/widget",
+    tags=["widget"],
 )
 
 # Tenant management endpoints

@@ -8,7 +8,6 @@ from app.services.auth_service import AuthService
 from app.schemas.user import (
     LoginRequest,
     Token,
-    UserCreate,
     UserResponse,
     UserPasswordUpdate,
     CurrentUserResponse,
@@ -42,33 +41,6 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
             headers={"WWW-Authenticate": "Bearer"},
-        )
-
-
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register(user_data: UserCreate, db: Session = Depends(get_db)):
-    """
-    Register a new user.
-
-    Args:
-        user_data: User registration data
-        db: Database session
-
-    Returns:
-        Created user response
-
-    Raises:
-        HTTPException: 400 if user already exists
-    """
-    auth_service = AuthService(db)
-
-    try:
-        user = auth_service.create_user(user_data)
-        return user
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
         )
 
 

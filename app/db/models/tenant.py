@@ -57,6 +57,49 @@ class Tenant(Base, UUIDMixin, TimestampMixin):
         comment="Hashed API key for tenant authentication",
     )
 
+    # Widget Configuration
+    widget_primary_color: Mapped[Optional[str]] = mapped_column(
+        String(7),
+        nullable=True,
+        default="#2563eb",
+        comment="Primary color for widget (hex format)",
+    )
+    widget_accent_color: Mapped[Optional[str]] = mapped_column(
+        String(7),
+        nullable=True,
+        default="#10b981",
+        comment="Accent color for widget (hex format)",
+    )
+    widget_logo_url: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
+        comment="URL to company logo for widget",
+    )
+    widget_greeting_message: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
+        default="Hi! How can we help you today?",
+        comment="Greeting message shown in widget",
+    )
+    widget_position: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
+        default="bottom-right",
+        comment="Widget position: bottom-right, bottom-left, top-right, top-left",
+    )
+    widget_show_unread_badge: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        comment="Show unread message badge on widget button",
+    )
+    widget_allow_file_upload: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        comment="Allow file uploads in widget chat",
+    )
+
     # Relationships
     ai_config: Mapped[Optional["TenantAIConfig"]] = relationship(
         "TenantAIConfig",

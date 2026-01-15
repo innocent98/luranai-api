@@ -22,6 +22,7 @@ from app.db.models.conversation import (
 )
 from app.db.models.user import User, UserRole
 from app.db.models.platform_admin import PlatformAdmin, PlatformAdminRole
+from app.db.models.api_key import APIKey, APIKeyType
 from app.db.models.audit import AuditLog, AnalyticsMetric
 from app.db.models.job import ProcessingJob, JobStatus, JobType
 
@@ -52,6 +53,9 @@ __all__ = [
     # Platform admin models
     "PlatformAdmin",
     "PlatformAdminRole",
+    # API Key models
+    "APIKey",
+    "APIKeyType",
     # Audit models
     "AuditLog",
     "AnalyticsMetric",
