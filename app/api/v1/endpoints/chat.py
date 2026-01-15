@@ -19,6 +19,7 @@ from app.schemas.conversation import (
     MessageRequest,
     ChatResponse,
     SessionCreateRequest,
+    ConversationSessionCreate,
 )
 from app.schemas.user import UserResponse
 from app.db.models.conversation import SessionStatus, MessageRole
@@ -45,7 +46,7 @@ async def create_session(
 
     # Verify tenant exists
     tenant_service = TenantService(db)
-    tenant = tenant_service.get_tenant(session_data.tenant_id)
+    tenant = tenant_service.get_tenant_by_id(session_data.tenant_id, include_relations=False)
 
     if not tenant:
         raise HTTPException(
@@ -53,11 +54,14 @@ async def create_session(
             detail="Tenant not found"
         )
 
-    session = conversation_service.create_session(
+    # Convert SessionCreateRequest to ConversationSessionCreate
+    session_create = ConversationSessionCreate(
         tenant_id=session_data.tenant_id,
         user_identifier=session_data.user_identifier,
-        metadata=session_data.metadata,
+        meta=session_data.metadata or {},
     )
+
+    session = conversation_service.create_session(session_create)
 
     return session
 
@@ -102,11 +106,13 @@ async def send_message(
                 detail="tenant_id and user_identifier are required for new sessions"
             )
 
-        session = conversation_service.create_session(
+        # Convert to ConversationSessionCreate
+        session_create = ConversationSessionCreate(
             tenant_id=message_data.tenant_id,
             user_identifier=message_data.user_identifier,
-            metadata=message_data.metadata,
+            meta=message_data.metadata or {},
         )
+        session = conversation_service.create_session(session_create)
         session_id = session.id
         logger.info(f"Created new session: {session_id}")
     else:
@@ -119,7 +125,7 @@ async def send_message(
             )
 
     # Step 2: Get tenant AI configuration
-    tenant_config = tenant_service.get_tenant_ai_config(session.tenant_id)
+    tenant_config = tenant_service.get_ai_config(session.tenant_id)
     if not tenant_config:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -191,10 +197,10 @@ async def send_message(
             session_id=session_id,
             role=MessageRole.ASSISTANT,
             content=ai_response_text,
-            retrieved_chunk_ids=[chunk.id for chunk in retrieved_chunks],
+            retrieved_chunk_ids=[str(chunk.id) for chunk in retrieved_chunks],  # Convert UUID to string for JSON
             confidence_score=confidence_score,
             token_count=token_count,
-            metadata={
+            meta={
                 'chunks_used': len(retrieved_chunks),
                 'similarity_scores': similarity_scores,
             }
@@ -207,23 +213,23 @@ async def send_message(
             logger.info("Creating escalation ticket...")
             conversation_service.escalate_session(
                 session_id=session_id,
-                escalation_reason=escalation_reason,
+                reason=escalation_reason,
             )
 
-            # Create support ticket
-            ticket_service = TicketService(db)
-            from app.schemas.ticket import TicketCreate
-            from app.db.models.ticket import TicketPriority
-
-            ticket_data = TicketCreate(
-                tenant_id=session.tenant_id,
-                session_id=session_id,
-                priority=TicketPriority.MEDIUM,
-                summary=f"AI escalation: {escalation_reason}",
-            )
-            ticket = ticket_service.create_ticket(ticket_data)
-            ticket_id = ticket.id
-            logger.info(f"Created ticket: {ticket.ticket_number}")
+            # TODO: Create support ticket (ticket model not yet implemented)
+            # ticket_service = TicketService(db)
+            # from app.schemas.ticket import TicketCreate
+            # from app.db.models.ticket import TicketPriority
+            #
+            # ticket_data = TicketCreate(
+            #     tenant_id=session.tenant_id,
+            #     session_id=session_id,
+            #     priority=TicketPriority.MEDIUM,
+            #     summary=f"AI escalation: {escalation_reason}",
+            # )
+            # ticket = ticket_service.create_ticket(ticket_data)
+            # ticket_id = ticket.id
+            logger.info(f"Escalation recorded without ticket creation (ticket model pending)")
 
         # Step 12: Return response
         return ChatResponse(
@@ -243,7 +249,7 @@ async def send_message(
             role=MessageRole.ASSISTANT,
             content="I apologize, but I'm having trouble processing your request. Please try again or contact support.",
             confidence_score=0.0,
-            metadata={'error': str(e)}
+            meta={'error': str(e)}
         )
 
         return ChatResponse(

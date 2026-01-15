@@ -49,9 +49,9 @@ class Settings(BaseSettings):
 
     # Google AI
     GOOGLE_API_KEY: Optional[str] = None
-    EMBEDDING_MODEL: str = "models/embedding-001"
-    GEMINI_MODEL: str = "gemini-2.5-flash-lite"
-    EMBEDDING_DIMENSION: int = 768
+    EMBEDDING_MODEL: str = "models/gemini-embedding-001"  # gemini-embedding-1.0: 100 RPM, 1K RPD
+    GEMINI_MODEL: str = "models/gemma-3-12b-it"  # gemma-3-12b-it: 30 RPM, 14.4K RPD
+    EMBEDDING_DIMENSION: int = 3072  # gemini-embedding-001 produces 3072-dim vectors
 
     # Email (optional)
     SMTP_TLS: bool = True

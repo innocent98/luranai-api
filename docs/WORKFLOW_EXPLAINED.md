@@ -10,23 +10,23 @@
 
 | When | API Used | Model | Purpose | Input | Output |
 |------|----------|-------|---------|-------|--------|
-| **Upload Time** | Embedding API | embedding-001 | Convert chunks to vectors | "Q: What is covered?..." | [0.123, -0.456, ...] (768 numbers) |
-| **Chat Time #1** | Embedding API | embedding-001 | Convert query to vector | "What is covered?" | [0.234, -0.567, ...] (768 numbers) |
-| **Chat Time #2** | Gemini API | gemini-2.5-flash | Generate response | Full prompt + context | "Based on your policy..." (text) |
+| **Upload Time** | Embedding API | gemini-embedding-001 | Convert chunks to vectors | "Q: What is covered?..." | [0.123, -0.456, ...] (3072 numbers) |
+| **Chat Time #1** | Embedding API | gemini-embedding-001 | Convert query to vector | "What is covered?" | [0.234, -0.567, ...] (3072 numbers) |
+| **Chat Time #2** | Gemma API | gemma-3-12b-it | Generate response | Full prompt + context | "Based on your policy..." (text) |
 
 #### Important Distinctions
 
-**Embedding API** (models/embedding-001)
+**Embedding API** (models/gemini-embedding-001)
 - Purpose: Turn text into numbers (vectors)
-- Fast: ~200ms per request
-- Cheap: Free tier (1,500/day)
+- Fast: ~400ms per request
+- Free tier: 90 RPM, 1,000 requests/day
 - No thinking: Just mathematical transformation
-- Output: Always 768 numbers
+- Output: Always 3072 numbers (high-dimensional vectors)
 
-**Gemini API** (gemini-2.5-flash)
+**Gemma API** (gemma-3-12b-it)
 - Purpose: Generate human-like text responses
-- Slower: ~1-3 seconds per request
-- More expensive: ~$0.075 per 1M tokens
+- Slower: ~60-70 seconds per request (free tier)
+- Free: 30 RPM, 14,400 requests/day
 - Thinks: Understands context and generates answers
 - Output: Natural language text
 
@@ -77,8 +77,8 @@ USER CHATS
                │
                ▼
     ┌─────────────────────┐
-    │   Gemini API #3     │  ← This generates text!
-    │  (gemini-2.5-flash) │
+    │   Gemma API #3      │  ← This generates text!
+    │  (gemma-3-12b-it)   │
     │  Input: Prompt with │
     │         retrieved   │
     │         knowledge   │
@@ -93,12 +93,12 @@ USER CHATS
 
 **Per Document Upload (assume 10 chunks):**
 - Embedding API calls: 10
-- Gemini API calls: 0
+- Gemma API calls: 0
 - Cost: ~Free (within daily limit)
 
 **Per Chat Message:**
 - Embedding API calls: 1 (for query)
-- Gemini API calls: 1 (for response)
+- Gemma API calls: 1 (for response)
 - Cost: ~$0.0001 (if response is ~1,000 tokens)
 
 **Daily Limits (Free Tier):**
@@ -387,17 +387,19 @@ curl -X POST http://localhost:6333/collections/luran_knowledge/points/scroll \
 
 ### API Usage Clarification
 
-1. **Embedding API** (models/embedding-001)
+1. **Embedding API** (models/gemini-embedding-001)
    - Used during upload: YES (for each chunk)
    - Used during chat: YES (for user query)
-   - Purpose: Convert text to vectors
-   - This is NOT Gemini
+   - Purpose: Convert text to 3072-dimensional vectors
+   - Free tier: 90 RPM, 1,000 requests/day
+   - This is NOT a chat model
 
-2. **Gemini API** (gemini-2.5-flash)
+2. **Gemma API** (gemma-3-12b-it)
    - Used during upload: NO
    - Used during chat: YES (for generating response)
    - Purpose: Generate natural language answers
    - This is the "thinking" AI
+   - Free tier: 30 RPM, 14,400 requests/day
 
 ### File Upload Support
 

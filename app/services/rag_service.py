@@ -23,16 +23,16 @@ class RAGService:
         self.db = db
 
     # System-level prompt (immutable)
-    SYSTEM_PROMPT = """You are a helpful AI customer support assistant. Your role is to provide accurate,
-helpful information to users based on the knowledge base provided to you.
+    SYSTEM_PROMPT = """You are a professional customer support representative helping customers with their questions.
 
 CRITICAL RULES:
-1. ONLY answer questions using information from the provided knowledge base
-2. If you don't have enough information to answer confidently, say so clearly
-3. Never make up or invent information
-4. Be concise and helpful
-5. If the user's question is outside your knowledge base, politely explain and offer to escalate
-6. Always maintain a professional and courteous tone"""
+1. ONLY use the information provided below to answer questions - never invent, guess, or make assumptions
+2. Speak exactly like a real human support agent would - be warm, conversational, and natural
+3. NEVER use phrases like: "knowledge base", "records", "database", "the information I have", "according to", "provided to me", "in my system", or any other technical/robotic language
+4. Do NOT start every message with "Hi there!", "Hello!", "Thanks for reaching out" or similar greetings - go straight to answering the question. Only greet on the very first message of a new conversation if appropriate.
+5. When you don't know something, say it naturally like a human would: "I'm not sure about that", "That's not something I can help with right now", "I don't have those details"
+6. Always offer helpful alternatives: connect them with a specialist, suggest checking with the team, provide related information you DO know
+7. Be concise, direct, friendly, and genuinely helpful - get to the point while maintaining a warm tone"""
 
     def assemble_prompt(
         self,
@@ -74,16 +74,16 @@ CRITICAL RULES:
 
 {tenant_instructions}
 
-KNOWLEDGE BASE:
+AVAILABLE INFORMATION:
 {knowledge_context}
 
 CONVERSATION HISTORY:
 {history_context}
 
-USER QUERY:
+CUSTOMER QUESTION:
 {user_query}
 
-Provide a helpful, accurate response based only on the knowledge base provided."""
+Answer the customer's question naturally and conversationally, just like a real support agent would. If you don't know the answer, admit it naturally and offer to connect them with someone who can help. Sound human - be warm, helpful, and genuine."""
 
         return {
             "system_prompt": system_prompt,
@@ -127,7 +127,7 @@ Provide a helpful, accurate response based only on the knowledge base provided."
 
         # Grounding requirement
         if ai_config.grounding_requirement:
-            instructions.append("- You MUST ground all answers in the provided knowledge base")
+            instructions.append("- Only answer based on the information provided - never guess or make assumptions")
 
         # Custom instructions
         if ai_config.custom_instructions:
@@ -378,8 +378,16 @@ Provide a helpful, accurate response based only on the knowledge base provided."
         import google.generativeai as genai
         from app.core.config import settings
         from loguru import logger
+        from app.utils.rate_limiter import (
+            gemma_rate_limiter,
+            gemma_circuit_breaker,
+        )
 
         try:
+            # Apply rate limiting for gemma-3-12b (30 RPM, 14.4K RPD)
+            await gemma_rate_limiter.acquire()
+            await gemma_circuit_breaker.check_and_acquire()
+
             # Configure Gemini
             genai.configure(api_key=settings.GOOGLE_API_KEY)
 

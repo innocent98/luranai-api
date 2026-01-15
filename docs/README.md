@@ -18,7 +18,7 @@ Luran is a production-ready AI-powered customer support platform built with RAG 
 - **Backend:** FastAPI (Python 3.11+)
 - **Database:** PostgreSQL 15
 - **Vector DB:** Qdrant
-- **AI/ML:** Google Gemini & Embedding API
+- **AI/ML:** Google Gemma 3 12B & Gemini Embedding API
 - **Cache:** Redis
 - **Deployment:** Docker Compose
 
@@ -242,8 +242,9 @@ DATABASE_URL=postgresql://user:password@localhost:5432/luran_db
 
 # Google AI (Required for embeddings & responses)
 GOOGLE_API_KEY=your-api-key-here
-GEMINI_MODEL=gemini-2.5-flash
-EMBEDDING_MODEL=models/embedding-001
+GEMINI_MODEL=models/gemma-3-12b-it  # Free: 30 RPM, 14.4K/day
+EMBEDDING_MODEL=models/gemini-embedding-001  # Free: 90 RPM, 1K/day
+EMBEDDING_DIMENSION=3072
 
 # Qdrant
 QDRANT_URL=http://localhost:6333
@@ -330,9 +331,11 @@ docker-compose restart db
 
 ## Additional Resources
 
-- **Database Access Guide:** `docs/DATABASE_ACCESS.md`
-- **Quick Start Guide:** `docs/QUICK_START.md`
-- **API Documentation:** http://localhost:8000/api/v1/docs
+- **Chat Frontend Integration Guide:** `docs/CHAT_FRONTEND_INTEGRATION.md` - How to integrate the chat API with your frontend
+- **Workflow Explained:** `docs/WORKFLOW_EXPLAINED.md` - Detailed explanation of document ingestion and chat workflows
+- **Database Access Guide:** `docs/DATABASE_ACCESS.md` - How to access and query the database
+- **Quick Start Guide:** `docs/QUICK_START.md` - Get up and running quickly
+- **API Documentation:** http://localhost:8000/api/v1/docs - Interactive API documentation
 
 ## License
 

@@ -143,10 +143,10 @@ class QdrantManager:
                 ]
             )
 
-            # Perform search
-            search_result = self.client.search(
+            # Perform search using query_points (qdrant-client 1.16+)
+            search_result = self.client.query_points(
                 collection_name=self.collection_name,
-                query_vector=query_vector,
+                query=query_vector,
                 query_filter=tenant_filter,
                 limit=limit,
                 score_threshold=score_threshold,
@@ -154,7 +154,7 @@ class QdrantManager:
                     hnsw_ef=128,  # Higher values = more accurate but slower
                     exact=False,
                 ),
-            )
+            ).points
 
             # Format results
             results = []

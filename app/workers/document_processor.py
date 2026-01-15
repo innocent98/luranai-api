@@ -33,38 +33,10 @@ async def broadcast_job_status(job_id: UUID, update: dict):
 
 
 # Rate limiter for Google API (10 calls per minute to stay safe)
-class EmbeddingRateLimiter:
-    """Simple rate limiter for embedding API calls."""
-
-    def __init__(self, max_calls_per_minute: int = 10):
-        self.max_calls = max_calls_per_minute
-        self.call_times: list[float] = []
-
-    async def acquire(self):
-        """Wait until we can safely make an API call."""
-        import time
-
-        now = time.time()
-
-        # Remove calls older than 60 seconds
-        self.call_times = [t for t in self.call_times if now - t < 60]
-
-        # If we've hit the limit, wait
-        if len(self.call_times) >= self.max_calls:
-            oldest_call = min(self.call_times)
-            wait_time = 60 - (now - oldest_call) + 1  # +1 for buffer
-
-            if wait_time > 0:
-                logger.debug(f"Rate limit reached. Waiting {wait_time:.1f}s...")
-                await asyncio.sleep(wait_time)
-                return await self.acquire()  # Retry after waiting
-
-        # Record this call
-        self.call_times.append(now)
-
-
-# Global rate limiter instance
-rate_limiter = EmbeddingRateLimiter(max_calls_per_minute=10)
+# NOTE: Rate limiting is now handled by the embedding service itself
+# using Redis-based rate limiter (app/utils/rate_limiter.py).
+# This ensures rate limits are enforced across all processes and
+# persist through application restarts.
 
 
 async def process_document_ingestion(
@@ -149,31 +121,34 @@ async def process_document_ingestion(
 
         logger.info(f"Created {len(chunks)} chunks. Starting embedding generation with rate limiting...")
 
+        # Ensure Qdrant collection exists before processing
+        from app.utils.qdrant_client import qdrant_manager
+        if not qdrant_manager.ensure_collection():
+            raise RuntimeError("Failed to ensure Qdrant collection exists")
+
         # Step 2: Generate embeddings with rate limiting
         successful_chunks = []
         failed_chunks = []
 
         for i, chunk in enumerate(chunks):
             try:
-                # Wait for rate limiter
-                await rate_limiter.acquire()
-
-                # Generate embedding
+                # Generate embedding (rate limiting handled by embedding service)
                 embedding = await embedding_service.generate_embedding(chunk.content)
 
                 if embedding:
                     # Store in Qdrant
                     from app.utils.qdrant_client import qdrant_manager
 
-                    vector_id = f"{source.id}_{chunk.chunk_index}"
+                    # Use chunk UUID as vector_id (Qdrant requires UUID or integer)
+                    vector_id = str(chunk.id)
                     qdrant_manager.upsert_vector(
                         vector_id=vector_id,
-                        vector=embedding,
+                        embedding=embedding,
                         tenant_id=tenant_id,
                         chunk_id=chunk.id,
+                        source_id=source.id,
+                        content=chunk.content,
                         metadata={
-                            "source_id": str(source.id),
-                            "content": chunk.content[:1000],  # First 1000 chars
                             "chunk_index": chunk.chunk_index,
                         },
                     )
