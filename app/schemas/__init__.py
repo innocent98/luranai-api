@@ -52,6 +52,29 @@ from app.schemas.user import (
     LoginRequest,
     Token,
     TokenData,
+    UserInviteRequest,
+    UserRegeneratePasswordResponse,
+)
+from app.schemas.platform_admin import (
+    PlatformAdminCreate,
+    PlatformAdminUpdate,
+    PlatformAdminPasswordUpdate,
+    PlatformAdminLoginRequest,
+    PlatformAdminToken,
+    PlatformAdminTokenData,
+    PlatformAdminResponse,
+    PlatformAdminListResponse,
+    CurrentPlatformAdminResponse,
+)
+from app.schemas.auth import (
+    CompanyRegistrationRequest,
+    CompanyRegistrationResponse,
+    EmailVerificationRequest,
+    EmailVerificationResponse,
+    PasswordResetRequest,
+    PasswordResetResponse,
+    PasswordResetConfirm,
+    PasswordResetConfirmResponse,
 )
 
 __all__ = [
@@ -103,4 +126,25 @@ __all__ = [
     "LoginRequest",
     "Token",
     "TokenData",
+    "UserInviteRequest",
+    "UserRegeneratePasswordResponse",
+    # Platform admin schemas
+    "PlatformAdminCreate",
+    "PlatformAdminUpdate",
+    "PlatformAdminPasswordUpdate",
+    "PlatformAdminLoginRequest",
+    "PlatformAdminToken",
+    "PlatformAdminTokenData",
+    "PlatformAdminResponse",
+    "PlatformAdminListResponse",
+    "CurrentPlatformAdminResponse",
+    # Auth schemas (registration, verification, password reset)
+    "CompanyRegistrationRequest",
+    "CompanyRegistrationResponse",
+    "EmailVerificationRequest",
+    "EmailVerificationResponse",
+    "PasswordResetRequest",
+    "PasswordResetResponse",
+    "PasswordResetConfirm",
+    "PasswordResetConfirmResponse",
 ]

@@ -331,6 +331,7 @@ docker-compose restart db
 
 ## Additional Resources
 
+- **User Roles & Tenants Explained:** `docs/USER_ROLES_AND_TENANTS_EXPLAINED.md` - Complete guide to multi-tenancy, user roles, and permissions
 - **Chat Frontend Integration Guide:** `docs/CHAT_FRONTEND_INTEGRATION.md` - How to integrate the chat API with your frontend
 - **Workflow Explained:** `docs/WORKFLOW_EXPLAINED.md` - Detailed explanation of document ingestion and chat workflows
 - **Database Access Guide:** `docs/DATABASE_ACCESS.md` - How to access and query the database

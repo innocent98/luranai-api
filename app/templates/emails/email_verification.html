@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Verify your email address{% endblock %}
+
+{% block content %}
+<h1>Verify your email address 📧</h1>
+
+<p>Hi {{ user_name }},</p>
+
+<p>
+    Thanks for signing up with Luran! To complete your registration and
+    access your account, please verify your email address.
+</p>
+
+<center>
+    <a href="{{ verification_link }}" class="button">
+        Verify Email Address
+    </a>
+</center>
+
+<p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+    Or copy and paste this link into your browser: <br>
+    <span style="word-break: break-all;">{{ verification_link }}</span>
+</p>
+
+<div class="warning">
+    <strong>⏰ This link expires in 24 hours</strong> for security reasons.
+</div>
+
+<h3 style="margin-top: 30px;">Why verify your email?</h3>
+<ul style="color: #4b5563;">
+    <li><strong>Account Security:</strong> Ensures your account belongs to you</li>
+    <li><strong>Password Recovery:</strong> Enables password reset if you forget it</li>
+    <li><strong>Important Updates:</strong> Receive critical account notifications</li>
+    <li><strong>Full Access:</strong> Unlock all platform features</li>
+</ul>
+
+<p style="margin-top: 30px; color: #6b7280;">
+    <strong>Didn't sign up?</strong><br>
+    If you didn't create a Luran account, you can safely ignore this email.
+</p>
+{% endblock %}

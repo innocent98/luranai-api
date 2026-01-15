@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}Welcome to Luran - {{ company_name }}{% endblock %}
+
+{% block content %}
+<h1>Welcome to Luran! 🎉</h1>
+
+<p>Hi {{ admin_name }},</p>
+
+<p>
+    Your <strong>{{ company_name }}</strong> account has been created successfully!
+    You're now ready to start building powerful AI-powered customer support for your business.
+</p>
+
+<div class="credential-box">
+    <div class="credential-label">Login Email</div>
+    <div class="credential-value">{{ admin_email }}</div>
+</div>
+
+<div class="credential-box">
+    <div class="credential-label">Temporary Password</div>
+    <div class="credential-value">{{ temp_password }}</div>
+</div>
+
+<div class="warning">
+    <strong>⚠️ Important:</strong> Please change your password after logging in for the first time.
+</div>
+
+{% if verification_token %}
+<div class="info">
+    <strong>📧 Email Verification Required:</strong>
+    <p style="margin: 8px 0 0 0;">
+        Please verify your email address by clicking the button below before logging in.
+    </p>
+</div>
+
+<center>
+    <a href="{{ app_url }}/verify-email?token={{ verification_token }}" class="button">
+        Verify Email Address
+    </a>
+</center>
+
+<p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+    Or copy and paste this link: <br>
+    {{ app_url }}/verify-email?token={{ verification_token }}
+</p>
+{% else %}
+<center>
+    <a href="{{ app_url }}/login" class="button">
+        Get Started
+    </a>
+</center>
+{% endif %}
+
+<h3 style="margin-top: 40px;">What's Next?</h3>
+<ol style="color: #4b5563;">
+    <li>Log in to your account</li>
+    <li>Upload your knowledge base documents</li>
+    <li>Configure your AI assistant's brand voice</li>
+    <li>Invite your team members</li>
+    <li>Start chatting with your customers!</li>
+</ol>
+
+<p>
+    Need help getting started? Check out our
+    <a href="{{ app_url }}/docs">documentation</a> or reply to this email.
+</p>
+{% endblock %}

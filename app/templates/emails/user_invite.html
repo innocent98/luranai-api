@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}You've been invited to {{ company_name }}{% endblock %}
+
+{% block content %}
+<h1>You've been invited! 👋</h1>
+
+<p>Hi {{ user_name }},</p>
+
+<p>
+    <strong>{{ invited_by }}</strong> has invited you to join
+    <strong>{{ company_name }}</strong> on Luran as a <strong>{{ role }}</strong>.
+</p>
+
+<div class="info">
+    <strong>About Luran:</strong> We're the AI-powered customer support platform helping
+    {{ company_name }} deliver exceptional customer experiences.
+</div>
+
+<div class="credential-box">
+    <div class="credential-label">Login Email</div>
+    <div class="credential-value">{{ user_email }}</div>
+</div>
+
+<div class="credential-box">
+    <div class="credential-label">Temporary Password</div>
+    <div class="credential-value">{{ temp_password }}</div>
+</div>
+
+<div class="warning">
+    <strong>⚠️ Important:</strong> Please change your password after logging in for the first time.
+</div>
+
+<center>
+    <a href="{{ app_url }}/login" class="button">
+        Accept Invitation & Login
+    </a>
+</center>
+
+<h3 style="margin-top: 40px;">Your Role: {{ role }}</h3>
+
+{% if role == "Support Agent" %}
+<p>As a <strong>Support Agent</strong>, you can:</p>
+<ul style="color: #4b5563;">
+    <li>View and respond to customer conversations</li>
+    <li>Handle escalated support tickets</li>
+    <li>Assign tickets to yourself or team members</li>
+    <li>Mark tickets as resolved</li>
+    <li>Access the knowledge base</li>
+</ul>
+{% elif role == "Viewer" %}
+<p>As a <strong>Viewer</strong>, you can:</p>
+<ul style="color: #4b5563;">
+    <li>View customer conversations and tickets</li>
+    <li>Access analytics dashboards</li>
+    <li>View the knowledge base</li>
+</ul>
+<p style="color: #6b7280; font-size: 14px;">
+    Note: You have read-only access. Contact your admin to upgrade your permissions.
+</p>
+{% endif %}
+
+<p style="margin-top: 30px;">
+    Questions about your role or access? Contact <strong>{{ invited_by }}</strong>
+    or reply to this email.
+</p>
+{% endblock %}

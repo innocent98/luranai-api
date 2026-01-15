@@ -108,3 +108,25 @@ class CurrentUserResponse(UserResponse):
     """Schema for current authenticated user response."""
 
     pass
+
+
+# User management schemas (for TENANT_ADMIN)
+class UserInviteRequest(BaseModel):
+    """Schema for inviting a team member (TENANT_ADMIN creates user)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    email: EmailStr = Field(..., description="User email address")
+    full_name: str = Field(..., min_length=1, max_length=255, description="Full name")
+    role: UserRole = Field(
+        ...,
+        description="User role (must be SUPPORT_AGENT or VIEWER)",
+    )
+
+
+class UserRegeneratePasswordResponse(BaseModel):
+    """Schema for password regeneration response."""
+
+    message: str = Field(..., description="Success message")
+    temp_password: str = Field(..., description="New temporary password")
+    email_sent: bool = Field(..., description="Whether email was sent")

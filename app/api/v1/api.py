@@ -1,6 +1,17 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import health, auth, tenants, knowledge, chat, tickets, jobs
+from app.api.v1.endpoints import (
+    health,
+    auth,
+    platform_admin_auth,
+    company_registration,
+    users,
+    tenants,
+    knowledge,
+    chat,
+    tickets,
+    jobs,
+)
 
 api_router = APIRouter()
 
@@ -9,6 +20,27 @@ api_router.include_router(health.router, prefix="/health", tags=["health"])
 
 # Authentication endpoints
 api_router.include_router(auth.router, prefix="/auth", tags=["authentication"])
+
+# Platform admin authentication endpoints
+api_router.include_router(
+    platform_admin_auth.router,
+    prefix="/platform/auth",
+    tags=["platform-admin-auth"],
+)
+
+# Company registration endpoints (self-service signup)
+api_router.include_router(
+    company_registration.router,
+    prefix="/auth",
+    tags=["registration"],
+)
+
+# User management endpoints (team members)
+api_router.include_router(
+    users.router,
+    prefix="/users",
+    tags=["user-management"],
+)
 
 # Tenant management endpoints
 api_router.include_router(tenants.router, prefix="/tenants", tags=["tenants"])

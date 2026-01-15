@@ -21,6 +21,7 @@ from app.db.models.conversation import (
     TicketPriority,
 )
 from app.db.models.user import User, UserRole
+from app.db.models.platform_admin import PlatformAdmin, PlatformAdminRole
 from app.db.models.audit import AuditLog, AnalyticsMetric
 from app.db.models.job import ProcessingJob, JobStatus, JobType
 
@@ -48,6 +49,9 @@ __all__ = [
     # User models
     "User",
     "UserRole",
+    # Platform admin models
+    "PlatformAdmin",
+    "PlatformAdminRole",
     # Audit models
     "AuditLog",
     "AnalyticsMetric",
