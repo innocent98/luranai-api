@@ -13,9 +13,8 @@ from app.db.base import Base, UUIDMixin, TimestampMixin
 
 
 class UserRole(str, enum.Enum):
-    """User role enum for access control."""
+    """User role enum for tenant users (not platform admins)."""
 
-    SUPER_ADMIN = "super_admin"  # Full platform access across all tenants
     TENANT_ADMIN = "tenant_admin"  # Admin access for specific tenant
     SUPPORT_AGENT = "support_agent"  # Can view and respond to tickets
     VIEWER = "viewer"  # Read-only access
@@ -23,10 +22,10 @@ class UserRole(str, enum.Enum):
 
 class User(Base, UUIDMixin, TimestampMixin):
     """
-    Admin users and support agents.
+    Tenant users (company staff members).
 
-    Supports both platform-wide super admins and tenant-specific users
-    with role-based access control.
+    Includes tenant admins, support agents, and viewers. All users must
+    belong to a tenant. For platform administrators, see PlatformAdmin model.
     """
 
     __tablename__ = "users"
@@ -58,11 +57,11 @@ class User(Base, UUIDMixin, TimestampMixin):
         index=True,
         comment="User's role determining access level",
     )
-    tenant_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"),
-        nullable=True,
+        nullable=False,
         index=True,
-        comment="Tenant this user belongs to (null for super_admin)",
+        comment="Tenant this user belongs to (all users must belong to a tenant)",
     )
     is_active: Mapped[bool] = mapped_column(
         Boolean,
@@ -70,12 +69,6 @@ class User(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         index=True,
         comment="Whether this user account is active",
-    )
-    is_superuser: Mapped[bool] = mapped_column(
-        Boolean,
-        default=False,
-        nullable=False,
-        comment="Whether this user has superuser privileges",
     )
     last_login_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),

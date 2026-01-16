@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_superuser, get_current_tenant_admin, get_db, verify_tenant_access
+from app.api.deps import get_current_super_admin, get_current_tenant_admin, get_db, verify_tenant_access
 from app.services.tenant_service import TenantService
 from app.schemas.tenant import (
     TenantCreate,
@@ -19,6 +19,7 @@ from app.schemas.tenant import (
     TenantCapabilitiesResponse,
 )
 from app.schemas.user import UserResponse
+from app.schemas.platform_admin import PlatformAdminResponse
 from app.db.models.tenant import TenantStatus
 
 router = APIRouter()
@@ -28,7 +29,7 @@ router = APIRouter()
 def create_tenant(
     tenant_data: TenantCreate,
     db: Session = Depends(get_db),
-    current_user: UserResponse = Depends(get_current_superuser),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
 ):
     """
     Create a new tenant (superuser only).
@@ -54,7 +55,7 @@ def create_tenant(
 def list_tenants(
     status_filter: Optional[TenantStatus] = Query(None, description="Filter by status"),
     db: Session = Depends(get_db),
-    current_user: UserResponse = Depends(get_current_superuser),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
 ):
     """
     List all tenants (superuser only).
@@ -136,7 +137,7 @@ def update_tenant(
 def delete_tenant(
     tenant_id: UUID,
     db: Session = Depends(get_db),
-    current_user: UserResponse = Depends(get_current_superuser),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
 ):
     """
     Delete (deactivate) a tenant (superuser only).
@@ -274,7 +275,7 @@ def update_capabilities(
     tenant_id: UUID,
     capabilities_data: TenantCapabilitiesUpdate,
     db: Session = Depends(get_db),
-    current_user: UserResponse = Depends(get_current_superuser),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
 ):
     """
     Update capabilities for a tenant (superuser only).

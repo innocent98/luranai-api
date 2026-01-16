@@ -87,7 +87,6 @@ class CompanyRegistrationService:
                 role=UserRole.TENANT_ADMIN,
                 tenant_id=tenant.id,
                 is_active=False,  # Inactive until email verified
-                is_superuser=False,
             )
             self.db.add(admin_user)
             self.db.flush()  # Get user ID without committing

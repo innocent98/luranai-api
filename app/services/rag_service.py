@@ -375,7 +375,7 @@ Answer the customer's question naturally and conversationally, just like a real 
         Returns:
             Tuple of (AI response text, token count)
         """
-        import google.generativeai as genai
+        from google import genai
         from app.core.config import settings
         from loguru import logger
         from app.utils.rate_limiter import (
@@ -388,16 +388,14 @@ Answer the customer's question naturally and conversationally, just like a real 
             await gemma_rate_limiter.acquire()
             await gemma_circuit_breaker.check_and_acquire()
 
-            # Configure Gemini
-            genai.configure(api_key=settings.GOOGLE_API_KEY)
-
-            # Create model
-            model = genai.GenerativeModel(settings.GEMINI_MODEL)
+            # Create client
+            client = genai.Client(api_key=settings.GOOGLE_API_KEY)
 
             # Generate response
-            response = model.generate_content(
-                prompt["full_prompt"],
-                generation_config=genai.types.GenerationConfig(
+            response = client.models.generate_content(
+                model=settings.GEMINI_MODEL,
+                contents=prompt["full_prompt"],
+                config=genai.types.GenerateContentConfig(
                     max_output_tokens=max_tokens,
                     temperature=0.7,
                 ),

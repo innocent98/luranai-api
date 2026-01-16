@@ -8,9 +8,13 @@
 1. [Authentication Overview](#authentication-overview)
 2. [Platform Admin Dashboard](#platform-admin-dashboard)
 3. [Company/Tenant Dashboard](#companytenant-dashboard)
-4. [Widget Integration](#widget-integration)
-5. [Common Patterns](#common-patterns)
-6. [Error Handling](#error-handling)
+4. [Team Management](#team-management)
+5. [API Key Management](#api-key-management)
+6. [Widget Configuration](#widget-configuration)
+7. [Knowledge Management](#knowledge-management)
+8. [User Flows with Diagrams](#user-flows-with-diagrams)
+9. [Common Patterns](#common-patterns)
+10. [Frontend Pages Checklist](#frontend-pages-checklist)
 
 ---
 
@@ -895,7 +899,494 @@ X-API-Key: pk_live_abc123def456ghi789
 
 ---
 
-## 7. User Flows with Diagrams
+## 7. Knowledge Management
+
+### What Type of Content to Upload?
+
+Luran's AI system works with **ANY form of text-based knowledge**. You can upload:
+
+**✅ Supported Formats:**
+
+1. **Long-Form Documents** (Recommended)
+   - Help documentation
+   - User guides
+   - Product manuals
+   - Standard Operating Procedures (SOPs)
+   - Policy documents
+   - Training materials
+   - Technical specifications
+
+2. **Q&A Format** (Also Supported)
+   - FAQ lists
+   - Question-Answer pairs
+   - Troubleshooting guides
+   - "How-to" lists
+
+3. **Mixed Content**
+   - Blog posts with headings
+   - Wiki-style articles
+   - Knowledge base articles
+   - Structured text with sections
+
+**📄 Supported File Types:**
+- `.txt` - Plain text files
+- `.md` - Markdown files
+- `.pdf` - PDF documents
+- `.docx` - Microsoft Word documents
+
+**💡 Best Practices:**
+
+1. **Be Comprehensive**: Longer, detailed documents work better than short snippets
+2. **Use Clear Structure**: Headings, paragraphs, bullet points
+3. **Include Context**: Don't just provide answers, explain why and how
+4. **Natural Language**: Write as you would explain to a human
+5. **Avoid Jargon**: Unless explaining technical terms
+6. **Update Regularly**: Keep knowledge fresh and accurate
+
+**Example - Good Long-Form Document:**
+```
+# How to Reset Your Password
+
+If you've forgotten your password, follow these steps:
+
+## Web Application
+
+1. Go to the login page
+2. Click "Forgot Password" below the login button
+3. Enter your registered email address
+4. Check your email for a reset link (expires in 24 hours)
+5. Click the link and create a new password
+6. Password must be at least 8 characters with uppercase, lowercase, and numbers
+
+## Mobile App
+
+1. Open the app and tap "Login"
+2. Tap "Forgot Password?"
+3. Enter your email and tap "Send Reset Link"
+4. Check your email and follow the instructions
+
+## Troubleshooting
+
+If you don't receive the email:
+- Check your spam/junk folder
+- Verify the email address is correct
+- Wait 5 minutes and try again
+- Contact support if still no email
+
+For security reasons, you can only request 3 password resets per hour.
+```
+
+**Example - Good Q&A Format:**
+```
+Q: How do I reset my password?
+A: Click "Forgot Password" on the login page, enter your email, and follow the link sent to your inbox. The link expires in 24 hours.
+
+Q: What if I don't receive the reset email?
+A: Check your spam folder, verify your email address is correct, and wait 5 minutes before trying again. You can request up to 3 resets per hour.
+
+Q: What are the password requirements?
+A: Passwords must be at least 8 characters long and include uppercase letters, lowercase letters, and numbers.
+```
+
+**❌ What NOT to Upload:**
+- Raw code without explanation
+- Unstructured data dumps
+- Binary files or images (text will be extracted, but quality may vary)
+- Extremely short snippets (less than 50 words)
+- Duplicate content
+- Sensitive customer data or PII
+
+---
+
+### 7.1 Upload Knowledge (Text Content)
+
+**Page:** `/dashboard/knowledge/upload`
+
+**Endpoint:** `POST /knowledge/upload`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Request:**
+```json
+{
+  "tenant_id": "uuid",
+  "document_name": "Password Reset Guide",
+  "document_text": "# How to Reset Your Password\n\nIf you've forgotten your password...",
+  "source_type": "help_doc",
+  "metadata": {
+    "author": "John Doe",
+    "category": "Account Management",
+    "language": "en",
+    "version": "2.1"
+  }
+}
+```
+
+**Source Types:**
+- `faq` - Frequently Asked Questions
+- `help_doc` - Help documentation
+- `policy` - Company policies
+- `sop` - Standard Operating Procedures
+- `other` - Other knowledge types
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "tenant_id": "uuid",
+  "name": "Password Reset Guide",
+  "source_type": "help_doc",
+  "meta": {
+    "author": "John Doe",
+    "category": "Account Management"
+  },
+  "file_url": null,
+  "content_hash": "abc123def456...",
+  "version": 1,
+  "status": "active",
+  "chunk_count": 12,
+  "uploaded_by": "uuid",
+  "created_at": "2026-01-15T12:00:00Z",
+  "updated_at": "2026-01-15T12:00:00Z"
+}
+```
+
+**Frontend Action:**
+- Show success message with chunk count
+- Redirect to knowledge list
+- Display: "Document uploaded! 12 chunks created and indexed."
+
+**What Happens:**
+1. System validates the text (minimum 10 characters)
+2. Splits text into overlapping chunks (~400 tokens each)
+3. Generates embeddings for each chunk using Google AI
+4. Stores chunks in PostgreSQL
+5. Stores vector embeddings in Qdrant
+6. Makes knowledge immediately searchable by AI
+
+---
+
+### 7.2 Upload Knowledge (File Upload)
+
+**Page:** `/dashboard/knowledge/upload`
+
+**Endpoint:** `POST /knowledge/upload-file`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+Content-Type: multipart/form-data
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Request (Form Data):**
+```
+file: [File object - .txt, .md, .pdf, .docx]
+tenant_id: uuid
+source_type: help_doc
+```
+
+**File Limits:**
+- Maximum size: 10 MB
+- Supported formats: .txt, .md, .pdf, .docx
+
+**Response:**
+```json
+{
+  "job_id": "uuid",
+  "status": "pending",
+  "message": "Document upload queued for processing. Check status via provided URL or connect to WebSocket.",
+  "check_status_url": "/api/v1/jobs/uuid",
+  "estimated_chunks": 45,
+  "estimated_time_seconds": 270
+}
+```
+
+**Frontend Action:**
+1. Show upload progress bar
+2. Display: "Processing... This may take a few minutes"
+3. Poll job status or connect to WebSocket for real-time updates
+4. Show completion: "Document processed! 45 chunks created."
+
+**What Happens:**
+1. File uploaded and validated
+2. Text extracted based on file type:
+   - .txt/.md: Direct UTF-8 read
+   - .pdf: PyPDF2 extraction
+   - .docx: python-docx extraction
+3. Job queued in background (async processing)
+4. Chunks created and embedded (rate-limited: 10 requests/minute to Google AI)
+5. Progress updates via WebSocket or polling
+
+---
+
+### 7.3 List Knowledge Sources
+
+**Page:** `/dashboard/knowledge`
+
+**Endpoint:** `GET /knowledge/tenants/{tenant_id}/sources`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Query Parameters:**
+```
+?status=active
+```
+
+**Status Values:**
+- `processing` - Being chunked/embedded
+- `active` - Ready and searchable
+- `inactive` - Disabled
+- `failed` - Processing failed
+
+**Response:**
+```json
+[
+  {
+    "id": "uuid",
+    "tenant_id": "uuid",
+    "name": "Password Reset Guide.pdf",
+    "source_type": "help_doc",
+    "meta": {
+      "original_filename": "password_reset.pdf",
+      "file_size": 245632,
+      "category": "Account Management"
+    },
+    "file_url": null,
+    "content_hash": "abc123...",
+    "version": 1,
+    "status": "active",
+    "chunk_count": 12,
+    "uploaded_by": "uuid",
+    "created_at": "2026-01-15T12:00:00Z",
+    "updated_at": "2026-01-15T12:00:00Z"
+  },
+  {
+    "id": "uuid",
+    "tenant_id": "uuid",
+    "name": "Billing FAQ",
+    "source_type": "faq",
+    "meta": {
+      "author": "Support Team"
+    },
+    "file_url": null,
+    "content_hash": "def456...",
+    "version": 1,
+    "status": "active",
+    "chunk_count": 8,
+    "uploaded_by": "uuid",
+    "created_at": "2026-01-14T10:00:00Z",
+    "updated_at": "2026-01-14T10:00:00Z"
+  }
+]
+```
+
+**Display:**
+- Table with columns: Name, Type, Chunks, Status, Uploaded, Actions
+- Filter by status dropdown
+- Search by name
+- Badges for source_type (FAQ, Help Doc, Policy, etc.)
+- Status indicators (Active, Processing, Failed)
+
+---
+
+### 7.4 Get Knowledge Source Details
+
+**Page:** `/dashboard/knowledge/{source_id}`
+
+**Endpoint:** `GET /knowledge/sources/{source_id}`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "tenant_id": "uuid",
+  "name": "Password Reset Guide",
+  "source_type": "help_doc",
+  "meta": {
+    "author": "John Doe",
+    "category": "Account Management"
+  },
+  "file_url": null,
+  "content_hash": "abc123...",
+  "version": 1,
+  "status": "active",
+  "chunk_count": 12,
+  "uploaded_by": "uuid",
+  "created_at": "2026-01-15T12:00:00Z",
+  "updated_at": "2026-01-15T12:00:00Z",
+  "chunks": [
+    {
+      "id": "uuid",
+      "tenant_id": "uuid",
+      "source_id": "uuid",
+      "content": "# How to Reset Your Password\n\nIf you've forgotten your password, follow these steps...",
+      "chunk_index": 0,
+      "vector_id": "qdrant_vector_id_1",
+      "meta": {
+        "section": "Introduction",
+        "page": 1
+      },
+      "visibility": "public",
+      "language": "en",
+      "version": 1,
+      "is_active": true,
+      "created_at": "2026-01-15T12:00:00Z",
+      "updated_at": "2026-01-15T12:00:00Z"
+    }
+  ]
+}
+```
+
+**Display:**
+- Document metadata (name, type, status, chunks, date)
+- List of all chunks with preview
+- Search within chunks
+- Download/export option
+
+---
+
+### 7.5 Get Source Chunks
+
+**Page:** `/dashboard/knowledge/{source_id}/chunks`
+
+**Endpoint:** `GET /knowledge/sources/{source_id}/chunks`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Query Parameters:**
+```
+?active_only=true
+```
+
+**Response:**
+```json
+[
+  {
+    "id": "uuid",
+    "tenant_id": "uuid",
+    "source_id": "uuid",
+    "content": "Chunk text here...",
+    "chunk_index": 0,
+    "vector_id": "qdrant_id",
+    "meta": {},
+    "visibility": "public",
+    "language": "en",
+    "version": 1,
+    "is_active": true,
+    "created_at": "2026-01-15T12:00:00Z",
+    "updated_at": "2026-01-15T12:00:00Z"
+  }
+]
+```
+
+---
+
+### 7.6 Delete Knowledge Source
+
+**Page:** `/dashboard/knowledge` (delete button)
+
+**Endpoint:** `DELETE /knowledge/sources/{source_id}`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Response:**
+```json
+{
+  "message": "Knowledge source deleted successfully"
+}
+```
+
+**Frontend Action:**
+- Show confirmation dialog: "Delete this knowledge source? The AI will no longer use this information."
+- On confirm, delete and refresh list
+- Show success: "Knowledge source deleted"
+
+**What Happens:**
+- Source status set to inactive
+- All chunks marked as inactive (soft delete)
+- Vectors remain in Qdrant but won't be retrieved
+- Can be restored by admin if needed
+
+---
+
+### 7.7 Check Upload Job Status
+
+**Page:** `/dashboard/knowledge/processing`
+
+**Endpoint:** `GET /jobs/{job_id}`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "tenant_id": "uuid",
+  "job_type": "document_ingestion",
+  "status": "processing",
+  "progress_percentage": 65,
+  "total_items": 45,
+  "processed_items": 29,
+  "failed_items": 0,
+  "result_data": null,
+  "error_message": null,
+  "created_at": "2026-01-15T12:00:00Z",
+  "updated_at": "2026-01-15T12:03:00Z",
+  "completed_at": null
+}
+```
+
+**Status Values:**
+- `pending` - Queued, waiting to start
+- `processing` - Currently being processed
+- `completed` - Successfully finished
+- `failed` - Processing failed
+- `cancelled` - Manually cancelled
+
+**Frontend:**
+- Progress bar showing `progress_percentage`
+- "Processing 29 of 45 chunks..."
+- Auto-refresh every 2 seconds or use WebSocket
+
+**WebSocket Alternative:**
+```javascript
+const ws = new WebSocket('ws://localhost:8000/api/v1/ws/jobs/{job_id}');
+
+ws.onmessage = (event) => {
+  const update = JSON.parse(event.data);
+  // update.progress_percentage
+  // update.status
+  // update.processed_items
+};
+```
+
+---
+
+## 8. User Flows with Diagrams
 
 ### Flow 1: Company Registration
 
@@ -1055,7 +1546,7 @@ X-API-Key: pk_live_abc123def456ghi789
 
 ---
 
-## 8. Common Patterns
+## 9. Common Patterns
 
 ### Authentication Headers
 
@@ -1112,7 +1603,7 @@ Currently, all list endpoints return full results. Pagination will be added late
 
 ---
 
-## 9. Frontend Pages Checklist
+## 10. Frontend Pages Checklist
 
 ### Platform Admin Dashboard
 
@@ -1150,11 +1641,33 @@ Currently, all list endpoints return full results. Pagination will be added late
   - Code snippet with syntax highlighting
   - Copy button
   - Step-by-step instructions
+- [ ] `/dashboard/knowledge` - Knowledge management
+  - List all knowledge sources
+  - Filter by status (active, processing, failed)
+  - Search by name
+  - View details (chunks preview)
+  - Delete sources
+- [ ] `/dashboard/knowledge/upload` - Upload knowledge
+  - File upload (drag & drop)
+  - Text input option
+  - Source type selector (FAQ, Help Doc, Policy, SOP)
+  - File format support (.txt, .md, .pdf, .docx)
+  - Progress tracking for file uploads
+- [ ] `/dashboard/knowledge/processing` - Upload job status
+  - Progress bar
+  - Real-time updates (WebSocket or polling)
+  - Error handling
+  - Completion notification
+- [ ] `/dashboard/knowledge/{source_id}` - Knowledge source details
+  - Metadata display
+  - Chunks list with preview
+  - Search within chunks
+  - Download/export option
 - [ ] `/dashboard/settings/password` - Change password
 
 ---
 
-## 10. Next Steps
+## 11. Next Steps
 
 After frontend is complete, the widget JavaScript and chat UI will be built separately.
 
@@ -1170,7 +1683,7 @@ After frontend is complete, the widget JavaScript and chat UI will be built sepa
 
 ---
 
-## 11. Important Notes
+## 12. Important Notes
 
 1. **Two Separate Tokens:** Platform admin tokens and tenant tokens are different. Store them separately.
 
@@ -1187,6 +1700,13 @@ After frontend is complete, the widget JavaScript and chat UI will be built sepa
    - Only SUPER_ADMIN can create new platform admins
 
 6. **Tenant Isolation:** All tenant endpoints automatically filter by the authenticated user's tenant_id. Users can only see/modify their own tenant's data.
+
+7. **Knowledge Upload Formats:**
+   - Both long-form documents and Q&A format are supported
+   - File uploads: .txt, .md, .pdf, .docx (max 10MB)
+   - Text uploads: Any length (minimum 10 characters)
+   - Processing is asynchronous for file uploads (use job polling or WebSocket)
+   - Embeddings are rate-limited at 10 requests/minute (Google AI)
 
 ---
 

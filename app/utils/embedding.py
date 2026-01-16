@@ -1,7 +1,7 @@
 """Embedding generation utilities using Google AI."""
 
 from typing import List, Optional
-import google.generativeai as genai
+from google import genai
 from loguru import logger
 
 from app.core.config import settings
@@ -13,7 +13,7 @@ class EmbeddingService:
 
     def __init__(self):
         """Initialize embedding service with Google AI."""
-        genai.configure(api_key=settings.GOOGLE_API_KEY)
+        self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
         self.model = settings.EMBEDDING_MODEL
 
     async def generate_embedding(self, text: str, use_rate_limit: bool = True) -> Optional[List[float]]:
@@ -38,9 +38,9 @@ class EmbeddingService:
                 await embedding_circuit_breaker.check_and_acquire()
 
             # Generate embedding
-            result = genai.embed_content(
+            result = self.client.models.embed_content(
                 model=self.model,
-                content=text,
+                contents=text,
                 task_type="retrieval_document",  # For document chunks
             )
 
@@ -78,9 +78,9 @@ class EmbeddingService:
                 await embedding_circuit_breaker.check_and_acquire()
 
             # Generate embedding with query task type
-            result = genai.embed_content(
+            result = self.client.models.embed_content(
                 model=self.model,
-                content=query,
+                contents=query,
                 task_type="retrieval_query",  # For search queries
             )
 

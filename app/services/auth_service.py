@@ -114,7 +114,6 @@ class AuthService:
             role=user_data.role,
             tenant_id=user_data.tenant_id,
             is_active=True,
-            is_superuser=(user_data.role == UserRole.SUPER_ADMIN),
         )
 
         self.db.add(db_user)

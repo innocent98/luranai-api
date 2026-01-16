@@ -81,7 +81,6 @@ class UserManagementService:
                 role=invite_data.role,
                 tenant_id=tenant_id,
                 is_active=True,  # Active immediately for invited users
-                is_superuser=False,
             )
 
             self.db.add(user)

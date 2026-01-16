@@ -23,7 +23,7 @@ class UserCreate(UserBase):
     """Schema for creating a new user."""
 
     password: str = Field(..., min_length=8, max_length=100, description="User password")
-    tenant_id: Optional[UUID] = Field(None, description="Tenant ID for tenant-specific users")
+    tenant_id: UUID = Field(..., description="Tenant ID (all users must belong to a tenant)")
 
 
 class UserRegister(BaseModel):
@@ -75,7 +75,7 @@ class TokenData(BaseModel):
     user_id: UUID
     email: str
     role: UserRole
-    tenant_id: Optional[UUID] = None
+    tenant_id: UUID
 
 
 # Response schemas
@@ -85,9 +85,8 @@ class UserResponse(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    tenant_id: Optional[UUID] = None
+    tenant_id: UUID
     is_active: bool
-    is_superuser: bool
     last_login_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
@@ -99,7 +98,7 @@ class UserListResponse(UserBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    tenant_id: Optional[UUID] = None
+    tenant_id: UUID
     is_active: bool
     created_at: datetime
 

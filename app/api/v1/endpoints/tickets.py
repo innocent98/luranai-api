@@ -94,18 +94,13 @@ def list_tickets(
     """
     ticket_service = TicketService(db)
 
-    # Determine tenant_id based on user role
+    # Determine tenant_id from current user
+    # Tenant users can only access their own tenant's tickets
     if not tenant_id:
-        if current_user.is_superuser:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Superusers must specify a tenant_id",
-            )
         tenant_id = current_user.tenant_id
 
     # Verify tenant access
-    if tenant_id:
-        verify_tenant_access(tenant_id, current_user)
+    verify_tenant_access(tenant_id, current_user)
 
     # Get assigned user filter
     assigned_to = current_user.id if assigned_to_me else None
@@ -254,10 +249,7 @@ def resolve_ticket(
     verify_tenant_access(ticket.tenant_id, current_user)
 
     # Verify user can resolve (assigned agent or admin)
-    if not current_user.is_superuser and current_user.role not in [
-        UserRole.TENANT_ADMIN,
-        UserRole.SUPPORT_AGENT,
-    ]:
+    if current_user.role not in [UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only support agents or admins can resolve tickets",
@@ -321,13 +313,9 @@ def get_unassigned_tickets(
     Returns:
         List of unassigned tickets
     """
-    # Determine tenant_id
+    # Determine tenant_id from current user
+    # Tenant users can only access their own tenant's tickets
     if not tenant_id:
-        if current_user.is_superuser:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Superusers must specify a tenant_id",
-            )
         tenant_id = current_user.tenant_id
 
     # Verify tenant access

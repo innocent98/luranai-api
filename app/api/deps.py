@@ -66,26 +66,14 @@ async def get_current_active_user(
     return current_user
 
 
-async def get_current_superuser(
-    current_user: UserResponse = Depends(get_current_user),
-) -> UserResponse:
-    """Verify current user is a superuser."""
-    if not current_user.is_superuser:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions. Superuser access required.",
-        )
-    return current_user
-
-
 async def get_current_tenant_admin(
     current_user: UserResponse = Depends(get_current_user),
 ) -> UserResponse:
-    """Verify current user is a tenant admin or superuser."""
-    if current_user.role not in [UserRole.TENANT_ADMIN, UserRole.SUPER_ADMIN]:
+    """Verify current user is a tenant admin."""
+    if current_user.role != UserRole.TENANT_ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions. Admin access required.",
+            detail="Not enough permissions. Tenant admin access required.",
         )
     return current_user
 
@@ -93,6 +81,9 @@ async def get_current_tenant_admin(
 def verify_tenant_access(tenant_id: UUID, current_user: UserResponse) -> bool:
     """
     Verify user has access to specified tenant.
+
+    Tenant users can only access their own tenant's data.
+    For cross-tenant access, use platform admin endpoints instead.
 
     Args:
         tenant_id: Tenant UUID to check
@@ -104,10 +95,6 @@ def verify_tenant_access(tenant_id: UUID, current_user: UserResponse) -> bool:
     Raises:
         HTTPException: If user doesn't have access
     """
-    # Super admins have access to all tenants
-    if current_user.is_superuser:
-        return True
-
     # Users must belong to the tenant they're accessing
     if current_user.tenant_id != tenant_id:
         raise HTTPException(
