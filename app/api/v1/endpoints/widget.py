@@ -1,6 +1,6 @@
 """Widget configuration and public endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Header
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Path
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
@@ -172,7 +172,7 @@ def get_install_code(
     html_snippet = f"""<!-- Luran Widget Integration -->
 <script>
   window.luranSettings = {{
-    tenantId: '{tenant.name}',
+    tenantId: '{tenant.id}',
     apiKey: 'YOUR_PUBLIC_API_KEY_HERE'  // Get from API Keys page
   }};
 </script>
@@ -211,12 +211,16 @@ Note: The widget loads asynchronously and won't affect your page load speed."""
 
 # Public endpoint for widget to fetch configuration
 @router.get(
-    "/public/config/{tenant_name}",
+    "/public/config/{tenant_id}",
     response_model=PublicWidgetConfigResponse,
     status_code=status.HTTP_200_OK,
 )
 def get_public_widget_config(
-    tenant_name: str,
+    tenant_id: str = Path(
+        ...,
+        description="Tenant UUID (not the tenant name/slug)",
+        example="a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6",
+    ),
     x_api_key: str = Header(..., description="Public API key"),
     db: Session = Depends(get_db),
 ):
@@ -227,7 +231,7 @@ def get_public_widget_config(
     Requires a valid public API key.
 
     Args:
-        tenant_name: Tenant identifier
+        tenant_id: Tenant UUID (not the tenant name/slug)
         x_api_key: Public API key (header)
         db: Database session
 
@@ -249,7 +253,7 @@ def get_public_widget_config(
         )
 
     # Get tenant
-    stmt = select(Tenant).where(Tenant.name == tenant_name)
+    stmt = select(Tenant).where(Tenant.id == tenant_id)
     tenant = db.execute(stmt).scalar_one_or_none()
 
     if not tenant:
