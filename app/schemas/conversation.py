@@ -92,6 +92,8 @@ class SessionResponse(ConversationSessionBase):
     status: SessionStatus
     escalation_reason: Optional[str] = None
     escalated_at: Optional[datetime] = None
+    agent_id: Optional[UUID] = None
+    agent_joined_at: Optional[datetime] = None
     confidence_scores: Optional[list[float]] = None
     last_message_at: datetime
     created_at: datetime

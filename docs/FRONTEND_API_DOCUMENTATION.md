@@ -1,6 +1,6 @@
 # Frontend Development Guide - Complete API Reference
 
-**Last Updated:** 2026-01-15
+**Last Updated:** 2026-01-16
 **Base URL:** `http://localhost:8000/api/v1` (development) | `https://api.luran.com/api/v1` (production)
 
 ## Table of Contents
@@ -8,6 +8,10 @@
 1. [Authentication Overview](#authentication-overview)
 2. [Platform Admin Dashboard](#platform-admin-dashboard)
 3. [Company/Tenant Dashboard](#companytenant-dashboard)
+   - Company Registration, Login, Email Verification
+   - Company Settings & Information
+   - AI Chatbot Configuration
+   - Subscription Features & Limits
 4. [Team Management](#team-management)
 5. [API Key Management](#api-key-management)
 6. [Widget Configuration](#widget-configuration)
@@ -383,6 +387,367 @@ Authorization: Bearer {tenant_token}
   "message": "Password updated successfully"
 }
 ```
+
+---
+
+### 2.7 Get Company Details
+
+**Page:** `/dashboard/settings/company`
+
+**Endpoint:** `GET /tenant`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Response:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "acme_corp",
+  "display_name": "Acme Corporation",
+  "description": "AI-powered customer support for Acme",
+  "status": "ACTIVE",
+  "created_at": "2026-01-10T00:00:00Z",
+  "updated_at": "2026-01-15T12:00:00Z",
+  "ai_config": {
+    "id": "config-uuid",
+    "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+    "brand_voice": {
+      "tone": "professional",
+      "formality_level": "balanced",
+      "greeting_style": "warm",
+      "emoji_usage": false
+    },
+    "allowed_topics": [
+      "product features",
+      "pricing",
+      "technical support",
+      "account management"
+    ],
+    "blocked_topics": [
+      "competitor comparisons",
+      "personal medical advice"
+    ],
+    "escalation_keywords": [
+      "speak to human",
+      "talk to manager",
+      "cancel subscription",
+      "refund"
+    ],
+    "confidence_threshold": 0.55,
+    "max_response_tokens": 400,
+    "grounding_requirement": true,
+    "custom_instructions": "Always mention our 24/7 support hotline at the end of responses.",
+    "created_at": "2026-01-10T00:00:00Z",
+    "updated_at": "2026-01-15T10:00:00Z"
+  },
+  "capabilities": {
+    "id": "capabilities-uuid",
+    "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+    "can_create_tickets": true,
+    "can_access_analytics": true,
+    "can_upload_knowledge": true,
+    "max_knowledge_mb": 100,
+    "max_conversations_per_month": null,
+    "created_at": "2026-01-10T00:00:00Z",
+    "updated_at": "2026-01-10T00:00:00Z"
+  }
+}
+```
+
+**What You Get:**
+- Company information (name, display name, description)
+- Account status (ACTIVE, INACTIVE, or SUSPENDED)
+- AI chatbot configuration (how your bot talks and behaves)
+- Subscription features and limits
+
+**Display:**
+Use this data to populate your company settings dashboard showing current configuration.
+
+---
+
+### 2.8 Update Company Information
+
+**Page:** `/dashboard/settings/company`
+
+**Endpoint:** `PUT /tenant`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Request:** (all fields optional)
+```json
+{
+  "display_name": "Acme Corporation Ltd.",
+  "description": "Leading provider of AI-powered customer support solutions"
+}
+```
+
+**What You Can Update:**
+- `display_name` - Your company's friendly name (shown to customers)
+- `description` - Brief description of your company
+
+**What You Cannot Update:**
+- `name` - Your unique identifier (permanent)
+- `status` - Account status (only platform admins can change this)
+
+**Response:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "acme_corp",
+  "display_name": "Acme Corporation Ltd.",
+  "description": "Leading provider of AI-powered customer support solutions",
+  "status": "ACTIVE",
+  "created_at": "2026-01-10T00:00:00Z",
+  "updated_at": "2026-01-16T14:30:00Z",
+  "ai_config": { ... },
+  "capabilities": { ... }
+}
+```
+
+---
+
+### 2.9 Get AI Configuration
+
+**Page:** `/dashboard/settings/ai`
+
+**Endpoint:** `GET /tenant/ai-config`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Response:**
+```json
+{
+  "id": "config-uuid",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "brand_voice": {
+    "tone": "professional",
+    "formality_level": "balanced",
+    "greeting_style": "warm",
+    "emoji_usage": false
+  },
+  "allowed_topics": [
+    "product features",
+    "pricing",
+    "technical support"
+  ],
+  "blocked_topics": [
+    "competitor comparisons",
+    "personal medical advice"
+  ],
+  "escalation_keywords": [
+    "speak to human",
+    "talk to manager",
+    "cancel subscription"
+  ],
+  "confidence_threshold": 0.55,
+  "max_response_tokens": 400,
+  "grounding_requirement": true,
+  "custom_instructions": "Always mention our 24/7 support hotline.",
+  "created_at": "2026-01-10T00:00:00Z",
+  "updated_at": "2026-01-15T10:00:00Z"
+}
+```
+
+**Field Explanations:**
+
+- **brand_voice** - How your chatbot talks:
+  - `tone`: "professional", "friendly", or "casual"
+  - `formality_level`: "formal", "balanced", or "casual"
+  - `greeting_style`: "warm", "neutral", or "enthusiastic"
+  - `emoji_usage`: true/false - whether to use emojis
+
+- **allowed_topics** - Topics your bot can discuss (null = all topics allowed)
+
+- **blocked_topics** - Topics your bot should avoid
+
+- **escalation_keywords** - Words that trigger transfer to human support
+
+- **confidence_threshold** - Minimum confidence score (0.0 to 1.0) before responding. Lower = more responses, higher = transfers more to humans
+
+- **max_response_tokens** - Maximum length of bot responses (50 to 2000)
+
+- **grounding_requirement** - true = bot must use knowledge base, false = can answer without it
+
+- **custom_instructions** - Additional rules for your bot
+
+---
+
+### 2.10 Update AI Configuration
+
+**Page:** `/dashboard/settings/ai`
+
+**Endpoint:** `PUT /tenant/ai-config`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Request:** (all fields optional)
+```json
+{
+  "brand_voice": {
+    "tone": "friendly",
+    "formality_level": "casual",
+    "greeting_style": "enthusiastic",
+    "emoji_usage": true
+  },
+  "allowed_topics": [
+    "product features",
+    "pricing",
+    "billing",
+    "technical support",
+    "account management"
+  ],
+  "blocked_topics": [
+    "competitor comparisons",
+    "political discussions"
+  ],
+  "escalation_keywords": [
+    "speak to human",
+    "talk to manager",
+    "supervisor",
+    "cancel",
+    "refund",
+    "complaint"
+  ],
+  "confidence_threshold": 0.60,
+  "max_response_tokens": 350,
+  "grounding_requirement": true,
+  "custom_instructions": "Always be empathetic. Mention our 24/7 hotline: 1-800-ACME-HELP"
+}
+```
+
+**Tips for Configuration:**
+
+1. **Brand Voice:**
+   - Match your company's communication style
+   - Consistent tone builds trust
+
+2. **Topics:**
+   - Leave `allowed_topics` as null to allow all topics
+   - Use `blocked_topics` to prevent sensitive discussions
+
+3. **Escalation Keywords:**
+   - Include words that indicate customer frustration
+   - Add product-specific terms (e.g., "cancel subscription")
+
+4. **Confidence Threshold:**
+   - 0.50-0.60: More automated responses
+   - 0.60-0.70: Balanced (recommended)
+   - 0.70+: More human transfers (higher quality)
+
+5. **Response Length:**
+   - 200-300: Concise answers
+   - 300-500: Detailed explanations (recommended)
+   - 500+: Very detailed (may be too long)
+
+**Response:**
+```json
+{
+  "id": "config-uuid",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "brand_voice": {
+    "tone": "friendly",
+    "formality_level": "casual",
+    "greeting_style": "enthusiastic",
+    "emoji_usage": true
+  },
+  "allowed_topics": [
+    "product features",
+    "pricing",
+    "billing",
+    "technical support",
+    "account management"
+  ],
+  "blocked_topics": [
+    "competitor comparisons",
+    "political discussions"
+  ],
+  "escalation_keywords": [
+    "speak to human",
+    "talk to manager",
+    "supervisor",
+    "cancel",
+    "refund",
+    "complaint"
+  ],
+  "confidence_threshold": 0.60,
+  "max_response_tokens": 350,
+  "grounding_requirement": true,
+  "custom_instructions": "Always be empathetic. Mention our 24/7 hotline: 1-800-ACME-HELP",
+  "created_at": "2026-01-10T00:00:00Z",
+  "updated_at": "2026-01-16T15:00:00Z"
+}
+```
+
+**Frontend Action:**
+- Show success message: "AI configuration updated successfully"
+- Changes take effect immediately on next customer chat
+
+---
+
+### 2.11 View Subscription Features
+
+**Page:** `/dashboard/settings/subscription`
+
+**Endpoint:** `GET /tenant/capabilities`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Response:**
+```json
+{
+  "id": "capabilities-uuid",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "can_create_tickets": true,
+  "can_access_analytics": true,
+  "can_upload_knowledge": true,
+  "max_knowledge_mb": 100,
+  "max_conversations_per_month": null,
+  "created_at": "2026-01-10T00:00:00Z",
+  "updated_at": "2026-01-10T00:00:00Z"
+}
+```
+
+**Field Explanations:**
+
+- **can_create_tickets** - Whether bot can create support tickets when escalating to humans
+
+- **can_access_analytics** - Whether you can view conversation analytics dashboard
+
+- **can_upload_knowledge** - Whether you can upload knowledge base documents
+
+- **max_knowledge_mb** - Storage limit for knowledge base in megabytes
+
+- **max_conversations_per_month** - Monthly conversation limit (null = unlimited)
+
+**Display:**
+Show this as a read-only view of your current subscription tier.
+
+**To Upgrade:**
+Display "Contact support to upgrade" button that opens:
+- Email: support@luran.com
+- Subject: "Upgrade Request - [Your Company Name]"
+- Or link to pricing page
+
+**Note:** Only platform admins can modify capabilities. You can view but not change these settings.
 
 ---
 

@@ -8,12 +8,14 @@ from app.api.v1.endpoints import (
     users,
     api_keys,
     widget,
-    tenants,
+    tenant,
     knowledge,
     chat,
     tickets,
     jobs,
+    websocket,
 )
+from app.api.v1.endpoints.platform import tenants as platform_tenants
 
 api_router = APIRouter()
 
@@ -58,8 +60,19 @@ api_router.include_router(
     tags=["widget"],
 )
 
-# Tenant management endpoints
-api_router.include_router(tenants.router, prefix="/tenants", tags=["tenants"])
+# Platform admin tenant management endpoints
+api_router.include_router(
+    platform_tenants.router,
+    prefix="/platform/tenants",
+    tags=["platform-tenants"],
+)
+
+# Tenant self-management endpoints
+api_router.include_router(
+    tenant.router,
+    prefix="/tenant",
+    tags=["tenant"],
+)
 
 # Knowledge management endpoints
 api_router.include_router(knowledge.router, prefix="/knowledge", tags=["knowledge"])
@@ -72,3 +85,6 @@ api_router.include_router(tickets.router, prefix="/tickets", tags=["tickets"])
 
 # Job management endpoints (background processing)
 api_router.include_router(jobs.router, tags=["jobs"])
+
+# WebSocket endpoints (real-time chat)
+api_router.include_router(websocket.router, prefix="/ws", tags=["websocket"])

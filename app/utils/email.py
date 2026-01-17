@@ -137,3 +137,64 @@ Luran Team
         """
 
     return await send_email(email_to, subject, body)
+
+
+async def send_ticket_escalation_email(
+    email_to: str,
+    user_name: str,
+    tenant_name: str,
+    ticket_number: str,
+    escalation_reason: str,
+    customer_query: str,
+    ticket_priority: str,
+    ticket_id: str,
+) -> bool:
+    """
+    Send email notification when a conversation is escalated to a ticket.
+
+    Args:
+        email_to: Support agent or tenant admin email
+        user_name: Agent/admin full name
+        tenant_name: Tenant display name
+        ticket_number: Generated ticket number (e.g., TKT-2026-0001)
+        escalation_reason: Why the conversation was escalated
+        customer_query: Last customer message
+        ticket_priority: Ticket priority (LOW, MEDIUM, HIGH, URGENT)
+        ticket_id: Ticket UUID
+
+    Returns:
+        True if sent successfully
+    """
+    subject = f"🎫 New Support Ticket: {ticket_number} ({ticket_priority} Priority)"
+
+    body = f"""
+Hello {user_name},
+
+A customer conversation has been escalated and requires your attention.
+
+TICKET DETAILS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Ticket Number: {ticket_number}
+Priority: {ticket_priority}
+Tenant: {tenant_name}
+Escalation Reason: {escalation_reason}
+
+CUSTOMER MESSAGE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"{customer_query}"
+
+NEXT STEPS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. Review the full conversation in your dashboard
+2. Respond to the customer directly
+3. Mark the ticket as resolved when complete
+
+View Ticket: [Your Dashboard URL]/tickets/{ticket_id}
+
+This customer is waiting for your response. Please respond as soon as possible.
+
+Best regards,
+Luran Support System
+    """
+
+    return await send_email(email_to, subject, body)

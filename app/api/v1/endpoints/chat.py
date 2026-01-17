@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from loguru import logger
 
-from app.api.deps import get_current_tenant_admin, get_db, verify_tenant_access
+from app.api.deps import get_current_tenant_admin, get_current_user, get_db, verify_tenant_access
 from app.services.conversation_service import ConversationService
 from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
@@ -22,9 +22,104 @@ from app.schemas.conversation import (
     ConversationSessionCreate,
 )
 from app.schemas.user import UserResponse
-from app.db.models.conversation import SessionStatus, MessageRole
+from app.db.models.conversation import SessionStatus, MessageRole, TicketPriority
 
 router = APIRouter()
+
+
+def _generate_ticket_summary(
+    conversation_history: list,
+    escalation_reason: str,
+    user_query: str,
+    max_length: int = 200,
+) -> str:
+    """
+    Generate a smart summary for the ticket based on conversation context.
+
+    Args:
+        conversation_history: List of previous messages
+        escalation_reason: Why the conversation was escalated
+        user_query: Current user query that triggered escalation
+        max_length: Maximum summary length
+
+    Returns:
+        Concise summary of the issue
+    """
+    # Extract key context from recent messages
+    context_parts = []
+
+    # Get last few user messages to understand the issue progression
+    user_messages = [
+        msg.content for msg in conversation_history[-10:]
+        if msg.role == MessageRole.USER
+    ]
+
+    if len(user_messages) > 1:
+        # Multi-turn conversation - show progression
+        first_query = user_messages[0][:80]
+        context_parts.append(f"Initial query: {first_query}")
+
+        if user_messages[-1] != user_messages[0]:
+            latest_query = user_messages[-1][:80]
+            context_parts.append(f"Latest: {latest_query}")
+    else:
+        # Single message - just use it
+        context_parts.append(user_query[:150])
+
+    # Add escalation reason
+    context_parts.append(f"Reason: {escalation_reason}")
+
+    # Join and truncate
+    summary = " | ".join(context_parts)
+    if len(summary) > max_length:
+        summary = summary[:max_length - 3] + "..."
+
+    return summary
+
+
+def _determine_ticket_priority(
+    user_query: str,
+    escalation_reason: str,
+    confidence_score: float,
+) -> TicketPriority:
+    """
+    Determine ticket priority based on query content, reason, and confidence.
+
+    Args:
+        user_query: User's message
+        escalation_reason: Why it was escalated
+        confidence_score: AI confidence score
+
+    Returns:
+        Appropriate priority level
+    """
+    query_lower = user_query.lower()
+    reason_lower = escalation_reason.lower()
+
+    # URGENT: Critical keywords or explicit escalation
+    urgent_keywords = [
+        "urgent", "emergency", "critical", "asap", "immediately",
+        "down", "broken", "not working", "can't access", "cant access",
+        "losing money", "losing customers", "lawsuit", "legal"
+    ]
+
+    if any(keyword in query_lower for keyword in urgent_keywords):
+        return TicketPriority.URGENT
+
+    if "escalation keyword" in reason_lower:
+        # User explicitly requested human support
+        return TicketPriority.HIGH
+
+    # HIGH: Very low confidence (AI has no idea)
+    if confidence_score < 0.2:
+        return TicketPriority.HIGH
+
+    # MEDIUM: Low confidence
+    if confidence_score < 0.5:
+        return TicketPriority.MEDIUM
+
+    # LOW: Default for other escalations
+    return TicketPriority.LOW
 
 
 @router.post("/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
@@ -216,20 +311,73 @@ async def send_message(
                 reason=escalation_reason,
             )
 
-            # TODO: Create support ticket (ticket model not yet implemented)
-            # ticket_service = TicketService(db)
-            # from app.schemas.ticket import TicketCreate
-            # from app.db.models.ticket import TicketPriority
-            #
-            # ticket_data = TicketCreate(
-            #     tenant_id=session.tenant_id,
-            #     session_id=session_id,
-            #     priority=TicketPriority.MEDIUM,
-            #     summary=f"AI escalation: {escalation_reason}",
-            # )
-            # ticket = ticket_service.create_ticket(ticket_data)
-            # ticket_id = ticket.id
-            logger.info(f"Escalation recorded without ticket creation (ticket model pending)")
+            # Create support ticket
+            try:
+                from app.schemas.ticket import TicketCreate
+                from app.db.models.conversation import TicketPriority
+                from app.db.models.user import UserRole
+                from app.utils.email import send_ticket_escalation_email
+
+                ticket_service = TicketService(db)
+
+                # Generate smart summary from conversation
+                summary = _generate_ticket_summary(
+                    conversation_history=conversation_history,
+                    escalation_reason=escalation_reason,
+                    user_query=message_data.message,
+                )
+
+                # Determine priority based on keywords and confidence
+                priority = _determine_ticket_priority(
+                    user_query=message_data.message,
+                    escalation_reason=escalation_reason,
+                    confidence_score=confidence_score,
+                )
+
+                # Create ticket
+                ticket_data = TicketCreate(
+                    tenant_id=session.tenant_id,
+                    session_id=session_id,
+                    priority=priority,
+                    summary=summary,
+                )
+                ticket = ticket_service.create_ticket(ticket_data)
+                ticket_id = ticket.id
+
+                logger.info(f"Ticket created: {ticket.ticket_number} with {priority} priority")
+
+                # Send email notifications to tenant admins and support agents
+                tenant = tenant_service.get_tenant_by_id(session.tenant_id, include_relations=False)
+
+                # Get all tenant admins and support agents
+                from app.db.models.user import User
+                notification_recipients = db.query(User).filter(
+                    User.tenant_id == session.tenant_id,
+                    User.is_active == True,
+                    User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT])
+                ).all()
+
+                # Send email to each recipient
+                for recipient in notification_recipients:
+                    try:
+                        await send_ticket_escalation_email(
+                            email_to=recipient.email,
+                            user_name=recipient.full_name,
+                            tenant_name=tenant.display_name,
+                            ticket_number=ticket.ticket_number,
+                            escalation_reason=escalation_reason,
+                            customer_query=message_data.message,
+                            ticket_priority=priority.value.upper(),
+                            ticket_id=str(ticket.id),
+                        )
+                        logger.info(f"Escalation email sent to {recipient.email}")
+                    except Exception as email_error:
+                        # Log but don't fail ticket creation if email fails
+                        logger.error(f"Failed to send escalation email to {recipient.email}: {email_error}")
+
+            except Exception as ticket_error:
+                logger.error(f"Failed to create ticket or send notifications: {ticket_error}")
+                # Don't fail the request if ticket creation fails
 
         # Step 12: Return response
         return ChatResponse(
@@ -364,3 +512,192 @@ def get_session_messages(
 
     messages = conversation_service.get_session_messages(session_id, limit=limit)
     return messages
+
+
+@router.post(
+    "/sessions/{session_id}/takeover",
+    response_model=SessionResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def agent_takeover(
+    session_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
+):
+    """
+    Agent takes over a conversation session.
+
+    This endpoint is called when a support agent wants to handle an escalated
+    conversation. It:
+    1. Assigns the session to the agent
+    2. Assigns the associated ticket to the agent (if exists)
+    3. Broadcasts "agent joined" notification via WebSocket
+
+    Args:
+        session_id: Session UUID
+        db: Database session
+        current_user: Current agent user
+
+    Returns:
+        Updated session with agent assignment
+    """
+    from app.db.models.user import UserRole
+    from app.core.websocket import connection_manager
+
+    conversation_service = ConversationService(db)
+
+    # Get session to verify tenant access
+    session = conversation_service.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    # Verify tenant access
+    verify_tenant_access(session.tenant_id, current_user)
+
+    # Verify user has appropriate role
+    if current_user.role not in [UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only support agents or admins can take over conversations",
+        )
+
+    # Assign agent to session
+    updated_session = conversation_service.assign_agent_to_session(
+        session_id=session_id,
+        agent_id=current_user.id,
+    )
+
+    # If there's an associated ticket, assign it to the agent too
+    from app.db.models.conversation import Ticket
+    ticket = db.query(Ticket).filter(
+        Ticket.session_id == session_id
+    ).order_by(Ticket.created_at.desc()).first()
+
+    if ticket:
+        from app.services.ticket_service import TicketService
+        from app.schemas.ticket import TicketAssign
+
+        ticket_service = TicketService(db)
+        try:
+            ticket_service.assign_ticket(
+                ticket_id=ticket.id,
+                assign_data=TicketAssign(assigned_to=current_user.id)
+            )
+            logger.info(f"Assigned ticket {ticket.ticket_number} to agent {current_user.full_name}")
+        except ValueError as e:
+            logger.warning(f"Could not assign ticket: {e}")
+
+    # Send system message to indicate agent joined
+    conversation_service.add_message(
+        session_id=session_id,
+        role=MessageRole.SYSTEM,
+        content=f"{current_user.full_name} joined the conversation",
+        meta={"event": "agent_joined", "agent_id": str(current_user.id)}
+    )
+
+    # Broadcast to customer via WebSocket
+    await connection_manager.send_to_customer(
+        session_id=session_id,
+        message={
+            "type": "agent_joined",
+            "agent_name": current_user.full_name,
+            "agent_id": str(current_user.id),
+            "timestamp": updated_session.agent_joined_at.isoformat() if updated_session.agent_joined_at else None,
+        }
+    )
+
+    logger.info(f"Agent {current_user.full_name} took over session {session_id}")
+
+    return updated_session
+
+
+@router.post(
+    "/sessions/{session_id}/agent-message",
+    response_model=MessageResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def send_agent_message(
+    session_id: UUID,
+    message_data: MessageRequest,
+    db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
+):
+    """
+    Send a message as an agent (alternative to WebSocket for HTTP-based agents).
+
+    This endpoint allows agents to send messages via REST API instead of WebSocket.
+    Useful for:
+    - Agents who prefer HTTP over WebSocket
+    - Automated agent responses
+    - Testing and debugging
+
+    The message will be broadcasted to the customer and other agents via WebSocket.
+
+    Args:
+        session_id: Session UUID
+        message_data: Message content
+        db: Database session
+        current_user: Current agent user
+
+    Returns:
+        Created message
+    """
+    from app.db.models.user import UserRole
+    from app.core.websocket import connection_manager
+
+    conversation_service = ConversationService(db)
+
+    # Get session to verify tenant access
+    session = conversation_service.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    # Verify tenant access
+    verify_tenant_access(session.tenant_id, current_user)
+
+    # Verify user has appropriate role
+    if current_user.role not in [UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only support agents or admins can send agent messages",
+        )
+
+    # Create message
+    message = conversation_service.add_message(
+        session_id=session_id,
+        role=MessageRole.HUMAN_AGENT,
+        content=message_data.message,
+        meta={
+            "agent_id": str(current_user.id),
+            "agent_name": current_user.full_name,
+        }
+    )
+
+    # Broadcast to customer via WebSocket
+    await connection_manager.send_to_customer(
+        session_id=session_id,
+        message={
+            "type": "agent_message",
+            "message_id": str(message.id),
+            "content": message.content,
+            "agent_name": current_user.full_name,
+            "timestamp": message.created_at.isoformat(),
+        }
+    )
+
+    # Broadcast to other agents via WebSocket
+    await connection_manager.send_to_agents(
+        session_id=session_id,
+        message={
+            "type": "agent_message",
+            "message_id": str(message.id),
+            "content": message.content,
+            "agent_name": current_user.full_name,
+            "timestamp": message.created_at.isoformat(),
+        },
+        exclude_agent_id=current_user.id,
+    )
+
+    logger.info(f"Agent {current_user.full_name} sent message in session {session_id}")
+
+    return message

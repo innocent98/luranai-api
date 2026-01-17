@@ -27,6 +27,7 @@ class MessageRole(str, enum.Enum):
     USER = "user"
     ASSISTANT = "assistant"
     SYSTEM = "system"
+    HUMAN_AGENT = "human_agent"
 
 
 class TicketStatus(str, enum.Enum):
@@ -90,6 +91,16 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         comment="When the conversation was escalated",
     )
+    agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Support agent currently handling this conversation",
+    )
+    agent_joined_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When the agent joined the conversation",
+    )
     confidence_scores: Mapped[Optional[list]] = mapped_column(
         JSON,
         nullable=True,
@@ -146,7 +157,7 @@ class Message(Base, UUIDMixin):
     role: Mapped[MessageRole] = mapped_column(
         SQLEnum(MessageRole, name="message_role"),
         nullable=False,
-        comment="Who sent this message (user/assistant/system)",
+        comment="Who sent this message (user/assistant/system/human_agent)",
     )
     content: Mapped[str] = mapped_column(
         Text,

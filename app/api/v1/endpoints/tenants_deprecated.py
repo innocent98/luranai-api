@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_super_admin, get_current_tenant_admin, get_db, verify_tenant_access
 from app.services.tenant_service import TenantService
 from app.schemas.tenant import (
-    TenantCreate,
     TenantUpdate,
     TenantResponse,
     TenantListResponse,
@@ -23,32 +22,6 @@ from app.schemas.platform_admin import PlatformAdminResponse
 from app.db.models.tenant import TenantStatus
 
 router = APIRouter()
-
-
-@router.post("", response_model=TenantResponse, status_code=status.HTTP_201_CREATED)
-def create_tenant(
-    tenant_data: TenantCreate,
-    db: Session = Depends(get_db),
-    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
-):
-    """
-    Create a new tenant (superuser only).
-
-    Args:
-        tenant_data: Tenant creation data
-        db: Database session
-        current_user: Current superuser
-
-    Returns:
-        Created tenant with default AI config and capabilities
-    """
-    tenant_service = TenantService(db)
-
-    try:
-        tenant = tenant_service.create_tenant(tenant_data)
-        return tenant
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
 
 @router.get("", response_model=list[TenantListResponse], status_code=status.HTTP_200_OK)

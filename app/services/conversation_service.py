@@ -313,3 +313,58 @@ class ConversationService:
             return None
 
         return sum(session.confidence_scores) / len(session.confidence_scores)
+
+    def assign_agent_to_session(self, session_id: UUID, agent_id: UUID) -> SessionResponse:
+        """
+        Assign a support agent to a conversation session.
+
+        Args:
+            session_id: Session UUID
+            agent_id: Agent user ID
+
+        Returns:
+            Updated session response
+
+        Raises:
+            ValueError: If session not found
+        """
+        stmt = select(ConversationSession).where(ConversationSession.id == session_id)
+        session = self.db.execute(stmt).scalar_one_or_none()
+
+        if not session:
+            raise ValueError("Session not found")
+
+        session.agent_id = agent_id
+        session.agent_joined_at = datetime.utcnow()
+
+        self.db.commit()
+        self.db.refresh(session)
+
+        return SessionResponse.model_validate(session)
+
+    def remove_agent_from_session(self, session_id: UUID) -> SessionResponse:
+        """
+        Remove agent assignment from a conversation session.
+
+        Args:
+            session_id: Session UUID
+
+        Returns:
+            Updated session response
+
+        Raises:
+            ValueError: If session not found
+        """
+        stmt = select(ConversationSession).where(ConversationSession.id == session_id)
+        session = self.db.execute(stmt).scalar_one_or_none()
+
+        if not session:
+            raise ValueError("Session not found")
+
+        session.agent_id = None
+        session.agent_joined_at = None
+
+        self.db.commit()
+        self.db.refresh(session)
+
+        return SessionResponse.model_validate(session)
