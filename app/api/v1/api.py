@@ -14,6 +14,7 @@ from app.api.v1.endpoints import (
     tickets,
     jobs,
     websocket,
+    analytics,
 )
 from app.api.v1.endpoints.platform import tenants as platform_tenants
 
@@ -82,6 +83,9 @@ api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
 
 # Ticket management endpoints
 api_router.include_router(tickets.router, prefix="/tickets", tags=["tickets"])
+
+# Analytics endpoints
+api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 
 # Job management endpoints (background processing)
 api_router.include_router(jobs.router, tags=["jobs"])

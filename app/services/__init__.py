@@ -6,6 +6,7 @@ from app.services.conversation_service import ConversationService
 from app.services.ticket_service import TicketService
 from app.services.knowledge_service import KnowledgeService
 from app.services.rag_service import RAGService
+from app.services.analytics_service import AnalyticsService
 
 __all__ = [
     "AuthService",
@@ -14,4 +15,5 @@ __all__ = [
     "TicketService",
     "KnowledgeService",
     "RAGService",
+    "AnalyticsService",
 ]

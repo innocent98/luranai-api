@@ -1,6 +1,6 @@
 # Frontend Development Guide - Complete API Reference
 
-**Last Updated:** 2026-01-16
+**Last Updated:** 2026-01-18
 **Base URL:** `http://localhost:8000/api/v1` (development) | `https://api.luran.com/api/v1` (production)
 
 ## Table of Contents
@@ -16,9 +16,27 @@
 5. [API Key Management](#api-key-management)
 6. [Widget Configuration](#widget-configuration)
 7. [Knowledge Management](#knowledge-management)
-8. [User Flows with Diagrams](#user-flows-with-diagrams)
-9. [Common Patterns](#common-patterns)
-10. [Frontend Pages Checklist](#frontend-pages-checklist)
+8. [Agent Support Dashboard](#agent-support-dashboard)
+   - List Escalated Conversations
+   - View Conversation Details
+   - Get Message History
+   - Agent Takeover
+   - Send Agent Message
+   - WebSocket Real-Time Chat
+9. [Ticket Management](#ticket-management)
+   - List Tickets
+   - Get Ticket Details
+   - Create Ticket Manually
+   - Assign Ticket
+   - Update Ticket
+   - Resolve Ticket
+   - Close Ticket
+   - Get Unassigned Tickets
+10. [User Flows with Diagrams](#user-flows-with-diagrams)
+11. [Common Patterns](#common-patterns)
+12. [Frontend Pages Checklist](#frontend-pages-checklist)
+13. [Next Steps](#next-steps)
+14. [Important Notes](#important-notes)
 
 ---
 
@@ -1751,7 +1769,1056 @@ ws.onmessage = (event) => {
 
 ---
 
-## 8. User Flows with Diagrams
+## 8. Agent Support Dashboard
+
+For support agents and tenant admins handling escalated customer conversations.
+
+### 8.1 List Escalated Conversations
+
+**Page:** `/dashboard/support/conversations`
+
+**Endpoint:** `GET /chat/tenants/{tenant_id}/sessions`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** SUPPORT_AGENT or TENANT_ADMIN
+
+**Query Parameters:**
+```
+?status=escalated
+?limit=100
+```
+
+**Status Values:**
+- `active` - Normal AI conversation
+- `escalated` - Transferred to human support
+- `resolved` - Issue resolved
+- `abandoned` - Customer stopped responding
+
+**Example Request:**
+```
+GET /chat/tenants/550e8400-e29b-41d4-a716-446655440000/sessions?status=escalated&limit=100
+```
+
+**Response:**
+```json
+[
+  {
+    "id": "session-uuid-1",
+    "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+    "user_identifier": "customer@example.com",
+    "status": "escalated",
+    "escalation_reason": "Customer requested to speak with human agent",
+    "escalated_at": "2026-01-18T10:30:00Z",
+    "agent_id": null,
+    "agent_joined_at": null,
+    "confidence_scores": [0.45, 0.42, 0.38],
+    "meta": {
+      "user_agent": "Mozilla/5.0...",
+      "ip_hash": "abc123..."
+    },
+    "last_message_at": "2026-01-18T10:35:00Z",
+    "created_at": "2026-01-18T10:15:00Z",
+    "updated_at": "2026-01-18T10:30:00Z"
+  },
+  {
+    "id": "session-uuid-2",
+    "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+    "user_identifier": "user@domain.com",
+    "status": "escalated",
+    "escalation_reason": "Low AI confidence score (0.38)",
+    "escalated_at": "2026-01-18T09:45:00Z",
+    "agent_id": "agent-uuid-1",
+    "agent_joined_at": "2026-01-18T09:50:00Z",
+    "confidence_scores": [0.55, 0.40, 0.38],
+    "meta": {},
+    "last_message_at": "2026-01-18T10:20:00Z",
+    "created_at": "2026-01-18T09:30:00Z",
+    "updated_at": "2026-01-18T09:50:00Z"
+  }
+]
+```
+
+**Display:**
+- Table showing: Customer ID, Status, Escalation Reason, Escalated At, Agent, Last Message, Actions
+- Filter by status dropdown (escalated, resolved, abandoned)
+- Sort by escalation time (most recent first)
+- "Take Over" button for unassigned sessions
+- "View Details" button to open conversation
+
+**What Happens:**
+- Retrieves all sessions with specified status for the tenant
+- Filtered by tenant automatically based on authenticated user
+- Ordered by escalation time (most recent first)
+- Shows which sessions have assigned agents
+
+---
+
+### 8.2 View Conversation Details
+
+**Page:** `/dashboard/support/conversations/{session_id}`
+
+**Endpoint:** `GET /chat/sessions/{session_id}`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** SUPPORT_AGENT or TENANT_ADMIN
+
+**Response:**
+```json
+{
+  "id": "session-uuid-1",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "user_identifier": "customer@example.com",
+  "status": "escalated",
+  "escalation_reason": "Customer requested to speak with human agent",
+  "escalated_at": "2026-01-18T10:30:00Z",
+  "agent_id": "agent-uuid-1",
+  "agent_joined_at": "2026-01-18T10:35:00Z",
+  "confidence_scores": [0.45, 0.42, 0.38],
+  "meta": {
+    "user_agent": "Mozilla/5.0...",
+    "ip_hash": "abc123..."
+  },
+  "last_message_at": "2026-01-18T10:40:00Z",
+  "created_at": "2026-01-18T10:15:00Z",
+  "updated_at": "2026-01-18T10:35:00Z",
+  "messages": [
+    {
+      "id": "message-uuid-1",
+      "session_id": "session-uuid-1",
+      "role": "user",
+      "content": "I need help with my billing issue",
+      "retrieved_chunk_ids": null,
+      "confidence_score": null,
+      "token_count": 8,
+      "meta": {},
+      "created_at": "2026-01-18T10:15:00Z"
+    },
+    {
+      "id": "message-uuid-2",
+      "session_id": "session-uuid-1",
+      "role": "assistant",
+      "content": "I can help you with billing questions. What specific issue are you experiencing?",
+      "retrieved_chunk_ids": ["chunk-uuid-1", "chunk-uuid-2"],
+      "confidence_score": 0.45,
+      "token_count": 15,
+      "meta": {
+        "model_version": "gemini-1.5-pro"
+      },
+      "created_at": "2026-01-18T10:15:30Z"
+    },
+    {
+      "id": "message-uuid-3",
+      "session_id": "session-uuid-1",
+      "role": "user",
+      "content": "I want to speak to a human",
+      "retrieved_chunk_ids": null,
+      "confidence_score": null,
+      "token_count": 7,
+      "meta": {},
+      "created_at": "2026-01-18T10:16:00Z"
+    },
+    {
+      "id": "message-uuid-4",
+      "session_id": "session-uuid-1",
+      "role": "system",
+      "content": "Agent Sarah Johnson joined the conversation",
+      "retrieved_chunk_ids": null,
+      "confidence_score": null,
+      "token_count": null,
+      "meta": {
+        "event": "agent_joined",
+        "agent_id": "agent-uuid-1"
+      },
+      "created_at": "2026-01-18T10:35:00Z"
+    },
+    {
+      "id": "message-uuid-5",
+      "session_id": "session-uuid-1",
+      "role": "human_agent",
+      "content": "Hi! I'm Sarah, I'm here to help with your billing issue. Can you tell me more about what's happening?",
+      "retrieved_chunk_ids": null,
+      "confidence_score": null,
+      "token_count": null,
+      "meta": {
+        "agent_id": "agent-uuid-1",
+        "agent_name": "Sarah Johnson"
+      },
+      "created_at": "2026-01-18T10:35:30Z"
+    }
+  ]
+}
+```
+
+**Message Role Values:**
+- `user` - Customer message
+- `assistant` - AI response
+- `human_agent` - Agent response
+- `system` - System notification
+
+**Display:**
+- Chat interface showing full conversation history
+- Different styling for each message role:
+  - User messages: Right-aligned, blue
+  - AI messages: Left-aligned, gray, with confidence score badge
+  - Agent messages: Left-aligned, green, with agent name
+  - System messages: Center-aligned, italic
+- Session metadata sidebar: Customer ID, Status, Escalation reason, Timestamps
+- "Take Over" button if not assigned
+- Message input box if agent has taken over
+
+**What Happens:**
+- Retrieves session with complete message history
+- Tenant access verified automatically
+- Messages ordered by creation time (oldest first)
+- Includes all metadata for each message
+
+---
+
+### 8.3 Get Message History
+
+**Page:** `/dashboard/support/conversations/{session_id}` (alternative loading method)
+
+**Endpoint:** `GET /chat/sessions/{session_id}/messages`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** SUPPORT_AGENT or TENANT_ADMIN
+
+**Query Parameters:**
+```
+?limit=100
+```
+
+**Response:**
+```json
+[
+  {
+    "id": "message-uuid-1",
+    "session_id": "session-uuid-1",
+    "role": "user",
+    "content": "I need help with my billing issue",
+    "retrieved_chunk_ids": null,
+    "confidence_score": null,
+    "token_count": 8,
+    "meta": {},
+    "created_at": "2026-01-18T10:15:00Z"
+  },
+  {
+    "id": "message-uuid-2",
+    "session_id": "session-uuid-1",
+    "role": "assistant",
+    "content": "I can help you with billing questions.",
+    "retrieved_chunk_ids": ["chunk-uuid-1"],
+    "confidence_score": 0.45,
+    "token_count": 8,
+    "meta": {
+      "model_version": "gemini-1.5-pro"
+    },
+    "created_at": "2026-01-18T10:15:30Z"
+  }
+]
+```
+
+**Use Case:**
+- Fetch message history without full session details
+- Useful for lazy loading or pagination
+- Same messages returned as in session details endpoint
+
+**Display:**
+- Messages list ordered by creation time
+- Can be used for infinite scroll or pagination
+
+---
+
+### 8.4 Agent Takeover
+
+**Page:** `/dashboard/support/conversations/{session_id}` (Take Over button)
+
+**Endpoint:** `POST /chat/sessions/{session_id}/takeover`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** SUPPORT_AGENT or TENANT_ADMIN
+
+**Request:**
+```
+No body required - uses authenticated user info
+```
+
+**Response:**
+```json
+{
+  "id": "session-uuid-1",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "user_identifier": "customer@example.com",
+  "status": "escalated",
+  "escalation_reason": "Customer requested to speak with human agent",
+  "escalated_at": "2026-01-18T10:30:00Z",
+  "agent_id": "agent-uuid-1",
+  "agent_joined_at": "2026-01-18T10:35:00Z",
+  "confidence_scores": [0.45, 0.42, 0.38],
+  "meta": {
+    "user_agent": "Mozilla/5.0...",
+    "ip_hash": "abc123..."
+  },
+  "last_message_at": "2026-01-18T10:35:00Z",
+  "created_at": "2026-01-18T10:15:00Z",
+  "updated_at": "2026-01-18T10:35:00Z"
+}
+```
+
+**Frontend Action:**
+- Click "Take Over" button
+- Show loading state
+- On success:
+  - Update UI to show agent is now assigned
+  - Enable message input box
+  - Show system message: "You joined the conversation"
+  - Refresh conversation view
+- Show error if already assigned to another agent
+
+**What Happens:**
+1. Assigns session to the current agent (sets `agent_id` and `agent_joined_at`)
+2. If ticket exists, assigns it to the agent and updates status to IN_PROGRESS
+3. Creates system message: "{Agent Name} joined the conversation"
+4. Broadcasts "agent_joined" notification to customer via WebSocket
+5. Returns updated session with agent assignment
+
+**Error Cases:**
+- 404: Session not found
+- 403: User doesn't have SUPPORT_AGENT or TENANT_ADMIN role
+- 403: Session belongs to different tenant
+
+---
+
+### 8.5 Send Agent Message (HTTP Alternative)
+
+**Page:** `/dashboard/support/conversations/{session_id}` (message input)
+
+**Endpoint:** `POST /chat/sessions/{session_id}/agent-message`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** SUPPORT_AGENT or TENANT_ADMIN
+
+**Request:**
+```json
+{
+  "message": "Hi! I'm here to help with your billing issue. Can you tell me more about what's happening?"
+}
+```
+
+**Response:**
+```json
+{
+  "id": "message-uuid-5",
+  "session_id": "session-uuid-1",
+  "role": "human_agent",
+  "content": "Hi! I'm here to help with your billing issue. Can you tell me more about what's happening?",
+  "retrieved_chunk_ids": null,
+  "confidence_score": null,
+  "token_count": null,
+  "meta": {
+    "agent_id": "agent-uuid-1",
+    "agent_name": "Sarah Johnson"
+  },
+  "created_at": "2026-01-18T10:35:30Z"
+}
+```
+
+**Use Cases:**
+- Agents who prefer REST over WebSocket
+- Automated agent responses
+- Testing and debugging
+- Simple integrations
+
+**Frontend Action:**
+- Submit message from input box
+- Show message immediately in chat (optimistic UI)
+- On success: Confirm message saved
+- On error: Show error and allow retry
+
+**What Happens:**
+1. Creates message with role `human_agent`
+2. Stores agent metadata (ID and name) in message
+3. Broadcasts message to customer via WebSocket
+4. Broadcasts to other agents via WebSocket (excluding sender)
+5. Returns created message
+
+**Note:** For real-time chat, WebSocket is recommended (see 8.6). This endpoint is useful for non-real-time scenarios or when WebSocket is not available.
+
+---
+
+### 8.6 WebSocket Real-Time Chat
+
+**Page:** `/dashboard/support/conversations/{session_id}` (real-time chat)
+
+**WebSocket Endpoint:** `wss://api.luran.com/api/v1/ws/agent/{session_id}`
+
+**Connection:**
+```javascript
+// Connect to agent WebSocket
+const ws = new WebSocket(
+  `wss://api.luran.com/api/v1/ws/agent/${sessionId}?token=${tenantToken}`
+);
+
+ws.onopen = () => {
+  console.log('Connected to session');
+};
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+
+  // Handle different message types
+  switch(data.type) {
+    case 'customer_message':
+      // New message from customer
+      displayMessage({
+        role: 'user',
+        content: data.content,
+        timestamp: data.timestamp
+      });
+      break;
+
+    case 'agent_message':
+      // Message from another agent
+      displayMessage({
+        role: 'human_agent',
+        content: data.content,
+        agent_name: data.agent_name,
+        timestamp: data.timestamp
+      });
+      break;
+
+    case 'agent_joined':
+      // Another agent joined
+      displaySystemMessage(`${data.agent_name} joined the conversation`);
+      break;
+
+    case 'agent_left':
+      // Agent left the conversation
+      displaySystemMessage(`${data.agent_name} left the conversation`);
+      break;
+
+    case 'session_resolved':
+      // Session was resolved
+      displaySystemMessage('Session resolved');
+      disableMessageInput();
+      break;
+  }
+};
+
+// Send agent message
+function sendAgentMessage(content) {
+  ws.send(JSON.stringify({
+    type: 'agent_message',
+    content: content
+  }));
+}
+
+ws.onclose = () => {
+  console.log('Disconnected from session');
+  // Handle reconnection if needed
+};
+
+ws.onerror = (error) => {
+  console.error('WebSocket error:', error);
+};
+```
+
+**Message Types (Received):**
+- `customer_message` - New message from customer
+- `agent_message` - Message from another agent in same session
+- `agent_joined` - Another agent joined the conversation
+- `agent_left` - Agent left the conversation
+- `session_resolved` - Session was marked as resolved
+- `connection_status` - Connection confirmation
+
+**Message Types (Sent):**
+- `agent_message` - Send message as agent
+  ```json
+  {
+    "type": "agent_message",
+    "content": "Your message here"
+  }
+  ```
+
+**WebSocket Benefits:**
+- Real-time bidirectional communication
+- Instant message delivery
+- No polling required
+- Lower latency
+- Live status updates
+
+**Important Notes:**
+1. Pass authentication token in query parameter: `?token={tenantToken}`
+2. WebSocket automatically handles agent assignment checking
+3. Messages are broadcasted to all connected parties (customer + agents)
+4. Connection persists until closed by client or session ends
+5. Auto-reconnect on connection loss (implement in frontend)
+
+**For Complete WebSocket Documentation:**
+See `/docs/WEBSOCKET_LIVE_CHAT_GUIDE.md` for:
+- Full message format specifications
+- Connection lifecycle details
+- Error handling patterns
+- Customer-side WebSocket integration
+- Advanced WebSocket features
+- Connection management best practices
+
+---
+
+## 9. Ticket Management
+
+Complete CRUD operations for support tickets created from escalated conversations.
+
+### 9.1 List Tickets
+
+**Page:** `/dashboard/support/tickets`
+
+**Endpoint:** `GET /tickets`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** SUPPORT_AGENT or TENANT_ADMIN
+
+**Query Parameters:**
+```
+?tenant_id=550e8400-e29b-41d4-a716-446655440000  (optional, defaults to current user's tenant)
+?status=open                                      (optional filter)
+?assigned_to_me=true                              (optional, show only my tickets)
+?limit=100                                         (default 100, max 500)
+?offset=0                                          (default 0, for pagination)
+```
+
+**Status Filter Values:**
+- `open` - Newly created, unassigned
+- `in_progress` - Assigned and being worked on
+- `resolved` - Solution provided
+- `closed` - Finalized and archived
+
+**Example Request:**
+```
+GET /tickets?status=open&limit=50&offset=0
+```
+
+**Response:**
+```json
+{
+  "tickets": [
+    {
+      "id": "ticket-uuid-1",
+      "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+      "session_id": "session-uuid-1",
+      "ticket_number": "TKT-2026-0001",
+      "status": "open",
+      "priority": "high",
+      "summary": "Customer unable to access billing dashboard - 403 error",
+      "assigned_to": null,
+      "resolution_notes": null,
+      "resolved_at": null,
+      "created_at": "2026-01-18T10:30:00Z",
+      "updated_at": "2026-01-18T10:30:00Z"
+    },
+    {
+      "id": "ticket-uuid-2",
+      "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+      "session_id": "session-uuid-2",
+      "ticket_number": "TKT-2026-0002",
+      "status": "in_progress",
+      "priority": "medium",
+      "summary": "Payment method update failing with validation error",
+      "assigned_to": "agent-uuid-1",
+      "resolution_notes": null,
+      "resolved_at": null,
+      "created_at": "2026-01-18T09:45:00Z",
+      "updated_at": "2026-01-18T10:00:00Z"
+    }
+  ],
+  "total": 47,
+  "page": 1,
+  "page_size": 100
+}
+```
+
+**Ticket Priority Values:**
+- `low` - Low priority
+- `medium` - Medium priority
+- `high` - High priority
+- `urgent` - Urgent attention needed
+
+**Display:**
+- Table with columns: Ticket #, Summary, Status, Priority, Assigned To, Created, Actions
+- Filter dropdowns: Status, Priority, Assigned to me
+- Search by ticket number or summary
+- Status badges with colors:
+  - Open: Blue
+  - In Progress: Yellow
+  - Resolved: Green
+  - Closed: Gray
+- Priority badges with colors:
+  - Low: Gray
+  - Medium: Blue
+  - High: Orange
+  - Urgent: Red
+- Pagination controls
+- Actions: View Details, Assign, Resolve (based on status and role)
+
+**What Happens:**
+- Returns paginated list of tickets for the tenant
+- Automatically filters by authenticated user's tenant
+- Can filter by status, assignment, or show only user's assigned tickets
+- Ordered by creation time (newest first)
+
+---
+
+### 9.2 Get Ticket Details
+
+**Page:** `/dashboard/support/tickets/{ticket_id}`
+
+**Endpoint:** `GET /tickets/{ticket_id}`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** SUPPORT_AGENT or TENANT_ADMIN
+
+**Response:**
+```json
+{
+  "id": "ticket-uuid-1",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "session_id": "session-uuid-1",
+  "ticket_number": "TKT-2026-0001",
+  "status": "in_progress",
+  "priority": "high",
+  "summary": "Customer unable to access billing dashboard - 403 error",
+  "assigned_to": "agent-uuid-1",
+  "resolution_notes": null,
+  "resolved_at": null,
+  "created_at": "2026-01-18T10:30:00Z",
+  "updated_at": "2026-01-18T11:15:00Z"
+}
+```
+
+**Display:**
+- Full ticket details card showing all fields
+- Link to associated conversation: "View Conversation" button → `/dashboard/support/conversations/{session_id}`
+- Assigned agent name (fetch from user endpoint if needed)
+- Status and priority badges
+- Action buttons based on status:
+  - If `open`: "Assign to Me", "Assign to Other Agent", "Update Priority"
+  - If `in_progress`: "Add Notes", "Resolve", "Update Priority"
+  - If `resolved`: "Close Ticket", "Reopen"
+  - If `closed`: "View Only"
+- Timeline showing:
+  - Created at
+  - Assigned at (if applicable)
+  - Resolved at (if applicable)
+  - Updated at
+
+**What Happens:**
+- Retrieves full ticket information
+- Tenant access verified automatically
+- Can be used to display detailed ticket view
+
+---
+
+### 9.3 Create Ticket Manually
+
+**Page:** `/dashboard/support/tickets/create`
+
+**Endpoint:** `POST /tickets`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** SUPPORT_AGENT or TENANT_ADMIN
+
+**Request:**
+```json
+{
+  "session_id": "session-uuid-1",
+  "summary": "Customer reporting payment processing delays",
+  "priority": "high"
+}
+```
+
+**Priority Options:**
+- `low` - Low priority (default if not specified)
+- `medium` - Medium priority
+- `high` - High priority
+- `urgent` - Urgent attention needed
+
+**Response:**
+```json
+{
+  "id": "ticket-uuid-3",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "session_id": "session-uuid-1",
+  "ticket_number": "TKT-2026-0003",
+  "status": "open",
+  "priority": "high",
+  "summary": "Customer reporting payment processing delays",
+  "assigned_to": null,
+  "resolution_notes": null,
+  "resolved_at": null,
+  "created_at": "2026-01-18T11:00:00Z",
+  "updated_at": "2026-01-18T11:00:00Z"
+}
+```
+
+**Use Case:**
+- Create tickets manually for conversations that need tracking
+- Create tickets for issues reported via other channels (phone, email)
+- Must have an associated conversation session
+
+**Frontend Action:**
+- Show success message: "Ticket TKT-2026-0003 created successfully"
+- Redirect to ticket details page or tickets list
+- Optionally: "Assign to yourself?" prompt
+
+**What Happens:**
+1. Validates session exists and belongs to tenant
+2. Generates unique ticket number (format: TKT-YYYY-NNNN)
+3. Creates ticket with status `open`
+4. Tenant ID auto-populated from session
+5. Returns created ticket
+
+---
+
+### 9.4 Assign Ticket
+
+**Page:** `/dashboard/support/tickets/{ticket_id}` (Assign button)
+
+**Endpoint:** `POST /tickets/{ticket_id}/assign`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Request:**
+```json
+{
+  "assigned_to": "agent-uuid-1"
+}
+```
+
+**Response:**
+```json
+{
+  "id": "ticket-uuid-1",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "session_id": "session-uuid-1",
+  "ticket_number": "TKT-2026-0001",
+  "status": "in_progress",
+  "priority": "high",
+  "summary": "Customer unable to access billing dashboard - 403 error",
+  "assigned_to": "agent-uuid-1",
+  "resolution_notes": null,
+  "resolved_at": null,
+  "created_at": "2026-01-18T10:30:00Z",
+  "updated_at": "2026-01-18T11:20:00Z"
+}
+```
+
+**Frontend Action:**
+- Show agent selector dropdown (list of support agents from `/users` endpoint)
+- On assign:
+  - Update UI to show assigned agent
+  - Update status badge to "In Progress"
+  - Show success: "Ticket assigned to {Agent Name}"
+
+**What Happens:**
+1. Validates assigned user exists and belongs to same tenant
+2. Validates assigned user has SUPPORT_AGENT or TENANT_ADMIN role
+3. Updates `assigned_to` field
+4. Automatically updates status from `open` to `in_progress` if currently open
+5. Returns updated ticket
+
+**Quick Assign:**
+- "Assign to Me" button: Uses current user's ID
+- "Assign to Other" dropdown: Select from team members
+
+---
+
+### 9.5 Update Ticket
+
+**Page:** `/dashboard/support/tickets/{ticket_id}/edit`
+
+**Endpoint:** `PUT /tickets/{ticket_id}`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Request:** (all fields optional)
+```json
+{
+  "status": "in_progress",
+  "priority": "urgent",
+  "assigned_to": "agent-uuid-2",
+  "resolution_notes": "Investigating billing service logs"
+}
+```
+
+**Updatable Fields:**
+- `status` - Ticket status (open, in_progress, resolved, closed)
+- `priority` - Priority level (low, medium, high, urgent)
+- `assigned_to` - Assigned agent UUID (or null to unassign)
+- `resolution_notes` - Working notes (text field)
+
+**Response:**
+```json
+{
+  "id": "ticket-uuid-1",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "session_id": "session-uuid-1",
+  "ticket_number": "TKT-2026-0001",
+  "status": "in_progress",
+  "priority": "urgent",
+  "summary": "Customer unable to access billing dashboard - 403 error",
+  "assigned_to": "agent-uuid-2",
+  "resolution_notes": "Investigating billing service logs",
+  "resolved_at": null,
+  "created_at": "2026-01-18T10:30:00Z",
+  "updated_at": "2026-01-18T11:45:00Z"
+}
+```
+
+**Use Case:**
+- Update ticket priority based on urgency
+- Change assignment to different agent
+- Update status manually
+- Add working notes during investigation
+
+**Frontend Action:**
+- Edit form with all updateable fields
+- Validation:
+  - Cannot set status to `resolved` without resolution_notes (use resolve endpoint instead)
+  - assigned_to must be valid user UUID from same tenant
+- Show success message on update
+- Refresh ticket details
+
+---
+
+### 9.6 Resolve Ticket
+
+**Page:** `/dashboard/support/tickets/{ticket_id}` (Resolve button)
+
+**Endpoint:** `POST /tickets/{ticket_id}/resolve`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** SUPPORT_AGENT or TENANT_ADMIN
+
+**Request:**
+```json
+{
+  "resolution_notes": "Issue was caused by expired session token. Customer successfully logged in after clearing cookies and cache. No further action required."
+}
+```
+
+**Response:**
+```json
+{
+  "id": "ticket-uuid-1",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "session_id": "session-uuid-1",
+  "ticket_number": "TKT-2026-0001",
+  "status": "resolved",
+  "priority": "high",
+  "summary": "Customer unable to access billing dashboard - 403 error",
+  "assigned_to": "agent-uuid-1",
+  "resolution_notes": "Issue was caused by expired session token. Customer successfully logged in after clearing cookies and cache. No further action required.",
+  "resolved_at": "2026-01-18T12:00:00Z",
+  "created_at": "2026-01-18T10:30:00Z",
+  "updated_at": "2026-01-18T12:00:00Z"
+}
+```
+
+**Frontend Action:**
+- Show "Resolve Ticket" modal with textarea for resolution notes
+- Required field: Resolution notes (minimum 1 character)
+- On submit:
+  - Update status badge to "Resolved"
+  - Show resolved timestamp
+  - Display resolution notes
+  - Show success: "Ticket resolved successfully"
+  - Enable "Close Ticket" button
+
+**What Happens:**
+1. Validates resolution_notes is provided
+2. Updates ticket status to `resolved`
+3. Sets `resolution_notes` field
+4. Sets `resolved_at` timestamp to current time
+5. Returns updated ticket
+
+**Note:** Only support agents or admins can resolve tickets. Resolution notes are required and should describe what was done to resolve the issue.
+
+---
+
+### 9.7 Close Ticket
+
+**Page:** `/dashboard/support/tickets/{ticket_id}` (Close button)
+
+**Endpoint:** `POST /tickets/{ticket_id}/close`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Request:**
+```
+No body required
+```
+
+**Response:**
+```json
+{
+  "id": "ticket-uuid-1",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "session_id": "session-uuid-1",
+  "ticket_number": "TKT-2026-0001",
+  "status": "closed",
+  "priority": "high",
+  "summary": "Customer unable to access billing dashboard - 403 error",
+  "assigned_to": "agent-uuid-1",
+  "resolution_notes": "Issue was caused by expired session token. Customer successfully logged in after clearing cookies and cache. No further action required.",
+  "resolved_at": "2026-01-18T12:00:00Z",
+  "created_at": "2026-01-18T10:30:00Z",
+  "updated_at": "2026-01-18T12:15:00Z"
+}
+```
+
+**Frontend Action:**
+- Show confirmation dialog: "Close this ticket? This marks it as finalized and archived."
+- On confirm:
+  - Update status badge to "Closed"
+  - Make ticket read-only (disable all edit buttons)
+  - Show success: "Ticket closed"
+- Only show "Close" button if status is `resolved`
+
+**What Happens:**
+1. Validates ticket is in `resolved` status
+2. Updates status to `closed`
+3. Returns updated ticket
+
+**Workflow:**
+Tickets must be resolved before they can be closed. This two-step process ensures:
+- Resolution notes are always captured
+- Proper documentation of ticket lifecycle
+- Separation between "solution provided" and "case finalized"
+
+---
+
+### 9.8 Get Unassigned Tickets
+
+**Page:** `/dashboard/support/tickets` (Unassigned filter)
+
+**Endpoint:** `GET /tickets/unassigned`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Query Parameters:**
+```
+?tenant_id=550e8400-e29b-41d4-a716-446655440000  (optional, defaults to current user's tenant)
+```
+
+**Response:**
+```json
+[
+  {
+    "id": "ticket-uuid-1",
+    "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+    "session_id": "session-uuid-1",
+    "ticket_number": "TKT-2026-0001",
+    "status": "open",
+    "priority": "high",
+    "summary": "Customer unable to access billing dashboard - 403 error",
+    "assigned_to": null,
+    "resolution_notes": null,
+    "resolved_at": null,
+    "created_at": "2026-01-18T10:30:00Z",
+    "updated_at": "2026-01-18T10:30:00Z"
+  },
+  {
+    "id": "ticket-uuid-3",
+    "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+    "session_id": "session-uuid-3",
+    "ticket_number": "TKT-2026-0003",
+    "status": "open",
+    "priority": "urgent",
+    "summary": "Payment processing failure requiring immediate attention",
+    "assigned_to": null,
+    "resolution_notes": null,
+    "resolved_at": null,
+    "created_at": "2026-01-18T11:00:00Z",
+    "updated_at": "2026-01-18T11:00:00Z"
+  }
+]
+```
+
+**Display:**
+- Table showing only tickets with `assigned_to: null`
+- Sorted by priority (urgent → high → medium → low), then by creation time
+- Prominent "Assign to Me" button for each ticket
+- Badge showing count: "12 Unassigned Tickets"
+
+**Use Case:**
+- Quick view of tickets needing assignment
+- Admins can see workload distribution
+- Agents can self-assign from unassigned pool
+
+**What Happens:**
+- Returns tickets where `assigned_to` is null
+- Filtered by tenant automatically
+- Ordered by priority and creation time
+
+---
+
+## 10. User Flows with Diagrams
 
 ### Flow 1: Company Registration
 
@@ -1911,7 +2978,7 @@ ws.onmessage = (event) => {
 
 ---
 
-## 9. Common Patterns
+## 11. Common Patterns
 
 ### Authentication Headers
 
@@ -1968,7 +3035,7 @@ Currently, all list endpoints return full results. Pagination will be added late
 
 ---
 
-## 10. Frontend Pages Checklist
+## 12. Frontend Pages Checklist
 
 ### Platform Admin Dashboard
 
@@ -2030,9 +3097,45 @@ Currently, all list endpoints return full results. Pagination will be added late
   - Download/export option
 - [ ] `/dashboard/settings/password` - Change password
 
+### Agent Support Dashboard
+
+- [ ] `/dashboard/support/conversations` - Escalated conversations list
+  - Filter by status (escalated, resolved, abandoned)
+  - Sort by escalation time
+  - "Take Over" button for unassigned sessions
+  - "View Details" button
+- [ ] `/dashboard/support/conversations/{session_id}` - Conversation details with real-time chat
+  - Full message history with different styling per role
+  - Session metadata sidebar
+  - "Take Over" button if not assigned
+  - Message input box (HTTP or WebSocket)
+  - WebSocket integration for real-time updates
+- [ ] `/dashboard/support/tickets` - Ticket management dashboard
+  - List all tickets with filters (status, priority, assigned to me)
+  - Search by ticket number or summary
+  - Status and priority badges
+  - Pagination controls
+  - "Unassigned Tickets" filter
+  - Actions: View Details, Assign, Resolve
+- [ ] `/dashboard/support/tickets/{ticket_id}` - Ticket details
+  - Full ticket information card
+  - Link to associated conversation
+  - Action buttons based on status (Assign, Resolve, Close)
+  - Timeline showing ticket lifecycle
+- [ ] `/dashboard/support/tickets/create` - Manual ticket creation
+  - Session selector
+  - Summary input
+  - Priority selector
+  - "Assign to yourself?" option
+- [ ] `/dashboard/support/tickets/{ticket_id}/edit` - Edit ticket
+  - Update priority
+  - Change assignment
+  - Add working notes
+  - Update status
+
 ---
 
-## 11. Next Steps
+## 13. Next Steps
 
 After frontend is complete, the widget JavaScript and chat UI will be built separately.
 
@@ -2048,7 +3151,7 @@ After frontend is complete, the widget JavaScript and chat UI will be built sepa
 
 ---
 
-## 12. Important Notes
+## 14. Important Notes
 
 1. **Two Separate Tokens:** Platform admin tokens and tenant tokens are different. Store them separately.
 
@@ -2072,6 +3175,24 @@ After frontend is complete, the widget JavaScript and chat UI will be built sepa
    - Text uploads: Any length (minimum 10 characters)
    - Processing is asynchronous for file uploads (use job polling or WebSocket)
    - Embeddings are rate-limited at 10 requests/minute (Google AI)
+
+8. **Agent Support Dashboard:**
+   - Only SUPPORT_AGENT and TENANT_ADMIN roles can access agent endpoints
+   - Agent takeover automatically assigns associated tickets
+   - WebSocket is recommended for real-time chat (see WEBSOCKET_LIVE_CHAT_GUIDE.md)
+   - HTTP agent-message endpoint available for non-real-time scenarios
+   - Session status values: active, escalated, resolved, abandoned
+   - Message role values: user, assistant, human_agent, system
+
+9. **Ticket Management:**
+   - Tickets must be resolved before they can be closed (two-step process)
+   - Resolution notes are required when resolving tickets
+   - Assign endpoint requires TENANT_ADMIN role
+   - Resolve endpoint requires SUPPORT_AGENT or TENANT_ADMIN role
+   - Close endpoint requires TENANT_ADMIN role
+   - Ticket status: open → in_progress → resolved → closed
+   - Priority levels: low, medium, high, urgent
+   - Ticket numbers follow format: TKT-YYYY-NNNN
 
 ---
 

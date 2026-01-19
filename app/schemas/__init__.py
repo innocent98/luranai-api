@@ -89,6 +89,16 @@ from app.schemas.widget import (
     PublicWidgetConfigResponse,
     WidgetInstallCodeResponse,
 )
+from app.schemas.analytics import (
+    AnalyticsOverviewResponse,
+    ConversationMetricsResponse,
+    TicketMetricsResponse,
+    AgentPerformanceResponse,
+    AgentSummaryResponse,
+    TrendDataPoint,
+    TrendResponse,
+    KnowledgeUsageResponse,
+)
 
 __all__ = [
     # Tenant schemas
@@ -171,4 +181,13 @@ __all__ = [
     "WidgetConfigResponse",
     "PublicWidgetConfigResponse",
     "WidgetInstallCodeResponse",
+    # Analytics schemas
+    "AnalyticsOverviewResponse",
+    "ConversationMetricsResponse",
+    "TicketMetricsResponse",
+    "AgentPerformanceResponse",
+    "AgentSummaryResponse",
+    "TrendDataPoint",
+    "TrendResponse",
+    "KnowledgeUsageResponse",
 ]
