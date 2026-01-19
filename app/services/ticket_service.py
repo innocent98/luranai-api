@@ -8,12 +8,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, desc, func
 
 from app.db.models.conversation import Ticket, TicketStatus, TicketPriority
+from app.db.models.user import User
 from app.schemas.ticket import (
     TicketCreate,
     TicketUpdate,
     TicketResponse,
     TicketAssign,
     TicketResolve,
+    AssignedAgent,
 )
 
 
@@ -23,6 +25,34 @@ class TicketService:
     def __init__(self, db: Session):
         """Initialize ticket service with database session."""
         self.db = db
+
+    def _to_ticket_response(self, ticket: Ticket) -> TicketResponse:
+        """
+        Convert Ticket model to TicketResponse with agent details.
+
+        Args:
+            ticket: Ticket model instance
+
+        Returns:
+            TicketResponse with assigned_agent populated if ticket is assigned
+        """
+        # Convert ticket to dict using model_validate
+        ticket_response = TicketResponse.model_validate(ticket)
+
+        # If ticket is assigned, fetch agent details
+        if ticket.assigned_to:
+            stmt = select(User).where(User.id == ticket.assigned_to)
+            agent = self.db.execute(stmt).scalar_one_or_none()
+
+            if agent:
+                ticket_response.assigned_agent = AssignedAgent(
+                    id=agent.id,
+                    email=agent.email,
+                    full_name=agent.full_name,
+                    role=agent.role,
+                )
+
+        return ticket_response
 
     def _generate_ticket_number(self) -> str:
         """
@@ -70,7 +100,7 @@ class TicketService:
         self.db.commit()
         self.db.refresh(db_ticket)
 
-        return TicketResponse.model_validate(db_ticket)
+        return self._to_ticket_response(db_ticket)
 
     def get_ticket(self, ticket_id: UUID) -> Optional[TicketResponse]:
         """
@@ -88,7 +118,7 @@ class TicketService:
         if not ticket:
             return None
 
-        return TicketResponse.model_validate(ticket)
+        return self._to_ticket_response(ticket)
 
     def get_ticket_by_number(self, ticket_number: str) -> Optional[TicketResponse]:
         """
@@ -106,7 +136,7 @@ class TicketService:
         if not ticket:
             return None
 
-        return TicketResponse.model_validate(ticket)
+        return self._to_ticket_response(ticket)
 
     def get_ticket_by_session(self, session_id: UUID) -> Optional[TicketResponse]:
         """
@@ -129,7 +159,7 @@ class TicketService:
         if not ticket:
             return None
 
-        return TicketResponse.model_validate(ticket)
+        return self._to_ticket_response(ticket)
 
     def update_ticket(self, ticket_id: UUID, ticket_data: TicketUpdate) -> TicketResponse:
         """
@@ -159,7 +189,7 @@ class TicketService:
         self.db.commit()
         self.db.refresh(ticket)
 
-        return TicketResponse.model_validate(ticket)
+        return self._to_ticket_response(ticket)
 
     def assign_ticket(self, ticket_id: UUID, assign_data: TicketAssign) -> TicketResponse:
         """
@@ -190,7 +220,7 @@ class TicketService:
         self.db.commit()
         self.db.refresh(ticket)
 
-        return TicketResponse.model_validate(ticket)
+        return self._to_ticket_response(ticket)
 
     def resolve_ticket(self, ticket_id: UUID, resolve_data: TicketResolve) -> TicketResponse:
         """
@@ -230,7 +260,7 @@ class TicketService:
         self.db.commit()
         self.db.refresh(ticket)
 
-        return TicketResponse.model_validate(ticket)
+        return self._to_ticket_response(ticket)
 
     def close_ticket(self, ticket_id: UUID) -> TicketResponse:
         """
@@ -256,7 +286,7 @@ class TicketService:
         self.db.commit()
         self.db.refresh(ticket)
 
-        return TicketResponse.model_validate(ticket)
+        return self._to_ticket_response(ticket)
 
     def get_tenant_tickets(
         self,
@@ -297,7 +327,7 @@ class TicketService:
 
         tickets = self.db.execute(stmt).scalars().all()
 
-        return [TicketResponse.model_validate(t) for t in tickets], total
+        return [self._to_ticket_response(t) for t in tickets], total
 
     def get_user_assigned_tickets(
         self, user_id: UUID, status: Optional[TicketStatus] = None
@@ -321,7 +351,7 @@ class TicketService:
 
         tickets = self.db.execute(stmt).scalars().all()
 
-        return [TicketResponse.model_validate(t) for t in tickets]
+        return [self._to_ticket_response(t) for t in tickets]
 
     def get_unassigned_tickets(self, tenant_id: UUID) -> list[TicketResponse]:
         """
@@ -345,4 +375,4 @@ class TicketService:
 
         tickets = self.db.execute(stmt).scalars().all()
 
-        return [TicketResponse.model_validate(t) for t in tickets]
+        return [self._to_ticket_response(t) for t in tickets]

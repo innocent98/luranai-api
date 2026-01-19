@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-01-15
 **Widget Version:** 1.0
-**CDN URL:** `https://cdn.luran.com/widget/v1/widget.js`
+**CDN URL:** `https://cdn.luranai.com/widget/v1/widget.js`
 
 ## Table of Contents
 
@@ -47,16 +47,16 @@
 │  ┌───────────────────────────────────────────┐ │
 │  │ Chat Window (iframe)                      │ │
 │  │ • Isolated environment                    │ │
-│  │ • Loads from chat.luran.com               │ │
+│  │ • Loads from chat.luranai.com               │ │
 │  │ • Full chat UI                            │ │
 │  └───────────────────────────────────────────┘ │
 │                                                 │
 └─────────────────────────────────────────────────┘
 
 External Services:
-- API: https://api.luran.com/api/v1
-- Chat UI: https://chat.luran.com/widget
-- CDN: https://cdn.luran.com/widget/v1
+- API: https://api.luranai.com/api/v1
+- Chat UI: https://chat.luranai.com/widget
+- CDN: https://cdn.luranai.com/widget/v1
 ```
 
 ### Key Components
@@ -78,7 +78,7 @@ External Services:
    - Opens/closes chat window on click
 
 3. **Chat Window** (iframe) - **Separate application**
-   - Loads React/Vue app from `chat.luran.com/widget`
+   - Loads React/Vue app from `chat.luranai.com/widget`
    - Completely isolated from parent page styles
    - Handles all chat interactions (messages, WebSocket, etc.)
    - Communicates with parent via postMessage
@@ -105,7 +105,7 @@ External Services:
     apiKey: 'pk_live_your_public_api_key_here'
   };
 </script>
-<script src="https://cdn.luran.com/widget/v1/widget.js" async defer></script>
+<script src="https://cdn.luranai.com/widget/v1/widget.js" async defer></script>
 <!-- End Luran Widget -->
 ```
 
@@ -198,8 +198,8 @@ luran-chat-ui/
   }
 
   // Constants
-  const API_BASE_URL = 'https://api.luran.com/api/v1';
-  const CHAT_UI_URL = 'https://chat.luran.com/widget';
+  const API_BASE_URL = 'https://api.luranai.com/api/v1';
+  const CHAT_UI_URL = 'https://chat.luranai.com/widget';
   const STORAGE_KEY = 'luran_widget_';
 
   // Widget state
@@ -649,12 +649,12 @@ window.addEventListener('resize', adjustForMobile);
 ### iframe URL Structure
 
 ```
-https://chat.luran.com/widget?tenantId={tenant-uuid}&apiKey=pk_live_...&sessionId=optional
+https://chat.luranai.com/widget?tenantId={tenant-uuid}&apiKey=pk_live_...&sessionId=optional
 ```
 
 **Example:**
 ```
-https://chat.luran.com/widget?tenantId=a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6&apiKey=pk_live_abc123&sessionId=optional
+https://chat.luranai.com/widget?tenantId=a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6&apiKey=pk_live_abc123&sessionId=optional
 ```
 
 ### iframe Communication (postMessage)
@@ -669,7 +669,7 @@ iframe.contentWindow.postMessage({
     config: config,
     sessionId: previousSessionId
   }
-}, 'https://chat.luran.com');
+}, 'https://chat.luranai.com');
 ```
 
 **iframe → Parent:**
@@ -711,7 +711,7 @@ window.parent.postMessage({
 ```javascript
 async function fetchConfig() {
   const response = await fetch(
-    `https://api.luran.com/api/v1/widget/public/config/${tenantId}`,  // tenantId = UUID
+    `https://api.luranai.com/api/v1/widget/public/config/${tenantId}`,  // tenantId = UUID
     {
       headers: {
         'X-API-Key': apiKey,
@@ -730,7 +730,7 @@ async function fetchConfig() {
 
 **Example Request:**
 ```
-GET https://api.luran.com/api/v1/widget/public/config/a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6
+GET https://api.luranai.com/api/v1/widget/public/config/a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6
 X-API-Key: pk_live_abc123def456
 ```
 
@@ -934,14 +934,14 @@ module.exports = {
 
 2. Upload to CDN (AWS S3, Cloudflare, etc.):
    ```bash
-   aws s3 cp dist/widget.js s3://cdn.luran.com/widget/v1/widget.js \
+   aws s3 cp dist/widget.js s3://cdn.luranai.com/widget/v1/widget.js \
      --acl public-read \
      --cache-control "max-age=31536000, immutable"
    ```
 
 3. Create versioned URLs:
-   - `https://cdn.luran.com/widget/v1/widget.js` (auto-updates)
-   - `https://cdn.luran.com/widget/v1.0.0/widget.js` (pinned version)
+   - `https://cdn.luranai.com/widget/v1/widget.js` (auto-updates)
+   - `https://cdn.luranai.com/widget/v1.0.0/widget.js` (pinned version)
 
 ### Bundle Size Optimization
 
@@ -1311,7 +1311,7 @@ console.log('iframe src:', iframe?.src);
 **Debug:**
 ```javascript
 // Test API directly (replace with your actual Tenant UUID)
-fetch('https://api.luran.com/api/v1/widget/public/config/a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6', {
+fetch('https://api.luranai.com/api/v1/widget/public/config/a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6', {
   headers: {
     'X-API-Key': 'pk_live_test'
   }
@@ -1349,8 +1349,8 @@ function openChat() {
 
 ```html
 <!-- Add to customer installation code -->
-<link rel="dns-prefetch" href="https://api.luran.com">
-<link rel="preconnect" href="https://chat.luran.com">
+<link rel="dns-prefetch" href="https://api.luranai.com">
+<link rel="preconnect" href="https://chat.luranai.com">
 ```
 
 ### Caching Strategy
@@ -1430,9 +1430,9 @@ Access-Control-Allow-Headers: X-API-Key, Content-Type
 Widget should work with strict CSP policies:
 ```html
 <meta http-equiv="Content-Security-Policy"
-      content="script-src 'self' https://cdn.luran.com;
-               frame-src https://chat.luran.com;
-               connect-src https://api.luran.com;">
+      content="script-src 'self' https://cdn.luranai.com;
+               frame-src https://chat.luranai.com;
+               connect-src https://api.luranai.com;">
 ```
 
 ---
@@ -1481,12 +1481,12 @@ Widget should work with strict CSP policies:
 
 1. Customer updates script src:
    ```html
-   <script src="https://cdn.luran.com/widget/v1/widget.js"></script>
+   <script src="https://cdn.luranai.com/widget/v1/widget.js"></script>
    ```
 
 2. Or pin to specific version:
    ```html
-   <script src="https://cdn.luran.com/widget/v1.0.0/widget.js"></script>
+   <script src="https://cdn.luranai.com/widget/v1.0.0/widget.js"></script>
    ```
 
 ### Monitoring

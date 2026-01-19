@@ -1,7 +1,7 @@
 # Frontend Development Guide - Complete API Reference
 
 **Last Updated:** 2026-01-19
-**Base URL:** `http://localhost:8000/api/v1` (development) | `https://api.luran.com/api/v1` (production)
+**Base URL:** `http://localhost:8000/api/v1` (development) | `https://api.luranai.com/api/v1` (production)
 
 ## Table of Contents
 
@@ -1237,7 +1237,7 @@ Authorization: Bearer {tenant_token}
 **Response:**
 ```json
 {
-  "html_snippet": "<!-- Luran Widget Integration -->\n<script>\n  window.luranSettings = {\n    tenantId: 'a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6',\n    apiKey: 'YOUR_PUBLIC_API_KEY_HERE'  // Get from API Keys page\n  };\n</script>\n<script src=\"https://cdn.luran.com/widget/v1/widget.js\" async defer></script>\n<!-- End Luran Widget -->",
+  "html_snippet": "<!-- Luran Widget Integration -->\n<script>\n  window.luranSettings = {\n    tenantId: 'a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6',\n    apiKey: 'YOUR_PUBLIC_API_KEY_HERE'  // Get from API Keys page\n  };\n</script>\n<script src=\"https://cdn.luranai.com/widget/v1/widget.js\" async defer></script>\n<!-- End Luran Widget -->",
   "instructions": "Installation Instructions:\n\n1. Get your Public API Key:\n   - Go to Settings → API Keys\n   - Create a new PUBLIC API key\n   - Copy the key (starts with pk_live_...)\n\n2. Replace 'YOUR_PUBLIC_API_KEY_HERE' in the code above with your actual public API key\n\n3. Add the code snippet to your website:\n   - Paste it before the closing </body> tag\n   - The widget will appear on all pages where this code is present\n\n4. Customize the widget:\n   - Go to Settings → Widget Configuration\n   - Adjust colors, logo, greeting message, and position\n\n5. Test the widget:\n   - Visit your website\n   - Click the floating chat button\n   - Start a conversation\n\nNote: The tenantId is your Tenant UUID (pre-filled), not your company name. The widget loads asynchronously and won't affect your page load speed."
 }
 ```
@@ -2183,13 +2183,13 @@ Authorization: Bearer {tenant_token}
 
 **Page:** `/dashboard/support/conversations/{session_id}` (real-time chat)
 
-**WebSocket Endpoint:** `wss://api.luran.com/api/v1/ws/agent/{session_id}`
+**WebSocket Endpoint:** `wss://api.luranai.com/api/v1/ws/agent/{session_id}`
 
 **Connection:**
 ```javascript
 // Connect to agent WebSocket
 const ws = new WebSocket(
-  `wss://api.luran.com/api/v1/ws/agent/${sessionId}?token=${tenantToken}`
+  `wss://api.luranai.com/api/v1/ws/agent/${sessionId}?token=${tenantToken}`
 );
 
 ws.onopen = () => {
@@ -2348,6 +2348,7 @@ GET /tickets?status=open&limit=50&offset=0
       "priority": "high",
       "summary": "Customer unable to access billing dashboard - 403 error",
       "assigned_to": null,
+      "assigned_agent": null,
       "resolution_notes": null,
       "resolved_at": null,
       "created_at": "2026-01-18T10:30:00Z",
@@ -2362,6 +2363,12 @@ GET /tickets?status=open&limit=50&offset=0
       "priority": "medium",
       "summary": "Payment method update failing with validation error",
       "assigned_to": "agent-uuid-1",
+      "assigned_agent": {
+        "id": "agent-uuid-1",
+        "email": "john.doe@acme.com",
+        "full_name": "John Doe",
+        "role": "SUPPORT_AGENT"
+      },
       "resolution_notes": null,
       "resolved_at": null,
       "created_at": "2026-01-18T09:45:00Z",
@@ -2382,6 +2389,7 @@ GET /tickets?status=open&limit=50&offset=0
 
 **Display:**
 - Table with columns: Ticket #, Summary, Status, Priority, Assigned To, Created, Actions
+- For "Assigned To" column: Use `assigned_agent.full_name` if available, otherwise show "Unassigned"
 - Filter dropdowns: Status, Priority, Assigned to me
 - Search by ticket number or summary
 - Status badges with colors:
@@ -2429,6 +2437,12 @@ Authorization: Bearer {tenant_token}
   "priority": "high",
   "summary": "Customer unable to access billing dashboard - 403 error",
   "assigned_to": "agent-uuid-1",
+  "assigned_agent": {
+    "id": "agent-uuid-1",
+    "email": "john.doe@acme.com",
+    "full_name": "John Doe",
+    "role": "SUPPORT_AGENT"
+  },
   "resolution_notes": null,
   "resolved_at": null,
   "created_at": "2026-01-18T10:30:00Z",
@@ -2436,10 +2450,12 @@ Authorization: Bearer {tenant_token}
 }
 ```
 
+**Note:** The `assigned_agent` object is populated when the ticket is assigned to an agent. If the ticket is unassigned, both `assigned_to` and `assigned_agent` will be `null`. The `assigned_to` field is kept for backwards compatibility.
+
 **Display:**
 - Full ticket details card showing all fields
 - Link to associated conversation: "View Conversation" button → `/dashboard/support/conversations/{session_id}`
-- Assigned agent name (fetch from user endpoint if needed)
+- Assigned agent name from `assigned_agent.full_name` (no need to fetch separately)
 - Status and priority badges
 - Action buttons based on status:
   - If `open`: "Assign to Me", "Assign to Other Agent", "Update Priority"
@@ -3800,7 +3816,7 @@ After frontend is complete, the widget JavaScript and chat UI will be built sepa
 - Creates floating button and chat window
 
 **Chat UI** (Separate project):
-- React/Vue app hosted at `chat.luran.com/widget`
+- React/Vue app hosted at `chat.luranai.com/widget`
 - Loaded in iframe by widget SDK
 - Sends messages to chat API
 

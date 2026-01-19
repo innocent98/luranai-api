@@ -9,6 +9,16 @@ from pydantic import BaseModel, Field, ConfigDict
 from app.db.models.conversation import TicketStatus, TicketPriority
 
 
+# Nested schemas
+class AssignedAgent(BaseModel):
+    """Schema for assigned agent information."""
+
+    id: UUID
+    email: str
+    full_name: str
+    role: str
+
+
 # Base schemas
 class TicketBase(BaseModel):
     """Base ticket schema."""
@@ -68,7 +78,8 @@ class TicketResponse(TicketBase):
     session_id: UUID
     ticket_number: str
     status: TicketStatus
-    assigned_to: Optional[UUID] = None
+    assigned_to: Optional[UUID] = None  # Kept for backwards compatibility
+    assigned_agent: Optional[AssignedAgent] = None  # New: full agent details
     resolution_notes: Optional[str] = None
     resolved_at: Optional[datetime] = None
     created_at: datetime

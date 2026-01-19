@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat Placeholder</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+    }
+
+    .container {
+      text-align: center;
+      padding: 40px;
+    }
+
+    h1 {
+      font-size: 36px;
+      margin-bottom: 20px;
+    }
+
+    p {
+      font-size: 18px;
+      margin-bottom: 15px;
+      opacity: 0.9;
+    }
+
+    .info-box {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      border-radius: 12px;
+      padding: 30px;
+      margin: 30px 0;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .info-box h3 {
+      margin-bottom: 15px;
+      font-size: 20px;
+    }
+
+    .info-item {
+      text-align: left;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 14px;
+    }
+
+    .info-item:last-child {
+      border-bottom: none;
+    }
+
+    .info-label {
+      font-weight: 600;
+      display: inline-block;
+      width: 120px;
+    }
+
+    .btn {
+      background: white;
+      color: #667eea;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s ease;
+      margin: 10px;
+    }
+
+    .btn:hover {
+      transform: scale(1.05);
+    }
+
+    .status {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: rgba(72, 187, 120, 0.9);
+      padding: 10px 20px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    code {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .emoji {
+      font-size: 48px;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="status">🟢 Iframe Loaded</div>
+
+  <div class="container">
+    <div class="emoji">💬</div>
+    <h1>Chat UI Placeholder</h1>
+    <p>This is a temporary placeholder for the Luran chat interface.</p>
+    <p>The actual chat UI will be built using React/Next.js.</p>
+
+    <div class="info-box">
+      <h3>📋 URL Parameters</h3>
+      <div class="info-item">
+        <span class="info-label">Tenant ID:</span>
+        <code id="tenant-id">Loading...</code>
+      </div>
+      <div class="info-item">
+        <span class="info-label">API Key:</span>
+        <code id="api-key">Loading...</code>
+      </div>
+      <div class="info-item">
+        <span class="info-label">Session ID:</span>
+        <code id="session-id">None</code>
+      </div>
+    </div>
+
+    <div class="info-box">
+      <h3>✨ What the Real Chat UI Will Have</h3>
+      <p style="text-align: left; margin-top: 15px;">
+        • Message list with scroll<br>
+        • Text input with send button<br>
+        • File upload capability<br>
+        • Typing indicators<br>
+        • Agent presence<br>
+        • Conversation history<br>
+        • WebSocket real-time updates<br>
+        • Emoji support<br>
+        • Message timestamps
+      </p>
+    </div>
+
+    <button class="btn" onclick="sendCloseMessage()">Close Chat (Test)</button>
+    <button class="btn" onclick="sendUnreadUpdate()">Update Badge (Test)</button>
+
+    <p style="margin-top: 30px; font-size: 14px; opacity: 0.7;">
+      This iframe communicates with the parent widget via postMessage
+    </p>
+  </div>
+
+  <script>
+    // Parse URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const tenantId = urlParams.get('tenantId') || 'Not provided';
+    const apiKey = urlParams.get('apiKey') || 'Not provided';
+    const sessionId = urlParams.get('sessionId') || 'None';
+
+    // Display parameters
+    document.getElementById('tenant-id').textContent = tenantId;
+    document.getElementById('api-key').textContent = apiKey ? apiKey.substring(0, 20) + '...' : 'Not provided';
+    document.getElementById('session-id').textContent = sessionId;
+
+    // Log to console
+    console.log('[Chat Placeholder] Loaded with params:', {
+      tenantId,
+      apiKey: apiKey ? apiKey.substring(0, 20) + '...' : 'Not provided',
+      sessionId
+    });
+
+    // Send close message to parent widget
+    function sendCloseMessage() {
+      window.parent.postMessage({
+        type: 'CLOSE_CHAT',
+        data: {}
+      }, '*');
+      console.log('[Chat Placeholder] Sent CLOSE_CHAT message');
+    }
+
+    // Send unread count update
+    function sendUnreadUpdate() {
+      const randomCount = Math.floor(Math.random() * 10);
+      window.parent.postMessage({
+        type: 'UPDATE_UNREAD',
+        data: { count: randomCount }
+      }, '*');
+      console.log('[Chat Placeholder] Sent UPDATE_UNREAD:', randomCount);
+    }
+
+    // Send session started message (simulate)
+    setTimeout(() => {
+      const mockSessionId = 'session_' + Math.random().toString(36).substr(2, 9);
+      window.parent.postMessage({
+        type: 'SESSION_STARTED',
+        data: { sessionId: mockSessionId }
+      }, '*');
+      console.log('[Chat Placeholder] Sent SESSION_STARTED:', mockSessionId);
+    }, 1000);
+
+    // Listen for messages from parent
+    window.addEventListener('message', (event) => {
+      console.log('[Chat Placeholder] Received message from parent:', event.data);
+
+      switch (event.data.type) {
+        case 'INIT':
+          console.log('[Chat Placeholder] Init with config:', event.data.data);
+          break;
+        case 'OPEN':
+          console.log('[Chat Placeholder] Widget opened');
+          break;
+        case 'CLOSE':
+          console.log('[Chat Placeholder] Widget closed');
+          break;
+        default:
+          console.log('[Chat Placeholder] Unknown message type:', event.data.type);
+      }
+    });
+
+    // Notify parent that iframe is ready
+    window.parent.postMessage({
+      type: 'IFRAME_READY',
+      data: {}
+    }, '*');
+  </script>
+</body>
+</html>

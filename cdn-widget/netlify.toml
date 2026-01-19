@@ -1,0 +1,37 @@
+# Netlify Configuration for Luran Widget CDN
+# Alternative to Vercel
+
+[build]
+  publish = "public"
+  command = "echo 'No build needed - static files only'"
+
+# Headers for widget files
+[[headers]]
+  for = "/widget/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type"
+    Cache-Control = "public, max-age=31536000, immutable"
+    Content-Type = "application/javascript; charset=utf-8"
+    X-Content-Type-Options = "nosniff"
+
+# Security headers for all pages
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+
+# Redirect /widget/latest to current version
+[[redirects]]
+  from = "/widget/latest/widget.js"
+  to = "/widget/v1/widget.js"
+  status = 200
+  force = true
+
+# 404 handling
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 404
