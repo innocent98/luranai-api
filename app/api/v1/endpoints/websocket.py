@@ -11,7 +11,7 @@ from jose import jwt, JWTError
 
 from app.core.websocket import connection_manager
 from app.core.config import settings
-from app.api.deps import get_db
+from app.db.session import SessionLocal
 from app.services.conversation_service import ConversationService
 from app.services.auth_service import AuthService
 from app.db.models.conversation import MessageRole
@@ -26,7 +26,6 @@ async def customer_websocket(
     websocket: WebSocket,
     session_id: UUID,
     user_identifier: str = Query(..., description="Customer identifier"),
-    db: Session = Depends(get_db),
 ):
     """
     WebSocket endpoint for customer chat.
@@ -40,18 +39,22 @@ async def customer_websocket(
     Query params:
         user_identifier: Customer's unique identifier (email, session token, etc.)
     """
-    conversation_service = ConversationService(db)
+    # Verify session exists and user_identifier matches (short-lived DB connection)
+    db = SessionLocal()
+    try:
+        conversation_service = ConversationService(db)
+        session = conversation_service.get_session(session_id)
 
-    # Verify session exists
-    session = conversation_service.get_session(session_id)
-    if not session:
-        await websocket.close(code=4004, reason="Session not found")
-        return
+        if not session:
+            await websocket.close(code=4004, reason="Session not found")
+            return
 
-    # Verify user_identifier matches session
-    if session.user_identifier != user_identifier:
-        await websocket.close(code=4003, reason="Unauthorized")
-        return
+        # Verify user_identifier matches session
+        if session.user_identifier != user_identifier:
+            await websocket.close(code=4003, reason="Unauthorized")
+            return
+    finally:
+        db.close()  # Release connection immediately after verification
 
     # Connect customer
     await connection_manager.connect_customer(
@@ -72,29 +75,39 @@ async def customer_websocket(
                 if not content:
                     continue
 
-                # Save message to database
-                message = conversation_service.add_message(
-                    session_id=session_id,
-                    role=MessageRole.USER,
-                    content=content,
-                )
+                # Get DB connection only for saving message
+                db = SessionLocal()
+                try:
+                    conversation_service = ConversationService(db)
+                    message = conversation_service.add_message(
+                        session_id=session_id,
+                        role=MessageRole.USER,
+                        content=content,
+                    )
+                    db.commit()  # Ensure message is committed
+
+                    # Store message data before closing DB connection
+                    message_id = str(message.id)
+                    message_timestamp = message.created_at.isoformat()
+                finally:
+                    db.close()  # Release connection immediately
 
                 # Broadcast to all agents watching this session
                 await connection_manager.send_to_agents(
                     session_id=session_id,
                     message={
                         "type": "customer_message",
-                        "message_id": str(message.id),
+                        "message_id": message_id,
                         "content": content,
                         "user_identifier": user_identifier,
-                        "timestamp": message.created_at.isoformat(),
+                        "timestamp": message_timestamp,
                     }
                 )
 
                 logger.info(f"Customer message in session {session_id}: {content[:50]}")
 
             elif message_type == "typing":
-                # Customer is typing - notify agents
+                # Customer is typing - notify agents (no DB needed)
                 is_typing = data.get("is_typing", False)
                 await connection_manager.send_typing_indicator(
                     session_id=session_id,
@@ -117,7 +130,6 @@ async def agent_websocket(
     websocket: WebSocket,
     session_id: UUID,
     token: str = Query(..., description="JWT authentication token"),
-    db: Session = Depends(get_db),
 ):
     """
     WebSocket endpoint for support agents.
@@ -131,28 +143,36 @@ async def agent_websocket(
     Query params:
         token: JWT authentication token for agent
     """
-    auth_service = AuthService(db)
-    conversation_service = ConversationService(db)
+    # Authenticate agent (short-lived DB connection)
+    agent_id = None
+    tenant_id = None
+    agent_full_name = None
 
-    # Authenticate agent
     try:
         # Decode JWT token
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         agent_id = UUID(payload.get("sub"))  # User ID is stored in 'sub' claim
         tenant_id = UUID(payload.get("tenant_id"))
 
-        # Get agent user
-        from app.db.models.user import User
-        agent = db.query(User).filter(User.id == agent_id).first()
+        # Get agent user from database (short-lived connection)
+        db = SessionLocal()
+        try:
+            from app.db.models.user import User
+            agent = db.query(User).filter(User.id == agent_id).first()
 
-        if not agent or not agent.is_active:
-            await websocket.close(code=4003, reason="Unauthorized")
-            return
+            if not agent or not agent.is_active:
+                await websocket.close(code=4003, reason="Unauthorized")
+                return
 
-        # Verify agent has appropriate role
-        if agent.role not in [UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]:
-            await websocket.close(code=4003, reason="Insufficient permissions")
-            return
+            # Verify agent has appropriate role
+            if agent.role not in [UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]:
+                await websocket.close(code=4003, reason="Insufficient permissions")
+                return
+
+            # Store agent info for use in the WebSocket loop
+            agent_full_name = agent.full_name
+        finally:
+            db.close()  # Release connection immediately after authentication
 
     except JWTError as e:
         logger.error(f"JWT verification failed: {e}")
@@ -163,22 +183,28 @@ async def agent_websocket(
         await websocket.close(code=4003, reason="Authentication failed")
         return
 
-    # Verify session exists and belongs to agent's tenant
-    session = conversation_service.get_session(session_id)
-    if not session:
-        await websocket.close(code=4004, reason="Session not found")
-        return
+    # Verify session exists and belongs to agent's tenant (short-lived DB connection)
+    db = SessionLocal()
+    try:
+        conversation_service = ConversationService(db)
+        session = conversation_service.get_session(session_id)
 
-    if session.tenant_id != tenant_id:
-        await websocket.close(code=4003, reason="Access denied")
-        return
+        if not session:
+            await websocket.close(code=4004, reason="Session not found")
+            return
+
+        if session.tenant_id != tenant_id:
+            await websocket.close(code=4003, reason="Access denied")
+            return
+    finally:
+        db.close()  # Release connection immediately after verification
 
     # Connect agent
     await connection_manager.connect_agent(
         websocket=websocket,
         session_id=session_id,
         agent_id=agent_id,
-        agent_name=agent.full_name,
+        agent_name=agent_full_name,
     )
 
     try:
@@ -193,26 +219,36 @@ async def agent_websocket(
                 if not content:
                     continue
 
-                # Save message to database
-                message = conversation_service.add_message(
-                    session_id=session_id,
-                    role=MessageRole.HUMAN_AGENT,
-                    content=content,
-                    meta={
-                        "agent_id": str(agent_id),
-                        "agent_name": agent.full_name,
-                    }
-                )
+                # Get DB connection only for saving message
+                db = SessionLocal()
+                try:
+                    conversation_service = ConversationService(db)
+                    message = conversation_service.add_message(
+                        session_id=session_id,
+                        role=MessageRole.HUMAN_AGENT,
+                        content=content,
+                        meta={
+                            "agent_id": str(agent_id),
+                            "agent_name": agent_full_name,
+                        }
+                    )
+                    db.commit()  # Ensure message is committed
+
+                    # Store message data before closing DB connection
+                    message_id = str(message.id)
+                    message_timestamp = message.created_at.isoformat()
+                finally:
+                    db.close()  # Release connection immediately
 
                 # Send to customer
                 await connection_manager.send_to_customer(
                     session_id=session_id,
                     message={
                         "type": "agent_message",
-                        "message_id": str(message.id),
+                        "message_id": message_id,
                         "content": content,
-                        "agent_name": agent.full_name,
-                        "timestamp": message.created_at.isoformat(),
+                        "agent_name": agent_full_name,
+                        "timestamp": message_timestamp,
                     }
                 )
 
@@ -221,28 +257,28 @@ async def agent_websocket(
                     session_id=session_id,
                     message={
                         "type": "agent_message",
-                        "message_id": str(message.id),
+                        "message_id": message_id,
                         "content": content,
-                        "agent_name": agent.full_name,
-                        "timestamp": message.created_at.isoformat(),
+                        "agent_name": agent_full_name,
+                        "timestamp": message_timestamp,
                     },
                     exclude_agent_id=agent_id,
                 )
 
-                logger.info(f"Agent {agent.full_name} sent message in session {session_id}")
+                logger.info(f"Agent {agent_full_name} sent message in session {session_id}")
 
             elif message_type == "typing":
-                # Agent is typing - notify customer
+                # Agent is typing - notify customer (no DB needed)
                 is_typing = data.get("is_typing", False)
                 await connection_manager.send_typing_indicator(
                     session_id=session_id,
                     is_typing=is_typing,
-                    user_name=agent.full_name,
+                    user_name=agent_full_name,
                     to_customer=True,  # Send to customer
                 )
 
     except WebSocketDisconnect:
-        logger.info(f"Agent {agent.full_name} disconnected from session {session_id}")
+        logger.info(f"Agent {agent_full_name} disconnected from session {session_id}")
         connection_manager.disconnect(websocket)
 
         # Notify customer that agent left
@@ -250,7 +286,7 @@ async def agent_websocket(
             session_id=session_id,
             message={
                 "type": "agent_left",
-                "agent_name": agent.full_name,
+                "agent_name": agent_full_name,
                 "timestamp": None,
             }
         )

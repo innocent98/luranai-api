@@ -38,7 +38,7 @@ def check_analytics_permission(db: Session, tenant_id: UUID) -> None:
         HTTPException: If analytics access not enabled
     """
     tenant_service = TenantService(db)
-    tenant = tenant_service.get_tenant(tenant_id)
+    tenant = tenant_service.get_tenant_by_id(tenant_id, include_relations=True)
 
     if not tenant:
         raise HTTPException(

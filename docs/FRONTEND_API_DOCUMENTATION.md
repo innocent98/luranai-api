@@ -1,6 +1,6 @@
 # Frontend Development Guide - Complete API Reference
 
-**Last Updated:** 2026-01-18
+**Last Updated:** 2026-01-19
 **Base URL:** `http://localhost:8000/api/v1` (development) | `https://api.luran.com/api/v1` (production)
 
 ## Table of Contents
@@ -32,11 +32,20 @@
    - Resolve Ticket
    - Close Ticket
    - Get Unassigned Tickets
-10. [User Flows with Diagrams](#user-flows-with-diagrams)
-11. [Common Patterns](#common-patterns)
-12. [Frontend Pages Checklist](#frontend-pages-checklist)
-13. [Next Steps](#next-steps)
-14. [Important Notes](#important-notes)
+10. [Analytics Dashboard](#analytics-dashboard)
+   - Overview Metrics
+   - Conversation Analytics
+   - Ticket Analytics
+   - Agent Performance (All Agents)
+   - Individual Agent Performance
+   - Conversation Trends
+   - Ticket Trends
+   - Knowledge Usage Analytics
+11. [User Flows with Diagrams](#user-flows-with-diagrams)
+12. [Common Patterns](#common-patterns)
+13. [Frontend Pages Checklist](#frontend-pages-checklist)
+14. [Next Steps](#next-steps)
+15. [Important Notes](#important-notes)
 
 ---
 
@@ -1228,10 +1237,12 @@ Authorization: Bearer {tenant_token}
 **Response:**
 ```json
 {
-  "html_snippet": "<!-- Luran Widget Integration -->\n<script>\n  window.luranSettings = {\n    tenantId: 'acme_corp',\n    apiKey: 'YOUR_PUBLIC_API_KEY_HERE'\n  };\n</script>\n<script src=\"https://cdn.luran.com/widget/v1/widget.js\" async defer></script>\n<!-- End Luran Widget -->",
-  "instructions": "Installation Instructions:\n\n1. Get your Public API Key:\n   - Go to Settings → API Keys\n   - Create a new PUBLIC API key\n   - Copy the key (starts with pk_live_...)\n\n2. Replace 'YOUR_PUBLIC_API_KEY_HERE' in the code above with your actual public API key\n\n3. Add the code snippet to your website:\n   - Paste it before the closing </body> tag\n   - The widget will appear on all pages where this code is present\n\n4. Customize the widget:\n   - Go to Settings → Widget Configuration\n   - Adjust colors, logo, greeting message, and position\n\n5. Test the widget:\n   - Visit your website\n   - Click the floating chat button\n   - Start a conversation\n\nNote: The widget loads asynchronously and won't affect your page load speed."
+  "html_snippet": "<!-- Luran Widget Integration -->\n<script>\n  window.luranSettings = {\n    tenantId: 'a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6',\n    apiKey: 'YOUR_PUBLIC_API_KEY_HERE'  // Get from API Keys page\n  };\n</script>\n<script src=\"https://cdn.luran.com/widget/v1/widget.js\" async defer></script>\n<!-- End Luran Widget -->",
+  "instructions": "Installation Instructions:\n\n1. Get your Public API Key:\n   - Go to Settings → API Keys\n   - Create a new PUBLIC API key\n   - Copy the key (starts with pk_live_...)\n\n2. Replace 'YOUR_PUBLIC_API_KEY_HERE' in the code above with your actual public API key\n\n3. Add the code snippet to your website:\n   - Paste it before the closing </body> tag\n   - The widget will appear on all pages where this code is present\n\n4. Customize the widget:\n   - Go to Settings → Widget Configuration\n   - Adjust colors, logo, greeting message, and position\n\n5. Test the widget:\n   - Visit your website\n   - Click the floating chat button\n   - Start a conversation\n\nNote: The tenantId is your Tenant UUID (pre-filled), not your company name. The widget loads asynchronously and won't affect your page load speed."
 }
 ```
+
+**Note:** The actual API response includes your tenant's UUID in the `tenantId` field (not company name).
 
 **Frontend:**
 - Display code in syntax-highlighted code block
@@ -1247,7 +1258,9 @@ Authorization: Bearer {tenant_token}
 
 **Used by:** Embedded widget JavaScript
 
-**Endpoint:** `GET /widget/public/config/{tenant_name}`
+**Endpoint:** `GET /widget/public/config/{tenant_id}`
+
+**Important:** The `tenant_id` parameter must be your **Tenant UUID** (not company name).
 
 **Headers:**
 ```
@@ -1256,7 +1269,7 @@ X-API-Key: pk_live_abc123...
 
 **Example:**
 ```
-GET /widget/public/config/acme_corp
+GET /widget/public/config/a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6
 X-API-Key: pk_live_abc123def456ghi789
 ```
 
@@ -2818,7 +2831,649 @@ Authorization: Bearer {tenant_token}
 
 ---
 
-## 10. User Flows with Diagrams
+## 10. Analytics Dashboard
+
+The Analytics Dashboard provides comprehensive metrics and insights about conversations, tickets, and agent performance. All analytics endpoints require the `can_access_analytics` capability to be enabled for your tenant.
+
+**Important Requirements:**
+- User must have `can_access_analytics` capability enabled in tenant settings
+- All endpoints require authentication (`Bearer {tenant_token}`)
+- Date ranges default to last 30 days if not specified
+- All data is automatically filtered by tenant (cannot access other tenants' data)
+
+---
+
+### 10.1 Get Overview Metrics
+
+**Page:** `/dashboard/analytics`
+
+**Endpoint:** `GET /analytics/overview`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Query Parameters:**
+```
+?start_date=2026-01-01T00:00:00Z
+?end_date=2026-01-31T23:59:59Z
+```
+
+**Request Example:**
+```
+GET /analytics/overview?start_date=2026-01-01T00:00:00Z&end_date=2026-01-31T23:59:59Z
+```
+
+**Response:**
+```json
+{
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "period_start": "2026-01-01T00:00:00Z",
+  "period_end": "2026-01-31T23:59:59Z",
+
+  "total_conversations": 1250,
+  "active_conversations": 45,
+  "escalated_conversations": 125,
+  "resolved_conversations": 980,
+  "abandoned_conversations": 100,
+  "escalation_rate": 10.0,
+  "avg_confidence_score": 0.75,
+
+  "total_tickets": 125,
+  "open_tickets": 15,
+  "in_progress_tickets": 25,
+  "resolved_tickets": 80,
+  "closed_tickets": 5,
+  "unassigned_tickets": 8,
+  "avg_resolution_time_hours": 4.5,
+
+  "total_agents": 10,
+  "active_agents": 7
+}
+```
+
+**Field Explanations:**
+
+**Conversation Metrics:**
+- `total_conversations` - Total conversations in period
+- `active_conversations` - Currently active AI conversations
+- `escalated_conversations` - Conversations escalated to human agents
+- `resolved_conversations` - Successfully resolved conversations
+- `abandoned_conversations` - Conversations where customer stopped responding
+- `escalation_rate` - Percentage of conversations escalated (escalated / total × 100)
+- `avg_confidence_score` - Average AI confidence score (0.0 to 1.0)
+
+**Ticket Metrics:**
+- `total_tickets` - Total tickets created in period
+- `open_tickets` - Tickets with OPEN status
+- `in_progress_tickets` - Tickets being actively worked on
+- `resolved_tickets` - Resolved tickets
+- `closed_tickets` - Closed tickets
+- `unassigned_tickets` - Currently unassigned tickets
+- `avg_resolution_time_hours` - Average time to resolve tickets (in hours)
+
+**Agent Metrics:**
+- `total_agents` - Total agents in tenant
+- `active_agents` - Agents with currently assigned tickets
+
+**Display:**
+- Dashboard cards for each major metric
+- Percentage indicators for escalation rate
+- Time-based charts comparing periods
+- Color coding (green for good metrics, yellow for attention needed, red for issues)
+
+**Error Responses:**
+- `403` - Analytics access not enabled for tenant
+- `400` - Invalid date range (end_date before start_date)
+- `401` - Unauthorized (invalid or missing token)
+
+---
+
+### 10.2 Get Conversation Analytics
+
+**Page:** `/dashboard/analytics/conversations`
+
+**Endpoint:** `GET /analytics/conversations`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Query Parameters:**
+```
+?start_date=2026-01-01T00:00:00Z
+?end_date=2026-01-31T23:59:59Z
+?status_filter=escalated
+```
+
+**Status Filter Values:**
+- `active` - Active AI conversations
+- `escalated` - Escalated to human
+- `resolved` - Resolved conversations
+- `abandoned` - Abandoned by customer
+
+**Response:**
+```json
+{
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "period_start": "2026-01-01T00:00:00Z",
+  "period_end": "2026-01-31T23:59:59Z",
+
+  "total_conversations": 1250,
+  "conversations_by_status": {
+    "active": 45,
+    "escalated": 125,
+    "resolved": 980,
+    "abandoned": 100
+  },
+  "escalation_rate": 10.0,
+  "avg_session_duration_minutes": 12.5,
+  "avg_messages_per_session": 8.3,
+  "avg_confidence_score": 0.75,
+  "confidence_distribution": {
+    "0-25%": 50,
+    "25-50%": 200,
+    "50-75%": 500,
+    "75-100%": 500
+  },
+  "top_escalation_reasons": [
+    {
+      "reason": "Customer requested human agent",
+      "count": 45
+    },
+    {
+      "reason": "Low confidence score",
+      "count": 35
+    },
+    {
+      "reason": "Complex technical issue",
+      "count": 25
+    }
+  ]
+}
+```
+
+**Field Explanations:**
+- `conversations_by_status` - Count of conversations grouped by status
+- `avg_session_duration_minutes` - Average conversation length
+- `avg_messages_per_session` - Average number of messages per conversation
+- `confidence_distribution` - Distribution of AI confidence scores in ranges
+- `top_escalation_reasons` - Most common reasons for escalation (up to 5)
+
+**Display:**
+- Pie chart for status distribution
+- Bar chart for confidence distribution
+- List of top escalation reasons with counts
+- Line chart for session duration trends
+
+---
+
+### 10.3 Get Ticket Analytics
+
+**Page:** `/dashboard/analytics/tickets`
+
+**Endpoint:** `GET /analytics/tickets`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Query Parameters:**
+```
+?start_date=2026-01-01T00:00:00Z
+?end_date=2026-01-31T23:59:59Z
+?status_filter=open
+?priority_filter=high
+```
+
+**Status Filter Values:**
+- `open` - Open tickets
+- `in_progress` - In progress
+- `resolved` - Resolved
+- `closed` - Closed
+
+**Priority Filter Values:**
+- `urgent` - Urgent priority
+- `high` - High priority
+- `medium` - Medium priority
+- `low` - Low priority
+
+**Response:**
+```json
+{
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "period_start": "2026-01-01T00:00:00Z",
+  "period_end": "2026-01-31T23:59:59Z",
+
+  "total_tickets": 125,
+  "tickets_by_status": {
+    "open": 15,
+    "in_progress": 25,
+    "resolved": 80,
+    "closed": 5
+  },
+  "tickets_by_priority": {
+    "urgent": 10,
+    "high": 30,
+    "medium": 60,
+    "low": 25
+  },
+  "avg_resolution_time_hours": 4.5,
+  "resolution_time_by_priority": {
+    "urgent": 1.5,
+    "high": 3.0,
+    "medium": 5.5,
+    "low": 8.0
+  },
+  "unassigned_tickets": 8,
+  "tickets_created": 125,
+  "tickets_resolved": 85
+}
+```
+
+**Field Explanations:**
+- `tickets_by_status` - Count of tickets grouped by status
+- `tickets_by_priority` - Count of tickets grouped by priority level
+- `resolution_time_by_priority` - Average resolution time for each priority level
+- `tickets_created` - Total tickets created in period
+- `tickets_resolved` - Total tickets resolved in period
+
+**Display:**
+- Status distribution pie chart
+- Priority distribution bar chart
+- Resolution time comparison chart by priority
+- Tickets created vs resolved trend line
+
+---
+
+### 10.4 Get All Agents Performance (Admin Only)
+
+**Page:** `/dashboard/analytics/agents`
+
+**Endpoint:** `GET /analytics/agents`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Query Parameters:**
+```
+?start_date=2026-01-01T00:00:00Z
+?end_date=2026-01-31T23:59:59Z
+```
+
+**Response:**
+```json
+[
+  {
+    "agent_id": "agent-uuid-1",
+    "agent_name": "Sarah Johnson",
+    "email": "sarah@acmecorp.com",
+    "current_assigned_tickets": 5,
+    "tickets_by_status": {
+      "open": 2,
+      "in_progress": 3,
+      "resolved": 45
+    },
+    "total_tickets_resolved": 245
+  },
+  {
+    "agent_id": "agent-uuid-2",
+    "agent_name": "John Smith",
+    "email": "john@acmecorp.com",
+    "current_assigned_tickets": 3,
+    "tickets_by_status": {
+      "open": 1,
+      "in_progress": 2,
+      "resolved": 32
+    },
+    "total_tickets_resolved": 189
+  }
+]
+```
+
+**Field Explanations:**
+- `current_assigned_tickets` - Currently assigned tickets (all statuses)
+- `tickets_by_status` - Breakdown of agent's tickets by status
+- `total_tickets_resolved` - All-time resolved tickets for this agent
+
+**Display:**
+- Table with columns: Name, Email, Assigned, In Progress, Resolved, Total Resolved
+- Sortable by any column
+- Click row to view detailed agent performance
+
+**Error Responses:**
+- `403` - Not a tenant admin (only admins can view all agents)
+
+---
+
+### 10.5 Get Individual Agent Performance
+
+**Page:** `/dashboard/analytics/agents/{agent_id}`
+
+**Endpoint:** `GET /analytics/agents/{agent_id}`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Access Control:**
+- Agents can view their own metrics
+- Admins can view any agent's metrics
+
+**Query Parameters:**
+```
+?start_date=2026-01-01T00:00:00Z
+?end_date=2026-01-31T23:59:59Z
+```
+
+**Response:**
+```json
+{
+  "agent_id": "agent-uuid-1",
+  "agent_name": "Sarah Johnson",
+  "agent_email": "sarah@acmecorp.com",
+  "period_start": "2026-01-01T00:00:00Z",
+  "period_end": "2026-01-31T23:59:59Z",
+
+  "total_tickets_assigned": 50,
+  "tickets_resolved": 45,
+  "tickets_in_progress": 3,
+  "avg_resolution_time_hours": 3.5,
+  "conversations_handled": 48,
+  "avg_response_time_minutes": 2.5
+}
+```
+
+**Field Explanations:**
+- `total_tickets_assigned` - Tickets assigned to this agent in period
+- `tickets_resolved` - Tickets resolved by agent in period
+- `tickets_in_progress` - Currently in progress tickets
+- `avg_resolution_time_hours` - Agent's average resolution time
+- `conversations_handled` - Escalated conversations handled by agent
+- `avg_response_time_minutes` - Average time to first response
+
+**Display:**
+- Agent profile card with photo and name
+- Performance metrics cards
+- Comparison to team average
+- Resolution time trend chart
+- Recent tickets handled table
+
+**Error Responses:**
+- `403` - Agent trying to view another agent's metrics (only own or admin)
+- `404` - Agent not found
+
+---
+
+### 10.6 Get Conversation Trends
+
+**Page:** `/dashboard/analytics/trends`
+
+**Endpoint:** `GET /analytics/trends/conversations`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Query Parameters:**
+```
+?start_date=2026-01-01T00:00:00Z
+?end_date=2026-01-31T23:59:59Z
+?granularity=daily
+```
+
+**Granularity Values:**
+- `daily` - Data grouped by day
+- `weekly` - Data grouped by week
+- `monthly` - Data grouped by month
+
+**Response:**
+```json
+{
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "metric_name": "conversation_count",
+  "granularity": "daily",
+  "period_start": "2026-01-01T00:00:00Z",
+  "period_end": "2026-01-31T23:59:59Z",
+  "data_points": [
+    {
+      "timestamp": "2026-01-01T00:00:00Z",
+      "value": 42.0,
+      "meta": null
+    },
+    {
+      "timestamp": "2026-01-02T00:00:00Z",
+      "value": 38.0,
+      "meta": null
+    },
+    {
+      "timestamp": "2026-01-03T00:00:00Z",
+      "value": 45.0,
+      "meta": null
+    }
+  ]
+}
+```
+
+**Field Explanations:**
+- `metric_name` - Type of metric ("conversation_count")
+- `data_points` - Array of timestamp-value pairs
+- `timestamp` - Start of the time period
+- `value` - Count of conversations in that period
+
+**Display:**
+- Line chart with time on X-axis and count on Y-axis
+- Interactive hover to show exact values
+- Zoom controls for date range
+- Export to CSV button
+
+**Error Responses:**
+- `422` - Invalid granularity value (must be daily, weekly, or monthly)
+
+---
+
+### 10.7 Get Ticket Trends
+
+**Page:** `/dashboard/analytics/trends`
+
+**Endpoint:** `GET /analytics/trends/tickets`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Query Parameters:**
+```
+?start_date=2026-01-01T00:00:00Z
+?end_date=2026-01-31T23:59:59Z
+?granularity=daily
+```
+
+**Granularity Values:**
+- `daily` - Data grouped by day
+- `weekly` - Data grouped by week
+- `monthly` - Data grouped by month
+
+**Response:**
+```json
+{
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "metric_name": "ticket_count",
+  "granularity": "daily",
+  "period_start": "2026-01-01T00:00:00Z",
+  "period_end": "2026-01-31T23:59:59Z",
+  "data_points": [
+    {
+      "timestamp": "2026-01-01T00:00:00Z",
+      "value": 5.0,
+      "meta": null
+    },
+    {
+      "timestamp": "2026-01-02T00:00:00Z",
+      "value": 3.0,
+      "meta": null
+    },
+    {
+      "timestamp": "2026-01-03T00:00:00Z",
+      "value": 7.0,
+      "meta": null
+    }
+  ]
+}
+```
+
+**Display:**
+- Line chart showing ticket volume over time
+- Overlay with created vs resolved tickets
+- Trend line showing increase/decrease
+- Period comparison (current vs previous period)
+
+---
+
+### 10.8 Get Knowledge Usage Analytics
+
+**Page:** `/dashboard/analytics/knowledge`
+
+**Endpoint:** `GET /analytics/knowledge`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Query Parameters:**
+```
+?start_date=2026-01-01T00:00:00Z
+?end_date=2026-01-31T23:59:59Z
+```
+
+**Response:**
+```json
+{
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "period_start": "2026-01-01T00:00:00Z",
+  "period_end": "2026-01-31T23:59:59Z",
+
+  "total_knowledge_chunks": 450,
+  "chunks_used_in_conversations": 320,
+  "usage_rate": 71.1,
+  "top_used_chunks": [
+    {
+      "chunk_id": "chunk-uuid-1",
+      "source_id": "source-uuid-1",
+      "usage_count": 145
+    },
+    {
+      "chunk_id": "chunk-uuid-2",
+      "source_id": "source-uuid-2",
+      "usage_count": 98
+    }
+  ],
+  "avg_chunks_per_conversation": 2.8,
+  "knowledge_effectiveness_score": 0.85
+}
+```
+
+**Field Explanations:**
+- `total_knowledge_chunks` - Total knowledge chunks in your knowledge base
+- `chunks_used_in_conversations` - Unique chunks referenced in AI responses
+- `usage_rate` - Percentage of knowledge base being used
+- `top_used_chunks` - Most frequently referenced knowledge chunks
+- `avg_chunks_per_conversation` - Average knowledge chunks used per conversation
+- `knowledge_effectiveness_score` - Effectiveness ratio (resolved / escalated when using knowledge)
+
+**Display:**
+- Knowledge base utilization gauge
+- List of most-used knowledge chunks with links to view content
+- Effectiveness score indicator
+- Recommendations for unused knowledge
+
+**Note:** Knowledge analytics helps you:
+- Identify which documentation is most valuable
+- Find gaps in your knowledge base
+- Optimize knowledge base content
+- Remove unused or outdated information
+
+---
+
+### Common Analytics Patterns
+
+**Date Range Selection:**
+All analytics endpoints support optional date ranges:
+- If not provided: Defaults to last 30 days
+- `start_date` must be before `end_date`
+- Dates should be in ISO 8601 format: `2026-01-15T10:30:00Z`
+
+**Permission Checking:**
+All analytics endpoints verify:
+1. User is authenticated (valid JWT token)
+2. Tenant has `can_access_analytics` capability enabled
+3. User belongs to the tenant they're querying
+
+**Error Handling:**
+```json
+// Analytics not enabled
+{
+  "detail": "Analytics access not enabled for this tenant"
+}
+
+// Invalid date range
+{
+  "detail": "End date must be after start date"
+}
+
+// Unauthorized access
+{
+  "detail": "Could not validate credentials"
+}
+```
+
+**Frontend Best Practices:**
+1. Cache analytics data for 5-10 minutes to reduce API calls
+2. Show loading skeletons while fetching data
+3. Provide date range picker with common presets (Last 7 days, Last 30 days, This month, etc.)
+4. Export functionality for reports (CSV, PDF)
+5. Real-time updates using periodic polling (every 60 seconds)
+6. Responsive charts that work on mobile devices
+
+**Dashboard Layout Recommendations:**
+```
+┌─────────────────────────────────────────────────────┐
+│  Analytics Dashboard                    [Date Range] │
+├─────────────────────────────────────────────────────┤
+│                                                      │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐         │
+│  │   1,250  │  │   125    │  │   10.0%  │         │
+│  │Conversa- │  │ Tickets  │  │Escalation│         │
+│  │  tions   │  │          │  │   Rate   │         │
+│  └──────────┘  └──────────┘  └──────────┘         │
+│                                                      │
+│  ┌────────────────────────────────────────────┐    │
+│  │  Conversation Volume Over Time             │    │
+│  │  [Line Chart]                              │    │
+│  └────────────────────────────────────────────┘    │
+│                                                      │
+│  ┌────────────────────┐  ┌────────────────────┐   │
+│  │ Tickets by Status  │  │ Agent Performance  │   │
+│  │ [Pie Chart]        │  │ [Table]            │   │
+│  └────────────────────┘  └────────────────────┘   │
+│                                                      │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+## 11. User Flows with Diagrams
 
 ### Flow 1: Company Registration
 
@@ -2978,7 +3633,7 @@ Authorization: Bearer {tenant_token}
 
 ---
 
-## 11. Common Patterns
+## 12. Common Patterns
 
 ### Authentication Headers
 
@@ -3035,7 +3690,7 @@ Currently, all list endpoints return full results. Pagination will be added late
 
 ---
 
-## 12. Frontend Pages Checklist
+## 13. Frontend Pages Checklist
 
 ### Platform Admin Dashboard
 
@@ -3135,7 +3790,7 @@ Currently, all list endpoints return full results. Pagination will be added late
 
 ---
 
-## 13. Next Steps
+## 14. Next Steps
 
 After frontend is complete, the widget JavaScript and chat UI will be built separately.
 
@@ -3151,7 +3806,7 @@ After frontend is complete, the widget JavaScript and chat UI will be built sepa
 
 ---
 
-## 14. Important Notes
+## 15. Important Notes
 
 1. **Two Separate Tokens:** Platform admin tokens and tenant tokens are different. Store them separately.
 

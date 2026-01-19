@@ -194,7 +194,7 @@ class TicketService:
 
     def resolve_ticket(self, ticket_id: UUID, resolve_data: TicketResolve) -> TicketResponse:
         """
-        Resolve a ticket.
+        Resolve a ticket and update the associated conversation session status.
 
         Args:
             ticket_id: Ticket UUID
@@ -212,9 +212,20 @@ class TicketService:
         if not ticket:
             raise ValueError("Ticket not found")
 
+        # Resolve the ticket
         ticket.status = TicketStatus.RESOLVED
         ticket.resolution_notes = resolve_data.resolution_notes
         ticket.resolved_at = datetime.utcnow()
+
+        # Also resolve the conversation session
+        if ticket.session_id:
+            from app.db.models.conversation import ConversationSession, SessionStatus
+            session = self.db.query(ConversationSession).filter(
+                ConversationSession.id == ticket.session_id
+            ).first()
+
+            if session:
+                session.status = SessionStatus.RESOLVED
 
         self.db.commit()
         self.db.refresh(ticket)

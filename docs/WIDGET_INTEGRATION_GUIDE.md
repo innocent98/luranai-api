@@ -61,12 +61,15 @@ External Services:
 
 ### Key Components
 
-1. **Widget Loader** (`widget.js`)
+**Important:** The widget system consists of two separate components:
+
+1. **Widget Loader** (`widget.js`) - **Runs on customer's website**
    - Lightweight JavaScript file (~10KB gzipped)
    - Loads asynchronously, doesn't block page load
    - Fetches tenant configuration from API
    - Creates floating button DOM element
    - Manages iframe lifecycle
+   - **Does NOT contain chat UI** - only the loader and button
 
 2. **Floating Button** (DOM element)
    - Fixed position on customer's website
@@ -74,11 +77,16 @@ External Services:
    - Shows unread message badge
    - Opens/closes chat window on click
 
-3. **Chat Window** (iframe)
+3. **Chat Window** (iframe) - **Separate application**
    - Loads React/Vue app from `chat.luran.com/widget`
    - Completely isolated from parent page styles
-   - Handles all chat interactions
+   - Handles all chat interactions (messages, WebSocket, etc.)
    - Communicates with parent via postMessage
+   - **This is the actual chat UI application** - separate from widget.js
+
+**Note:** Widget.js and Chat UI are two different things:
+- **widget.js** = Doorbell button (small loader script)
+- **Chat UI** = Video call system (full chat application in iframe)
 
 ---
 
@@ -93,7 +101,7 @@ External Services:
 <!-- Luran Widget Integration -->
 <script>
   window.luranSettings = {
-    tenantId: 'your_company_name',
+    tenantId: 'your-tenant-uuid-here',  // Your Tenant UUID from dashboard
     apiKey: 'pk_live_your_public_api_key_here'
   };
 </script>
@@ -101,14 +109,35 @@ External Services:
 <!-- End Luran Widget -->
 ```
 
+**Important:** The `tenantId` must be your **Tenant UUID** (a unique identifier like `a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6`), NOT your company name. You can find your Tenant UUID in the Luran dashboard under Settings → Widget Configuration.
+
 3. That's it! The widget will appear on your site.
 
 ---
 
 ## Widget SDK Implementation
 
+### Implementation Status
+
+**✅ Backend API - IMPLEMENTED:**
+- All widget endpoints exist and working
+- Tenant configuration API active
+- Public widget config endpoint functional
+
+**📝 Frontend Components - TO BE BUILT:**
+This section describes the implementation plan for two frontend components that need to be built:
+
+1. **Widget Loader (widget.js)** - TO BE BUILT
+   - Small JavaScript file for customer websites
+   - Creates floating button and manages iframe
+
+2. **Chat UI Application** - TO BE BUILT
+   - React/Vue application that runs in iframe
+   - Full chat interface with WebSocket support
+
 ### Project Structure
 
+**For Widget Loader (widget.js):**
 ```
 luran-widget/
 ├── src/
@@ -124,6 +153,24 @@ luran-widget/
 ├── package.json
 ├── webpack.config.js
 └── README.md
+```
+
+**For Chat UI (separate React/Vue app):**
+```
+luran-chat-ui/
+├── src/
+│   ├── components/
+│   │   ├── ChatWindow.tsx
+│   │   ├── MessageList.tsx
+│   │   ├── MessageInput.tsx
+│   │   └── Header.tsx
+│   ├── hooks/
+│   │   ├── useWebSocket.ts
+│   │   └── useMessages.ts
+│   ├── App.tsx
+│   └── main.tsx
+├── package.json
+└── vite.config.ts
 ```
 
 ### Main Entry Point: `widget-loader.js`
@@ -193,11 +240,12 @@ luran-widget/
 
   /**
    * Fetch widget configuration from API
+   * Note: settings.tenantId should be the Tenant UUID
    */
   async function fetchConfig() {
     try {
       const response = await fetch(
-        `${API_BASE_URL}/widget/public/config/${settings.tenantId}`,
+        `${API_BASE_URL}/widget/public/config/${settings.tenantId}`,  // Tenant UUID required
         {
           headers: {
             'X-API-Key': settings.apiKey,
@@ -354,7 +402,7 @@ luran-widget/
   function createChatIframe() {
     const frame = document.createElement('iframe');
     frame.id = 'luran-chat-iframe';
-    frame.src = `${CHAT_UI_URL}?tenantId=${settings.tenantId}&apiKey=${settings.apiKey}`;
+    frame.src = `${CHAT_UI_URL}?tenantId=${settings.tenantId}&apiKey=${settings.apiKey}`;  // tenantId = UUID
     frame.setAttribute('allow', 'clipboard-write');
     frame.setAttribute('title', 'Luran Chat Widget');
 
@@ -601,7 +649,12 @@ window.addEventListener('resize', adjustForMobile);
 ### iframe URL Structure
 
 ```
-https://chat.luran.com/widget?tenantId=acme_corp&apiKey=pk_live_...&sessionId=optional
+https://chat.luran.com/widget?tenantId={tenant-uuid}&apiKey=pk_live_...&sessionId=optional
+```
+
+**Example:**
+```
+https://chat.luran.com/widget?tenantId=a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6&apiKey=pk_live_abc123&sessionId=optional
 ```
 
 ### iframe Communication (postMessage)
@@ -651,12 +704,14 @@ window.parent.postMessage({
 
 ### Fetch Configuration
 
-**Endpoint:** `GET /widget/public/config/{tenant_name}`
+**Endpoint:** `GET /widget/public/config/{tenant_id}`
+
+**Important:** The `tenant_id` parameter must be your **Tenant UUID** (not company name).
 
 ```javascript
 async function fetchConfig() {
   const response = await fetch(
-    `https://api.luran.com/api/v1/widget/public/config/${tenantId}`,
+    `https://api.luran.com/api/v1/widget/public/config/${tenantId}`,  // tenantId = UUID
     {
       headers: {
         'X-API-Key': apiKey,
@@ -671,6 +726,12 @@ async function fetchConfig() {
 
   return await response.json();
 }
+```
+
+**Example Request:**
+```
+GET https://api.luran.com/api/v1/widget/public/config/a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6
+X-API-Key: pk_live_abc123def456
 ```
 
 **Response:**
@@ -1096,8 +1157,8 @@ function dispatchWidgetEvent(eventName, data) {
   }));
 }
 
-// Usage
-dispatchWidgetEvent('chat_opened', { tenantId: 'acme_corp' });
+// Usage (tenantId = UUID)
+dispatchWidgetEvent('chat_opened', { tenantId: 'a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6' });
 dispatchWidgetEvent('message_sent', { sessionId: 'abc123' });
 
 // Listen for events
@@ -1249,8 +1310,8 @@ console.log('iframe src:', iframe?.src);
 
 **Debug:**
 ```javascript
-// Test API directly
-fetch('https://api.luran.com/api/v1/widget/public/config/test_tenant', {
+// Test API directly (replace with your actual Tenant UUID)
+fetch('https://api.luran.com/api/v1/widget/public/config/a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6', {
   headers: {
     'X-API-Key': 'pk_live_test'
   }
@@ -1259,6 +1320,8 @@ fetch('https://api.luran.com/api/v1/widget/public/config/test_tenant', {
 .then(data => console.log('API Response:', data))
 .catch(err => console.error('API Error:', err));
 ```
+
+**Note:** Use your actual Tenant UUID (not company name) in the URL path.
 
 ---
 

@@ -349,7 +349,17 @@ def get_redis_settings():
 class WorkerSettings:
     """ARQ worker configuration."""
 
-    functions = [process_document_ingestion]
+    # Import scheduled tasks
+    from app.workers.conversation_auto_resolver import (
+        auto_abandon_inactive_conversations,
+        auto_resolve_stale_tickets,
+    )
+
+    functions = [
+        process_document_ingestion,
+        auto_abandon_inactive_conversations,
+        auto_resolve_stale_tickets,
+    ]
     redis_settings = get_redis_settings()
 
     # Worker behavior
@@ -360,3 +370,22 @@ class WorkerSettings:
     # Retry settings
     max_tries = 3  # Retry failed jobs up to 3 times
     retry_jobs = True
+
+    # Scheduled tasks (cron jobs)
+    from arq.cron import cron
+
+    cron_jobs = [
+        # Auto-abandon inactive conversations - every 5 minutes
+        cron(
+            auto_abandon_inactive_conversations,
+            minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
+            run_at_startup=True,  # Run once on worker startup
+        ),
+        # Auto-resolve stale tickets - daily at 2 AM UTC
+        cron(
+            auto_resolve_stale_tickets,
+            hour=2,
+            minute=0,
+            run_at_startup=False,  # Don't run on startup
+        ),
+    ]
