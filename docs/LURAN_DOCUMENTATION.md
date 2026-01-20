@@ -180,7 +180,7 @@ language: en
 
 **Track progress via WebSocket:**
 ```javascript
-ws = new WebSocket('wss://api.luranai.com/ws/jobs/{job_id}');
+ws = new WebSocket('wss://api.luranai.com/api/v1/ws/jobs/{job_id}');
 ```
 
 ---
@@ -836,7 +836,7 @@ metadata: {"author": "John", "category": "billing"} (optional JSON)
 
 **Track Progress:**
 ```javascript
-const ws = new WebSocket('wss://api.luranai.com/ws/jobs/{job_id}');
+const ws = new WebSocket('wss://api.luranai.com/api/v1/ws/jobs/{job_id}');
 ws.onmessage = (event) => {
   const progress = JSON.parse(event.data);
   console.log(`${progress.processed_items}/${progress.total_items} chunks processed`);
@@ -2163,14 +2163,14 @@ Effectiveness = (Resolved with Knowledge / Total with Knowledge) × 100
 
 ### Customer WebSocket
 
-**Endpoint:** `wss://api.luranai.com/ws/chat/{session_id}`
+**Endpoint:** `wss://api.luranai.com/api/v1/ws/chat/{session_id}`
 
 **Authentication:** Query parameter `user_identifier`
 
 **Example:**
 ```javascript
 const ws = new WebSocket(
-  `wss://api.luranai.com/ws/chat/${sessionId}?user_identifier=${userId}`
+  `wss://api.luranai.com/api/v1/ws/chat/${sessionId}?user_identifier=${userId}`
 );
 
 ws.onopen = () => {
@@ -2216,14 +2216,14 @@ ws.send(JSON.stringify({
 
 ### Agent WebSocket
 
-**Endpoint:** `wss://api.luranai.com/ws/agent/{session_id}`
+**Endpoint:** `wss://api.luranai.com/api/v1/ws/agent/{session_id}`
 
 **Authentication:** Query parameter `token` (JWT)
 
 **Example:**
 ```javascript
 const ws = new WebSocket(
-  `wss://api.luranai.com/ws/agent/${sessionId}?token=${jwtToken}`
+  `wss://api.luranai.com/api/v1/ws/agent/${sessionId}?token=${jwtToken}`
 );
 
 ws.onmessage = (event) => {

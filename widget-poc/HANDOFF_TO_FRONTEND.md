@@ -209,7 +209,11 @@ POST   /api/v1/chat/sessions              # Create session
 GET    /api/v1/chat/sessions/{id}         # Get session
 GET    /api/v1/chat/sessions/{id}/messages # Get messages
 
-WebSocket: /ws/chat/{session_id}          # Real-time chat
+# WebSocket - Customer (requires user_identifier)
+ws://api.luranai.com/api/v1/ws/chat/{session_id}?user_identifier={identifier}
+
+# WebSocket - Agent (requires JWT token)
+ws://api.luranai.com/api/v1/ws/agent/{session_id}?token={jwt_token}
 ```
 
 **Full API docs:** `../docs/FRONTEND_API_DOCUMENTATION.md`

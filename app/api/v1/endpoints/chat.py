@@ -263,31 +263,47 @@ async def send_message(
         if should_escalate:
             logger.warning(f"Escalation triggered: {escalation_reason}")
 
-        # Step 7: Get conversation history for context
+        # Step 7: Get conversation history for context (needed for ticket creation too)
         conversation_history = conversation_service.get_session_messages(
             session_id=session_id,
             limit=20  # Last 10 turns (user + assistant)
         )
 
-        # Step 8: Assemble prompt with 3-layer architecture
-        logger.info("Assembling prompt...")
-        prompt = rag_service.assemble_prompt(
-            ai_config=tenant_config,
-            user_query=message_data.message,
-            retrieved_chunks=retrieved_chunks,
-            conversation_history=conversation_history,
-            max_history_turns=10,
+        # Step 8: Check if grounding requirement prevents AI response
+        use_system_message = (
+            tenant_config.grounding_requirement and
+            len(retrieved_chunks) == 0
         )
 
-        # Step 9: Generate AI response
-        logger.info("Generating AI response...")
-        ai_response_text, token_count = await rag_service.generate_ai_response(
-            prompt=prompt,
-            max_tokens=tenant_config.max_response_tokens,
-        )
-        logger.info(f"Generated response ({token_count} tokens)")
+        if use_system_message:
+            # When grounding is required but no knowledge found, use simple system message
+            ai_response_text = "I don't have specific information about that. Let me connect you with someone who can help."
+            token_count = 0
+            logger.info("Using system message due to grounding requirement with no knowledge")
+            # Force escalation
+            if not should_escalate:
+                should_escalate = True
+                escalation_reason = "No knowledge available with grounding requirement enabled"
+        else:
+            # Step 9: Assemble prompt with 3-layer architecture
+            logger.info("Assembling prompt...")
+            prompt = rag_service.assemble_prompt(
+                ai_config=tenant_config,
+                user_query=message_data.message,
+                retrieved_chunks=retrieved_chunks,
+                conversation_history=conversation_history,
+                max_history_turns=10,
+            )
 
-        # Step 10: Save assistant message
+            # Step 10: Generate AI response
+            logger.info("Generating AI response...")
+            ai_response_text, token_count = await rag_service.generate_ai_response(
+                prompt=prompt,
+                max_tokens=tenant_config.max_response_tokens,
+            )
+            logger.info(f"Generated response ({token_count} tokens)")
+
+        # Step 11: Save assistant message
         assistant_message = conversation_service.add_message(
             session_id=session_id,
             role=MessageRole.ASSISTANT,
@@ -302,7 +318,7 @@ async def send_message(
         )
         logger.info(f"Saved assistant message: {assistant_message.id}")
 
-        # Step 11: Handle escalation if needed
+        # Step 12: Handle escalation if needed
         ticket_id = None
         if should_escalate:
             logger.info("Creating escalation ticket...")
@@ -360,7 +376,7 @@ async def send_message(
                 # Send email to each recipient
                 for recipient in notification_recipients:
                     try:
-                        await send_ticket_escalation_email(
+                        email_sent = await send_ticket_escalation_email(
                             email_to=recipient.email,
                             user_name=recipient.full_name,
                             tenant_name=tenant.display_name,
@@ -370,10 +386,13 @@ async def send_message(
                             ticket_priority=priority.value.upper(),
                             ticket_id=str(ticket.id),
                         )
-                        logger.info(f"Escalation email sent to {recipient.email}")
+                        if email_sent:
+                            logger.info(f"✓ Escalation email sent successfully to {recipient.email}")
+                        else:
+                            logger.error(f"✗ Failed to send escalation email to {recipient.email} (check email configuration and logs above)")
                     except Exception as email_error:
                         # Log but don't fail ticket creation if email fails
-                        logger.error(f"Failed to send escalation email to {recipient.email}: {email_error}")
+                        logger.error(f"✗ Exception sending escalation email to {recipient.email}: {email_error}")
 
             except Exception as ticket_error:
                 logger.error(f"Failed to create ticket or send notifications: {ticket_error}")

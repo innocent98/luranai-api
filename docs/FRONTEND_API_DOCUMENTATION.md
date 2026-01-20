@@ -22,7 +22,8 @@
    - Get Message History
    - Agent Takeover
    - Send Agent Message
-   - WebSocket Real-Time Chat
+   - WebSocket Real-Time Chat (Agent)
+   - WebSocket Real-Time Chat (Customer)
 9. [Ticket Management](#ticket-management)
    - List Tickets
    - Get Ticket Details
@@ -2287,12 +2288,109 @@ ws.onerror = (error) => {
 4. Connection persists until closed by client or session ends
 5. Auto-reconnect on connection loss (implement in frontend)
 
+---
+
+### 8.7 Customer WebSocket Real-Time Chat
+
+**Widget Implementation:** Chat widget iframe real-time updates
+
+**WebSocket Endpoint:** `wss://api.luranai.com/api/v1/ws/chat/{session_id}`
+
+**Connection:**
+```javascript
+// Connect to customer WebSocket (for widget/chat UI)
+const ws = new WebSocket(
+  `wss://api.luranai.com/api/v1/ws/chat/${sessionId}?user_identifier=${customerEmail}`
+);
+
+ws.onopen = () => {
+  console.log('Connected to chat');
+};
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+
+  // Handle different message types
+  switch(data.type) {
+    case 'agent_message':
+      // Message from agent
+      displayMessage({
+        role: 'human_agent',
+        content: data.content,
+        agent_name: data.agent_name,
+        timestamp: data.timestamp
+      });
+      break;
+
+    case 'agent_joined':
+      // Agent joined the conversation
+      displaySystemMessage(`${data.agent_name} joined the chat`);
+      break;
+
+    case 'agent_left':
+      // Agent left the conversation
+      displaySystemMessage(`${data.agent_name} left the chat`);
+      break;
+
+    case 'session_resolved':
+      // Session was resolved
+      displaySystemMessage('This conversation has been resolved');
+      disableMessageInput();
+      break;
+  }
+};
+
+// Send customer message
+function sendCustomerMessage(content) {
+  ws.send(JSON.stringify({
+    type: 'message',
+    content: content
+  }));
+}
+
+ws.onclose = () => {
+  console.log('Disconnected from chat');
+  // Handle reconnection if needed
+};
+
+ws.onerror = (error) => {
+  console.error('WebSocket error:', error);
+};
+```
+
+**Authentication:**
+- **Query Parameter**: `user_identifier` (customer email or unique identifier)
+- **Verification**: Server verifies `user_identifier` matches the session's `user_identifier`
+- **No JWT Required**: Customers don't need JWT tokens
+
+**Message Types (Received):**
+- `agent_message` - Message from agent
+- `agent_joined` - Agent joined the conversation
+- `agent_left` - Agent left the conversation
+- `session_resolved` - Session marked as resolved
+- `connection_status` - Connection confirmation
+
+**Message Types (Sent):**
+- `message` - Send message as customer
+  ```json
+  {
+    "type": "message",
+    "content": "Customer message here"
+  }
+  ```
+
+**Important Notes:**
+1. Pass `user_identifier` in query parameter (must match session's user_identifier)
+2. Customer WebSocket is for widget/chat UI real-time updates
+3. Messages sent via WebSocket are saved to database automatically
+4. Connection rejected if `user_identifier` doesn't match session
+5. Customers can only connect to their own sessions
+
 **For Complete WebSocket Documentation:**
 See `/docs/WEBSOCKET_LIVE_CHAT_GUIDE.md` for:
 - Full message format specifications
 - Connection lifecycle details
 - Error handling patterns
-- Customer-side WebSocket integration
 - Advanced WebSocket features
 - Connection management best practices
 

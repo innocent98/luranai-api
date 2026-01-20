@@ -26,8 +26,10 @@ async def send_email(
     """
     # Check if email is configured
     if not settings.SMTP_HOST or not settings.EMAILS_FROM_EMAIL:
-        logger.debug("Email not configured, skipping email send")
+        logger.warning(f"Email not configured (SMTP_HOST={settings.SMTP_HOST}, FROM_EMAIL={settings.EMAILS_FROM_EMAIL}), skipping email send")
         return False
+
+    logger.debug(f"Attempting to send email to {email_to} via {settings.SMTP_HOST}:{settings.SMTP_PORT}")
 
     try:
         from emails import Message
@@ -49,6 +51,8 @@ async def send_email(
                 mail_from=(settings.EMAILS_FROM_NAME or "Luran", settings.EMAILS_FROM_EMAIL),
             )
 
+        logger.debug(f"Message prepared, sending via SMTP...")
+
         # Send email
         response = message.send(
             to=email_to,
@@ -61,18 +65,38 @@ async def send_email(
             }
         )
 
-        if response.status_code == 250:
-            logger.info(f"Email sent successfully to {email_to}")
+        # Check response status
+        status_code = getattr(response, 'status_code', None)
+
+        logger.debug(f"SMTP response: status_code={status_code}, response={response}")
+
+        if status_code == 250:
+            logger.info(f"✓ Email sent successfully to {email_to}")
             return True
+        elif status_code is None:
+            # Check if response has error attribute
+            error = getattr(response, 'error', None)
+            if error:
+                logger.error(f"✗ Email send failed to {email_to}: {error}")
+            else:
+                # Try to get more details from response
+                response_dict = {}
+                if hasattr(response, '__dict__'):
+                    response_dict = {k: v for k, v in response.__dict__.items() if not k.startswith('_')}
+                logger.error(f"✗ Email send failed to {email_to}: No status code returned. Response: {response_dict}")
+                logger.error(f"  SMTP Config: host={settings.SMTP_HOST}, port={settings.SMTP_PORT}, tls={settings.SMTP_TLS}, user={settings.SMTP_USER}")
+            return False
         else:
-            logger.warning(f"Email send failed with status {response.status_code}")
+            logger.warning(f"✗ Email send failed to {email_to} with status {status_code}")
             return False
 
     except ImportError:
-        logger.error("emails library not installed. Install with: pip install emails")
+        logger.error("✗ emails library not installed. Install with: pip install emails")
         return False
     except Exception as e:
-        logger.error(f"Failed to send email: {e}")
+        logger.error(f"✗ Exception while sending email to {email_to}: {type(e).__name__}: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
 
