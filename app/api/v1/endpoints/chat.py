@@ -80,15 +80,13 @@ def _generate_ticket_summary(
 def _determine_ticket_priority(
     user_query: str,
     escalation_reason: str,
-    confidence_score: float,
 ) -> TicketPriority:
     """
-    Determine ticket priority based on query content, reason, and confidence.
+    Determine ticket priority based on query content and escalation reason.
 
     Args:
         user_query: User's message
         escalation_reason: Why it was escalated
-        confidence_score: AI confidence score
 
     Returns:
         Appropriate priority level
@@ -107,18 +105,18 @@ def _determine_ticket_priority(
         return TicketPriority.URGENT
 
     if "escalation keyword" in reason_lower:
-        # User explicitly requested human support
+        # User explicitly requested human support or critical keyword detected
         return TicketPriority.HIGH
 
-    # HIGH: Very low confidence (AI has no idea)
-    if confidence_score < 0.2:
+    if "user requested human" in reason_lower:
+        # Explicit human request
         return TicketPriority.HIGH
 
-    # MEDIUM: Low confidence
-    if confidence_score < 0.5:
+    if "no relevant knowledge" in reason_lower:
+        # AI has no knowledge at all
         return TicketPriority.MEDIUM
 
-    # LOW: Default for other escalations
+    # LOW: Default for other escalations (e.g., response quality issues)
     return TicketPriority.LOW
 
 
@@ -219,7 +217,14 @@ async def send_message(
                 detail="Session not found"
             )
 
-    # Step 2: Get tenant AI configuration
+    # Step 2: Get tenant and AI configuration
+    tenant = tenant_service.get_tenant_by_id(session.tenant_id)
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant not found"
+        )
+
     tenant_config = tenant_service.get_ai_config(session.tenant_id)
     if not tenant_config:
         raise HTTPException(
@@ -227,7 +232,157 @@ async def send_message(
             detail="Tenant AI configuration not found"
         )
 
-    # Step 3: Add user message to database
+    # Step 3: Check for pending escalation (consent-based escalation)
+    session_meta = session.meta or {}
+    pending_escalation = session_meta.get('pending_escalation', False)
+    escalation_context = session_meta.get('escalation_context', {})
+
+    if pending_escalation:
+        # User was asked if they want escalation - check their response
+        consent_decision = rag_service.detect_escalation_consent(message_data.message)
+
+        if consent_decision == "consent":
+            # User agreed to escalation - escalate now
+            logger.info("User consented to escalation")
+
+            # Add user message
+            user_message = conversation_service.add_message(
+                session_id=session_id,
+                role=MessageRole.USER,
+                content=message_data.message
+            )
+
+            # Clear pending escalation from session
+            session_meta['pending_escalation'] = False
+            session_meta['escalation_context'] = {}
+            conversation_service.update_session_meta(session_id, session_meta)
+
+            # Escalate session
+            escalation_reason = escalation_context.get('reason', 'User consented to escalation')
+            conversation_service.escalate_session(session_id=session_id, reason=escalation_reason)
+
+            # Create ticket (using existing logic below)
+            # Add assistant confirmation message
+            confirmation_text = "Perfect! Connecting you with someone from our team now.\n\nSomeone from our support team will be with you shortly."
+            assistant_message = conversation_service.add_message(
+                session_id=session_id,
+                role=MessageRole.ASSISTANT,
+                content=confirmation_text,
+                confidence_score=None,
+                meta={'escalation_confirmed': True}
+            )
+
+            # Create ticket (copy logic from below)
+            ticket_id = None
+            try:
+                from app.schemas.ticket import TicketCreate
+                from app.db.models.conversation import TicketPriority
+                from app.db.models.user import UserRole
+                from app.utils.email import send_ticket_escalation_email
+
+                ticket_service = TicketService(db)
+                conversation_history = conversation_service.get_session_messages(session_id=session_id, limit=20)
+
+                summary = _generate_ticket_summary(
+                    conversation_history=conversation_history,
+                    escalation_reason=escalation_reason,
+                    user_query=escalation_context.get('original_query', message_data.message),
+                )
+
+                priority = _determine_ticket_priority(
+                    user_query=escalation_context.get('original_query', message_data.message),
+                    escalation_reason=escalation_reason,
+                )
+
+                ticket_data = TicketCreate(
+                    tenant_id=session.tenant_id,
+                    session_id=session_id,
+                    priority=priority,
+                    summary=summary,
+                )
+                ticket = ticket_service.create_ticket(ticket_data)
+                ticket_id = ticket.id
+                logger.info(f"Ticket created: {ticket.ticket_number}")
+
+                # Send email notifications
+                tenant = tenant_service.get_tenant_by_id(session.tenant_id, include_relations=False)
+                from app.db.models.user import User
+                notification_recipients = db.query(User).filter(
+                    User.tenant_id == session.tenant_id,
+                    User.is_active == True,
+                    User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT])
+                ).all()
+
+                for recipient in notification_recipients:
+                    try:
+                        email_sent = await send_ticket_escalation_email(
+                            email_to=recipient.email,
+                            user_name=recipient.full_name,
+                            tenant_name=tenant.display_name,
+                            ticket_number=ticket.ticket_number,
+                            escalation_reason=escalation_reason,
+                            customer_query=escalation_context.get('original_query', message_data.message),
+                            ticket_priority=priority.value.upper(),
+                            ticket_id=str(ticket.id),
+                        )
+                        if email_sent:
+                            logger.info(f"✓ Escalation email sent to {recipient.email}")
+                    except Exception as email_error:
+                        logger.error(f"✗ Email error: {email_error}")
+
+            except Exception as ticket_error:
+                logger.error(f"Failed to create ticket: {ticket_error}")
+
+            return ChatResponse(
+                session_id=session_id,
+                message=assistant_message,
+                should_escalate=True,
+                escalation_reason=escalation_reason,
+                ticket_id=ticket_id,
+            )
+
+        elif consent_decision == "reject":
+            # User declined escalation - continue normally
+            logger.info("User declined escalation offer")
+
+            # Clear pending escalation
+            session_meta['pending_escalation'] = False
+            session_meta['escalation_context'] = {}
+            conversation_service.update_session_meta(session_id, session_meta)
+
+            # Add user message
+            user_message = conversation_service.add_message(
+                session_id=session_id,
+                role=MessageRole.USER,
+                content=message_data.message
+            )
+
+            # Send acknowledgment
+            ack_text = "Sounds good! Let me know if you need anything else."
+            assistant_message = conversation_service.add_message(
+                session_id=session_id,
+                role=MessageRole.ASSISTANT,
+                content=ack_text,
+                confidence_score=None,
+                meta={'escalation_declined': True}
+            )
+
+            return ChatResponse(
+                session_id=session_id,
+                message=assistant_message,
+                should_escalate=False,
+                escalation_reason=None,
+                ticket_id=None,
+            )
+        else:
+            # Unclear response - treat as normal question and try to answer
+            logger.info("Unclear consent response, treating as new question")
+            # Clear pending escalation and continue to normal flow
+            session_meta['pending_escalation'] = False
+            session_meta['escalation_context'] = {}
+            conversation_service.update_session_meta(session_id, session_meta)
+
+    # Step 4: Add user message to database
     user_message = conversation_service.add_message(
         session_id=session_id,
         role=MessageRole.USER,
@@ -236,7 +391,7 @@ async def send_message(
     logger.info(f"Added user message: {user_message.id}")
 
     try:
-        # Step 4: Retrieve relevant knowledge chunks via vector search
+        # Step 5: Retrieve relevant knowledge chunks via vector search
         logger.info("Retrieving relevant knowledge chunks...")
         retrieved_chunks, similarity_scores = await rag_service.retrieve_relevant_chunks(
             tenant_id=session.tenant_id,
@@ -244,84 +399,107 @@ async def send_message(
             max_chunks=5,
             score_threshold=0.3,
         )
-        logger.info(f"Retrieved {len(retrieved_chunks)} chunks with scores: {similarity_scores}")
+        logger.info(f"Retrieved {len(retrieved_chunks)} chunks")
 
-        # Step 5: Calculate confidence score
-        confidence_score = rag_service.calculate_confidence(
-            retrieved_chunks=retrieved_chunks,
-            similarity_scores=similarity_scores,
-        )
-        logger.info(f"Confidence score: {confidence_score:.2f}")
-
-        # Step 6: Check if escalation is needed
-        should_escalate, escalation_reason = rag_service.should_escalate(
+        # Step 6: Determine initial escalation strategy
+        escalation_action, escalation_reason = rag_service.should_escalate(
             user_query=message_data.message,
-            confidence_score=confidence_score,
             ai_config=tenant_config,
+            retrieved_chunks_count=len(retrieved_chunks),
         )
+        logger.info(f"Initial escalation action: {escalation_action}")
 
-        if should_escalate:
-            logger.warning(f"Escalation triggered: {escalation_reason}")
-
-        # Step 7: Get conversation history for context (needed for ticket creation too)
+        # Step 8: Get conversation history for context (needed for ticket creation too)
         conversation_history = conversation_service.get_session_messages(
             session_id=session_id,
             limit=20  # Last 10 turns (user + assistant)
         )
 
-        # Step 8: Check if grounding requirement prevents AI response
-        use_system_message = (
-            tenant_config.grounding_requirement and
-            len(retrieved_chunks) == 0
-        )
-
-        if use_system_message:
-            # When grounding is required but no knowledge found, use simple system message
-            ai_response_text = "I don't have specific information about that. Let me connect you with someone who can help."
+        # Step 9: Generate AI response based on escalation action
+        if escalation_action == "auto_escalate":
+            # User explicitly requested human - acknowledge and escalate
+            ai_response_text = "Of course! Connecting you with someone from our team now."
             token_count = 0
-            logger.info("Using system message due to grounding requirement with no knowledge")
-            # Force escalation
-            if not should_escalate:
-                should_escalate = True
-                escalation_reason = "No knowledge available with grounding requirement enabled"
+            response_quality = {"is_substantial": True, "has_uncertainty": False}
+            logger.info("Auto-escalating due to user request")
+
+        elif escalation_action == "offer_escalation":
+            # No knowledge available - offer escalation immediately
+            ai_response_text = "I don't have information about that. Would you like me to connect you with someone from our team?"
+            token_count = 0
+            response_quality = {"is_substantial": False, "has_uncertainty": True}
+            logger.info("No knowledge available, offering escalation")
+
         else:
-            # Step 9: Assemble prompt with 3-layer architecture
-            logger.info("Assembling prompt...")
+            # no_escalation - AI has knowledge, let it try to answer
+            logger.info("Generating AI response...")
             prompt = rag_service.assemble_prompt(
                 ai_config=tenant_config,
                 user_query=message_data.message,
                 retrieved_chunks=retrieved_chunks,
                 conversation_history=conversation_history,
+                company_name=tenant.display_name,
+                company_description=tenant.description,
                 max_history_turns=10,
             )
 
-            # Step 10: Generate AI response
-            logger.info("Generating AI response...")
             ai_response_text, token_count = await rag_service.generate_ai_response(
                 prompt=prompt,
                 max_tokens=tenant_config.max_response_tokens,
             )
             logger.info(f"Generated response ({token_count} tokens)")
 
-        # Step 11: Save assistant message
+            # Evaluate response quality
+            response_quality = rag_service.evaluate_response_quality(ai_response_text)
+            logger.info(
+                f"Response quality: {response_quality['word_count']} words, "
+                f"substantial={response_quality['is_substantial']}, "
+                f"uncertain={response_quality['has_uncertainty']}"
+            )
+
+            # If response is weak/uncertain, offer escalation
+            # BUT: Skip this check if it was a satisfaction/closing statement
+            if not response_quality["is_substantial"] and escalation_reason != "satisfaction_detected":
+                logger.info("Response quality insufficient, offering escalation")
+                escalation_action = "offer_escalation"
+                escalation_reason = "AI response quality below threshold"
+                ai_response_text = f"{ai_response_text}\n\nWould you like me to connect you with someone from our team?"
+
+        # Step 10: Save assistant message
         assistant_message = conversation_service.add_message(
             session_id=session_id,
             role=MessageRole.ASSISTANT,
             content=ai_response_text,
-            retrieved_chunk_ids=[str(chunk.id) for chunk in retrieved_chunks],  # Convert UUID to string for JSON
-            confidence_score=confidence_score,
+            retrieved_chunk_ids=[str(chunk.id) for chunk in retrieved_chunks],
+            confidence_score=None,  # No longer using confidence scores
             token_count=token_count,
             meta={
                 'chunks_used': len(retrieved_chunks),
-                'similarity_scores': similarity_scores,
+                'escalation_action': escalation_action,
+                'response_quality': response_quality,
             }
         )
         logger.info(f"Saved assistant message: {assistant_message.id}")
 
-        # Step 12: Handle escalation if needed
+        # Step 11: Handle escalation based on action
         ticket_id = None
-        if should_escalate:
-            logger.info("Creating escalation ticket...")
+        should_escalate = False
+
+        if escalation_action == "offer_escalation":
+            # Store pending escalation in session meta (wait for user consent)
+            session_meta = session.meta or {}
+            session_meta['pending_escalation'] = True
+            session_meta['escalation_context'] = {
+                'reason': escalation_reason,
+                'original_query': message_data.message,
+            }
+            conversation_service.update_session_meta(session_id, session_meta)
+            logger.info("Pending escalation stored, waiting for user consent")
+
+        elif escalation_action == "auto_escalate":
+            # User explicitly requested human or critical keyword detected - escalate immediately
+            should_escalate = True
+            logger.info("Auto-escalating: Creating ticket...")
             conversation_service.escalate_session(
                 session_id=session_id,
                 reason=escalation_reason,
@@ -343,11 +521,10 @@ async def send_message(
                     user_query=message_data.message,
                 )
 
-                # Determine priority based on keywords and confidence
+                # Determine priority based on keywords and escalation reason
                 priority = _determine_ticket_priority(
                     user_query=message_data.message,
                     escalation_reason=escalation_reason,
-                    confidence_score=confidence_score,
                 )
 
                 # Create ticket
@@ -403,7 +580,7 @@ async def send_message(
             session_id=session_id,
             message=assistant_message,
             should_escalate=should_escalate,
-            escalation_reason=escalation_reason,
+            escalation_reason=escalation_reason if should_escalate else None,
             ticket_id=ticket_id,
         )
 
@@ -415,7 +592,7 @@ async def send_message(
             session_id=session_id,
             role=MessageRole.ASSISTANT,
             content="I apologize, but I'm having trouble processing your request. Please try again or contact support.",
-            confidence_score=0.0,
+            confidence_score=None,
             meta={'error': str(e)}
         )
 

@@ -70,6 +70,7 @@ class PublicWidgetConfigResponse(BaseModel):
 
     tenant_id: str = Field(..., description="Tenant identifier")
     company_name: str = Field(..., description="Company display name")
+    company_description: Optional[str] = Field(None, description="Company description")
     primary_color: str = Field(..., description="Primary color for widget")
     accent_color: str = Field(..., description="Accent color for widget")
     logo_url: Optional[str] = Field(None, description="Company logo URL")

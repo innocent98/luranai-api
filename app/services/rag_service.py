@@ -4,6 +4,7 @@ from typing import Optional
 from uuid import UUID
 
 from sqlalchemy.orm import Session
+from loguru import logger
 
 from app.db.models.tenant import TenantAIConfig
 from app.schemas.knowledge import KnowledgeChunkResponse
@@ -23,16 +24,34 @@ class RAGService:
         self.db = db
 
     # System-level prompt (immutable)
-    SYSTEM_PROMPT = """You are a professional customer support representative helping customers with their questions.
+    SYSTEM_PROMPT = """You are Luran, a calm and reliable customer support assistant.
 
-CRITICAL RULES:
-1. ONLY use the information provided below to answer questions - never invent, guess, or make assumptions
-2. Speak exactly like a real human support agent would - be warm, conversational, and natural
-3. NEVER use phrases like: "knowledge base", "records", "database", "the information I have", "according to", "provided to me", "in my system", or any other technical/robotic language
-4. Do NOT start every message with "Hi there!", "Hello!", "Thanks for reaching out" or similar greetings - go straight to answering the question. Only greet on the very first message of a new conversation if appropriate.
-5. When you don't know something, say it naturally like a human would: "I'm not sure about that", "That's not something I can help with right now", "I don't have those details"
-6. Always offer helpful alternatives: connect them with a specialist, suggest checking with the team, provide related information you DO know
-7. Be concise, direct, friendly, and genuinely helpful - get to the point while maintaining a warm tone"""
+CORE BEHAVIOR:
+- Answer ONLY with information provided to you - never guess or make assumptions
+- Be warm and conversational, but STOP after answering the question
+- If you don't have the information, say so naturally and offer to connect them with someone who can help
+
+CRITICAL: Answer the question directly, then STOP. Do not add:
+❌ "I'm sorry to hear about..." (no emotional reactions)
+❌ "That must be stressful..." (no assumptions about feelings)
+❌ "I hope this helps!" (no filler phrases)
+❌ "According to my knowledge base..." (no robotic language)
+❌ "Thanks for reaching out!" (skip greetings unless it's the first message)
+
+SPECIAL CASE - When user says "thank you" or shows satisfaction:
+✅ Acknowledge warmly, then add: "If you need anything else, I'm here to help!"
+
+EXAMPLES:
+
+Regular Question:
+User: "If my car catches fire, am I covered?"
+You: "Yes, comprehensive coverage includes fire damage. You can reach Claims at 1-800-123-4567 or claims@company.com."
+
+Thank You Message:
+User: "Thank you for the assistance"
+You: "You're very welcome! If you need anything else, I'm here to help."
+
+Answer the question. Then stop. That's it."""
 
     def assemble_prompt(
         self,
@@ -40,6 +59,8 @@ CRITICAL RULES:
         user_query: str,
         retrieved_chunks: list[KnowledgeChunkResponse],
         conversation_history: list[MessageResponse],
+        company_name: str,
+        company_description: Optional[str] = None,
         max_history_turns: int = 10,
     ) -> dict:
         """
@@ -54,6 +75,8 @@ CRITICAL RULES:
             user_query: Current user query
             retrieved_chunks: Retrieved knowledge chunks
             conversation_history: Recent conversation messages
+            company_name: Company display name
+            company_description: Company description (optional)
             max_history_turns: Maximum conversation turns to include
 
         Returns:
@@ -63,7 +86,9 @@ CRITICAL RULES:
         system_prompt = self.SYSTEM_PROMPT
 
         # Layer 2: Tenant-specific configuration
-        tenant_instructions = self._build_tenant_instructions(ai_config)
+        tenant_instructions = self._build_tenant_instructions(
+            ai_config, company_name, company_description
+        )
 
         # Layer 3: User context
         knowledge_context = self._build_knowledge_context(retrieved_chunks)
@@ -94,17 +119,31 @@ Answer the customer's question naturally and conversationally, just like a real 
             "full_prompt": full_prompt,
         }
 
-    def _build_tenant_instructions(self, ai_config: TenantAIConfig) -> str:
+    def _build_tenant_instructions(
+        self,
+        ai_config: TenantAIConfig,
+        company_name: str,
+        company_description: Optional[str] = None,
+    ) -> str:
         """
         Build tenant-specific instructions from AI config.
 
         Args:
             ai_config: Tenant AI configuration
+            company_name: Company display name
+            company_description: Company description (optional)
 
         Returns:
             Formatted tenant instructions
         """
-        instructions = ["TENANT-SPECIFIC INSTRUCTIONS:"]
+        instructions = []
+
+        # Company context
+        instructions.append(f"You are currently assisting users for: {company_name}")
+        if company_description:
+            instructions.append(f"\nCompany description:\n{company_description}")
+
+        instructions.append("\nSUPPORT CONFIGURATION:")
 
         # Brand voice
         if ai_config.brand_voice:
@@ -208,31 +247,160 @@ Answer the customer's question naturally and conversationally, just like a real 
     def should_escalate(
         self,
         user_query: str,
-        confidence_score: float,
         ai_config: TenantAIConfig,
-    ) -> tuple[bool, Optional[str]]:
+        retrieved_chunks_count: int,
+    ) -> tuple[str, Optional[str]]:
         """
-        Determine if query should be escalated to humans.
+        Determine escalation strategy based on query patterns and knowledge availability.
 
         Args:
             user_query: User query text
-            confidence_score: Calculated confidence score
             ai_config: Tenant AI configuration
+            retrieved_chunks_count: Number of knowledge chunks retrieved
 
         Returns:
-            Tuple of (should_escalate, escalation_reason)
-        """
-        # Check confidence threshold
-        if confidence_score < ai_config.confidence_threshold:
-            return True, f"Low confidence score: {confidence_score:.2f}"
+            Tuple of (escalation_action, escalation_reason)
 
-        # Check for escalation keywords
-        query_lower = user_query.lower()
+            escalation_action can be:
+            - "auto_escalate": Immediately escalate (user requested human)
+            - "offer_escalation": Offer to escalate, wait for consent
+            - "no_escalation": Don't escalate, AI will attempt to answer
+
+            escalation_reason can be:
+            - "satisfaction_detected": User is closing/thanking (don't check response quality)
+            - None: Normal flow (check response quality after generation)
+            - Other strings: Specific escalation reasons
+        """
+        query_lower = user_query.lower().strip()
+
+        # Patterns that indicate user satisfaction/closing (should NOT escalate)
+        satisfaction_patterns = [
+            "thank", "thanks", "appreciate", "grateful",
+            "that's all", "all set", "all good", "perfect", "great",
+            "got it", "understood", "makes sense",
+            "okay", "ok", "alright", "cool", "awesome", "nice",
+            "bye", "goodbye", "see you", "talk later", "have a good",
+        ]
+
+        # Check if this is a satisfaction/closing statement
+        is_satisfaction = any(pattern in query_lower for pattern in satisfaction_patterns)
+        if is_satisfaction and len(query_lower.split()) <= 10:
+            logger.info(f"Detected satisfaction/closing statement, no escalation")
+            return "no_escalation", "satisfaction_detected"
+
+        # Scenario 1: User explicitly requests human agent
+        human_request_patterns = [
+            "speak to agent", "speak with agent", "talk to agent", "talk with agent",
+            "human agent", "real person", "actual person",
+            "speak to someone", "talk to someone",
+            "escalate", "transfer me", "get me someone",
+            "customer service", "support team",
+        ]
+
+        if any(pattern in query_lower for pattern in human_request_patterns):
+            logger.info(f"User explicitly requested human agent")
+            return "auto_escalate", "User requested human assistance"
+
+        # Scenario 2: Check for critical escalation keywords (auto-escalate)
         for keyword in ai_config.escalation_keywords:
             if keyword.lower() in query_lower:
-                return True, f"Escalation keyword detected: '{keyword}'"
+                logger.warning(f"Critical escalation keyword detected: {keyword}")
+                return "auto_escalate", f"Escalation keyword detected: '{keyword}'"
 
-        return False, None
+        # Scenario 3: AI has NO knowledge at all - offer escalation
+        if retrieved_chunks_count == 0:
+            logger.info(f"No knowledge chunks found, will offer escalation")
+            return "offer_escalation", "No relevant knowledge available"
+
+        # Scenario 4: AI has knowledge - let it try to answer
+        # Response quality will be evaluated AFTER generation
+        logger.info(f"Knowledge available ({retrieved_chunks_count} chunks), AI will attempt to answer")
+        return "no_escalation", None
+
+    def evaluate_response_quality(self, ai_response: str) -> dict:
+        """
+        Evaluate if AI response is substantial and helpful.
+
+        Args:
+            ai_response: The AI-generated response text
+
+        Returns:
+            Dict with:
+            - is_substantial: bool (response is good enough)
+            - has_uncertainty: bool (AI expressed uncertainty)
+            - word_count: int
+            - char_count: int
+        """
+        word_count = len(ai_response.split())
+        char_count = len(ai_response)
+
+        # Check for uncertainty markers
+        uncertainty_patterns = [
+            "i'm not sure", "i don't know", "not certain", "unclear",
+            "i don't have", "i'm not aware", "i can't find",
+            "i'm unable to", "no information about", "don't have information",
+            "i apologize", "unfortunately, i don't",
+        ]
+        has_uncertainty = any(pattern in ai_response.lower() for pattern in uncertainty_patterns)
+
+        # Substantial = more than 100 chars OR more than 15 words
+        # AND no strong uncertainty markers
+        is_substantial = (char_count > 100 or word_count > 15) and not has_uncertainty
+
+        logger.debug(
+            f"Response quality: {word_count} words, {char_count} chars, "
+            f"substantial={is_substantial}, uncertain={has_uncertainty}"
+        )
+
+        return {
+            "is_substantial": is_substantial,
+            "has_uncertainty": has_uncertainty,
+            "word_count": word_count,
+            "char_count": char_count,
+        }
+
+    def detect_escalation_consent(self, user_message: str) -> Optional[str]:
+        """
+        Detect if user is giving consent or rejecting escalation offer.
+
+        Args:
+            user_message: User's message text
+
+        Returns:
+            "consent" if user agrees to escalation
+            "reject" if user declines escalation
+            None if unclear/unrelated
+        """
+        message_lower = user_message.lower().strip()
+
+        # Consent patterns
+        consent_patterns = [
+            "yes", "yeah", "yep", "sure", "ok", "okay", "please",
+            "go ahead", "connect me", "transfer", "escalate",
+            "i would", "i'd like", "that would be great",
+            "yes please", "sure thing", "sounds good",
+        ]
+
+        # Rejection patterns
+        rejection_patterns = [
+            "no", "nope", "nah", "never mind", "nevermind",
+            "i'm good", "im good", "i'm ok", "im ok",
+            "no thanks", "no thank", "that's fine", "thats fine",
+            "all good", "all set", "don't need", "dont need",
+        ]
+
+        # Check for consent (must be short message, < 15 words)
+        if len(message_lower.split()) <= 15:
+            if any(pattern in message_lower for pattern in consent_patterns):
+                logger.info(f"Detected escalation consent")
+                return "consent"
+
+            if any(pattern in message_lower for pattern in rejection_patterns):
+                logger.info(f"Detected escalation rejection")
+                return "reject"
+
+        # Unclear or unrelated message
+        return None
 
     def format_response(
         self,

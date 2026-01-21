@@ -166,6 +166,33 @@ class ConversationService:
 
         return SessionResponse.model_validate(session)
 
+    def update_session_meta(self, session_id: UUID, meta: dict) -> SessionResponse:
+        """
+        Update session metadata.
+
+        Args:
+            session_id: Session UUID
+            meta: Updated metadata dictionary
+
+        Returns:
+            Updated session response
+
+        Raises:
+            ValueError: If session not found
+        """
+        stmt = select(ConversationSession).where(ConversationSession.id == session_id)
+        session = self.db.execute(stmt).scalar_one_or_none()
+
+        if not session:
+            raise ValueError("Session not found")
+
+        session.meta = meta
+
+        self.db.commit()
+        self.db.refresh(session)
+
+        return SessionResponse.model_validate(session)
+
     def add_message(
         self,
         session_id: UUID,

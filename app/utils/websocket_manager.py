@@ -3,9 +3,11 @@
 from typing import Dict, Set
 from uuid import UUID
 import json
+import redis.asyncio as aioredis
 
 from fastapi import WebSocket
 from loguru import logger
+from app.core.config import settings
 
 
 class WebSocketManager:
@@ -19,6 +21,8 @@ class WebSocketManager:
     def __init__(self):
         # job_id -> set of connected websockets
         self.active_connections: Dict[str, Set[WebSocket]] = {}
+        # Redis client for pub/sub (lazy initialization)
+        self._redis_client = None
 
     async def connect(self, websocket: WebSocket, job_id: UUID):
         """
@@ -56,9 +60,23 @@ class WebSocketManager:
 
         logger.info(f"WebSocket disconnected for job {job_id}")
 
+    async def _get_redis_client(self):
+        """Get or create Redis client for pub/sub."""
+        if self._redis_client is None:
+            self._redis_client = await aioredis.from_url(
+                settings.REDIS_URL,
+                encoding="utf-8",
+                decode_responses=True
+            )
+        return self._redis_client
+
     async def broadcast_job_update(self, job_id: UUID, update: dict):
         """
         Broadcast job update to all connected clients subscribed to this job.
+
+        This method now uses Redis Pub/Sub to broadcast updates across containers:
+        - Worker publishes updates to Redis channel
+        - API subscribes to channel and forwards to WebSocket clients
 
         Args:
             job_id: Job ID
@@ -66,8 +84,19 @@ class WebSocketManager:
         """
         job_id_str = str(job_id)
 
+        # Publish to Redis channel (for cross-container communication)
+        try:
+            redis_client = await self._get_redis_client()
+            channel = f"job_updates:{job_id_str}"
+            message = json.dumps(update)
+            await redis_client.publish(channel, message)
+            logger.debug(f"Published job update to Redis channel {channel}")
+        except Exception as e:
+            logger.error(f"Error publishing to Redis: {e}")
+
+        # Also broadcast to local WebSocket connections (if any)
         if job_id_str not in self.active_connections:
-            logger.debug(f"No active connections for job {job_id}")
+            logger.debug(f"No local WebSocket connections for job {job_id}")
             return
 
         # Prepare message
@@ -79,9 +108,9 @@ class WebSocketManager:
         for websocket in self.active_connections[job_id_str]:
             try:
                 await websocket.send_text(message)
-                logger.debug(f"Sent update to client for job {job_id}")
+                logger.debug(f"Sent update to WebSocket client for job {job_id}")
             except Exception as e:
-                logger.warning(f"Error sending to client: {e}")
+                logger.warning(f"Error sending to WebSocket client: {e}")
                 disconnected.add(websocket)
 
         # Clean up disconnected clients
@@ -100,6 +129,47 @@ class WebSocketManager:
         """
         job_id_str = str(job_id)
         return len(self.active_connections.get(job_id_str, set()))
+
+    async def subscribe_to_job_updates(self, job_id: UUID):
+        """
+        Subscribe to Redis pub/sub channel for a specific job.
+
+        This is used by the API container to listen for updates from the worker
+        and forward them to WebSocket clients.
+
+        Args:
+            job_id: Job ID to subscribe to
+
+        Yields:
+            dict: Job update messages
+        """
+        job_id_str = str(job_id)
+        channel = f"job_updates:{job_id_str}"
+
+        try:
+            redis_client = await self._get_redis_client()
+            pubsub = redis_client.pubsub()
+            await pubsub.subscribe(channel)
+
+            logger.info(f"Subscribed to Redis channel: {channel}")
+
+            async for message in pubsub.listen():
+                if message["type"] == "message":
+                    try:
+                        update = json.loads(message["data"])
+                        logger.debug(f"Received update from Redis for job {job_id}")
+                        yield update
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Invalid JSON from Redis: {e}")
+
+        except Exception as e:
+            logger.error(f"Error in Redis subscription: {e}")
+        finally:
+            try:
+                await pubsub.unsubscribe(channel)
+                logger.info(f"Unsubscribed from Redis channel: {channel}")
+            except:
+                pass
 
 
 # Global WebSocket manager instance

@@ -308,3 +308,6 @@ All Domains for Luran Platform
   - More edge locations                                                                                                                                                   
   - Advanced caching rules                                                                                                                                                
   - Better analytics    
+
+
+  What does Weysure insurance cover?

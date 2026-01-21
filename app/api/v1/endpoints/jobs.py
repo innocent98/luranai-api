@@ -117,15 +117,38 @@ async def websocket_job_updates(
             "error_message": job.error_message,
         })
 
-        # Keep connection alive and wait for disconnect
-        while True:
-            # Wait for any client messages (ping/pong for keepalive)
+        # Subscribe to Redis updates and forward to WebSocket
+        import asyncio
+
+        async def redis_listener():
+            """Listen to Redis pub/sub and forward updates to WebSocket."""
             try:
-                data = await websocket.receive_text()
-                # Echo back for keepalive
-                await websocket.send_json({"type": "pong"})
+                async for update in websocket_manager.subscribe_to_job_updates(job_id):
+                    await websocket.send_json(update)
+
+                    # Close connection after job completes or fails
+                    if update.get("status") in ["completed", "failed"]:
+                        logger.info(f"Job {job_id} finished, closing WebSocket")
+                        break
+            except Exception as e:
+                logger.error(f"Redis listener error: {e}")
+
+        async def websocket_receiver():
+            """Receive messages from WebSocket (for keepalive)."""
+            try:
+                while True:
+                    data = await websocket.receive_text()
+                    # Echo back for keepalive
+                    await websocket.send_json({"type": "pong"})
             except WebSocketDisconnect:
-                break
+                logger.info(f"WebSocket disconnected for job {job_id}")
+
+        # Run both tasks concurrently
+        await asyncio.gather(
+            redis_listener(),
+            websocket_receiver(),
+            return_exceptions=True
+        )
 
     except Exception as e:
         logger.error(f"WebSocket error for job {job_id}: {e}")

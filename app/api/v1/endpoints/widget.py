@@ -176,7 +176,7 @@ def get_install_code(
     apiKey: 'YOUR_PUBLIC_API_KEY_HERE'  // Get from API Keys page
   }};
 </script>
-<script src="https://cdn.luran.com/widget/v1/widget.js" async defer></script>
+<script src="https://cdn.luranai.com/widget/v1/widget.js" async defer></script>
 <!-- End Luran Widget -->"""
 
     instructions = """Installation Instructions:
@@ -273,6 +273,7 @@ def get_public_widget_config(
     return PublicWidgetConfigResponse(
         tenant_id=str(tenant.id),
         company_name=tenant.display_name,
+        company_description=tenant.description,
         primary_color=tenant.widget_primary_color or "#2563eb",
         accent_color=tenant.widget_accent_color or "#10b981",
         logo_url=tenant.widget_logo_url,

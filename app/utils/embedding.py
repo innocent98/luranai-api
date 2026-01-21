@@ -41,10 +41,10 @@ class EmbeddingService:
             result = self.client.models.embed_content(
                 model=self.model,
                 contents=text,
-                task_type="retrieval_document",  # For document chunks
             )
 
-            embedding = result["embedding"]
+            # Access embedding from response object
+            embedding = result.embeddings[0].values
 
             logger.debug(f"Generated embedding of dimension {len(embedding)}")
             return embedding
@@ -81,10 +81,10 @@ class EmbeddingService:
             result = self.client.models.embed_content(
                 model=self.model,
                 contents=query,
-                task_type="retrieval_query",  # For search queries
             )
 
-            embedding = result["embedding"]
+            # Access embedding from response object
+            embedding = result.embeddings[0].values
 
             logger.debug(f"Generated query embedding of dimension {len(embedding)}")
             return embedding

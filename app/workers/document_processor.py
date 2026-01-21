@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.db.models.job import JobStatus, JobType, ProcessingJob
-from app.db.models.knowledge import SourceType
+from app.db.models.knowledge import SourceType, SourceStatus
 from app.services.knowledge_service import KnowledgeService
 from app.utils.embedding import embedding_service
 
@@ -105,7 +105,13 @@ async def process_document_ingestion(
         )
 
         # Update job with total chunks
-        chunks = knowledge_service.get_source_chunks(source.id, active_only=True)
+        # Query chunks directly as DB objects (not Pydantic models) so we can update them
+        from app.db.models.knowledge import KnowledgeChunk
+        chunks = db.query(KnowledgeChunk).filter(
+            KnowledgeChunk.source_id == source.id,
+            KnowledgeChunk.is_active == True
+        ).order_by(KnowledgeChunk.chunk_index).all()
+
         job.total_items = len(chunks)
         db.commit()
 
@@ -187,9 +193,13 @@ async def process_document_ingestion(
                 db.commit()
 
         # Step 3: Finalize source status
+        # Re-query source as DB object (the 'source' variable is a Pydantic model)
+        from app.db.models.knowledge import KnowledgeSource
+        db_source = db.query(KnowledgeSource).filter(KnowledgeSource.id == source.id).first()
+
         if len(successful_chunks) > 0:
-            source.status = "ACTIVE"
-            source.chunk_count = len(successful_chunks)
+            db_source.status = SourceStatus.ACTIVE
+            db_source.chunk_count = len(successful_chunks)
             job.status = JobStatus.COMPLETED
             job.result_data = {
                 "source_id": str(source.id),
@@ -199,7 +209,7 @@ async def process_document_ingestion(
             }
             logger.success(f"✓ Job {job_id} completed: {len(successful_chunks)}/{len(chunks)} chunks processed")
         else:
-            source.status = "FAILED"
+            db_source.status = SourceStatus.FAILED
             job.status = JobStatus.FAILED
             job.error_message = "All chunks failed to embed"
             logger.error(f"✗ Job {job_id} failed: No chunks successfully embedded")
