@@ -4,7 +4,7 @@ import enum
 import uuid
 from typing import Optional
 
-from sqlalchemy import Boolean, Integer, JSON, String, Text, Enum as SQLEnum, Index
+from sqlalchemy import Boolean, Integer, JSON, String, Text, Enum as SQLEnum, Index, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import ForeignKey
 
@@ -49,6 +49,13 @@ class KnowledgeSource(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "knowledge_sources"
     __table_args__ = (
         Index("ix_knowledge_sources_tenant_status", "tenant_id", "status"),
+        # Prevent race conditions - only one version per (tenant, content_hash, version) tuple
+        UniqueConstraint(
+            "tenant_id",
+            "content_hash",
+            "version",
+            name="uq_knowledge_source_tenant_hash_version"
+        ),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(

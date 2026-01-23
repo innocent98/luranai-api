@@ -178,9 +178,9 @@ class TenantAIConfig(Base, UUIDMixin, TimestampMixin):
     # Response Generation Parameters
     max_response_tokens: Mapped[int] = mapped_column(
         Integer,
-        default=400,
+        default=200,
         nullable=False,
-        comment="Maximum tokens for AI response",
+        comment="Maximum tokens for AI response (recommended: 200-400, hard cap: 600)",
     )
     grounding_requirement: Mapped[bool] = mapped_column(
         Boolean,

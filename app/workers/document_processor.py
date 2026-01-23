@@ -199,7 +199,8 @@ async def process_document_ingestion(
 
         if len(successful_chunks) > 0:
             db_source.status = SourceStatus.ACTIVE
-            db_source.chunk_count = len(successful_chunks)
+            # Recompute chunk_count from actual chunks to prevent drift
+            knowledge_service.recompute_chunk_count(source.id)
             job.status = JobStatus.COMPLETED
             job.result_data = {
                 "source_id": str(source.id),

@@ -48,6 +48,14 @@ class TicketPriority(str, enum.Enum):
     URGENT = "urgent"
 
 
+class EscalationAction(str, enum.Enum):
+    """Escalation action to take."""
+
+    AUTO_ESCALATE = "auto_escalate"  # Immediate escalation
+    OFFER_ESCALATION = "offer_escalation"  # Ask user first
+    NO_ESCALATION = "no_escalation"  # AI will handle
+
+
 class ConversationSession(Base, UUIDMixin, TimestampMixin):
     """
     Tracks chat sessions with users.

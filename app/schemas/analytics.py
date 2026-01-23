@@ -23,7 +23,6 @@ class AnalyticsOverviewResponse(BaseModel):
     resolved_conversations: int
     abandoned_conversations: int
     escalation_rate: float = Field(..., description="Escalation rate as percentage")
-    avg_confidence_score: float
 
     # Ticket Metrics
     total_tickets: int
@@ -53,10 +52,6 @@ class ConversationMetricsResponse(BaseModel):
     escalation_rate: float
     avg_session_duration_minutes: float
     avg_messages_per_session: float
-    avg_confidence_score: float
-    confidence_distribution: Dict[str, int] = Field(
-        ..., description="Distribution of confidence scores by range"
-    )
     top_escalation_reasons: List[Dict[str, Any]] = Field(
         default_factory=list, description="Most common escalation reasons"
     )

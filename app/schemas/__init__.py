@@ -99,6 +99,11 @@ from app.schemas.analytics import (
     TrendResponse,
     KnowledgeUsageResponse,
 )
+from app.schemas.rag import (
+    EscalationDecision,
+    ResponseQuality,
+    PromptComponents,
+)
 
 __all__ = [
     # Tenant schemas
@@ -190,4 +195,8 @@ __all__ = [
     "TrendDataPoint",
     "TrendResponse",
     "KnowledgeUsageResponse",
+    # RAG schemas
+    "EscalationDecision",
+    "ResponseQuality",
+    "PromptComponents",
 ]

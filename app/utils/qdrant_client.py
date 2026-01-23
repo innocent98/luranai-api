@@ -63,6 +63,58 @@ class QdrantManager:
             logger.error(f"Error ensuring collection: {e}")
             return False
 
+    def build_search_filter(
+        self,
+        tenant_id: UUID,
+        is_active: bool = True,
+        source_status: Optional[str] = None,
+        visibility_level: Optional[str] = None,
+    ) -> Filter:
+        """
+        Build comprehensive filter for vector search.
+
+        Args:
+            tenant_id: Tenant UUID (required)
+            is_active: Filter for active chunks (default: True)
+            source_status: Optional source status filter (ACTIVE, ARCHIVED)
+            visibility_level: Optional visibility filter (PUBLIC, INTERNAL, RESTRICTED)
+
+        Returns:
+            Qdrant Filter object
+        """
+        conditions = [
+            FieldCondition(
+                key="tenant_id",
+                match=MatchValue(value=str(tenant_id)),
+            ),
+        ]
+
+        if is_active:
+            conditions.append(
+                FieldCondition(
+                    key="is_active",
+                    match=MatchValue(value=True),
+                )
+            )
+
+        if source_status:
+            conditions.append(
+                FieldCondition(
+                    key="source_status",
+                    match=MatchValue(value=source_status),
+                )
+            )
+
+        if visibility_level:
+            conditions.append(
+                FieldCondition(
+                    key="visibility_level",
+                    match=MatchValue(value=visibility_level),
+                )
+            )
+
+        return Filter(must=conditions)
+
     def upsert_vector(
         self,
         vector_id: str,
@@ -89,16 +141,24 @@ class QdrantManager:
             True if successful
         """
         try:
+            # Build enhanced payload with metadata for filtering
+            payload = {
+                "tenant_id": str(tenant_id),
+                "chunk_id": str(chunk_id),
+                "source_id": str(source_id),
+                "content": content,
+                "is_active": metadata.get("is_active", True),  # Add this
+                "source_status": metadata.get("source_status", "ACTIVE"),  # Add this
+                "visibility_level": metadata.get("visibility_level", "PUBLIC"),  # Add this
+                "content_type": metadata.get("content_type", "unknown"),  # Add this (faq, policy, contact, pricing)
+                "language": metadata.get("language", "en"),  # Add this
+                **metadata,
+            }
+
             point = PointStruct(
                 id=vector_id,
                 vector=embedding,
-                payload={
-                    "tenant_id": str(tenant_id),
-                    "chunk_id": str(chunk_id),
-                    "source_id": str(source_id),
-                    "content": content,
-                    **metadata,
-                },
+                payload=payload,
             )
 
             self.client.upsert(
@@ -119,35 +179,42 @@ class QdrantManager:
         tenant_id: UUID,
         limit: int = 5,
         score_threshold: Optional[float] = None,
+        is_active: bool = True,
+        source_status: Optional[str] = "ACTIVE",
+        visibility_level: Optional[str] = "PUBLIC",
     ) -> List[dict]:
         """
-        Search for similar vectors with tenant filtering.
+        Search for similar vectors with enhanced metadata filtering.
+
+        SECURITY: Tenant filtering is enforced SERVER-SIDE by Qdrant via query_filter.
+        This ensures multi-tenant isolation at the vector database level.
 
         Args:
             query_vector: Query embedding vector
-            tenant_id: Tenant UUID to filter by
+            tenant_id: Tenant UUID to filter by (enforced server-side)
             limit: Maximum number of results
             score_threshold: Minimum similarity score
+            is_active: Filter for active chunks (default: True)
+            source_status: Optional source status filter (default: ACTIVE)
+            visibility_level: Visibility filter (default: PUBLIC for security)
 
         Returns:
             List of search results with scores
         """
         try:
-            # Create filter for tenant isolation
-            tenant_filter = Filter(
-                must=[
-                    FieldCondition(
-                        key="tenant_id",
-                        match=MatchValue(value=str(tenant_id)),
-                    )
-                ]
+            # Create enhanced filter with metadata (server-side enforcement)
+            search_filter = self.build_search_filter(
+                tenant_id=tenant_id,
+                is_active=is_active,
+                source_status=source_status,
+                visibility_level=visibility_level,
             )
 
             # Perform search using query_points (qdrant-client 1.16+)
             search_result = self.client.query_points(
                 collection_name=self.collection_name,
                 query=query_vector,
-                query_filter=tenant_filter,
+                query_filter=search_filter,
                 limit=limit,
                 score_threshold=score_threshold,
                 search_params=SearchParams(
@@ -187,11 +254,13 @@ class QdrantManager:
         """
         Delete vector by chunk ID.
 
+        This operation is IDEMPOTENT - deleting non-existent vectors is a no-op.
+
         Args:
             chunk_id: Knowledge chunk UUID
 
         Returns:
-            True if successful
+            True if successful (including if vector already deleted)
         """
         try:
             # Delete points with matching chunk_id
@@ -207,22 +276,25 @@ class QdrantManager:
                 ),
             )
 
-            logger.debug(f"Deleted vectors for chunk {chunk_id}")
+            logger.debug(f"Deleted vectors for chunk {chunk_id} (idempotent)")
             return True
 
         except Exception as e:
-            logger.error(f"Error deleting vectors: {e}")
+            logger.warning(f"Failed to delete vectors for chunk {chunk_id}: {e}")
             return False
 
     def delete_by_source_id(self, source_id: UUID) -> bool:
         """
         Delete all vectors for a knowledge source.
 
+        This operation is IDEMPOTENT - deleting non-existent vectors is a no-op.
+        Safe to call even if vectors were already deleted or never existed.
+
         Args:
             source_id: Knowledge source UUID
 
         Returns:
-            True if successful
+            True if successful (including if vectors already deleted)
         """
         try:
             self.client.delete(
@@ -237,11 +309,12 @@ class QdrantManager:
                 ),
             )
 
-            logger.debug(f"Deleted all vectors for source {source_id}")
+            logger.debug(f"Deleted vectors for source {source_id} (idempotent)")
             return True
 
         except Exception as e:
-            logger.error(f"Error deleting vectors: {e}")
+            # Log as warning, not error, since deletion failures don't affect DB state
+            logger.warning(f"Failed to delete vectors for source {source_id}: {e}")
             return False
 
     def count_vectors(self, tenant_id: Optional[UUID] = None) -> int:

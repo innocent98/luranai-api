@@ -37,7 +37,7 @@ class TenantAIConfigBase(BaseModel):
         default=0.55, ge=0.0, le=1.0, description="Minimum confidence score for responses"
     )
     max_response_tokens: int = Field(
-        default=400, ge=50, le=2000, description="Maximum tokens for AI response"
+        default=200, ge=50, le=600, description="Maximum tokens for AI response (recommended: 200-400)"
     )
     grounding_requirement: bool = Field(
         default=True, description="Whether AI must ground responses in knowledge base"
@@ -99,7 +99,7 @@ class TenantAIConfigUpdate(BaseModel):
     blocked_topics: Optional[list[str]] = None
     escalation_keywords: Optional[list[str]] = None
     confidence_threshold: Optional[float] = Field(None, ge=0.0, le=1.0)
-    max_response_tokens: Optional[int] = Field(None, ge=50, le=2000)
+    max_response_tokens: Optional[int] = Field(None, ge=50, le=600)
     grounding_requirement: Optional[bool] = None
     custom_instructions: Optional[str] = None
 

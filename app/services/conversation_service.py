@@ -45,7 +45,6 @@ class ConversationService:
             user_identifier=session_data.user_identifier,
             status=SessionStatus.ACTIVE,
             meta=session_data.meta or {},
-            confidence_scores=[],
             last_message_at=datetime.utcnow(),
         )
 
@@ -199,7 +198,6 @@ class ConversationService:
         role: MessageRole,
         content: str,
         retrieved_chunk_ids: Optional[list[UUID]] = None,
-        confidence_score: Optional[float] = None,
         token_count: Optional[int] = None,
         meta: Optional[dict] = None,
     ) -> MessageResponse:
@@ -211,7 +209,6 @@ class ConversationService:
             role: Message role (user/assistant/system)
             content: Message content
             retrieved_chunk_ids: Optional knowledge chunk IDs used
-            confidence_score: Optional AI confidence score
             token_count: Optional token count
             meta: Optional metadata
 
@@ -234,7 +231,6 @@ class ConversationService:
             role=role,
             content=content,
             retrieved_chunk_ids=retrieved_chunk_ids,
-            confidence_score=confidence_score,
             token_count=token_count,
             meta=meta or {},
         )
@@ -243,12 +239,6 @@ class ConversationService:
 
         # Update session last_message_at
         session.last_message_at = datetime.utcnow()
-
-        # Track confidence scores for assistant messages
-        if role == MessageRole.ASSISTANT and confidence_score is not None:
-            if session.confidence_scores is None:
-                session.confidence_scores = []
-            session.confidence_scores.append(confidence_score)
 
         self.db.commit()
         self.db.refresh(db_message)
@@ -322,24 +312,6 @@ class ConversationService:
         sessions = self.db.execute(stmt).scalars().all()
 
         return [SessionResponse.model_validate(s) for s in sessions]
-
-    def get_average_confidence(self, session_id: UUID) -> Optional[float]:
-        """
-        Calculate average confidence score for a session.
-
-        Args:
-            session_id: Session UUID
-
-        Returns:
-            Average confidence score or None if no scores
-        """
-        stmt = select(ConversationSession).where(ConversationSession.id == session_id)
-        session = self.db.execute(stmt).scalar_one_or_none()
-
-        if not session or not session.confidence_scores:
-            return None
-
-        return sum(session.confidence_scores) / len(session.confidence_scores)
 
     def assign_agent_to_session(self, session_id: UUID, agent_id: UUID) -> SessionResponse:
         """

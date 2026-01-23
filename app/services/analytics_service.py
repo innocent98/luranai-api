@@ -71,7 +71,6 @@ class AnalyticsService:
         # Conversation metrics
         conversation_metrics = self._get_conversation_counts(tenant_id, start_date, end_date)
         escalation_rate = self._calculate_escalation_rate(tenant_id, start_date, end_date)
-        avg_confidence = self._calculate_avg_confidence_score(tenant_id, start_date, end_date)
 
         # Ticket metrics
         ticket_metrics = self._get_ticket_counts(tenant_id, start_date, end_date)
@@ -92,7 +91,6 @@ class AnalyticsService:
             resolved_conversations=conversation_metrics.get(SessionStatus.RESOLVED.value, 0),
             abandoned_conversations=conversation_metrics.get(SessionStatus.ABANDONED.value, 0),
             escalation_rate=escalation_rate,
-            avg_confidence_score=avg_confidence,
             # Tickets
             total_tickets=ticket_metrics.get("total", 0),
             open_tickets=ticket_metrics.get(TicketStatus.OPEN.value, 0),
@@ -138,10 +136,6 @@ class AnalyticsService:
         # Messages per session
         avg_messages = self._calculate_avg_messages_per_session(tenant_id, start_date, end_date)
 
-        # Confidence scores
-        avg_confidence = self._calculate_avg_confidence_score(tenant_id, start_date, end_date)
-        confidence_dist = self._get_confidence_distribution(tenant_id, start_date, end_date)
-
         # Escalation reasons
         top_reasons = self._get_top_escalation_reasons(tenant_id, start_date, end_date)
 
@@ -157,8 +151,6 @@ class AnalyticsService:
             escalation_rate=escalation_rate,
             avg_session_duration_minutes=avg_duration,
             avg_messages_per_session=avg_messages,
-            avg_confidence_score=avg_confidence,
-            confidence_distribution=confidence_dist,
             top_escalation_reasons=top_reasons,
         )
 
@@ -628,26 +620,6 @@ class AnalyticsService:
 
         return (escalated / total) * 100
 
-    def _calculate_avg_confidence_score(
-        self, tenant_id: UUID, start_date: datetime, end_date: datetime
-    ) -> float:
-        """Calculate average AI confidence score."""
-        avg_score = (
-            self.db.query(func.avg(Message.confidence_score))
-            .join(ConversationSession, Message.session_id == ConversationSession.id)
-            .filter(
-                ConversationSession.tenant_id == tenant_id,
-                Message.role == MessageRole.ASSISTANT,
-                Message.confidence_score.isnot(None),
-                Message.created_at >= start_date,
-                Message.created_at <= end_date,
-            )
-            .scalar()
-            or 0.0
-        )
-
-        return float(avg_score)
-
     def _get_ticket_counts(
         self, tenant_id: UUID, start_date: datetime, end_date: datetime
     ) -> Dict[str, int]:
@@ -783,35 +755,6 @@ class AnalyticsService:
             return 0.0
 
         return total_messages / total_sessions
-
-    def _get_confidence_distribution(
-        self, tenant_id: UUID, start_date: datetime, end_date: datetime
-    ) -> Dict[str, int]:
-        """Get distribution of confidence scores by range."""
-        # Define confidence ranges
-        confidence_ranges = (
-            self.db.query(
-                case(
-                    (Message.confidence_score < 0.25, "0-25%"),
-                    (Message.confidence_score < 0.5, "25-50%"),
-                    (Message.confidence_score < 0.75, "50-75%"),
-                    else_="75-100%",
-                ).label("range"),
-                func.count(Message.id).label("count"),
-            )
-            .join(ConversationSession, Message.session_id == ConversationSession.id)
-            .filter(
-                ConversationSession.tenant_id == tenant_id,
-                Message.role == MessageRole.ASSISTANT,
-                Message.confidence_score.isnot(None),
-                Message.created_at >= start_date,
-                Message.created_at <= end_date,
-            )
-            .group_by("range")
-            .all()
-        )
-
-        return {range_label: count for range_label, count in confidence_ranges}
 
     def _get_top_escalation_reasons(
         self, tenant_id: UUID, start_date: datetime, end_date: datetime, limit: int = 5

@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_
+from sqlalchemy.exc import IntegrityError
 from loguru import logger
 
 from app.db.models.knowledge import (
@@ -46,7 +47,10 @@ class KnowledgeService:
 
     def create_source(self, source_data: KnowledgeSourceCreate) -> KnowledgeSourceResponse:
         """
-        Create a new knowledge source.
+        Create a new knowledge source with version management.
+
+        Implements retry logic to handle race conditions where multiple processes
+        attempt to create the same version simultaneously.
 
         Args:
             source_data: Source creation data
@@ -55,41 +59,62 @@ class KnowledgeService:
             Created source response
 
         Raises:
-            ValueError: If duplicate source exists with same hash
+            ValueError: If failed to create source after max retries
         """
-        # Check for duplicate by content hash
-        stmt = select(KnowledgeSource).where(
-            and_(
-                KnowledgeSource.tenant_id == source_data.tenant_id,
-                KnowledgeSource.content_hash == source_data.content_hash,
-                KnowledgeSource.status != SourceStatus.INACTIVE,
-            )
-        )
-        existing = self.db.execute(stmt).scalar_one_or_none()
+        # Retry loop for handling race conditions
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Step 1: Query for existing duplicate with row lock
+                stmt = select(KnowledgeSource).where(
+                    and_(
+                        KnowledgeSource.tenant_id == source_data.tenant_id,
+                        KnowledgeSource.content_hash == source_data.content_hash,
+                        KnowledgeSource.status != SourceStatus.INACTIVE,
+                    )
+                ).with_for_update()
 
-        if existing:
-            # Increment version if same content
-            version = existing.version + 1
-        else:
-            version = 1
+                existing = self.db.execute(stmt).scalar_one_or_none()
 
-        db_source = KnowledgeSource(
-            tenant_id=source_data.tenant_id,
-            name=source_data.name,
-            source_type=source_data.source_type,
-            file_url=source_data.file_url,
-            content_hash=source_data.content_hash,
-            version=version,
-            status=SourceStatus.PROCESSING,
-            chunk_count=0,
-            meta=source_data.meta or {},
-        )
+                # Step 2: Decide version
+                if existing:
+                    version = existing.version + 1
+                else:
+                    version = 1
 
-        self.db.add(db_source)
-        self.db.commit()
-        self.db.refresh(db_source)
+                # Step 3: Create and commit
+                db_source = KnowledgeSource(
+                    tenant_id=source_data.tenant_id,
+                    name=source_data.name,
+                    source_type=source_data.source_type,
+                    file_url=source_data.file_url,
+                    content_hash=source_data.content_hash,
+                    version=version,
+                    status=SourceStatus.PROCESSING,
+                    chunk_count=0,
+                    meta=source_data.meta or {},
+                    uploaded_by=source_data.uploaded_by,
+                )
+                self.db.add(db_source)
+                self.db.commit()
+                self.db.refresh(db_source)
 
-        return KnowledgeSourceResponse.model_validate(db_source)
+                logger.info(
+                    f"Created knowledge source: {db_source.name} "
+                    f"(version {version}, tenant {source_data.tenant_id})"
+                )
+                return KnowledgeSourceResponse.model_validate(db_source)
+
+            except IntegrityError as e:
+                # Another transaction inserted the same version
+                self.db.rollback()
+                if attempt < max_retries - 1:
+                    logger.warning(f"Version conflict detected, retrying (attempt {attempt + 1})")
+                    continue
+                else:
+                    raise ValueError(
+                        f"Failed to create source after {max_retries} attempts due to version conflicts"
+                    ) from e
 
     def get_source(self, source_id: UUID, include_chunks: bool = False) -> Optional[KnowledgeSourceResponse]:
         """
@@ -156,6 +181,9 @@ class KnowledgeService:
         Raises:
             ValueError: If source not found
         """
+        # Recompute chunk count to ensure accuracy before activation
+        self.recompute_chunk_count(source_id)
+
         stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
         source = self.db.execute(stmt).scalar_one_or_none()
 
@@ -254,18 +282,44 @@ class KnowledgeService:
         )
 
         self.db.add(db_chunk)
-
-        # Update source chunk count
-        stmt = select(KnowledgeSource).where(KnowledgeSource.id == chunk_data.source_id)
-        source = self.db.execute(stmt).scalar_one_or_none()
-
-        if source:
-            source.chunk_count += 1
-
         self.db.commit()
         self.db.refresh(db_chunk)
 
         return KnowledgeChunkResponse.model_validate(db_chunk)
+
+    def recompute_chunk_count(self, source_id: UUID) -> int:
+        """
+        Recompute chunk count from actual chunks (source of truth).
+
+        This eliminates drift from incremental updates and concurrent operations.
+
+        Args:
+            source_id: Knowledge source ID
+
+        Returns:
+            Actual chunk count
+        """
+        from sqlalchemy import func
+
+        # Count active chunks for this source
+        stmt = select(func.count()).where(
+            and_(
+                KnowledgeChunk.source_id == source_id,
+                KnowledgeChunk.is_active == True
+            )
+        )
+        actual_count = self.db.execute(stmt).scalar() or 0
+
+        # Update source
+        stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
+        source = self.db.execute(stmt).scalar_one_or_none()
+
+        if source:
+            source.chunk_count = actual_count
+            self.db.commit()
+            logger.debug(f"Recomputed chunk_count for source {source_id}: {actual_count}")
+
+        return actual_count
 
     def get_chunk(self, chunk_id: UUID) -> Optional[KnowledgeChunkResponse]:
         """
@@ -284,6 +338,39 @@ class KnowledgeService:
             return None
 
         return KnowledgeChunkResponse.model_validate(chunk)
+
+    def get_chunks_batch(
+        self,
+        chunk_ids: list[UUID],
+        tenant_id: Optional[UUID] = None
+    ) -> dict[UUID, KnowledgeChunkResponse]:
+        """
+        Retrieve multiple chunks in a single query (fixes N+1 pattern).
+
+        Args:
+            chunk_ids: List of chunk UUIDs to fetch
+            tenant_id: Optional tenant filter for security
+
+        Returns:
+            Dict mapping chunk_id to KnowledgeChunkResponse (PUBLIC chunks only)
+        """
+        if not chunk_ids:
+            return {}
+
+        stmt = (
+            select(KnowledgeChunk)
+            .where(KnowledgeChunk.id.in_(chunk_ids))
+            .where(KnowledgeChunk.is_active == True)
+            .where(KnowledgeChunk.visibility == ChunkVisibility.PUBLIC)  # Security: prevent internal/restricted doc leaks
+        )
+
+        if tenant_id:
+            stmt = stmt.where(KnowledgeChunk.tenant_id == tenant_id)
+
+        chunks = self.db.execute(stmt).scalars().all()
+
+        # Return as dict for fast lookup while preserving order
+        return {chunk.id: KnowledgeChunkResponse.model_validate(chunk) for chunk in chunks}
 
     def get_source_chunks(
         self, source_id: UUID, active_only: bool = True
