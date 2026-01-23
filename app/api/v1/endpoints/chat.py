@@ -20,6 +20,7 @@ from app.schemas.conversation import (
     ChatResponse,
     SessionCreateRequest,
     ConversationSessionCreate,
+    ConversationSessionUpdate,
 )
 from app.schemas.user import UserResponse
 from app.db.models.conversation import SessionStatus, MessageRole, TicketPriority, EscalationAction
@@ -217,6 +218,15 @@ async def send_message(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Session not found"
             )
+
+        # Auto-reactivate ABANDONED sessions when user returns
+        if session.status == SessionStatus.ABANDONED:
+            logger.info(f"User returned to abandoned session {session_id}, reactivating...")
+            session = conversation_service.update_session(
+                session_id,
+                ConversationSessionUpdate(status=SessionStatus.ACTIVE)
+            )
+            logger.info(f"Session {session_id} reactivated from ABANDONED to ACTIVE")
 
     # Step 2: Get tenant and AI configuration
     tenant = tenant_service.get_tenant_by_id(session.tenant_id)

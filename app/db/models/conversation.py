@@ -109,11 +109,6 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         comment="When the agent joined the conversation",
     )
-    confidence_scores: Mapped[Optional[list]] = mapped_column(
-        JSON,
-        nullable=True,
-        comment="Array of AI confidence scores over time",
-    )
     meta: Mapped[Optional[dict]] = mapped_column(
         JSON,
         nullable=True,
@@ -176,11 +171,6 @@ class Message(Base, UUIDMixin):
         JSON,
         nullable=True,
         comment="UUIDs of knowledge chunks used for this response",
-    )
-    confidence_score: Mapped[Optional[float]] = mapped_column(
-        Float,
-        nullable=True,
-        comment="AI confidence score for this response (0.0-1.0)",
     )
     token_count: Mapped[Optional[int]] = mapped_column(
         Integer,
