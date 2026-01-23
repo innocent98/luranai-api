@@ -2,11 +2,12 @@
 Seed database with initial test data.
 
 Creates:
+- Platform admin
 - Test tenant (Weysure)
-- Superuser
-- Tenant admin
+- Luran company tenant
+- Tenant admins
 - AI configuration
-- Sample knowledge document
+- Sample knowledge documents
 """
 
 import asyncio
@@ -20,12 +21,15 @@ sys.path.insert(0, str(project_root))
 from uuid import UUID
 from app.db.session import SessionLocal
 from app.services.auth_service import AuthService
+from app.services.platform_admin_auth_service import PlatformAdminAuthService
 from app.services.tenant_service import TenantService
 from app.services.knowledge_service import KnowledgeService
 from app.schemas.user import UserCreate
+from app.schemas.platform_admin import PlatformAdminCreate
 from app.schemas.tenant import TenantCreate, TenantAIConfigUpdate
 from app.db.models.knowledge import SourceType
 from app.db.models.user import UserRole
+from app.db.models.platform_admin import PlatformAdminRole
 from loguru import logger
 
 
@@ -117,23 +121,24 @@ async def main():
         logger.info("=" * 60)
 
         auth_service = AuthService(db)
+        platform_admin_service = PlatformAdminAuthService(db)
         tenant_service = TenantService(db)
         knowledge_service = KnowledgeService(db)
 
-        # Step 1: Create superuser
-        logger.info("\n1. Creating superuser...")
+        # Step 1: Create/Update platform admin
+        logger.info("\n1. Creating platform admin...")
         try:
-            superuser_data = UserCreate(
-                email="admin@luran.dev",
+            admin_data = PlatformAdminCreate(
+                email="admin@luranai.com",
                 password="admin123",  # Change in production!
-                full_name="Super Admin",
-                role=UserRole.SUPER_ADMIN,
+                full_name="Luran Platform Admin",
+                role=PlatformAdminRole.SUPER_ADMIN,
             )
-            superuser = auth_service.create_user(superuser_data)
-            logger.success(f"✓ Created superuser: {superuser.email}")
+            platform_admin = platform_admin_service.create_admin(admin_data)
+            logger.success(f"✓ Created platform admin: {platform_admin.email}")
         except Exception as e:
             if "already exists" in str(e).lower():
-                logger.warning("Superuser already exists, skipping...")
+                logger.warning("Platform admin already exists, skipping...")
             else:
                 raise
 
@@ -240,23 +245,143 @@ async def main():
             logger.error(f"✗ Failed to upload knowledge: {e}")
             logger.warning("  (May be due to API quota limits)")
 
+        # Step 6: Create Luran company tenant
+        logger.info("\n6. Creating Luran company tenant...")
+        try:
+            luran_tenant_data = TenantCreate(
+                name="luran",
+                display_name="Luran AI Platform",
+                description="AI-powered customer support platform - Luran's own AI assistant",
+            )
+            luran_tenant = tenant_service.create_tenant(luran_tenant_data)
+            luran_tenant_id = luran_tenant.id
+            logger.success(f"✓ Created tenant: {luran_tenant.display_name} (ID: {luran_tenant_id})")
+            logger.info(f"  API Key: {luran_tenant.api_key[:20]}...")
+        except Exception as e:
+            if "already exists" in str(e).lower():
+                logger.warning("Luran tenant already exists, fetching...")
+                luran_tenant = tenant_service.get_tenant_by_name("luran")
+                if not luran_tenant:
+                    raise Exception("Could not find or create Luran tenant")
+                luran_tenant_id = luran_tenant.id
+                logger.info(f"  Using existing tenant ID: {luran_tenant_id}")
+            else:
+                raise
+
+        # Step 7: Create Luran tenant admin user
+        logger.info("\n7. Creating Luran tenant admin user...")
+        try:
+            luran_admin_data = UserCreate(
+                email="admin@luranai.com",
+                password="admin123",  # Change in production!
+                full_name="Luran Admin",
+                role=UserRole.TENANT_ADMIN,
+                tenant_id=luran_tenant_id,
+            )
+            luran_admin = auth_service.create_user(luran_admin_data)
+            logger.success(f"✓ Created Luran tenant admin: {luran_admin.email}")
+        except Exception as e:
+            if "already exists" in str(e).lower():
+                logger.warning("Luran tenant admin already exists, skipping...")
+            else:
+                raise
+
+        # Step 8: Configure Luran AI settings
+        logger.info("\n8. Configuring Luran AI settings...")
+        luran_ai_config_data = TenantAIConfigUpdate(
+            brand_voice={
+                "tone": "professional",
+                "formality_level": "balanced",
+                "greeting_style": "warm",
+                "emoji_usage": False,
+            },
+            allowed_topics=[
+                "platform features",
+                "knowledge base management",
+                "widget installation",
+                "AI configuration",
+                "team management",
+                "analytics and reporting",
+                "API and integrations",
+                "billing and pricing",
+                "security and compliance",
+                "troubleshooting",
+            ],
+            blocked_topics=[
+                "competitor platforms",
+                "internal operations",
+                "proprietary algorithms",
+            ],
+            escalation_keywords=[
+                "speak to sales",
+                "talk to support",
+                "urgent issue",
+                "platform down",
+                "critical bug",
+                "data breach",
+            ],
+            confidence_threshold=0.60,
+            max_response_tokens=500,
+            grounding_requirement=True,
+            custom_instructions="Always direct users to appropriate documentation sections. For billing inquiries, suggest contacting the sales team. For technical issues, provide troubleshooting steps before escalating.",
+        )
+        luran_ai_config = tenant_service.update_ai_config(luran_tenant_id, luran_ai_config_data)
+        logger.success("✓ Luran AI configuration updated")
+        logger.info(f"  Confidence threshold: {luran_ai_config.confidence_threshold}")
+        logger.info(f"  Max tokens: {luran_ai_config.max_response_tokens}")
+
+        # Step 9: Upload Luran knowledge document
+        logger.info("\n9. Uploading Luran platform knowledge document...")
+        try:
+            # Read the comprehensive Luran knowledge base
+            knowledge_file_path = project_root / "luran_platform_knowledge.txt"
+            with open(knowledge_file_path, "r", encoding="utf-8") as f:
+                luran_knowledge = f.read()
+
+            luran_source = await knowledge_service.process_document(
+                tenant_id=luran_tenant_id,
+                document_text=luran_knowledge,
+                document_name="luran_platform_knowledge.txt",
+                source_type=SourceType.HELP_DOC,
+                document_metadata={
+                    "language": "en",
+                    "category": "platform_documentation",
+                    "author": "luran_team",
+                    "version": "1.0",
+                },
+            )
+            logger.success(f"✓ Uploaded Luran knowledge document: {luran_source.name}")
+            logger.info(f"  Source ID: {luran_source.id}")
+            logger.info(f"  Version: {luran_source.version}")
+            logger.info(f"  Chunks created: {luran_source.chunk_count}")
+            logger.info(f"  Status: {luran_source.status}")
+        except Exception as e:
+            logger.error(f"✗ Failed to upload Luran knowledge: {e}")
+            logger.warning("  (May be due to API quota limits)")
+
         # Print summary
         logger.info("\n" + "=" * 60)
         logger.success("Database seeding completed!")
         logger.info("=" * 60)
         logger.info("\nTest Credentials:")
-        logger.info("  Superuser:")
-        logger.info("    Email: admin@luran.dev")
+        logger.info("  Platform Admin:")
+        logger.info("    Email: admin@luranai.com")
         logger.info("    Password: admin123")
         logger.info("\n  Tenant Admin (Weysure):")
         logger.info("    Email: admin@weysure.com")
         logger.info("    Password: weysure123")
-        logger.info(f"\n  Tenant ID: {tenant_id}")
+        logger.info(f"\n  Weysure Tenant ID: {tenant_id}")
+        logger.info("\n  Tenant Admin (Luran):")
+        logger.info("    Email: admin@luranai.com")
+        logger.info("    Password: admin123")
+        logger.info(f"\n  Luran Tenant ID: {luran_tenant_id}")
         logger.info("\nNext Steps:")
-        logger.info("  1. Start the server: poetry run uvicorn app.main:app --reload")
+        logger.info("  1. Server is already running via Docker")
         logger.info("  2. Visit API docs: http://localhost:8000/api/v1/docs")
-        logger.info("  3. Login to get JWT token")
+        logger.info("  3. Login with tenant admin credentials to get JWT token")
         logger.info("  4. Test chat endpoint with uploaded knowledge")
+        logger.info("  5. Try Luran's own AI - ask questions about the platform!")
+        logger.info("\nExample: Chat with Luran AI about 'How do I upload knowledge documents?'")
 
     except Exception as e:
         logger.error(f"Error during seeding: {e}")

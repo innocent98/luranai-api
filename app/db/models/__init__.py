@@ -25,6 +25,7 @@ from app.db.models.platform_admin import PlatformAdmin, PlatformAdminRole
 from app.db.models.api_key import APIKey, APIKeyType
 from app.db.models.audit import AuditLog, AnalyticsMetric
 from app.db.models.job import ProcessingJob, JobStatus, JobType
+from app.db.models.review import SessionRating, PlatformFeedback, FeedbackCategory
 
 __all__ = [
     "Base",
@@ -63,4 +64,8 @@ __all__ = [
     "ProcessingJob",
     "JobStatus",
     "JobType",
+    # Review models
+    "SessionRating",
+    "PlatformFeedback",
+    "FeedbackCategory",
 ]

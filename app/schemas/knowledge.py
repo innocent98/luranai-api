@@ -36,6 +36,7 @@ class KnowledgeSourceCreate(KnowledgeSourceBase):
     tenant_id: UUID = Field(..., description="Tenant that owns this source")
     file_url: Optional[str] = Field(None, max_length=1000, description="Storage location URL")
     content_hash: str = Field(..., min_length=32, max_length=64, description="Content hash")
+    uploaded_by: Optional[UUID] = Field(None, description="User who uploaded this source")
 
 
 class DocumentUploadRequest(BaseModel):

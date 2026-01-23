@@ -1,6 +1,6 @@
 # Frontend Development Guide - Complete API Reference
 
-**Last Updated:** 2026-01-19
+**Last Updated:** 2026-01-23
 **Base URL:** `http://localhost:8000/api/v1` (development) | `https://api.luranai.com/api/v1` (production)
 
 ## Table of Contents
@@ -42,11 +42,16 @@
    - Conversation Trends
    - Ticket Trends
    - Knowledge Usage Analytics
-11. [User Flows with Diagrams](#user-flows-with-diagrams)
-12. [Common Patterns](#common-patterns)
-13. [Frontend Pages Checklist](#frontend-pages-checklist)
-14. [Next Steps](#next-steps)
-15. [Important Notes](#important-notes)
+11. [Review & Rating System](#review--rating-system)
+   - Submit Session Rating (Public)
+   - List Session Ratings
+   - Submit Platform Feedback
+   - List Platform Feedback
+12. [User Flows with Diagrams](#user-flows-with-diagrams)
+13. [Common Patterns](#common-patterns)
+14. [Frontend Pages Checklist](#frontend-pages-checklist)
+15. [Next Steps](#next-steps)
+16. [Important Notes](#important-notes)
 
 ---
 
@@ -3587,7 +3592,404 @@ All analytics endpoints verify:
 
 ---
 
-## 11. User Flows with Diagrams
+## 11. Review & Rating System
+
+The review system allows customers to rate their chat experience and enables companies to provide feedback about the Luran platform.
+
+### 11.1 Submit Session Rating (Public)
+
+**Page:** Widget chat interface (after conversation ends)
+
+**Endpoint:** `POST /reviews/session`
+
+**Authentication:** None required (public endpoint)
+
+**Use Case:** After a customer completes a chat session, prompt them to rate their experience with the AI assistant. This helps companies identify knowledge gaps and improve response quality.
+
+**Request:**
+```json
+{
+  "session_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "user_identifier": "customer@example.com",
+  "score": 5,
+  "comment": "Very helpful! Got my question answered quickly.",
+  "meta": {
+    "ai_helpful": true,
+    "issue_resolved": true
+  }
+}
+```
+
+**Request Fields:**
+- `session_id` (UUID, required): The conversation session being rated
+- `user_identifier` (string, required): Must match the session's user_identifier (for verification)
+- `score` (integer, required): Rating from 1-5 (1=Poor, 2=Fair, 3=Good, 4=Very Good, 5=Excellent)
+- `comment` (string, optional): Optional feedback comment (max 2000 chars)
+- `meta` (object, optional): Additional context about the experience
+
+**Response (201 Created):**
+```json
+{
+  "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "tenant_id": "1fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "session_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "user_identifier": "customer@example.com",
+  "score": 5,
+  "comment": "Very helpful! Got my question answered quickly.",
+  "meta": {
+    "ai_helpful": true,
+    "issue_resolved": true
+  },
+  "created_at": "2026-01-23T15:30:00Z",
+  "updated_at": "2026-01-23T15:30:00Z"
+}
+```
+
+**Error Responses:**
+
+```json
+// Session not found (400)
+{
+  "detail": "Session not found"
+}
+
+// User identifier mismatch (400)
+{
+  "detail": "User identifier does not match session"
+}
+
+// Duplicate rating (409)
+{
+  "detail": "Rating already exists for this session"
+}
+
+// Invalid score (422)
+{
+  "detail": [
+    {
+      "loc": ["body", "score"],
+      "msg": "ensure this value is greater than or equal to 1",
+      "type": "value_error.number.not_ge"
+    }
+  ]
+}
+```
+
+**Frontend Implementation:**
+1. After conversation ends or when customer indicates satisfaction, show rating prompt
+2. Display 5-star rating UI with optional comment field
+3. Submit rating with session_id and user_identifier
+4. Handle duplicate rating (409) gracefully - show "Already rated" message
+5. Show thank you message after successful submission
+
+---
+
+### 11.2 List Session Ratings
+
+**Page:** `/dashboard/analytics/ratings`
+
+**Endpoint:** `GET /reviews/session`
+
+**Authentication:** Required (Tenant Admin)
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Use Case:** View customer ratings to identify knowledge gaps, track satisfaction trends, and improve AI response quality.
+
+**Query Parameters:**
+- `session_id` (UUID, optional): Filter by specific session
+- `min_score` (integer, optional): Minimum rating score (1-5)
+- `max_score` (integer, optional): Maximum rating score (1-5)
+- `start_date` (ISO 8601, optional): Filter from date
+- `end_date` (ISO 8601, optional): Filter to date
+- `limit` (integer, optional): Max results per page (1-100, default: 50)
+- `offset` (integer, optional): Results offset for pagination (default: 0)
+
+**Example Request:**
+```
+GET /reviews/session?min_score=1&max_score=3&limit=20&offset=0
+```
+
+**Response (200 OK):**
+```json
+{
+  "ratings": [
+    {
+      "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+      "tenant_id": "1fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "session_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "user_identifier": "customer@example.com",
+      "score": 2,
+      "comment": "AI couldn't answer my question about pricing.",
+      "meta": {
+        "ai_helpful": false,
+        "issue_resolved": false
+      },
+      "created_at": "2026-01-23T15:30:00Z",
+      "updated_at": "2026-01-23T15:30:00Z"
+    },
+    {
+      "id": "8d0e7780-8536-41ef-a34c-3d08f2e91bf8",
+      "tenant_id": "1fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "session_id": "4fb85f64-5717-4562-b3fc-2c963f66afa7",
+      "user_identifier": "user@company.com",
+      "score": 5,
+      "comment": "Great experience!",
+      "meta": null,
+      "created_at": "2026-01-23T14:15:00Z",
+      "updated_at": "2026-01-23T14:15:00Z"
+    }
+  ],
+  "total": 125,
+  "average_score": 4.2,
+  "page": 1,
+  "page_size": 50
+}
+```
+
+**Response Fields:**
+- `ratings` (array): List of rating objects
+- `total` (integer): Total number of ratings matching filters
+- `average_score` (float, nullable): Average rating score across filtered results
+- `page` (integer): Current page number
+- `page_size` (integer): Number of results per page
+
+**Frontend Best Practices:**
+1. Display average score prominently with visual indicator (e.g., stars)
+2. Show score distribution chart (how many 1-star, 2-star, etc.)
+3. Filter by score range to quickly find low ratings
+4. Link ratings to conversation sessions for context
+5. Export ratings data for offline analysis
+6. Show trends over time (average score by day/week/month)
+
+**Dashboard Widget Example:**
+```
+┌─────────────────────────────────────────┐
+│  Customer Satisfaction                  │
+├─────────────────────────────────────────┤
+│  Average: ★★★★☆ 4.2 (125 ratings)      │
+│                                         │
+│  Distribution:                          │
+│  ★★★★★  85  ████████████████████  68%  │
+│  ★★★★☆  25  ███████              20%  │
+│  ★★★☆☆   8  ███                   6%  │
+│  ★★☆☆☆   5  ██                    4%  │
+│  ★☆☆☆☆   2  █                     2%  │
+│                                         │
+│  [View Low Ratings] [Export Data]      │
+└─────────────────────────────────────────┘
+```
+
+---
+
+### 11.3 Submit Platform Feedback
+
+**Page:** `/dashboard/feedback` or feedback modal in navigation
+
+**Endpoint:** `POST /reviews/platform`
+
+**Authentication:** Required (Any tenant user)
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Use Case:** Allow companies to provide feedback about Luran platform, report bugs, request features, or rate their overall satisfaction.
+
+**Request:**
+```json
+{
+  "category": "feature_request",
+  "title": "Add dark mode to dashboard",
+  "description": "It would be great to have a dark mode option for the dashboard. Working late at night with the bright interface is hard on the eyes.",
+  "satisfaction_score": null,
+  "meta": {
+    "priority": "medium",
+    "affected_features": ["dashboard", "ui"]
+  }
+}
+```
+
+**Request Fields:**
+- `category` (enum, required): Type of feedback
+  - `feature_request`: Request new features
+  - `bug_report`: Report bugs or issues
+  - `performance`: Performance-related feedback
+  - `platform_satisfaction`: Rate overall platform satisfaction (requires satisfaction_score)
+  - `documentation`: Documentation feedback
+  - `pricing`: Pricing-related feedback
+  - `general`: General feedback
+- `title` (string, required): Feedback title/summary (max 500 chars)
+- `description` (string, required): Detailed feedback description (max 10000 chars)
+- `satisfaction_score` (integer, optional): 1-5 rating (only for platform_satisfaction category)
+- `meta` (object, optional): Additional context
+
+**Response (201 Created):**
+```json
+{
+  "id": "9e1e8891-9647-42fg-b45d-4e19g3f02cf9",
+  "tenant_id": "1fa85f64-5717-4562-b3fc-2c963f66afa6",
+  "category": "feature_request",
+  "satisfaction_score": null,
+  "title": "Add dark mode to dashboard",
+  "description": "It would be great to have a dark mode option for the dashboard. Working late at night with the bright interface is hard on the eyes.",
+  "status": "open",
+  "submitted_by": "2ga85f64-5717-4562-b3fc-2c963f66afa7",
+  "meta": {
+    "priority": "medium",
+    "affected_features": ["dashboard", "ui"]
+  },
+  "created_at": "2026-01-23T16:00:00Z",
+  "updated_at": "2026-01-23T16:00:00Z"
+}
+```
+
+**Response Fields:**
+- `status` (string): Feedback status (open, acknowledged, in_progress, resolved, closed)
+- `submitted_by` (UUID): User ID who submitted the feedback
+
+**Example - Platform Satisfaction Rating:**
+```json
+{
+  "category": "platform_satisfaction",
+  "title": "Very satisfied with Luran",
+  "description": "The platform has been great for our customer support. Easy to set up and the AI responses are very accurate.",
+  "satisfaction_score": 5,
+  "meta": null
+}
+```
+
+**Frontend Implementation:**
+1. Add "Feedback" button in navigation bar
+2. Show modal/page with form:
+   - Category dropdown with icons for each type
+   - Title input field
+   - Description textarea
+   - Conditional satisfaction_score field (only show for platform_satisfaction category)
+3. After submission, show success message and feedback ID
+4. Optionally show link to view submitted feedback
+
+---
+
+### 11.4 List Platform Feedback
+
+**Page:** `/dashboard/feedback/history`
+
+**Endpoint:** `GET /reviews/platform`
+
+**Authentication:** Required (Any tenant user)
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Use Case:** View previously submitted feedback and track status updates from Luran team.
+
+**Query Parameters:**
+- `category` (enum, optional): Filter by feedback category
+  - Values: `feature_request`, `bug_report`, `performance`, `platform_satisfaction`, `documentation`, `pricing`, `general`
+- `status` (string, optional): Filter by status
+  - Values: `open`, `acknowledged`, `in_progress`, `resolved`, `closed`
+- `start_date` (ISO 8601, optional): Filter from date
+- `end_date` (ISO 8601, optional): Filter to date
+- `limit` (integer, optional): Max results per page (1-100, default: 50)
+- `offset` (integer, optional): Results offset for pagination (default: 0)
+
+**Example Request:**
+```
+GET /reviews/platform?category=bug_report&status=open&limit=20
+```
+
+**Response (200 OK):**
+```json
+{
+  "feedback": [
+    {
+      "id": "9e1e8891-9647-42fg-b45d-4e19g3f02cf9",
+      "tenant_id": "1fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "category": "bug_report",
+      "satisfaction_score": null,
+      "title": "Widget not loading on Safari",
+      "description": "The chat widget script fails to load on Safari 17. Console shows CORS error.",
+      "status": "in_progress",
+      "submitted_by": "2ga85f64-5717-4562-b3fc-2c963f66afa7",
+      "meta": {
+        "browser": "Safari 17",
+        "os": "macOS"
+      },
+      "created_at": "2026-01-22T10:00:00Z",
+      "updated_at": "2026-01-23T09:00:00Z"
+    },
+    {
+      "id": "af2f9902-a758-53gh-c56e-5f20h4g13dg0",
+      "tenant_id": "1fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "category": "feature_request",
+      "satisfaction_score": null,
+      "title": "Export chat transcripts",
+      "description": "Need ability to export chat transcripts as PDF or CSV for compliance purposes.",
+      "status": "acknowledged",
+      "submitted_by": "2ga85f64-5717-4562-b3fc-2c963f66afa7",
+      "meta": null,
+      "created_at": "2026-01-20T14:30:00Z",
+      "updated_at": "2026-01-21T08:00:00Z"
+    }
+  ],
+  "total": 15,
+  "page": 1,
+  "page_size": 50
+}
+```
+
+**Frontend Best Practices:**
+1. Group feedback by status (tabs or filters)
+2. Show status badge with color coding:
+   - `open`: Blue
+   - `acknowledged`: Yellow
+   - `in_progress`: Orange
+   - `resolved`: Green
+   - `closed`: Gray
+3. Allow filtering by category and status
+4. Show most recent feedback first
+5. Display update timestamp to show when Luran team last updated status
+6. Link to view full feedback details in modal/page
+
+**Feedback List UI Example:**
+```
+┌─────────────────────────────────────────────────────────┐
+│  My Feedback                                            │
+├─────────────────────────────────────────────────────────┤
+│  [All] [Feature Requests] [Bug Reports] [Satisfaction]  │
+│                                                          │
+│  ┌────────────────────────────────────────────────┐    │
+│  │ 🐛 Widget not loading on Safari                │    │
+│  │ Status: In Progress  Updated: 1 day ago        │    │
+│  │ The chat widget script fails to load on...     │    │
+│  └────────────────────────────────────────────────┘    │
+│                                                          │
+│  ┌────────────────────────────────────────────────┐    │
+│  │ 💡 Export chat transcripts                     │    │
+│  │ Status: Acknowledged  Updated: 2 days ago      │    │
+│  │ Need ability to export chat transcripts...     │    │
+│  └────────────────────────────────────────────────┘    │
+│                                                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Status Definitions:**
+- `open`: Feedback submitted, waiting for review
+- `acknowledged`: Luran team has seen the feedback
+- `in_progress`: Work has started on this feedback
+- `resolved`: Issue fixed or feature implemented
+- `closed`: Feedback completed and archived
+
+---
+
+## 12. User Flows with Diagrams
 
 ### Flow 1: Company Registration
 
@@ -3747,7 +4149,7 @@ All analytics endpoints verify:
 
 ---
 
-## 12. Common Patterns
+## 13. Common Patterns
 
 ### Authentication Headers
 
@@ -3804,7 +4206,7 @@ Currently, all list endpoints return full results. Pagination will be added late
 
 ---
 
-## 13. Frontend Pages Checklist
+## 14. Frontend Pages Checklist
 
 ### Platform Admin Dashboard
 
@@ -3902,9 +4304,40 @@ Currently, all list endpoints return full results. Pagination will be added late
   - Add working notes
   - Update status
 
+### Analytics & Review Dashboard
+
+- [ ] `/dashboard/analytics/ratings` - Customer satisfaction ratings
+  - Display average score with star rating UI
+  - Score distribution chart (1-5 stars)
+  - Filters: date range, score range, session
+  - List view with pagination
+  - Link ratings to conversation sessions
+  - Export data functionality
+  - Trends over time chart
+- [ ] `/dashboard/feedback` - Submit platform feedback
+  - Feedback form with category selector
+  - Title and description fields
+  - Conditional satisfaction score input (for platform_satisfaction)
+  - Submit button with success message
+- [ ] `/dashboard/feedback/history` - View submitted feedback
+  - List all feedback with status badges
+  - Filters by category and status
+  - Search functionality
+  - Detailed view modal/page for each feedback item
+  - Status color coding (open, acknowledged, in_progress, resolved, closed)
+
+### Widget Integration (Customer-Facing)
+
+- [ ] Post-chat rating prompt in widget
+  - 5-star rating UI
+  - Optional comment field
+  - Thank you message after submission
+  - Handle duplicate rating gracefully
+  - Trigger after conversation ends or satisfaction detected
+
 ---
 
-## 14. Next Steps
+## 15. Next Steps
 
 After frontend is complete, the widget JavaScript and chat UI will be built separately.
 
@@ -3920,7 +4353,7 @@ After frontend is complete, the widget JavaScript and chat UI will be built sepa
 
 ---
 
-## 15. Important Notes
+## 16. Important Notes
 
 1. **Two Separate Tokens:** Platform admin tokens and tenant tokens are different. Store them separately.
 
@@ -3962,6 +4395,16 @@ After frontend is complete, the widget JavaScript and chat UI will be built sepa
    - Ticket status: open → in_progress → resolved → closed
    - Priority levels: low, medium, high, urgent
    - Ticket numbers follow format: TKT-YYYY-NNNN
+
+10. **Review & Rating System:**
+   - Session ratings are public endpoints (no auth required)
+   - Only one rating per session allowed (enforced by database constraint)
+   - User identifier must match session for security
+   - Platform feedback categories: feature_request, bug_report, performance, platform_satisfaction, documentation, pricing, general
+   - satisfaction_score (1-5) is only required for platform_satisfaction category
+   - Feedback status values: open, acknowledged, in_progress, resolved, closed
+   - Average score is calculated server-side and included in list response
+   - All review endpoints return tenant-scoped data automatically
 
 ---
 

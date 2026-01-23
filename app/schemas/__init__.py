@@ -104,6 +104,15 @@ from app.schemas.rag import (
     ResponseQuality,
     PromptComponents,
 )
+from app.schemas.review import (
+    SessionRatingCreate,
+    SessionRatingResponse,
+    SessionRatingListResponse,
+    PlatformFeedbackCreate,
+    PlatformFeedbackUpdate,
+    PlatformFeedbackResponse,
+    PlatformFeedbackListResponse,
+)
 
 __all__ = [
     # Tenant schemas
@@ -199,4 +208,12 @@ __all__ = [
     "EscalationDecision",
     "ResponseQuality",
     "PromptComponents",
+    # Review schemas
+    "SessionRatingCreate",
+    "SessionRatingResponse",
+    "SessionRatingListResponse",
+    "PlatformFeedbackCreate",
+    "PlatformFeedbackUpdate",
+    "PlatformFeedbackResponse",
+    "PlatformFeedbackListResponse",
 ]

@@ -15,6 +15,7 @@ from app.api.v1.endpoints import (
     jobs,
     websocket,
     analytics,
+    reviews,
 )
 from app.api.v1.endpoints.platform import tenants as platform_tenants
 
@@ -86,6 +87,9 @@ api_router.include_router(tickets.router, prefix="/tickets", tags=["tickets"])
 
 # Analytics endpoints
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
+
+# Review and rating endpoints
+api_router.include_router(reviews.router, prefix="/reviews", tags=["reviews"])
 
 # Job management endpoints (background processing)
 api_router.include_router(jobs.router, tags=["jobs"])
