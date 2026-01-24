@@ -677,9 +677,8 @@ Answer the customer's question using ONLY the information provided above. Be nat
             return chunks, scores
 
         except Exception as e:
-            from loguru import logger
-
             logger.error(f"Error retrieving chunks: {e}")
+            logger.exception(e)  # Log full traceback for debugging
             return [], []
 
     async def generate_ai_response(

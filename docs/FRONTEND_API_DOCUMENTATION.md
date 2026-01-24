@@ -3686,16 +3686,22 @@ The review system allows customers to rate their chat experience and enables com
 
 ### 11.2 List Session Ratings
 
-**Page:** `/dashboard/analytics/ratings`
+**Page:** `/dashboard/analytics/ratings` (tenant users) or `/platform-admin/ratings` (platform admins)
 
 **Endpoint:** `GET /reviews/session`
 
-**Authentication:** Required (Tenant Admin)
+**Authentication:** Required (Any tenant user OR Platform admin)
 
 **Headers:**
 ```
 Authorization: Bearer {tenant_token}
+OR
+Authorization: Bearer {platform_admin_token}
 ```
+
+**Access Control:**
+- **Tenant users** (any role: TENANT_ADMIN, SUPPORT_AGENT, VIEWER): View ratings for their own tenant only
+- **Platform admins**: View ALL ratings across ALL tenants (system-wide)
 
 **Use Case:** View customer ratings to identify knowledge gaps, track satisfaction trends, and improve AI response quality.
 
@@ -3708,10 +3714,19 @@ Authorization: Bearer {tenant_token}
 - `limit` (integer, optional): Max results per page (1-100, default: 50)
 - `offset` (integer, optional): Results offset for pagination (default: 0)
 
-**Example Request:**
+**Example Request (Tenant User):**
 ```
 GET /reviews/session?min_score=1&max_score=3&limit=20&offset=0
+Authorization: Bearer {tenant_token}
 ```
+Returns ratings for the authenticated tenant only.
+
+**Example Request (Platform Admin):**
+```
+GET /reviews/session?min_score=1&max_score=3&limit=20&offset=0
+Authorization: Bearer {platform_admin_token}
+```
+Returns ratings across ALL tenants (system-wide).
 
 **Response (200 OK):**
 ```json
@@ -3757,13 +3772,23 @@ GET /reviews/session?min_score=1&max_score=3&limit=20&offset=0
 - `page` (integer): Current page number
 - `page_size` (integer): Number of results per page
 
-**Frontend Best Practices:**
+**Important Notes:**
+- **Tenant users**: Response includes only ratings for their tenant (filtered by `tenant_id`)
+- **Platform admins**: Response includes ratings from ALL tenants (system-wide view). The `tenant_id` field will vary across ratings.
+
+**Frontend Best Practices (Tenant Users):**
 1. Display average score prominently with visual indicator (e.g., stars)
 2. Show score distribution chart (how many 1-star, 2-star, etc.)
 3. Filter by score range to quickly find low ratings
 4. Link ratings to conversation sessions for context
 5. Export ratings data for offline analysis
 6. Show trends over time (average score by day/week/month)
+
+**Additional Best Practices (Platform Admins):**
+7. **Display tenant information**: Show company name alongside each rating (fetch from `tenant_id`)
+8. **Add tenant filter**: Dropdown to filter by specific company
+9. **Cross-tenant analytics**: Compare satisfaction scores across different tenants
+10. **Identify struggling tenants**: Highlight companies with low average scores for proactive support
 
 **Dashboard Widget Example:**
 ```
@@ -3871,24 +3896,31 @@ Authorization: Bearer {tenant_token}
    - Description textarea
    - Conditional satisfaction_score field (only show for platform_satisfaction category)
 3. After submission, show success message and feedback ID
-4. Optionally show link to view submitted feedback
+4. **Important**: Tenant users can submit feedback but cannot view it afterward. Only platform admins can view feedback (see section 11.4).
+5. Show message: "Thank you for your feedback! The Luran team will review it and reach out if needed."
 
 ---
 
-### 11.4 List Platform Feedback
+### 11.4 List Platform FeedbackI 
 
-**Page:** `/dashboard/feedback/history`
+**Page:** `/platform-admin/feedback`
 
 **Endpoint:** `GET /reviews/platform`
 
-**Authentication:** Required (Any tenant user)
+**Authentication:** Required (Platform admin only)
 
 **Headers:**
 ```
-Authorization: Bearer {tenant_token}
+Authorization: Bearer {platform_admin_token}
 ```
 
-**Use Case:** View previously submitted feedback and track status updates from Luran team.
+**Access Control:**
+- **ONLY platform admins** can view feedback
+- Returns ALL feedback across ALL tenants (system-wide)
+- **Tenant users CANNOT view** feedback (their own or others)
+- **Note:** Tenant users can still SUBMIT feedback via POST /reviews/platform (see 11.3), but cannot view it
+
+**Use Case:** Platform admins can view all feedback submitted by companies to monitor requests, track bugs, and manage platform improvements across all tenants.
 
 **Query Parameters:**
 - `category` (enum, optional): Filter by feedback category
@@ -3927,54 +3959,67 @@ GET /reviews/platform?category=bug_report&status=open&limit=20
     },
     {
       "id": "af2f9902-a758-53gh-c56e-5f20h4g13dg0",
-      "tenant_id": "1fa85f64-5717-4562-b3fc-2c963f66afa6",
+      "tenant_id": "2fb85f64-5717-4562-b3fc-2c963f66afa7",
       "category": "feature_request",
       "satisfaction_score": null,
       "title": "Export chat transcripts",
       "description": "Need ability to export chat transcripts as PDF or CSV for compliance purposes.",
       "status": "acknowledged",
-      "submitted_by": "2ga85f64-5717-4562-b3fc-2c963f66afa7",
+      "submitted_by": "3gc85f64-5717-4562-b3fc-2c963f66afa8",
       "meta": null,
       "created_at": "2026-01-20T14:30:00Z",
       "updated_at": "2026-01-21T08:00:00Z"
     }
   ],
-  "total": 15,
+  "total": 347,
   "page": 1,
   "page_size": 50
 }
 ```
 
-**Frontend Best Practices:**
-1. Group feedback by status (tabs or filters)
-2. Show status badge with color coding:
+**Note:** Platform admins see feedback from ALL tenants. Notice the `tenant_id` field differs across feedback items - this is a system-wide view.
+
+**Frontend Best Practices (Platform Admin Dashboard):**
+1. **Display tenant information**: Show company name alongside each feedback item (fetch from tenant_id)
+2. Group feedback by status (tabs or filters)
+3. Show status badge with color coding:
    - `open`: Blue
    - `acknowledged`: Yellow
    - `in_progress`: Orange
    - `resolved`: Green
    - `closed`: Gray
-3. Allow filtering by category and status
-4. Show most recent feedback first
-5. Display update timestamp to show when Luran team last updated status
-6. Link to view full feedback details in modal/page
+4. Allow filtering by:
+   - Category and status
+   - Specific tenant (dropdown with all company names)
+   - Date range
+5. Show most recent feedback first
+6. Display update timestamp to track resolution progress
+7. Link to view full feedback details and update status
+8. Add "Assign to team member" functionality
+9. Show feedback statistics dashboard (total open, average resolution time, etc.)
 
-**Feedback List UI Example:**
+**Platform Admin Feedback Dashboard UI Example:**
 ```
-┌─────────────────────────────────────────────────────────┐
-│  My Feedback                                            │
-├─────────────────────────────────────────────────────────┤
-│  [All] [Feature Requests] [Bug Reports] [Satisfaction]  │
-│                                                          │
-│  ┌────────────────────────────────────────────────┐    │
-│  │ 🐛 Widget not loading on Safari                │    │
-│  │ Status: In Progress  Updated: 1 day ago        │    │
-│  │ The chat widget script fails to load on...     │    │
-│  └────────────────────────────────────────────────┘    │
-│                                                          │
-│  ┌────────────────────────────────────────────────┐    │
-│  │ 💡 Export chat transcripts                     │    │
-│  │ Status: Acknowledged  Updated: 2 days ago      │    │
-│  │ Need ability to export chat transcripts...     │    │
+┌──────────────────────────────────────────────────────────────┐
+│  Platform Feedback (All Tenants)                             │
+├──────────────────────────────────────────────────────────────┤
+│  [All] [Feature Requests] [Bug Reports] [Satisfaction]       │
+│  Filter by tenant: [All Companies ▼]                         │
+│                                                               │
+│  ┌───────────────────────────────────────────────────┐      │
+│  │ 🐛 Widget not loading on Safari                   │      │
+│  │ Company: Acme Corp                                │      │
+│  │ Status: In Progress  Updated: 1 day ago           │      │
+│  │ The chat widget script fails to load on...        │      │
+│  │ [View Details] [Update Status] [Assign]           │      │
+│  └───────────────────────────────────────────────────┘      │
+│                                                               │
+│  ┌───────────────────────────────────────────────────┐      │
+│  │ 💡 Export chat transcripts                        │      │
+│  │ Company: TechStart Inc                            │      │
+│  │ Status: Acknowledged  Updated: 2 days ago         │      │
+│  │ Need ability to export chat transcripts...        │      │
+│  │ [View Details] [Update Status] [Assign]           │      │
 │  └────────────────────────────────────────────────┘    │
 │                                                          │
 └─────────────────────────────────────────────────────────┘

@@ -105,7 +105,7 @@ class ReviewService:
 
     def list_session_ratings(
         self,
-        tenant_id: UUID,
+        tenant_id: Optional[UUID] = None,
         session_id: Optional[UUID] = None,
         min_score: Optional[int] = None,
         max_score: Optional[int] = None,
@@ -115,10 +115,10 @@ class ReviewService:
         offset: int = 0,
     ) -> SessionRatingListResponse:
         """
-        List session ratings for a tenant with filters.
+        List session ratings with optional tenant filtering.
 
         Args:
-            tenant_id: Tenant UUID
+            tenant_id: Filter by tenant (required for tenant users, None for platform admins)
             session_id: Filter by session ID
             min_score: Minimum rating score
             max_score: Maximum rating score
@@ -131,7 +131,11 @@ class ReviewService:
             Paginated list of ratings with average score
         """
         # Build filters
-        filters = [SessionRating.tenant_id == tenant_id]
+        filters = []
+
+        # Only add tenant filter if tenant_id is provided
+        if tenant_id is not None:
+            filters.append(SessionRating.tenant_id == tenant_id)
 
         if session_id:
             filters.append(SessionRating.session_id == session_id)
@@ -145,21 +149,35 @@ class ReviewService:
             filters.append(SessionRating.created_at <= end_date)
 
         # Get total count
-        count_stmt = select(func.count(SessionRating.id)).where(and_(*filters))
+        if filters:
+            count_stmt = select(func.count(SessionRating.id)).where(and_(*filters))
+        else:
+            count_stmt = select(func.count(SessionRating.id))
         total = self.db.execute(count_stmt).scalar() or 0
 
         # Get average score
-        avg_stmt = select(func.avg(SessionRating.score)).where(and_(*filters))
+        if filters:
+            avg_stmt = select(func.avg(SessionRating.score)).where(and_(*filters))
+        else:
+            avg_stmt = select(func.avg(SessionRating.score))
         average_score = self.db.execute(avg_stmt).scalar()
 
         # Get ratings
-        stmt = (
-            select(SessionRating)
-            .where(and_(*filters))
-            .order_by(desc(SessionRating.created_at))
-            .limit(limit)
-            .offset(offset)
-        )
+        if filters:
+            stmt = (
+                select(SessionRating)
+                .where(and_(*filters))
+                .order_by(desc(SessionRating.created_at))
+                .limit(limit)
+                .offset(offset)
+            )
+        else:
+            stmt = (
+                select(SessionRating)
+                .order_by(desc(SessionRating.created_at))
+                .limit(limit)
+                .offset(offset)
+            )
         ratings = self.db.execute(stmt).scalars().all()
 
         return SessionRatingListResponse(

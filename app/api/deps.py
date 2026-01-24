@@ -1,10 +1,11 @@
-from typing import Generator, Optional
+from typing import Generator, Optional, Literal
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 
 from app.core.config import settings
 from app.db.session import get_db
@@ -16,6 +17,18 @@ from app.db.models.user import UserRole
 from app.db.models.platform_admin import PlatformAdminRole
 
 security = HTTPBearer()
+
+
+class AuthContext(BaseModel):
+    """Context wrapper for dual authentication."""
+    auth_type: Literal["tenant_user", "platform_admin"]
+    user: Optional[UserResponse] = None
+    admin: Optional[PlatformAdminResponse] = None
+
+    @property
+    def tenant_id(self) -> Optional[UUID]:
+        """Get tenant_id if this is a tenant user."""
+        return self.user.tenant_id if self.user else None
 
 
 async def get_current_user(
@@ -76,6 +89,64 @@ async def get_current_tenant_admin(
             detail="Not enough permissions. Tenant admin access required.",
         )
     return current_user
+
+
+async def get_current_user_or_platform_admin(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+) -> AuthContext:
+    """
+    Accept both tenant user and platform admin authentication.
+
+    Tries to authenticate as tenant user first, then falls back to platform admin.
+    Returns AuthContext indicating which auth type succeeded.
+
+    Raises:
+        HTTPException 401: If both auth attempts fail
+    """
+    token = credentials.credentials
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+
+        # Try tenant user auth first
+        try:
+            auth_service = AuthService(db)
+            token_data = auth_service.verify_token_data(payload)
+
+            if token_data and hasattr(token_data, 'user_id'):
+                user = auth_service.get_user_by_id(token_data.user_id)
+                if user and user.is_active:
+                    return AuthContext(
+                        auth_type="tenant_user",
+                        user=user,
+                        admin=None,
+                    )
+        except Exception:
+            pass  # Try platform admin auth
+
+        # Fall back to platform admin auth
+        admin_service = PlatformAdminAuthService(db)
+        token_data = admin_service.verify_token_data(payload)
+
+        if token_data and hasattr(token_data, 'admin_id'):
+            admin = admin_service.get_admin_by_id(token_data.admin_id)
+            if admin and admin.is_active:
+                return AuthContext(
+                    auth_type="platform_admin",
+                    user=None,
+                    admin=admin,
+                )
+
+        raise credentials_exception
+
+    except JWTError:
+        raise credentials_exception
 
 
 def verify_tenant_access(tenant_id: UUID, current_user: UserResponse) -> bool:

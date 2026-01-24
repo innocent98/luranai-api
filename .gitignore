@@ -87,3 +87,9 @@ dmypy.json
 
 # Pytest
 .pytest_cache/
+
+# Database Backups
+backups/*.sql
+backups/*.sql.gz
+backups/*.dump
+backups/*.log

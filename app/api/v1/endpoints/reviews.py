@@ -8,7 +8,13 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from loguru import logger
 
-from app.api.deps import get_current_user, get_current_tenant_admin, get_db
+from app.api.deps import (
+    get_current_user,
+    get_current_user_or_platform_admin,
+    get_current_platform_admin,
+    get_db,
+    AuthContext,
+)
 from app.services.review_service import ReviewService
 from app.schemas.review import (
     SessionRatingCreate,
@@ -19,6 +25,7 @@ from app.schemas.review import (
     PlatformFeedbackListResponse,
 )
 from app.schemas.user import UserResponse
+from app.schemas.platform_admin import PlatformAdminResponse
 from app.db.models.review import FeedbackCategory
 
 router = APIRouter()
@@ -90,7 +97,7 @@ async def create_session_rating(
     "/session",
     response_model=SessionRatingListResponse,
     summary="List session ratings",
-    description="View customer ratings for chat sessions (tenant-scoped, requires authentication).",
+    description="View customer ratings (tenant users see own ratings, platform admins see all)",
 )
 async def list_session_ratings(
     session_id: Optional[UUID] = Query(None, description="Filter by session ID"),
@@ -100,13 +107,15 @@ async def list_session_ratings(
     end_date: Optional[datetime] = Query(None, description="Filter to date (ISO 8601)"),
     limit: int = Query(50, ge=1, le=100, description="Max results per page"),
     offset: int = Query(0, ge=0, description="Results offset for pagination"),
-    current_user: UserResponse = Depends(get_current_tenant_admin),
+    auth: AuthContext = Depends(get_current_user_or_platform_admin),
     db: Session = Depends(get_db),
 ):
     """
-    List session ratings for the authenticated tenant.
+    List session ratings with dual authentication.
 
-    Returns paginated list of customer ratings with filters and average score.
+    **Access Control:**
+    - Tenant users (any role): View ratings for their own tenant only
+    - Platform admins: View ratings across ALL tenants
 
     **Query Parameters:**
     - session_id: Filter by specific session
@@ -122,8 +131,19 @@ async def list_session_ratings(
     """
     try:
         review_service = ReviewService(db)
+
+        # Determine tenant scope based on auth type
+        if auth.auth_type == "tenant_user":
+            # Tenant user: filter by their tenant
+            tenant_id = auth.tenant_id
+            logger.info(f"Tenant user viewing ratings for tenant {tenant_id}")
+        else:
+            # Platform admin: no tenant filter (view all)
+            tenant_id = None
+            logger.info("Platform admin viewing all ratings (system-wide)")
+
         ratings = review_service.list_session_ratings(
-            tenant_id=current_user.tenant_id,
+            tenant_id=tenant_id,
             session_id=session_id,
             min_score=min_score,
             max_score=max_score,
@@ -210,7 +230,7 @@ async def create_platform_feedback(
     "/platform",
     response_model=PlatformFeedbackListResponse,
     summary="List platform feedback",
-    description="View platform feedback (tenant sees own feedback, requires authentication).",
+    description="View platform feedback (platform admins only, system-wide view)",
 )
 async def list_platform_feedback(
     category: Optional[FeedbackCategory] = Query(None, description="Filter by category"),
@@ -224,13 +244,18 @@ async def list_platform_feedback(
     end_date: Optional[datetime] = Query(None, description="Filter to date (ISO 8601)"),
     limit: int = Query(50, ge=1, le=100, description="Max results per page"),
     offset: int = Query(0, ge=0, description="Results offset for pagination"),
-    current_user: UserResponse = Depends(get_current_user),
+    current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
     db: Session = Depends(get_db),
 ):
     """
-    List platform feedback for the authenticated tenant.
+    List platform feedback (platform admins only).
 
-    Returns paginated list of feedback submitted by the tenant.
+    **Access Control:**
+    - ONLY platform admins can view feedback
+    - Returns ALL feedback across ALL tenants (system-wide)
+
+    **Note:** Tenant users can still SUBMIT feedback via POST /reviews/platform,
+    but they cannot view feedback (their own or others).
 
     **Query Parameters:**
     - category: Filter by feedback category
@@ -245,8 +270,11 @@ async def list_platform_feedback(
     """
     try:
         review_service = ReviewService(db)
+
+        logger.info("Platform admin viewing all platform feedback (system-wide)")
+
         feedback = review_service.list_platform_feedback(
-            tenant_id=current_user.tenant_id,
+            tenant_id=None,
             category=category,
             status=status_filter,
             start_date=start_date,

@@ -52,6 +52,7 @@ services:
       POSTGRES_DB: luran_db
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups  # Backup storage directory
     ports:
       - "5432:5432"
     restart: unless-stopped

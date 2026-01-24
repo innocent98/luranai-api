@@ -1,5 +1,6 @@
 """Ticket management endpoints."""
 
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -7,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_current_user, get_db, verify_tenant_access
+from app.core.websocket import connection_manager
 from app.services.ticket_service import TicketService
 from app.schemas.ticket import (
     TicketManualCreate,
@@ -220,7 +222,7 @@ def assign_ticket(
 
 
 @router.post("/{ticket_id}/resolve", response_model=TicketResponse, status_code=status.HTTP_200_OK)
-def resolve_ticket(
+async def resolve_ticket(
     ticket_id: UUID,
     resolve_data: TicketResolve,
     db: Session = Depends(get_db),
@@ -228,6 +230,8 @@ def resolve_ticket(
 ):
     """
     Resolve a ticket.
+
+    Broadcasts real-time notification to customer and agents via WebSocket.
 
     Args:
         ticket_id: Ticket UUID
@@ -257,19 +261,50 @@ def resolve_ticket(
 
     try:
         resolved_ticket = ticket_service.resolve_ticket(ticket_id, resolve_data)
+
+        # Broadcast ticket_resolved event via WebSocket
+        if resolved_ticket.session_id:
+            # Send to customer
+            await connection_manager.send_to_customer(
+                session_id=resolved_ticket.session_id,
+                message={
+                    "type": "ticket_resolved",
+                    "ticket_id": str(resolved_ticket.id),
+                    "ticket_number": resolved_ticket.ticket_number,
+                    "resolution_notes": resolved_ticket.resolution_notes,
+                    "resolved_by": current_user.full_name,
+                    "resolved_at": resolved_ticket.resolved_at.isoformat() if resolved_ticket.resolved_at else None,
+                }
+            )
+
+            # Send to all agents watching this session
+            await connection_manager.send_to_agents(
+                session_id=resolved_ticket.session_id,
+                message={
+                    "type": "ticket_resolved",
+                    "ticket_id": str(resolved_ticket.id),
+                    "ticket_number": resolved_ticket.ticket_number,
+                    "resolution_notes": resolved_ticket.resolution_notes,
+                    "resolved_by": current_user.full_name,
+                    "resolved_at": resolved_ticket.resolved_at.isoformat() if resolved_ticket.resolved_at else None,
+                }
+            )
+
         return resolved_ticket
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.post("/{ticket_id}/close", response_model=TicketResponse, status_code=status.HTTP_200_OK)
-def close_ticket(
+async def close_ticket(
     ticket_id: UUID,
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_tenant_admin),
 ):
     """
     Close a ticket.
+
+    Broadcasts real-time notification to customer and agents via WebSocket.
 
     Args:
         ticket_id: Ticket UUID
@@ -291,6 +326,33 @@ def close_ticket(
 
     try:
         closed_ticket = ticket_service.close_ticket(ticket_id)
+
+        # Broadcast ticket_closed event via WebSocket
+        if closed_ticket.session_id:
+            # Send to customer
+            await connection_manager.send_to_customer(
+                session_id=closed_ticket.session_id,
+                message={
+                    "type": "ticket_closed",
+                    "ticket_id": str(closed_ticket.id),
+                    "ticket_number": closed_ticket.ticket_number,
+                    "closed_by": current_user.full_name,
+                    "closed_at": datetime.utcnow().isoformat(),
+                }
+            )
+
+            # Send to all agents watching this session
+            await connection_manager.send_to_agents(
+                session_id=closed_ticket.session_id,
+                message={
+                    "type": "ticket_closed",
+                    "ticket_id": str(closed_ticket.id),
+                    "ticket_number": closed_ticket.ticket_number,
+                    "closed_by": current_user.full_name,
+                    "closed_at": datetime.utcnow().isoformat(),
+                }
+            )
+
         return closed_ticket
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
