@@ -1,6 +1,6 @@
 # Frontend Development Guide - Complete API Reference
 
-**Last Updated:** 2026-01-23
+**Last Updated:** 2026-01-25
 **Base URL:** `http://localhost:8000/api/v1` (development) | `https://api.luranai.com/api/v1` (production)
 
 ## Table of Contents
@@ -47,6 +47,8 @@
    - List Session Ratings
    - Submit Platform Feedback
    - List Platform Feedback
+   - Submit Public Feedback (Landing Page)
+   - List Public Feedback
 12. [User Flows with Diagrams](#user-flows-with-diagrams)
 13. [Common Patterns](#common-patterns)
 14. [Frontend Pages Checklist](#frontend-pages-checklist)
@@ -1176,7 +1178,7 @@ Authorization: Bearer {tenant_token}
 
 ---
 
-### 5.2 Update Widget Configuration
+### 5.2 Update Widget Configuration (Colors, Text, URL)
 
 **Page:** `/dashboard/widget/setup`
 
@@ -1185,7 +1187,16 @@ Authorization: Bearer {tenant_token}
 **Headers:**
 ```
 Authorization: Bearer {tenant_token}
+Content-Type: application/json
 ```
+
+**IMPORTANT:** This endpoint accepts JSON data. Use this to update:
+- Colors (primary/accent)
+- Greeting message
+- Widget position
+- Logo URL (if you already have a hosted image URL)
+
+For uploading logo **image files**, use section 5.3 below instead.
 
 **Request:** (all fields optional)
 ```json
@@ -1204,6 +1215,7 @@ Authorization: Bearer {tenant_token}
 - Colors must be hex format: `#rrggbb`
 - Position must be: `bottom-right`, `bottom-left`, `top-right`, or `top-left`
 - Greeting message max 500 characters
+- Logo URL max 500 characters
 
 **Response:**
 ```json
@@ -1223,13 +1235,167 @@ Authorization: Bearer {tenant_token}
 **Frontend:**
 - Live preview of widget with updated colors/logo
 - Color picker for primary/accent colors
-- File upload for logo
+- Text input for logo URL (if user has existing hosted image)
 - Textarea for greeting message
 - Dropdown for position
 
 ---
 
-### 5.3 Get Installation Code
+### 5.3 Upload Widget Logo (Image File)
+
+**Page:** `/dashboard/widget/setup`
+
+**Endpoint:** `POST /widget/upload-logo`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+Content-Type: multipart/form-data
+```
+
+**IMPORTANT:** This endpoint accepts **multipart/form-data** (file upload). Do NOT send JSON.
+
+**Request (Form Data):**
+```
+file: [File object - JPEG, PNG, GIF, or WebP]
+```
+
+**Supported Image Formats:**
+- JPEG (.jpg, .jpeg)
+- PNG (.png)
+- GIF (.gif)
+- WebP (.webp)
+
+**File Constraints:**
+- Max file size: 5MB
+- Max dimensions: 4000×4000 pixels
+- Recommended: 200×200 to 500×500 (square logos work best)
+
+**Automatic Optimizations:**
+- Resized to max 500×500 (maintains aspect ratio)
+- Quality optimized for web
+- Format converted to best option (WebP for modern browsers)
+- Stored on Cloudinary CDN for fast global delivery
+
+**Response:**
+```json
+{
+  "message": "Logo uploaded successfully",
+  "logo_url": "https://res.cloudinary.com/your_cloud/image/upload/v1234567890/luran/widget_logos/tenant-uuid_logo.png"
+}
+```
+
+**Frontend Implementation Example:**
+
+```javascript
+// HTML
+<input type="file" id="logoUpload" accept="image/jpeg,image/png,image/gif,image/webp">
+
+// JavaScript
+const fileInput = document.getElementById('logoUpload');
+const file = fileInput.files[0];
+
+const formData = new FormData();
+formData.append('file', file);
+
+fetch('/api/v1/widget/upload-logo', {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${tenantToken}`
+    // DO NOT set Content-Type header - browser sets it automatically with boundary
+  },
+  body: formData
+})
+.then(res => res.json())
+.then(data => {
+  console.log('Logo URL:', data.logo_url);
+  // Update preview with new logo
+});
+```
+
+**Error Responses:**
+
+**File too large (>5MB):**
+```json
+{
+  "detail": "File size (7.32MB) exceeds maximum allowed (5MB)"
+}
+```
+
+**Invalid format:**
+```json
+{
+  "detail": "Image format 'BMP' not allowed. Allowed: JPEG, PNG, GIF, WebP"
+}
+```
+
+**Cloudinary not configured:**
+```json
+{
+  "detail": "Cloudinary is not configured. Please add credentials to .env"
+}
+```
+
+**Frontend Action:**
+- Show file upload button with preview
+- Display current logo if exists
+- On upload success:
+  - Update preview with new logo URL
+  - Show success message: "Logo uploaded successfully"
+  - Logo URL is automatically saved to widget configuration
+
+**What Happens:**
+1. Image uploaded to backend
+2. Validated (format, size, dimensions)
+3. Uploaded to Cloudinary with optimizations
+4. URL automatically saved to `widget_logo_url` in database
+5. Cloudinary URL returned to frontend
+6. Logo served via CDN (fast global delivery)
+
+---
+
+### 5.4 Delete Widget Logo
+
+**Page:** `/dashboard/widget/setup`
+
+**Endpoint:** `DELETE /widget/logo`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**IMPORTANT:** No request body needed for DELETE requests.
+
+**Response:**
+```json
+{
+  "message": "Logo deleted successfully"
+}
+```
+
+**Error Response (No logo exists):**
+```json
+{
+  "detail": "No logo configured"
+}
+```
+
+**Frontend Action:**
+- Show delete/remove button next to logo preview
+- On delete success:
+  - Remove logo preview
+  - Reset to default placeholder
+  - Show message: "Logo removed"
+
+**What Happens:**
+1. Logo deleted from Cloudinary
+2. `widget_logo_url` set to null in database
+3. Widget will display without logo
+
+---
+
+### 5.5 Get Installation Code
 
 **Page:** `/dashboard/widget/install`
 
@@ -4031,6 +4197,440 @@ GET /reviews/platform?category=bug_report&status=open&limit=20
 - `in_progress`: Work has started on this feedback
 - `resolved`: Issue fixed or feature implemented
 - `closed`: Feedback completed and archived
+
+---
+
+### 11.5 Submit Public Feedback (Landing Page)
+
+**Page:** Landing page feedback form or footer feedback button
+
+**Endpoint:** `POST /reviews/public-feedback`
+
+**Authentication:** None required (PUBLIC endpoint)
+
+**Use Case:** Allow anyone visiting the Luran landing page to provide feedback about the platform, report issues, request features, or share their experience. This helps gather insights from potential customers and general users without requiring registration.
+
+**Request:**
+```json
+{
+  "category": "feature_request",
+  "title": "Add Slack integration",
+  "description": "Would love to see Slack integration so tickets can be created directly from Slack channels.",
+  "satisfaction_score": 4,
+  "name": "John Doe",
+  "email": "john@example.com",
+  "company": "Example Corp",
+  "meta": {
+    "referral_source": "google_search",
+    "page_url": "https://luranai.com/features"
+  }
+}
+```
+
+**Request Fields:**
+- `category` (enum, required): Type of feedback
+  - `feature_request`: Request new features
+  - `bug_report`: Report bugs or issues
+  - `performance`: Performance-related feedback
+  - `platform_satisfaction`: Rate overall platform satisfaction
+  - `documentation`: Documentation feedback
+  - `pricing`: Pricing-related feedback
+  - `general`: General feedback
+- `title` (string, required): Feedback title/summary (1-500 chars)
+- `description` (string, required): Detailed feedback description (1-10000 chars)
+- `satisfaction_score` (integer, optional): 1-5 rating (optional for any category)
+- `name` (string, optional): Submitter name for follow-up (max 255 chars)
+- `email` (string, optional): Contact email for follow-up (max 255 chars)
+- `company` (string, optional): Company/organization name (max 255 chars)
+- `meta` (object, optional): Additional context (e.g., referral source, page URL, user agent)
+
+**Response (201 Created):**
+```json
+{
+  "id": "be2f0013-b869-54hi-d67f-6g21i5h24eh1",
+  "category": "feature_request",
+  "satisfaction_score": 4,
+  "title": "Add Slack integration",
+  "description": "Would love to see Slack integration so tickets can be created directly from Slack channels.",
+  "name": "John Doe",
+  "email": "john@example.com",
+  "company": "Example Corp",
+  "status": "open",
+  "meta": {
+    "referral_source": "google_search",
+    "page_url": "https://luranai.com/features"
+  },
+  "created_at": "2026-01-25T01:30:00Z",
+  "updated_at": "2026-01-25T01:30:00Z"
+}
+```
+
+**Error Responses:**
+
+```json
+// Missing required field (422)
+{
+  "detail": [
+    {
+      "loc": ["body", "title"],
+      "msg": "field required",
+      "type": "value_error.missing"
+    }
+  ]
+}
+
+// Invalid category (422)
+{
+  "detail": [
+    {
+      "loc": ["body", "category"],
+      "msg": "value is not a valid enumeration member; permitted: 'feature_request', 'bug_report', 'performance', 'platform_satisfaction', 'documentation', 'pricing', 'general'",
+      "type": "type_error.enum"
+    }
+  ]
+}
+
+// Invalid satisfaction_score (422)
+{
+  "detail": [
+    {
+      "loc": ["body", "satisfaction_score"],
+      "msg": "ensure this value is less than or equal to 5",
+      "type": "value_error.number.not_le"
+    }
+  ]
+}
+```
+
+**Frontend Implementation (Landing Page):**
+
+1. **Feedback Form Location:**
+   - Add "Give Feedback" button in landing page footer
+   - Optional: Floating feedback button on the side
+   - Modal or dedicated `/feedback` page
+
+2. **Form Fields:**
+   ```html
+   <!-- Category Selection -->
+   <select name="category">
+     <option value="feature_request">💡 Feature Request</option>
+     <option value="bug_report">🐛 Bug Report</option>
+     <option value="performance">⚡ Performance Issue</option>
+     <option value="platform_satisfaction">⭐ Rate Luran</option>
+     <option value="documentation">📚 Documentation</option>
+     <option value="pricing">💰 Pricing Feedback</option>
+     <option value="general">💬 General Feedback</option>
+   </select>
+
+   <!-- Required Fields -->
+   <input type="text" name="title" placeholder="Brief summary" required maxlength="500" />
+   <textarea name="description" placeholder="Tell us more..." required maxlength="10000"></textarea>
+
+   <!-- Optional Contact Info -->
+   <input type="text" name="name" placeholder="Your name (optional)" maxlength="255" />
+   <input type="email" name="email" placeholder="Email for follow-up (optional)" maxlength="255" />
+   <input type="text" name="company" placeholder="Company (optional)" maxlength="255" />
+
+   <!-- Optional Rating (1-5 stars) -->
+   <div class="rating">
+     <label>How would you rate Luran? (optional)</label>
+     <input type="radio" name="satisfaction_score" value="5" /> ⭐⭐⭐⭐⭐
+     <input type="radio" name="satisfaction_score" value="4" /> ⭐⭐⭐⭐
+     <input type="radio" name="satisfaction_score" value="3" /> ⭐⭐⭐
+     <input type="radio" name="satisfaction_score" value="2" /> ⭐⭐
+     <input type="radio" name="satisfaction_score" value="1" /> ⭐
+   </div>
+   ```
+
+3. **Metadata Tracking:**
+   ```javascript
+   const meta = {
+     referral_source: document.referrer,
+     page_url: window.location.href,
+     user_agent: navigator.userAgent,
+     viewport_size: `${window.innerWidth}x${window.innerHeight}`
+   };
+   ```
+
+4. **After Submission:**
+   - Clear form
+   - Show success message: "Thank you for your feedback! We'll review it and reach out if we need more information."
+   - If email provided: "We'll follow up at {email} if needed."
+   - Track submission with analytics (e.g., Google Analytics event)
+
+5. **Form Validation:**
+   - Title: 1-500 characters
+   - Description: 1-10,000 characters
+   - Email: Valid email format (if provided)
+   - Satisfaction score: 1-5 (if provided)
+
+**Example JavaScript Implementation:**
+```javascript
+async function submitPublicFeedback(formData) {
+  const response = await fetch('/api/v1/reviews/public-feedback', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      category: formData.category,
+      title: formData.title,
+      description: formData.description,
+      satisfaction_score: formData.rating || null,
+      name: formData.name || null,
+      email: formData.email || null,
+      company: formData.company || null,
+      meta: {
+        referral_source: document.referrer,
+        page_url: window.location.href
+      }
+    })
+  });
+
+  if (response.ok) {
+    const result = await response.json();
+    showSuccessMessage('Thank you for your feedback!');
+    clearForm();
+    // Track with analytics
+    gtag('event', 'feedback_submitted', {
+      category: formData.category,
+      feedback_id: result.id
+    });
+  } else {
+    const error = await response.json();
+    showErrorMessage(error.detail);
+  }
+}
+```
+
+**Privacy Notes:**
+- Email is optional - users can submit anonymously
+- Mention privacy policy: "We'll only use your email to follow up on this feedback"
+- Add GDPR/privacy compliance notice if applicable
+
+---
+
+### 11.6 List Public Feedback (Platform Admins Only)
+
+**Page:** `/platform-admin/public-feedback`
+
+**Endpoint:** `GET /reviews/public-feedback`
+
+**Authentication:** Required (Platform admin only)
+
+**Headers:**
+```
+Authorization: Bearer {platform_admin_token}
+```
+
+**Access Control:**
+- **ONLY platform admins** can view public feedback
+- Returns ALL public feedback from landing page visitors
+- **Tenant users CANNOT view** public feedback
+
+**Use Case:** Platform admins can view all feedback submitted by landing page visitors to understand user needs, gather feature requests from potential customers, and identify platform issues before they become blockers for sign-ups.
+
+**Query Parameters:**
+- `category` (enum, optional): Filter by feedback category
+  - Values: `feature_request`, `bug_report`, `performance`, `platform_satisfaction`, `documentation`, `pricing`, `general`
+- `status` (string, optional): Filter by status
+  - Values: `open`, `acknowledged`, `in_progress`, `resolved`, `closed`
+- `start_date` (ISO 8601, optional): Filter from date
+- `end_date` (ISO 8601, optional): Filter to date
+- `limit` (integer, optional): Max results per page (1-100, default: 50)
+- `offset` (integer, optional): Results offset for pagination (default: 0)
+
+**Example Request:**
+```
+GET /reviews/public-feedback?category=feature_request&status=open&limit=20
+Authorization: Bearer {platform_admin_token}
+```
+
+**Response (200 OK):**
+```json
+{
+  "feedback": [
+    {
+      "id": "be2f0013-b869-54hi-d67f-6g21i5h24eh1",
+      "category": "feature_request",
+      "satisfaction_score": 4,
+      "title": "Add Slack integration",
+      "description": "Would love to see Slack integration so tickets can be created directly from Slack channels.",
+      "name": "John Doe",
+      "email": "john@example.com",
+      "company": "Example Corp",
+      "status": "acknowledged",
+      "meta": {
+        "referral_source": "google_search",
+        "page_url": "https://luranai.com/features"
+      },
+      "created_at": "2026-01-25T01:30:00Z",
+      "updated_at": "2026-01-25T08:00:00Z"
+    },
+    {
+      "id": "cf3g1124-c970-65ij-e78g-7h32j6i35fi2",
+      "category": "pricing",
+      "satisfaction_score": null,
+      "title": "Pricing page unclear",
+      "description": "The pricing tiers are confusing. Not sure which plan is right for a team of 5.",
+      "name": null,
+      "email": null,
+      "company": null,
+      "status": "open",
+      "meta": {
+        "referral_source": "twitter",
+        "page_url": "https://luranai.com/pricing"
+      },
+      "created_at": "2026-01-24T18:45:00Z",
+      "updated_at": "2026-01-24T18:45:00Z"
+    },
+    {
+      "id": "dg4h2235-d081-76jk-f89h-8i43k7j46gj3",
+      "category": "platform_satisfaction",
+      "satisfaction_score": 5,
+      "title": "Impressed by the demo",
+      "description": "Just watched the demo video and I'm very impressed. Will definitely try it out for my company.",
+      "name": "Sarah Johnson",
+      "email": "sarah.j@techcorp.io",
+      "company": "TechCorp",
+      "status": "acknowledged",
+      "meta": {
+        "referral_source": "youtube",
+        "page_url": "https://luranai.com/"
+      },
+      "created_at": "2026-01-24T12:20:00Z",
+      "updated_at": "2026-01-24T15:30:00Z"
+    }
+  ],
+  "total": 89,
+  "page": 1,
+  "page_size": 50
+}
+```
+
+**Response Fields:**
+- `feedback` (array): List of public feedback objects
+- `total` (integer): Total number of feedback items matching filters
+- `page` (integer): Current page number
+- `page_size` (integer): Number of results per page
+
+**Frontend Best Practices (Platform Admin Dashboard):**
+
+1. **Categorize Feedback:**
+   - Group by category with color-coded tags
+   - Feature requests (💡 Blue)
+   - Bug reports (🐛 Red)
+   - Pricing (💰 Green)
+   - Platform satisfaction (⭐ Gold)
+
+2. **Identify High-Value Leads:**
+   - Highlight feedback with email + company name (potential customers)
+   - Show "Contact info provided" badge
+   - Add "Follow up" action button for items with contact details
+   - Track conversion: feedback → trial signup → paid customer
+
+3. **Anonymous vs. Identified Feedback:**
+   - Show different icons for anonymous vs. named feedback
+   - Filter by "Has contact info" vs. "Anonymous"
+   - Prioritize named feedback with company info for sales follow-up
+
+4. **Status Management:**
+   - Dropdown to update status (open → acknowledged → in_progress → resolved → closed)
+   - Show status badge with colors:
+     - `open`: Blue
+     - `acknowledged`: Yellow
+     - `in_progress`: Orange
+     - `resolved`: Green
+     - `closed`: Gray
+
+5. **Metadata Display:**
+   - Show referral source (where they came from)
+   - Display page URL (which page they submitted from)
+   - Track patterns: "Most feedback from pricing page" → improve pricing clarity
+
+6. **Filtering Options:**
+   - Category filter (dropdown)
+   - Status filter (tabs or dropdown)
+   - Date range picker
+   - Search by keyword in title/description
+   - Filter by "Has email" / "Anonymous"
+
+7. **Analytics Dashboard:**
+   - Total feedback count by category
+   - Feedback trends over time
+   - Conversion rate: feedback → signup
+   - Most requested features
+   - Common pain points (bug reports, pricing confusion)
+
+8. **Follow-Up Actions:**
+   - "Email submitter" button (if email provided)
+   - "Mark as sales lead" for potential customers
+   - "Create feature request ticket" in project management
+   - "Add to newsletter" for interested visitors
+
+**Platform Admin Public Feedback Dashboard UI Example:**
+```
+┌────────────────────────────────────────────────────────────────┐
+│  Public Landing Page Feedback                                  │
+├────────────────────────────────────────────────────────────────┤
+│  [All] [Feature Requests] [Bug Reports] [Pricing] [Reviews]    │
+│  Filter: [Has Contact Info ✓] Status: [Open ▼]                 │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────┐      │
+│  │ 💡 Add Slack integration                     👤 LEAD│      │
+│  │ John Doe (john@example.com) • Example Corp         │      │
+│  │ Status: Acknowledged  Updated: 5 hours ago         │      │
+│  │ From: google_search → /features                    │      │
+│  │ Rating: ⭐⭐⭐⭐                                      │      │
+│  │ [View Details] [Email] [Update Status] [Mark Lead] │      │
+│  └─────────────────────────────────────────────────────┘      │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────┐      │
+│  │ 💰 Pricing page unclear                  🔒 ANON   │      │
+│  │ Anonymous feedback                                  │      │
+│  │ Status: Open  Submitted: 1 day ago                  │      │
+│  │ From: twitter → /pricing                            │      │
+│  │ The pricing tiers are confusing...                  │      │
+│  │ [View Details] [Update Status] [Fix Pricing Page]  │      │
+│  └─────────────────────────────────────────────────────┘      │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────┐      │
+│  │ ⭐ Impressed by the demo                    👤 LEAD │      │
+│  │ Sarah Johnson (sarah.j@techcorp.io) • TechCorp     │      │
+│  │ Status: Acknowledged  Updated: 6 hours ago         │      │
+│  │ From: youtube → /                                   │      │
+│  │ Rating: ⭐⭐⭐⭐⭐                                    │      │
+│  │ [View Details] [Email] [Create Trial Account]     │      │
+│  └─────────────────────────────────────────────────────┘      │
+│                                                                 │
+└────────────────────────────────────────────────────────────────┘
+
+📊 Quick Stats (This Month)
+├─ Total Feedback: 89
+├─ Feature Requests: 34
+├─ With Contact Info: 42 (47%)
+├─ Avg Satisfaction: ⭐⭐⭐⭐ 4.3
+└─ Conversion to Trial: 12 (29% of leads)
+```
+
+**Key Differences from Platform Feedback (11.4):**
+
+| Feature | Platform Feedback (11.3-11.4) | Public Feedback (11.5-11.6) |
+|---------|-------------------------------|------------------------------|
+| **Submitters** | Registered tenant users | Landing page visitors (anyone) |
+| **Authentication** | Required (tenant login) | None (public endpoint) |
+| **Tenant Association** | Has tenant_id, submitted_by | No tenant_id (pre-signup) |
+| **Contact Info** | Automatic from user profile | Optional (name, email, company) |
+| **Use Case** | Existing customers improving platform | Potential customers, general feedback |
+| **Follow-Up** | Internal platform improvement | Sales leads, conversion opportunities |
+| **View Access** | Platform admins only | Platform admins only |
+
+**Workflow Recommendation:**
+1. **Daily Review**: Check new public feedback for sales leads
+2. **Follow Up**: Email visitors who left contact info within 24 hours
+3. **Product Insights**: Track most requested features from potential customers
+4. **Marketing**: Use positive feedback (5-star) as testimonials (with permission)
+5. **Conversion**: Offer free trials to engaged visitors who provided contact info
 
 ---
 

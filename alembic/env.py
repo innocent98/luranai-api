@@ -17,6 +17,7 @@ from app.db.models import (
     ConversationSession, Message, Ticket,
     User, AuditLog, AnalyticsMetric
 )
+from app.db.models.review import SessionRating, PlatformFeedback, PublicFeedback
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

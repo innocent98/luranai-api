@@ -49,7 +49,6 @@ I can assist you with:
 - Team management and user roles
 - AI chatbot configuration
 - Analytics and reporting
-- API integration
 - Troubleshooting common issues
 - Security and compliance questions
 - Billing and subscription inquiries
@@ -82,10 +81,10 @@ COMPANY INFORMATION
 ================================================================================
 
 Who owns Luran?
-Luran is a software product owned, operated, and maintained by Beyric Technologies. Beyric is committed to providing innovative AI-powered solutions that help businesses deliver exceptional customer support experiences.
+Luran is a software product owned, operated, and maintained by Beyric Ltd. Beyric is committed to providing innovative AI-powered solutions that help businesses deliver exceptional customer support experiences.
 
-About Beyric Technologies
-Beyric Technologies is a technology company focused on developing intelligent automation solutions for customer support and business operations. We combine cutting-edge AI technology with practical business applications to help companies scale their support operations while maintaining high quality customer experiences.
+About Beyric Ltd
+Beyric Ltd is a technology company focused on developing intelligent automation solutions for customer support and business operations. We combine cutting-edge AI technology with practical business applications to help companies scale their support operations while maintaining high quality customer experiences.
 
 Our Mission
 To empower businesses with intelligent AI solutions that enhance customer support, reduce operational costs, and improve customer satisfaction through automated, knowledge-driven responses.
@@ -109,7 +108,7 @@ For Luran platform support:
 - Platform Status: status.luranai.com
 
 Where is Beyric located?
-Beyric Technologies operates globally with distributed teams. Our infrastructure is hosted in certified data centers to ensure optimal performance and security for customers worldwide.
+Beyric Ltd operates globally with distributed teams. Our infrastructure is hosted in certified data centers to ensure optimal performance and security for customers worldwide.
 
 What is Beyric's commitment to the Luran platform?
 Beyric is committed to:
@@ -277,7 +276,7 @@ Your data is YOUR data. We're just the secure infrastructure hosting it.
 How does Luran handle AI data?
 AI Processing Security:
 - Embeddings: Generated and stored securely in isolated vector database
-- API Keys: Google AI API keys managed securely, never exposed
+- API Keys: API keys managed securely, never exposed
 - Rate Limiting: Prevents abuse and ensures fair usage
 - No Training: Your data is NOT used to train public AI models
 - Isolation: Each tenant's embeddings completely separated
@@ -323,7 +322,7 @@ How do I sign up for Luran?
 The entire setup process takes approximately 15-30 minutes.
 
 What do I need to get started?
-- A valid business email address
+- A valid business or personal email address
 - Company information (name, website, description)
 - Knowledge base documents (FAQs, help docs, policies, SOPs)
 - Access to your website's HTML (for widget installation)
@@ -430,12 +429,7 @@ The confidence threshold (default: 0.55) determines when the AI should answer vs
 The AI checks if it has sufficient knowledge before responding.
 
 Can I set maximum response length?
-Yes! Configure max_response_tokens (default: 400) to control response length:
-- 200-300 tokens: Brief, concise answers
-- 400-500 tokens: Standard detailed responses
-- 600-800 tokens: Comprehensive explanations
-
-Longer responses provide more detail but may reduce engagement on mobile devices.
+No! max_response_tokens has default length per tier
 
 What are custom instructions?
 Custom instructions let you add specific guidance for your AI, such as:

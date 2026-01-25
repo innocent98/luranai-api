@@ -37,6 +37,8 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application
 COPY ./app /app/app
 COPY ./worker.py /app/worker.py
+COPY ./alembic /app/alembic
+COPY ./alembic.ini /app/alembic.ini
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app

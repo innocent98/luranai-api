@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from app.db.models.review import (
     SessionRating,
     PlatformFeedback,
+    PublicFeedback,
     FeedbackCategory,
 )
 from app.db.models.conversation import ConversationSession
@@ -22,6 +23,9 @@ from app.schemas.review import (
     PlatformFeedbackResponse,
     PlatformFeedbackListResponse,
     PlatformFeedbackUpdate,
+    PublicFeedbackCreate,
+    PublicFeedbackResponse,
+    PublicFeedbackListResponse,
 )
 
 
@@ -344,3 +348,103 @@ class ReviewService:
         self.db.refresh(feedback)
 
         return PlatformFeedbackResponse.model_validate(feedback)
+
+    # ===== Public Landing Page Feedback Methods =====
+
+    def create_public_feedback(
+        self, feedback_data: PublicFeedbackCreate
+    ) -> PublicFeedbackResponse:
+        """
+        Create public feedback from landing page (no authentication required).
+
+        Args:
+            feedback_data: Public feedback creation data
+
+        Returns:
+            Created feedback response
+        """
+        db_feedback = PublicFeedback(
+            category=feedback_data.category,
+            satisfaction_score=feedback_data.satisfaction_score,
+            title=feedback_data.title,
+            description=feedback_data.description,
+            name=feedback_data.name,
+            email=feedback_data.email,
+            company=feedback_data.company,
+            status="open",
+            meta=feedback_data.meta or {},
+        )
+
+        self.db.add(db_feedback)
+        self.db.commit()
+        self.db.refresh(db_feedback)
+
+        return PublicFeedbackResponse.model_validate(db_feedback)
+
+    def list_public_feedback(
+        self,
+        category: Optional[FeedbackCategory] = None,
+        status: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> PublicFeedbackListResponse:
+        """
+        List public feedback (platform admins only).
+
+        Args:
+            category: Filter by feedback category
+            status: Filter by status
+            start_date: Filter from date
+            end_date: Filter to date
+            limit: Max results (default 50)
+            offset: Results offset (default 0)
+
+        Returns:
+            Paginated list of public feedback
+        """
+        # Build filters
+        filters = []
+
+        if category:
+            filters.append(PublicFeedback.category == category)
+        if status:
+            filters.append(PublicFeedback.status == status)
+        if start_date:
+            filters.append(PublicFeedback.created_at >= start_date)
+        if end_date:
+            filters.append(PublicFeedback.created_at <= end_date)
+
+        # Get total count
+        if filters:
+            count_stmt = select(func.count(PublicFeedback.id)).where(and_(*filters))
+        else:
+            count_stmt = select(func.count(PublicFeedback.id))
+        total = self.db.execute(count_stmt).scalar() or 0
+
+        # Get feedback
+        if filters:
+            stmt = (
+                select(PublicFeedback)
+                .where(and_(*filters))
+                .order_by(desc(PublicFeedback.created_at))
+                .limit(limit)
+                .offset(offset)
+            )
+        else:
+            stmt = (
+                select(PublicFeedback)
+                .order_by(desc(PublicFeedback.created_at))
+                .limit(limit)
+                .offset(offset)
+            )
+
+        feedback_list = self.db.execute(stmt).scalars().all()
+
+        return PublicFeedbackListResponse(
+            feedback=[PublicFeedbackResponse.model_validate(f) for f in feedback_list],
+            total=total,
+            page=(offset // limit) + 1 if limit > 0 else 1,
+            page_size=limit,
+        )

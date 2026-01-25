@@ -1,0 +1,152 @@
+"""Cloudinary client utility for image upload and management."""
+
+import io
+from typing import Optional
+from uuid import UUID
+
+import cloudinary
+import cloudinary.uploader
+from loguru import logger
+from PIL import Image
+
+from app.core.config import settings
+
+
+class CloudinaryManager:
+    """Manager for Cloudinary image operations."""
+
+    def __init__(self):
+        """Initialize Cloudinary client with credentials."""
+        if not all([settings.CLOUDINARY_CLOUD_NAME, settings.CLOUDINARY_API_KEY, settings.CLOUDINARY_API_SECRET]):
+            logger.warning("Cloudinary credentials not configured. Image upload will be disabled.")
+            self.enabled = False
+        else:
+            cloudinary.config(
+                cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+                api_key=settings.CLOUDINARY_API_KEY,
+                api_secret=settings.CLOUDINARY_API_SECRET,
+                secure=True,
+            )
+            self.enabled = True
+            logger.info(f"Cloudinary initialized: {settings.CLOUDINARY_CLOUD_NAME}")
+
+    def validate_image(self, file_content: bytes, max_size_mb: int = 5) -> tuple[bool, Optional[str]]:
+        """
+        Validate image file.
+
+        Args:
+            file_content: Image file bytes
+            max_size_mb: Maximum file size in MB
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        # Check file size
+        file_size_mb = len(file_content) / (1024 * 1024)
+        if file_size_mb > max_size_mb:
+            return False, f"File size ({file_size_mb:.2f}MB) exceeds maximum allowed ({max_size_mb}MB)"
+
+        # Validate it's a real image
+        try:
+            image = Image.open(io.BytesIO(file_content))
+            image.verify()
+
+            # Check format
+            allowed_formats = ["JPEG", "PNG", "GIF", "WEBP"]
+            if image.format not in allowed_formats:
+                return False, f"Image format '{image.format}' not allowed. Allowed: {', '.join(allowed_formats)}"
+
+            # Check dimensions (optional - prevent extremely large images)
+            max_dimension = 4000
+            if image.width > max_dimension or image.height > max_dimension:
+                return False, f"Image dimensions ({image.width}x{image.height}) exceed maximum ({max_dimension}x{max_dimension})"
+
+            return True, None
+
+        except Exception as e:
+            logger.error(f"Image validation failed: {e}")
+            return False, f"Invalid image file: {str(e)}"
+
+    def upload_widget_logo(
+        self,
+        file_content: bytes,
+        tenant_id: UUID,
+        filename: str,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """
+        Upload widget logo to Cloudinary.
+
+        Args:
+            file_content: Image file bytes
+            tenant_id: Tenant UUID for organizing uploads
+            filename: Original filename
+
+        Returns:
+            Tuple of (cloudinary_url, error_message)
+        """
+        if not self.enabled:
+            return None, "Cloudinary is not configured. Please add credentials to .env"
+
+        # Validate image
+        is_valid, error = self.validate_image(file_content)
+        if not is_valid:
+            return None, error
+
+        try:
+            # Upload to Cloudinary with transformations
+            upload_result = cloudinary.uploader.upload(
+                file_content,
+                folder=settings.CLOUDINARY_FOLDER,
+                public_id=f"{tenant_id}_logo",  # Overwrites existing logo for tenant
+                overwrite=True,
+                resource_type="image",
+                # Transformations for optimization
+                transformation=[
+                    {"width": 500, "height": 500, "crop": "limit"},  # Max 500x500
+                    {"quality": "auto:good"},  # Auto-optimize quality
+                    {"fetch_format": "auto"},  # Auto-select best format (WebP, JPEG, etc.)
+                ],
+                # Tags for organization
+                tags=[str(tenant_id), "widget_logo"],
+            )
+
+            # Extract secure URL
+            secure_url = upload_result.get("secure_url")
+            logger.info(f"Uploaded widget logo for tenant {tenant_id}: {secure_url}")
+
+            return secure_url, None
+
+        except Exception as e:
+            logger.error(f"Cloudinary upload failed: {e}")
+            return None, f"Image upload failed: {str(e)}"
+
+    def delete_widget_logo(self, tenant_id: UUID) -> tuple[bool, Optional[str]]:
+        """
+        Delete widget logo from Cloudinary.
+
+        Args:
+            tenant_id: Tenant UUID
+
+        Returns:
+            Tuple of (success, error_message)
+        """
+        if not self.enabled:
+            return False, "Cloudinary is not configured"
+
+        try:
+            public_id = f"{settings.CLOUDINARY_FOLDER}/{tenant_id}_logo"
+            result = cloudinary.uploader.destroy(public_id)
+
+            if result.get("result") == "ok":
+                logger.info(f"Deleted widget logo for tenant {tenant_id}")
+                return True, None
+            else:
+                return False, "Logo not found or already deleted"
+
+        except Exception as e:
+            logger.error(f"Cloudinary delete failed: {e}")
+            return False, f"Failed to delete logo: {str(e)}"
+
+
+# Global instance
+cloudinary_manager = CloudinaryManager()

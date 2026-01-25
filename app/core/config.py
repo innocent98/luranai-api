@@ -51,7 +51,14 @@ class Settings(BaseSettings):
     # Google AI
     GOOGLE_API_KEY: Optional[str] = None
     EMBEDDING_MODEL: str = "models/gemini-embedding-001"  # gemini-embedding-1.0: 100 RPM, 1K RPD
-    GEMINI_MODEL: str = "models/gemma-3-12b-it"  # gemma-3-12b-it: 30 RPM, 14.4K RPD
+
+    # AI Model Selection
+    # PRODUCTION MODEL (Gemini Flash - Fast, cost-effective, high quality)
+    GEMINI_MODEL: str = "models/gemini-2.0-flash-exp"  # Flash: 10 RPM free tier, 1M RPD | Cost: ~$0.075/1M input, ~$0.30/1M output
+
+    # DEVELOPMENT MODEL (Gemma - Free, open source)
+    # GEMINI_MODEL: str = "models/gemma-3-12b-it"  # Gemma: 30 RPM, 14.4K RPD | Cost: FREE
+
     EMBEDDING_DIMENSION: int = 3072  # gemini-embedding-001 produces 3072-dim vectors
 
     # Email (optional)
@@ -66,6 +73,12 @@ class Settings(BaseSettings):
     # Admin
     FIRST_SUPERUSER_EMAIL: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
+
+    # Cloudinary (Image Upload Service)
+    CLOUDINARY_CLOUD_NAME: Optional[str] = None
+    CLOUDINARY_API_KEY: Optional[str] = None
+    CLOUDINARY_API_SECRET: Optional[str] = None
+    CLOUDINARY_FOLDER: str = "luran/widget_logos"
 
     class Config:
         case_sensitive = True

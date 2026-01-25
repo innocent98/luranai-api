@@ -163,3 +163,77 @@ class PlatformFeedback(Base, UUIDMixin, TimestampMixin):
         "User",
         foreign_keys=[submitted_by],
     )
+
+
+class PublicFeedback(Base, UUIDMixin, TimestampMixin):
+    """
+    Public feedback from landing page visitors (no authentication required).
+
+    Allows anyone to provide feedback about Luran platform from the landing page,
+    helping gather insights from potential customers and general users.
+    """
+
+    __tablename__ = "public_feedback"
+    __table_args__ = (
+        Index("ix_public_feedback_category_created", "category", "created_at"),
+        Index("ix_public_feedback_status", "status"),
+        Index("ix_public_feedback_email", "email"),
+    )
+
+    category: Mapped[FeedbackCategory] = mapped_column(
+        SQLEnum(FeedbackCategory, name="feedback_category", values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        index=True,
+        comment="Type of feedback",
+    )
+
+    satisfaction_score: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="1-5 rating (optional)",
+    )
+
+    title: Mapped[str] = mapped_column(
+        String(500),
+        nullable=False,
+        comment="Feedback title/summary",
+    )
+
+    description: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        comment="Detailed feedback description",
+    )
+
+    # Optional contact information
+    name: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Submitter name (optional)",
+    )
+
+    email: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Contact email for follow-up (optional)",
+    )
+
+    company: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Company/organization name (optional)",
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(50),
+        default="open",
+        nullable=False,
+        index=True,
+        comment="Status: open, acknowledged, in_progress, resolved, closed",
+    )
+
+    meta: Mapped[Optional[dict]] = mapped_column(
+        JSON,
+        nullable=True,
+        comment="Additional context: {referral_source, page_url, user_agent, etc.}",
+    )

@@ -192,7 +192,7 @@ class RAGService:
         return compressed
 
     # System-level prompt (immutable)
-    SYSTEM_PROMPT = """You are Luran — a calm, reliable, and professional customer support assistant.
+    SYSTEM_PROMPT = """You are a helpful customer support assistant for the Luran platform.
 
 Your role is to answer customer questions using ONLY the information explicitly provided to you.
 You must NEVER guess, infer, assume, or invent details.
@@ -205,20 +205,31 @@ CORE RULES (NON-NEGOTIABLE)
 3. Do NOT hallucinate, speculate, or fill gaps.
 4. Do NOT mention sources, documents, or knowledge bases.
 5. Do NOT provide information outside allowed topics.
-6. Stop immediately after answering. No sign-offs.
 
 ━━━━━━━━━━━━━━━━━━━━━━
 RESPONSE STYLE
 ━━━━━━━━━━━━━━━━━━━━━━
 • Warm, natural, and human — not robotic
-• Clear, concise, and direct
+• Clear and helpful
 • Professional and calm
-• No emotional assumptions
+• Provide complete answers based on available information
+• Use bullet points or lists when explaining multiple features or steps
 
 ━━━━━━━━━━━━━━━━━━━━━━
-WHAT TO INCLUDE (ONLY IF RELEVANT)
+ANSWERING QUESTIONS
 ━━━━━━━━━━━━━━━━━━━━━━
-✓ Direct answer to the question
+• For broad questions (e.g., "What is X?" "Tell me about Y"): Provide comprehensive answers using all relevant information
+• For specific questions (e.g., "How do I...?" "Where is..."): Give focused, step-by-step answers
+• Always directly address what was asked
+• Include relevant details, features, or context that helps the user understand fully
+
+━━━━━━━━━━━━━━━━━━━━━━
+WHAT TO INCLUDE (WHEN RELEVANT)
+━━━━━━━━━━━━━━━━━━━━━━
+✓ Direct, complete answer to the question
+✓ Key features or benefits when discussing products/services
+✓ Step-by-step instructions when explaining processes
+✓ Important details that help understanding
 ✓ Clear next steps (if applicable)
 ✓ Contact details (only when needed)
 ✓ Offer to connect to a human ONLY when you do not know the answer
@@ -227,11 +238,10 @@ WHAT TO INCLUDE (ONLY IF RELEVANT)
 STRICTLY AVOID
 ━━━━━━━━━━━━━━━━━━━━━━
 ✗ Emotional assumptions ("I'm sorry this happened", "That must be stressful")
-✗ Filler phrases ("I hope this helps", "Let me know if…")
-✗ Closing statements or sign-offs
+✗ Unnecessary filler phrases ("I hope this helps", "Let me know if…")
+✗ "According to my knowledge base…" or similar meta-references
 ✗ Repeating information the user didn't ask for
-✗ "According to my knowledge base…"
-✗ Unnecessary greetings or pleasantries
+✗ Being overly brief when a comprehensive answer is appropriate
 
 ━━━━━━━━━━━━━━━━━━━━━━
 ESCALATION BEHAVIOR
@@ -244,20 +254,10 @@ ESCALATION BEHAVIOR
   → Acknowledge and comply
 
 ━━━━━━━━━━━━━━━━━━━━━━
-SPECIAL CASE: THANK YOU
+OUTPUT
 ━━━━━━━━━━━━━━━━━━━━━━
-ONLY when the user says "thank you" or expresses appreciation,
-you may reply with a brief polite response and ONE closing sentence.
-
-Example:
-"You're welcome! If you need anything else, I'm here to help."
-
-━━━━━━━━━━━━━━━━━━━━━━
-OUTPUT RULE
-━━━━━━━━━━━━━━━━━━━━━━
-Answer the customer's question.
-Stop immediately.
-Do not add anything extra."""
+Provide a helpful, complete answer based on the available information.
+Match the depth of your answer to the breadth of the question."""
 
     def assemble_prompt(
         self,
@@ -537,9 +537,10 @@ Answer the customer's question using ONLY the information provided above. Be nat
         ]
         has_uncertainty = any(pattern in ai_response.lower() for pattern in uncertainty_patterns)
 
-        # Substantial = more than 100 chars OR more than 15 words
+        # Substantial = more than 50 chars OR more than 10 words
         # AND no strong uncertainty markers
-        is_substantial = (char_count > 100 or word_count > 15) and not has_uncertainty
+        # Relaxed thresholds to allow concise but complete answers
+        is_substantial = (char_count > 50 or word_count > 10) and not has_uncertainty
 
         logger.debug(
             f"Response quality: {word_count} words, {char_count} chars, "
@@ -684,7 +685,7 @@ Answer the customer's question using ONLY the information provided above. Be nat
     async def generate_ai_response(
         self,
         prompt: "PromptComponents",
-        max_tokens: int = 200,  # Default for concise, direct responses
+        max_tokens: int = 800,  # Increased for comprehensive responses (was 200)
         model_name: Optional[str] = None,
     ) -> tuple[str, Optional[int], bool]:
         """
@@ -720,18 +721,25 @@ Answer the customer's question using ONLY the information provided above. Be nat
             client = genai.Client(api_key=settings.GOOGLE_API_KEY)
 
             # Generate response
+            # Note: Using dict config instead of GenerateContentConfig for compatibility
+            logger.debug(f"Calling Gemini API with max_output_tokens={max_tokens}")
             response = client.models.generate_content(
                 model=model,
                 contents=prompt.full_prompt,
-                config=genai.types.GenerateContentConfig(
-                    max_output_tokens=max_tokens,
-                    temperature=0.2,  # Lower for RAG-based support (0.2-0.3 recommended)
-                    top_p=0.9,  # Add nucleus sampling for controlled variation
-                ),
+                config={
+                    'max_output_tokens': max_tokens,
+                    'temperature': 0.2,  # Lower for RAG-based support (0.2-0.3 recommended)
+                    'top_p': 0.9,  # Add nucleus sampling for controlled variation
+                },
             )
 
             # Extract text
             response_text = response.text
+
+            # Debug: Check response structure
+            logger.debug(f"Response candidates: {len(response.candidates) if hasattr(response, 'candidates') else 'N/A'}")
+            if hasattr(response, 'candidates') and response.candidates:
+                logger.debug(f"First candidate finish_reason: {response.candidates[0].finish_reason if hasattr(response.candidates[0], 'finish_reason') else 'N/A'}")
 
             # Extract token count with error handling
             token_count = None
@@ -742,6 +750,7 @@ Answer the customer's question using ONLY the information provided above. Be nat
                 logger.warning(f"Failed to extract token count: {token_error}")
 
             logger.debug(f"Generated AI response using {model} with {token_count} tokens")
+            logger.debug(f"Response text length: {len(response_text)} chars, {len(response_text.split())} words")
             return response_text, token_count, False  # Success, not an API error
 
         except Exception as e:

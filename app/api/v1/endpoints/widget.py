@@ -1,6 +1,6 @@
 """Widget configuration and public endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Header, Path
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Path, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
@@ -134,6 +134,135 @@ def update_widget_config(
         widget_show_unread_badge=tenant.widget_show_unread_badge,
         widget_allow_file_upload=tenant.widget_allow_file_upload,
     )
+
+
+@router.post(
+    "/upload-logo",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+)
+async def upload_widget_logo(
+    file: UploadFile = File(..., description="Logo image file (JPEG, PNG, GIF, WebP)"),
+    current_user: UserResponse = Depends(get_current_tenant_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload widget logo image to Cloudinary.
+
+    The uploaded image will be:
+    - Validated for format and size
+    - Optimized and resized (max 500x500px)
+    - Uploaded to Cloudinary
+    - URL automatically saved to widget configuration
+
+    Args:
+        file: Image file to upload (max 5MB)
+        current_user: Current authenticated tenant admin
+        db: Database session
+
+    Returns:
+        dict with logo_url and success message
+
+    Raises:
+        HTTPException: 400 if file is invalid or upload fails
+        HTTPException: 404 if tenant not found
+        HTTPException: 503 if Cloudinary not configured
+    """
+    from app.utils.cloudinary_client import cloudinary_manager
+
+    # Get tenant
+    stmt = select(Tenant).where(Tenant.id == current_user.tenant_id)
+    tenant = db.execute(stmt).scalar_one_or_none()
+
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant not found",
+        )
+
+    # Read file content
+    try:
+        file_content = await file.read()
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to read file: {str(e)}",
+        )
+
+    # Upload to Cloudinary
+    logo_url, error = cloudinary_manager.upload_widget_logo(
+        file_content=file_content,
+        tenant_id=tenant.id,
+        filename=file.filename or "logo",
+    )
+
+    if error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error,
+        )
+
+    # Update tenant widget config
+    tenant.widget_logo_url = logo_url
+    db.commit()
+    db.refresh(tenant)
+
+    return {
+        "message": "Logo uploaded successfully",
+        "logo_url": logo_url,
+    }
+
+
+@router.delete(
+    "/logo",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+)
+def delete_widget_logo(
+    current_user: UserResponse = Depends(get_current_tenant_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Delete widget logo from Cloudinary and remove URL from config.
+
+    Args:
+        current_user: Current authenticated tenant admin
+        db: Database session
+
+    Returns:
+        Success message
+
+    Raises:
+        HTTPException: 404 if tenant not found or no logo exists
+    """
+    from app.utils.cloudinary_client import cloudinary_manager
+
+    # Get tenant
+    stmt = select(Tenant).where(Tenant.id == current_user.tenant_id)
+    tenant = db.execute(stmt).scalar_one_or_none()
+
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant not found",
+        )
+
+    if not tenant.widget_logo_url:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No logo configured",
+        )
+
+    # Delete from Cloudinary
+    success, error = cloudinary_manager.delete_widget_logo(tenant.id)
+
+    # Remove URL from config regardless (in case logo was deleted manually from Cloudinary)
+    tenant.widget_logo_url = None
+    db.commit()
+
+    return {
+        "message": "Logo deleted successfully" if success else "Logo URL removed (may have been deleted already)",
+    }
 
 
 @router.get(

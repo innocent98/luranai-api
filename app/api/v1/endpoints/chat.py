@@ -352,7 +352,7 @@ async def send_message(
             )
 
         elif consent_decision == "reject":
-            # User declined escalation - continue normally
+            # User declined escalation - check if they also asked a new question
             logger.info("User declined escalation offer")
 
             # Clear pending escalation
@@ -360,29 +360,39 @@ async def send_message(
             session_meta['escalation_context'] = {}
             conversation_service.update_session_meta(session_id, session_meta)
 
-            # Add user message
-            user_message = conversation_service.add_message(
-                session_id=session_id,
-                role=MessageRole.USER,
-                content=message_data.message
-            )
+            # Check if message is a simple rejection or has additional content
+            message_words = message_data.message.strip().split()
+            is_simple_rejection = len(message_words) <= 3  # "no", "nope", "no thanks"
 
-            # Send acknowledgment
-            ack_text = "Sounds good! Let me know if you need anything else."
-            assistant_message = conversation_service.add_message(
-                session_id=session_id,
-                role=MessageRole.ASSISTANT,
-                content=ack_text,
-                meta={'escalation_declined': True}
-            )
+            # If simple rejection, send acknowledgment and return
+            if is_simple_rejection:
+                # Add user message
+                user_message = conversation_service.add_message(
+                    session_id=session_id,
+                    role=MessageRole.USER,
+                    content=message_data.message
+                )
 
-            return ChatResponse(
-                session_id=session_id,
-                message=assistant_message,
-                should_escalate=False,
-                escalation_reason=None,
-                ticket_id=None,
-            )
+                # Send acknowledgment
+                ack_text = "Sounds good! Let me know if you need anything else."
+                assistant_message = conversation_service.add_message(
+                    session_id=session_id,
+                    role=MessageRole.ASSISTANT,
+                    content=ack_text,
+                    meta={'escalation_declined': True}
+                )
+
+                return ChatResponse(
+                    session_id=session_id,
+                    message=assistant_message,
+                    should_escalate=False,
+                    escalation_reason=None,
+                    ticket_id=None,
+                )
+            else:
+                # Message has additional content - treat as new question
+                # Continue to normal flow below (don't return here)
+                logger.info(f"Rejection contains additional content ({len(message_words)} words), treating as new question")
         else:
             # Unclear response - treat as normal question and try to answer
             logger.info("Unclear consent response, treating as new question")

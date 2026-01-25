@@ -104,3 +104,57 @@ class PlatformFeedbackListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+# ===== Public Landing Page Feedback Schemas =====
+
+class PublicFeedbackCreate(BaseModel):
+    """Schema for creating public feedback from landing page (no authentication)."""
+
+    category: FeedbackCategory = Field(..., description="Feedback category")
+    satisfaction_score: Optional[int] = Field(None, ge=1, le=5, description="1-5 rating (optional)")
+    title: str = Field(..., min_length=1, max_length=500, description="Feedback title/summary")
+    description: str = Field(..., min_length=1, max_length=10000, description="Detailed feedback description")
+
+    # Optional contact information for follow-up
+    name: Optional[str] = Field(None, max_length=255, description="Submitter name (optional)")
+    email: Optional[str] = Field(None, max_length=255, description="Contact email (optional)")
+    company: Optional[str] = Field(None, max_length=255, description="Company name (optional)")
+
+    meta: Optional[dict] = Field(None, description="Additional context (e.g., referral source, page URL)")
+
+    @field_validator("satisfaction_score")
+    @classmethod
+    def validate_satisfaction_score(cls, v: Optional[int]) -> Optional[int]:
+        """Validate satisfaction score range."""
+        if v is not None and (v < 1 or v > 5):
+            raise ValueError("satisfaction_score must be between 1 and 5")
+        return v
+
+
+class PublicFeedbackResponse(BaseModel):
+    """Schema for public feedback response."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    category: FeedbackCategory
+    satisfaction_score: Optional[int]
+    title: str
+    description: str
+    name: Optional[str]
+    email: Optional[str]
+    company: Optional[str]
+    status: str
+    meta: Optional[dict]
+    created_at: datetime
+    updated_at: datetime
+
+
+class PublicFeedbackListResponse(BaseModel):
+    """Schema for paginated public feedback list."""
+
+    feedback: list[PublicFeedbackResponse]
+    total: int
+    page: int
+    page_size: int

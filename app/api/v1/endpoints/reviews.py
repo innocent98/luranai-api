@@ -23,6 +23,9 @@ from app.schemas.review import (
     PlatformFeedbackCreate,
     PlatformFeedbackResponse,
     PlatformFeedbackListResponse,
+    PublicFeedbackCreate,
+    PublicFeedbackResponse,
+    PublicFeedbackListResponse,
 )
 from app.schemas.user import UserResponse
 from app.schemas.platform_admin import PlatformAdminResponse
@@ -290,4 +293,129 @@ async def list_platform_feedback(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve platform feedback",
+        )
+
+
+# ===== Public Landing Page Feedback Endpoints =====
+
+
+@router.post(
+    "/public-feedback",
+    response_model=PublicFeedbackResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Submit public feedback from landing page",
+    description="PUBLIC endpoint - No authentication required. Submit feedback about Luran platform.",
+)
+async def create_public_feedback(
+    feedback_data: PublicFeedbackCreate,
+    db: Session = Depends(get_db),
+):
+    """
+    Submit public feedback about Luran platform (no authentication required).
+
+    This is a PUBLIC endpoint accessible from the landing page for anyone to
+    provide feedback, report issues, or request features.
+
+    **Feedback Categories:**
+    - feature_request: Request new features
+    - bug_report: Report bugs or issues
+    - performance: Performance-related feedback
+    - platform_satisfaction: Rate overall platform satisfaction
+    - documentation: Documentation feedback
+    - pricing: Pricing-related feedback
+    - general: General feedback
+
+    **Optional Contact Information:**
+    - name: Submitter name (for follow-up)
+    - email: Contact email (for follow-up)
+    - company: Company/organization name
+
+    **Returns:**
+    - 201: Feedback created successfully
+    - 400: Invalid data
+    """
+    try:
+        review_service = ReviewService(db)
+        feedback = review_service.create_public_feedback(feedback_data)
+
+        logger.info(
+            f"Public feedback created: category={feedback_data.category}, "
+            f"email={feedback_data.email or 'anonymous'}"
+        )
+
+        return feedback
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        logger.error(f"Error creating public feedback: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create public feedback",
+        )
+
+
+@router.get(
+    "/public-feedback",
+    response_model=PublicFeedbackListResponse,
+    summary="List public feedback",
+    description="View public landing page feedback (platform admins only)",
+)
+async def list_public_feedback(
+    category: Optional[FeedbackCategory] = Query(None, description="Filter by category"),
+    status_filter: Optional[str] = Query(
+        None,
+        alias="status",
+        pattern="^(open|acknowledged|in_progress|resolved|closed)$",
+        description="Filter by status",
+    ),
+    start_date: Optional[datetime] = Query(None, description="Filter from date (ISO 8601)"),
+    end_date: Optional[datetime] = Query(None, description="Filter to date (ISO 8601)"),
+    limit: int = Query(50, ge=1, le=100, description="Max results per page"),
+    offset: int = Query(0, ge=0, description="Results offset for pagination"),
+    current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    List public landing page feedback (platform admins only).
+
+    **Access Control:**
+    - ONLY platform admins can view public feedback
+    - Returns ALL public feedback from landing page visitors
+
+    **Query Parameters:**
+    - category: Filter by feedback category
+    - status: Filter by feedback status
+    - start_date/end_date: Filter by date range
+    - limit/offset: Pagination controls
+
+    **Returns:**
+    - List of public feedback items
+    - Total count
+    - Pagination metadata
+    """
+    try:
+        review_service = ReviewService(db)
+
+        logger.info("Platform admin viewing all public landing page feedback")
+
+        feedback = review_service.list_public_feedback(
+            category=category,
+            status=status_filter,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+            offset=offset,
+        )
+
+        return feedback
+
+    except Exception as e:
+        logger.error(f"Error listing public feedback: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve public feedback",
         )
