@@ -35,10 +35,33 @@ class Settings(BaseSettings):
             return v
         raise ValueError(v)
 
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def validate_secret_key(cls, v: str) -> str:
+        """Ensure SECRET_KEY is secure."""
+        dangerous_defaults = ["your_secret_key_here", "changeme", "secret"]
+        if not v or v.strip() == "" or v in dangerous_defaults:
+            raise ValueError(
+                "SECRET_KEY must be set. Generate using: openssl rand -hex 32"
+            )
+        if len(v) < 32:
+            raise ValueError("SECRET_KEY must be at least 32 characters")
+        return v
+
+    @field_validator("GOOGLE_API_KEY")
+    @classmethod
+    def validate_google_api_key(cls, v: str) -> str:
+        """Ensure GOOGLE_API_KEY is set."""
+        if not v or v.strip() == "":
+            raise ValueError(
+                "GOOGLE_API_KEY required. Get from: https://makersuite.google.com/app/apikey"
+            )
+        return v
+
     # Database
     DATABASE_URL: str
-    DATABASE_POOL_SIZE: int = 5
-    DATABASE_MAX_OVERFLOW: int = 10
+    DATABASE_POOL_SIZE: int = 20
+    DATABASE_MAX_OVERFLOW: int = 40
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -49,12 +72,12 @@ class Settings(BaseSettings):
     QDRANT_COLLECTION_NAME: str = "luran_knowledge"
 
     # Google AI
-    GOOGLE_API_KEY: Optional[str] = None
+    GOOGLE_API_KEY: str
     EMBEDDING_MODEL: str = "models/gemini-embedding-001"  # gemini-embedding-1.0: 100 RPM, 1K RPD
 
     # AI Model Selection
     # PRODUCTION MODEL (Gemini Flash - Fast, cost-effective, high quality)
-    GEMINI_MODEL: str = "models/gemini-2.0-flash-exp"  # Flash: 10 RPM free tier, 1M RPD | Cost: ~$0.075/1M input, ~$0.30/1M output
+    GEMINI_MODEL: str = "models/gemini-2.5-flash-lite"  # Flash: 10 RPM free tier, 1M RPD | Cost: ~$0.075/1M input, ~$0.30/1M output
 
     # DEVELOPMENT MODEL (Gemma - Free, open source)
     # GEMINI_MODEL: str = "models/gemma-3-12b-it"  # Gemma: 30 RPM, 14.4K RPD | Cost: FREE
@@ -79,6 +102,23 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: Optional[str] = None
     CLOUDINARY_API_SECRET: Optional[str] = None
     CLOUDINARY_FOLDER: str = "luran/widget_logos"
+
+    # Backup Configuration (for database backups)
+    ENABLE_CLOUD_BACKUP: bool = False
+    CLOUD_PROVIDER: Optional[str] = None
+    GDRIVE_FOLDER: Optional[str] = None
+    RETENTION_DAYS: int = 30
+
+    # Production Server
+    API_WORKERS: int = 4
+    LOG_LEVEL: str = "info"
+
+    # Database connection pooling enhancements
+    DATABASE_POOL_RECYCLE: int = 3600
+    DATABASE_POOL_PRE_PING: bool = True
+
+    # Security Headers
+    ENABLE_HSTS: bool = False
 
     class Config:
         case_sensitive = True

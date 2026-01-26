@@ -1,0 +1,84 @@
+name: CD - Deploy to VPS
+
+on:
+  push:
+    branches: [main]
+    tags:
+      - 'v*'
+
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+    environment: 
+      name: ${{ github.event.inputs.environment || 'production' }}
+      url: ${{ secrets.APP_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and save Docker images
+        run: |
+          docker build -t luran-api:latest .
+          docker save luran-api:latest | gzip > api-image.tar.gz
+
+      - name: Copy files to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "api-image.tar.gz,docker-compose.yml,alembic.ini,alembic/"
+          target: "/opt/luran"
+
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            cd /opt/luran
+            
+            # Load Docker image
+            docker load < api-image.tar.gz
+            
+            # Pull other required images
+            docker-compose pull db redis qdrant pgadmin
+            
+            # Run database migrations
+            docker-compose run --rm api alembic upgrade head
+            
+            # Restart services with zero-downtime
+            docker-compose up -d --no-deps --build api worker
+            
+            # Health check
+            sleep 10
+            curl -f http://localhost:8000/api/v1/health || exit 1
+            
+            # Cleanup
+            docker image prune -f
+            rm api-image.tar.gz
+
+      - name: Notify deployment status
+        if: always()
+        run: |
+          echo "Deployment ${{ job.status }} to ${{ github.event.inputs.environment || 'production' }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Author: ${{ github.actor }}"

@@ -25,6 +25,7 @@ from app.schemas.conversation import (
 from app.schemas.user import UserResponse
 from app.db.models.conversation import SessionStatus, MessageRole, TicketPriority, EscalationAction
 from app.schemas.rag import EscalationDecision, ResponseQuality, PromptComponents
+from app.utils.http_rate_limiter import chat_rate_limit
 
 router = APIRouter()
 
@@ -161,7 +162,12 @@ async def create_session(
     return session
 
 
-@router.post("/message", response_model=ChatResponse, status_code=status.HTTP_200_OK)
+@router.post(
+    "/message",
+    response_model=ChatResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(chat_rate_limit)]
+)
 async def send_message(
     message_data: MessageRequest,
     db: Session = Depends(get_db),

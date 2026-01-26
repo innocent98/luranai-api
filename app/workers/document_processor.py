@@ -2,7 +2,7 @@
 
 import asyncio
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -68,7 +68,7 @@ async def process_document_ingestion(
 
         # Mark job as processing
         job.status = JobStatus.PROCESSING
-        job.started_at = datetime.utcnow()
+        job.started_at = datetime.now(timezone.utc)
         db.commit()
 
         # Broadcast status update via WebSocket
@@ -215,7 +215,7 @@ async def process_document_ingestion(
             job.error_message = "All chunks failed to embed"
             logger.error(f"✗ Job {job_id} failed: No chunks successfully embedded")
 
-        job.completed_at = datetime.utcnow()
+        job.completed_at = datetime.now(timezone.utc)
         job.failed_items = len(failed_chunks)
         db.commit()
 
@@ -248,7 +248,7 @@ async def process_document_ingestion(
         if job:
             job.status = JobStatus.FAILED
             job.error_message = str(e)
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(timezone.utc)
             db.commit()
 
             # Broadcast error via WebSocket

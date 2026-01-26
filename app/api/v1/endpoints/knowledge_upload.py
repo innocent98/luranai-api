@@ -17,6 +17,7 @@ from app.schemas.user import UserResponse
 from app.db.models.knowledge import SourceType
 from app.db.models.job import JobType, JobStatus
 from app.core.config import settings
+from app.utils.http_rate_limiter import upload_rate_limit
 
 
 router = APIRouter()
@@ -127,7 +128,8 @@ def extract_text_from_file(file: UploadFile) -> str:
     Returns immediately with job ID. Check status via:
     - GET /api/v1/jobs/{job_id} (REST polling)
     - WS /api/v1/ws/jobs/{job_id} (WebSocket real-time)
-    """
+    """,
+    dependencies=[Depends(upload_rate_limit)]
 )
 async def upload_knowledge_file(
     file: UploadFile = File(..., description="Document file to upload"),

@@ -1,6 +1,6 @@
 """Background worker for auto-resolving and abandoning conversations."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any
 
 from loguru import logger
@@ -36,7 +36,7 @@ async def auto_abandon_inactive_conversations(ctx: dict) -> Dict[str, Any]:
 
     try:
         # Calculate cutoff time (30 minutes ago)
-        cutoff_time = datetime.utcnow() - timedelta(minutes=30)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=30)
 
         # Find stale active conversations
         stale_conversations = (
@@ -71,7 +71,7 @@ async def auto_abandon_inactive_conversations(ctx: dict) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        logger.error(f"Error in auto_abandon_inactive_conversations: {e}", exc_info=True)
+        logger.error("Error in auto_abandon_inactive_conversations: {}", str(e), exc_info=True)
         db.rollback()
         return {"success": False, "error": str(e)}
 
@@ -99,7 +99,7 @@ async def auto_resolve_stale_tickets(ctx: dict) -> Dict[str, Any]:
 
     try:
         # Calculate cutoff (7 days ago)
-        cutoff_time = datetime.utcnow() - timedelta(days=7)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(days=7)
 
         # Find stale tickets
         stale_tickets = (
@@ -119,7 +119,7 @@ async def auto_resolve_stale_tickets(ctx: dict) -> Dict[str, Any]:
                 "Auto-resolved due to inactivity (7+ days with no updates). "
                 "This ticket was automatically closed by the system."
             )
-            ticket.resolved_at = datetime.utcnow()
+            ticket.resolved_at = datetime.now(timezone.utc)
 
             # Resolve conversation session
             if ticket.session_id:
@@ -160,7 +160,7 @@ async def auto_resolve_stale_tickets(ctx: dict) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        logger.error(f"Error in auto_resolve_stale_tickets: {e}", exc_info=True)
+        logger.error("Error in auto_resolve_stale_tickets: {}", str(e), exc_info=True)
         db.rollback()
         return {"success": False, "error": str(e)}
 
@@ -265,5 +265,5 @@ This is an automated message from Luran Support System.
                 # Continue with other admins even if one fails
 
     except Exception as e:
-        logger.error(f"Failed to send auto-resolve notification: {e}", exc_info=True)
+        logger.error("Failed to send auto-resolve notification: {}", str(e), exc_info=True)
         # Don't raise - this is a non-critical feature

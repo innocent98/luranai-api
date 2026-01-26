@@ -12,11 +12,17 @@ from app.schemas.user import (
     UserPasswordUpdate,
     CurrentUserResponse,
 )
+from app.utils.http_rate_limiter import auth_rate_limit
 
 router = APIRouter()
 
 
-@router.post("/login", response_model=Token, status_code=status.HTTP_200_OK)
+@router.post(
+    "/login",
+    response_model=Token,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(auth_rate_limit)]
+)
 def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     """
     Login endpoint to authenticate users and generate JWT token.

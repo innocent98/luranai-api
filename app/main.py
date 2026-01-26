@@ -22,6 +22,48 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security headers to all responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+
+        # Prevent clickjacking
+        response.headers["X-Frame-Options"] = "DENY"
+
+        # Prevent MIME sniffing
+        response.headers["X-Content-Type-Options"] = "nosniff"
+
+        # XSS protection
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+
+        # Referrer policy
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+        # Permissions policy
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+
+        # CSP (customize for your needs)
+        if settings.ENVIRONMENT == "production":
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: https:; "
+                "font-src 'self' data:; "
+                "connect-src 'self'; "
+                "frame-ancestors 'none';"
+            )
+
+        # HSTS (only if HTTPS configured)
+        if settings.ENVIRONMENT == "production" and settings.ENABLE_HSTS:
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
+
+        return response
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
@@ -30,14 +72,25 @@ app = FastAPI(
     redoc_url=f"{settings.API_V1_STR}/redoc",
 )
 
-# CORS middleware
+# CORS middleware - environment-based configuration
+if settings.ENVIRONMENT == "production":
+    allowed_methods = ["GET", "POST", "PUT", "DELETE", "PATCH"]
+    allowed_headers = ["Content-Type", "Authorization", "X-API-Key"]
+else:
+    allowed_methods = ["*"]
+    allowed_headers = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=allowed_methods,
+    allow_headers=allowed_headers,
+    max_age=600,
 )
+
+# Security headers
+app.add_middleware(SecurityHeadersMiddleware)
 
 # Logging middleware
 app.add_middleware(LoggingMiddleware)
