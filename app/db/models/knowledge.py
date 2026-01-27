@@ -75,6 +75,26 @@ class KnowledgeSource(Base, UUIDMixin, TimestampMixin):
         index=True,
         comment="Type of knowledge source",
     )
+
+    # Source Category (File vs URL)
+    source_category: Mapped[str] = mapped_column(
+        String(20),
+        default="file",
+        nullable=False,
+        index=True,
+        comment="Source category: file, url",
+    )
+    source_url: Mapped[Optional[str]] = mapped_column(
+        String(2048),
+        nullable=True,
+        comment="Original URL for url-type sources",
+    )
+    file_size_bytes: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="File/content size in bytes (for storage tracking)",
+    )
+
     file_url: Mapped[Optional[str]] = mapped_column(
         String(1000),
         nullable=True,

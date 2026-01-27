@@ -7,7 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_tenant_admin, get_current_user, get_db, verify_tenant_access
+from app.api.deps import get_current_tenant_admin, get_current_user, get_db, verify_tenant_access, verify_subscription_active
 from app.core.websocket import connection_manager
 from app.services.ticket_service import TicketService
 from app.schemas.ticket import (
@@ -30,6 +30,7 @@ def create_ticket(
     ticket_data: TicketManualCreate,
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
+    _subscription_check: None = Depends(verify_subscription_active),
 ):
     """
     Manually create a support ticket.

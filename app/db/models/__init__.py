@@ -26,6 +26,8 @@ from app.db.models.api_key import APIKey, APIKeyType
 from app.db.models.audit import AuditLog, AnalyticsMetric
 from app.db.models.job import ProcessingJob, JobStatus, JobType
 from app.db.models.review import SessionRating, PlatformFeedback, FeedbackCategory
+from app.db.models.payment import PaymentTransaction
+from app.db.models.subscription import SubscriptionHistory
 
 __all__ = [
     "Base",
@@ -68,4 +70,8 @@ __all__ = [
     "SessionRating",
     "PlatformFeedback",
     "FeedbackCategory",
+    # Payment models
+    "PaymentTransaction",
+    # Subscription models
+    "SubscriptionHistory",
 ]

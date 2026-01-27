@@ -1,6 +1,6 @@
 # Frontend Development Guide - Complete API Reference
 
-**Last Updated:** 2026-01-25
+**Last Updated:** 2026-01-27
 **Base URL:** `http://localhost:8000/api/v1` (development) | `https://api.luranai.com/api/v1` (production)
 
 ## Table of Contents
@@ -49,11 +49,30 @@
    - List Platform Feedback
    - Submit Public Feedback (Landing Page)
    - List Public Feedback
-12. [User Flows with Diagrams](#user-flows-with-diagrams)
-13. [Common Patterns](#common-patterns)
-14. [Frontend Pages Checklist](#frontend-pages-checklist)
-15. [Next Steps](#next-steps)
-16. [Important Notes](#important-notes)
+12. [Subscription & Payment System](#subscription--payment-system)
+   - Overview & Pricing Tiers
+   - Initialize Subscription Payment
+   - Verify Subscription Payment
+   - Direct Subscription Upgrade (Deprecated)
+   - Subscription Enforcement (HTTP 402 Errors)
+   - Webhooks (Backend Reference)
+   - Payment Flow Diagram
+   - Recurring Billing
+   - Frontend Implementation Example
+   - Testing Checklist
+   - Common Issues & Solutions
+13. [Platform Admin Subscription Management](#platform-admin-subscription-management)
+   - Get Public Pricing Plans (No Auth Required)
+   - Manual Subscription Override
+   - Extend Trial Period
+   - Get Subscription Details
+   - List Payment Transactions
+   - Filter Tenants by Subscription
+14. [User Flows with Diagrams](#user-flows-with-diagrams)
+14. [Common Patterns](#common-patterns)
+15. [Frontend Pages Checklist](#frontend-pages-checklist)
+16. [Next Steps](#next-steps)
+17. [Important Notes](#important-notes)
 
 ---
 
@@ -4634,7 +4653,1109 @@ Authorization: Bearer {platform_admin_token}
 
 ---
 
-## 12. User Flows with Diagrams
+## 12. Subscription & Payment System
+
+Luran implements a **tier-based subscription system** with automatic trial period, recurring Paystack payments, and usage limit enforcement.
+
+---
+
+### Overview
+
+**Key Features:**
+- ✅ **30-Day Free Trial** - Automatically starts on company registration
+- ✅ **4 Subscription Tiers** - Trial, Lite, Professional, Enterprise
+- ✅ **Recurring Billing** - Paystack subscription plans (monthly & annual)
+- ✅ **Usage Limits** - Conversations, knowledge sources, team members, storage
+- ✅ **Trial Expiration Enforcement** - Platform blocks access after 30 days
+- ✅ **Webhook Integration** - Automatic subscription updates from Paystack
+- ✅ **Payment Transaction Records** - Full audit trail of all payments
+
+**Subscription Flow:**
+```
+Registration → 30-Day Trial → Trial Expires → Payment Required → Active Subscription
+```
+
+**Payment Integration:**
+- Payment processor: Paystack (Nigeria)
+- Subscription model: Recurring (automatic monthly/annual billing)
+- Webhook events: charge.success, subscription.create, invoice.payment_failed, etc.
+- Supported channels: Card, Bank Transfer, USSD
+
+---
+
+### Pricing Tiers
+
+| Feature | Trial (30 days) | Lite | Professional | Enterprise |
+|---------|-----------------|------|--------------|------------|
+| **Monthly Price** | ₦0 | ₦12,000 | ₦35,000 | Custom |
+| **Annual Price** | N/A | ₦120,000 (save ₦24k) | ₦350,000 (save ₦70k) | Custom |
+| | | | | |
+| **Conversations/month** | 100 | 1,000 | 5,000 | Unlimited |
+| **Knowledge sources** | 2 (files only) | 10 (files+URLs) | 30 (files+URLs) | Unlimited |
+| **Storage** | 10 MB | 50 MB | 200 MB | Unlimited |
+| **URL scraping** | ❌ | ✅ | ✅ | ✅ |
+| **Team members** | 1 | 3 | 10 | Unlimited |
+| **AI tokens/response** | 800 | 1,000 | 1,500 | 2,000 |
+| | | | | |
+| **Analytics** | ❌ | ✅ Basic | ✅ Advanced | ✅ Custom |
+| **API access** | ❌ | ❌ | ✅ | ✅ |
+| **Support** | Community | Email 24-48h | Priority 4-8h | Dedicated 1-2h |
+
+**Annual Billing Discount:** 2 months free (10 months price for 12 months service)
+
+---
+
+### Tenant Subscription Fields
+
+Each tenant has subscription tracking fields automatically managed by the system:
+
+```json
+{
+  "subscription_tier": "trial",              // trial, lite, professional, enterprise
+  "subscription_status": "trialing",         // trialing, active, past_due, canceled, trial_expired
+  "billing_cycle": null,                     // monthly, annual (null for trial)
+  "trial_ends_at": "2026-02-17T10:00:00Z",  // When 30-day trial expires
+  "subscription_starts_at": null,            // When paid subscription started
+  "subscription_ends_at": null               // When subscription ends (if canceled)
+}
+```
+
+**Subscription Status Values:**
+- `trialing` - Active 30-day trial period
+- `active` - Paid subscription is active
+- `past_due` - Payment failed, grace period
+- `canceled` - Subscription was canceled
+- `trial_expired` - Trial period ended, upgrade required
+
+---
+
+### 12.1 Initialize Subscription Payment
+
+Start the payment process by creating a Paystack checkout session for recurring subscription.
+
+**Page:** `/dashboard/upgrade` or `/dashboard/billing`
+
+**Endpoint:** `POST /subscription/upgrade/initialize`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Request:**
+```json
+{
+  "tier": "lite",
+  "billing_cycle": "annual"
+}
+```
+
+**Tier Options:**
+- `lite` - Lite plan
+- `professional` - Professional plan
+- `enterprise` - Contact sales (not available via API)
+
+**Billing Cycle Options:**
+- `monthly` - Monthly billing
+- `annual` - Annual billing (2 months free)
+
+**Response:**
+```json
+{
+  "authorization_url": "https://checkout.paystack.com/abc123xyz",
+  "access_code": "abc123xyz",
+  "reference": "luran_sub_71ca7137_eb06291f",
+  "amount": 12000000,
+  "currency": "NGN",
+  "plan_code": "PLN_jyimgdb5eobje4a"
+}
+```
+
+**Response Fields:**
+- `authorization_url` - Redirect user to this URL to complete payment
+- `access_code` - Paystack access code (for alternative payment methods)
+- `reference` - Unique transaction reference (format: `luran_sub_{tenant_id_prefix}_{random}`)
+- `amount` - Amount in kobo (₦1 = 100 kobo). Example: 12000000 kobo = ₦120,000
+- `currency` - Always "NGN" (Nigerian Naira)
+- `plan_code` - Paystack plan code for recurring subscription
+
+**Frontend Implementation:**
+
+```javascript
+// Step 1: Initialize payment
+async function initiateUpgrade(tier, billingCycle) {
+  try {
+    const response = await fetch('/api/v1/subscription/upgrade/initialize', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${tenantToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        tier: tier,           // 'lite' or 'professional'
+        billing_cycle: billingCycle  // 'monthly' or 'annual'
+      })
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      // Step 2: Redirect to Paystack checkout
+      window.location.href = data.authorization_url;
+
+      // Alternative: Open in popup
+      // const popup = window.open(data.authorization_url, 'Paystack', 'width=500,height=600');
+    } else {
+      // Handle error
+      console.error('Payment initialization failed:', data.detail);
+      showError(data.detail);
+    }
+  } catch (error) {
+    console.error('Network error:', error);
+    showError('Failed to initiate payment. Please try again.');
+  }
+}
+
+// Example: User clicks "Upgrade to Lite (Annual)" button
+document.getElementById('upgrade-lite-annual-btn').addEventListener('click', () => {
+  initiateUpgrade('lite', 'annual');
+});
+```
+
+**What Happens:**
+1. System validates tier and billing cycle
+2. Retrieves pricing from `PaystackService.PRICING` (₦12,000/month or ₦120,000/year for Lite)
+3. Gets Paystack plan code for recurring subscription (e.g., `PLN_jyimgdb5eobje4a` for Lite monthly)
+4. Generates unique reference: `luran_sub_{tenant_id[:8]}_{uuid[:8]}`
+5. Creates Paystack transaction via `/transaction/initialize` with plan parameter
+6. Creates `PaymentTransaction` record with status "pending"
+7. Returns Paystack checkout URL and transaction details
+
+**Paystack Checkout Flow:**
+1. User is redirected to `authorization_url`
+2. User completes payment on Paystack (card, bank transfer, USSD, etc.)
+3. Paystack redirects back to your callback URL with reference
+4. Your frontend calls verification endpoint to confirm payment
+
+**Test Cards (Paystack Sandbox):**
+- Success: `4084084084084081`
+- Insufficient funds: `5061020000000000464`
+- Expired card: `4084080000000409`
+
+**Error Responses:**
+
+```json
+// 400 Bad Request - Invalid tier
+{
+  "detail": "Invalid tier: premium"
+}
+
+// 400 Bad Request - Invalid billing cycle
+{
+  "detail": "Invalid billing cycle: quarterly"
+}
+
+// 400 Bad Request - Enterprise not available via API
+{
+  "detail": "Enterprise pricing is custom. Please contact sales."
+}
+
+// 403 Forbidden - Already on paid plan
+{
+  "detail": "Cannot downgrade subscription via this endpoint"
+}
+
+// 502 Bad Gateway - Paystack API error
+{
+  "detail": "Payment gateway error: Invalid API key"
+}
+```
+
+---
+
+### 12.2 Verify Subscription Payment
+
+Verify payment status after user returns from Paystack checkout.
+
+**Page:** `/dashboard/upgrade/callback` or `/dashboard/billing`
+
+**Endpoint:** `POST /subscription/upgrade/verify`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Request:**
+```json
+{
+  "reference": "luran_sub_71ca7137_eb06291f"
+}
+```
+
+**Response (Success):**
+```json
+{
+  "status": "success",
+  "reference": "luran_sub_71ca7137_eb06291f",
+  "amount": 12000000,
+  "currency": "NGN",
+  "paid_at": "2026-01-27T14:30:00Z",
+  "channel": "card",
+  "customer_email": "admin@testcompany.com",
+  "subscription_code": "SUB_abc123xyz",
+  "metadata": {
+    "tenant_id": "71ca7137-8f94-4f11-8e81-2ac2d4126ed4",
+    "tier": "lite",
+    "billing_cycle": "annual",
+    "subscription_type": "recurring"
+  }
+}
+```
+
+**Response Fields:**
+- `status` - Payment status: `success`, `failed`, `pending`
+- `reference` - Transaction reference
+- `amount` - Amount paid in kobo
+- `currency` - Currency code (NGN)
+- `paid_at` - When payment was completed (ISO 8601)
+- `channel` - Payment channel: card, bank, ussd, qr, mobile_money
+- `customer_email` - Customer's email from Paystack
+- `subscription_code` - Paystack subscription code for recurring billing (important!)
+- `metadata` - Original transaction metadata
+
+**Response (Failed):**
+```json
+{
+  "status": "failed",
+  "reference": "luran_sub_71ca7137_eb06291f",
+  "amount": 12000000,
+  "currency": "NGN",
+  "metadata": {
+    "tenant_id": "71ca7137-8f94-4f11-8e81-2ac2d4126ed4",
+    "tier": "lite",
+    "billing_cycle": "annual"
+  }
+}
+```
+
+**Frontend Implementation:**
+
+```javascript
+// Step 3: Verify payment after Paystack redirect
+async function verifyPayment(reference) {
+  try {
+    const response = await fetch('/api/v1/subscription/upgrade/verify', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${tenantToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        reference: reference
+      })
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      if (data.status === 'success') {
+        // Payment successful
+        showSuccess(`Payment successful! Your subscription is now active.`);
+        showSubscriptionDetails(data);
+
+        // Redirect to dashboard after 3 seconds
+        setTimeout(() => {
+          window.location.href = '/dashboard';
+        }, 3000);
+      } else if (data.status === 'failed') {
+        // Payment failed
+        showError('Payment failed. Please try again.');
+      } else {
+        // Payment pending
+        showWarning('Payment is being processed. We will notify you when complete.');
+      }
+    } else {
+      console.error('Verification failed:', data.detail);
+      showError(data.detail);
+    }
+  } catch (error) {
+    console.error('Network error:', error);
+    showError('Failed to verify payment. Please contact support.');
+  }
+}
+
+// Extract reference from URL query parameter
+const urlParams = new URLSearchParams(window.location.search);
+const reference = urlParams.get('reference');
+
+if (reference) {
+  verifyPayment(reference);
+}
+```
+
+**Callback URL Setup:**
+
+Your callback URL should be set in the initialization request:
+```javascript
+// Set custom callback URL (optional)
+const response = await fetch('/api/v1/subscription/upgrade/initialize', {
+  method: 'POST',
+  headers: { /* ... */ },
+  body: JSON.stringify({
+    tier: 'lite',
+    billing_cycle: 'annual',
+    callback_url: 'https://yourdomain.com/dashboard/upgrade/callback'  // Optional
+  })
+});
+```
+
+Default callback: `{SERVER_HOST}/subscription/verify`
+
+**What Happens:**
+1. System queries Paystack API: `GET /transaction/verify/{reference}`
+2. Validates transaction status and amount
+3. Returns transaction details including subscription code
+4. **Note:** Webhook handles the actual subscription upgrade (not this endpoint)
+
+**Why Separate Verification?**
+- **Verification** (this endpoint) - Check payment status for UI feedback
+- **Webhook** (backend only) - Actually upgrades the tenant subscription
+
+This separation ensures:
+- UI can show immediate feedback
+- Backend processes upgrades reliably via webhook
+- No race conditions or duplicate upgrades
+
+**Error Responses:**
+
+```json
+// 404 Not Found - Transaction doesn't exist
+{
+  "detail": "Transaction verification failed: Transaction not found"
+}
+
+// 400 Bad Request - Invalid reference format
+{
+  "detail": "Invalid reference format"
+}
+
+// 502 Bad Gateway - Paystack API error
+{
+  "detail": "Payment verification error: Paystack API unavailable"
+}
+```
+
+---
+
+### 12.3 Direct Subscription Upgrade (Deprecated)
+
+**⚠️ DEPRECATED:** This endpoint is for testing/admin purposes only. Production upgrades should use the payment flow (12.1 + 12.2).
+
+**Endpoint:** `POST /subscription/upgrade`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Request:**
+```json
+{
+  "tier": "professional",
+  "billing_cycle": "monthly"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Subscription upgraded successfully",
+  "tier": "professional",
+  "status": "active",
+  "billing_cycle": "monthly"
+}
+```
+
+**What Happens:**
+1. Bypasses payment processing
+2. Directly upgrades tenant to specified tier
+3. Updates `subscription_tier`, `subscription_status`, `billing_cycle`
+4. Updates tenant capabilities based on tier configuration
+5. Clears trial period fields
+
+**Use Cases:**
+- Testing subscription features without payment
+- Admin manually upgrading accounts
+- Handling enterprise contracts
+
+**Production Warning:**
+- Does NOT create payment records
+- Does NOT charge customer
+- Does NOT set up recurring billing
+- Should be disabled in production or restricted to platform admins
+
+---
+
+### Summary
+
+**What You've Learned:**
+
+1. **Subscription System** - 4 tiers with automatic trial period
+2. **Payment Flow** - Initialize → Paystack checkout → Webhook → Verification
+3. **Enforcement** - HTTP 402 errors for expired trials and limits
+4. **Recurring Billing** - Automatic monthly/annual renewals via Paystack
+5. **Webhooks** - Backend automatically processes payment events
+6. **Frontend Implementation** - Complete upgrade page example
+
+**Key Endpoints:**
+- `POST /subscription/upgrade/initialize` - Start payment
+- `POST /subscription/upgrade/verify` - Confirm payment
+- `POST /webhooks/paystack` - Process payment events (backend)
+
+**Next Steps:**
+1. Build upgrade page using example code
+2. Test payment flow with Paystack test cards
+3. Implement subscription status banners
+4. Add limit usage displays (e.g., "Using 45/100 conversations")
+5. Create billing history page
+
+For complete details on subscription enforcement, webhooks, recurring billing, testing checklist, and troubleshooting, see the full documentation in `/docs/SUBSCRIPTION_PRICING_MODEL.md`.
+
+---
+
+## 13. Platform Admin Subscription Management
+
+**New Feature:** Complete platform admin tools for subscription management, manual overrides, trial extensions, and payment history. Added 2026-01-27.
+
+### Overview
+
+Platform admins can now:
+- **Manually upgrade/downgrade** any tenant (for enterprise deals, promotions)
+- **Extend trial periods** (for sales demos, support issues)
+- **View subscription history** (full audit trail with admin names)
+- **Filter tenants** by subscription status, tier, or trial expiration
+- **View payment history** (all transactions with filters)
+- **Track capability overrides** (manual limits that persist through upgrades)
+
+### 13.1 Get Public Pricing Plans (No Auth Required)
+
+**Endpoint:** `GET /subscription/plans`
+**Auth:** None (PUBLIC endpoint)
+**Use Cases:** Marketing website, signup flow, mobile app pricing display
+
+```typescript
+// Fetch pricing plans
+const response = await fetch('http://localhost:8000/api/v1/subscription/plans');
+const plans = await response.json();
+
+// Response
+[
+  {
+    "tier": "trial",
+    "display_name": "Trial",
+    "description": "Try out the platform with limited features",
+    "monthly_price_kobo": 0,
+    "annual_price_kobo": 0,
+    "monthly_price_naira": 0.0,
+    "annual_price_naira": 0.0,
+    "annual_savings_naira": 0.0,
+    "annual_discount_percentage": 0.0,
+    "capabilities": {
+      "can_access_analytics": false,
+      "max_knowledge_sources": 2,
+      "can_use_url_sources": false,
+      "max_knowledge_mb": 10,
+      "max_conversations_per_month": 100,
+      "max_team_members": 1,
+      "max_response_tokens": 800
+    },
+    "features": [
+      "2 knowledge sources",
+      "10MB storage",
+      "100 conversations/month",
+      "1 team member",
+      "Email support"
+    ],
+    "is_popular": false
+  },
+  {
+    "tier": "lite",
+    "display_name": "Lite",
+    "description": "Perfect for small businesses getting started",
+    "monthly_price_kobo": 500000,  // ₦5,000
+    "annual_price_kobo": 5400000,  // ₦54,000
+    "monthly_price_naira": 5000.0,
+    "annual_price_naira": 54000.0,
+    "annual_savings_naira": 6000.0,
+    "annual_discount_percentage": 10.0,
+    "capabilities": { /* ... */ },
+    "features": [ /* ... */ ],
+    "is_popular": false
+  },
+  {
+    "tier": "professional",
+    "display_name": "Professional",
+    "description": "Advanced features for growing teams",
+    "monthly_price_kobo": 1500000,  // ₦15,000
+    "annual_price_kobo": 16200000,  // ₦162,000
+    "monthly_price_naira": 15000.0,
+    "annual_price_naira": 162000.0,
+    "annual_savings_naira": 18000.0,
+    "annual_discount_percentage": 10.0,
+    "capabilities": { /* ... */ },
+    "features": [ /* ... */ ],
+    "is_popular": true  // Marked as recommended
+  },
+  {
+    "tier": "enterprise",
+    "display_name": "Enterprise",
+    "description": "Unlimited everything for large organizations",
+    "monthly_price_kobo": 5000000,  // ₦50,000
+    "annual_price_kobo": 54000000,  // ₦540,000
+    "monthly_price_naira": 50000.0,
+    "annual_price_naira": 540000.0,
+    "annual_savings_naira": 60000.0,
+    "annual_discount_percentage": 10.0,
+    "capabilities": {
+      "can_access_analytics": true,
+      "max_knowledge_sources": null,  // Unlimited
+      "can_use_url_sources": true,
+      "max_knowledge_mb": null,  // Unlimited
+      "max_conversations_per_month": null,  // Unlimited
+      "max_team_members": null,  // Unlimited
+      "max_response_tokens": 2000
+    },
+    "features": [
+      "Unlimited knowledge sources",
+      "Unlimited storage",
+      "Unlimited conversations",
+      "Unlimited team members",
+      "URL scraping",
+      "Analytics dashboard",
+      "Premium AI responses",
+      "24/7 priority support",
+      "Dedicated account manager",
+      "Custom integrations"
+    ],
+    "is_popular": false
+  }
+]
+```
+
+**Frontend Example - Pricing Page:**
+
+```typescript
+async function displayPricingPlans() {
+  try {
+    const response = await fetch('http://localhost:8000/api/v1/subscription/plans');
+    const plans = await response.json();
+
+    const pricingContainer = document.getElementById('pricing-plans');
+
+    plans.forEach(plan => {
+      const card = `
+        <div class="pricing-card ${plan.is_popular ? 'popular' : ''}">
+          <h3>${plan.display_name}</h3>
+          <p class="description">${plan.description}</p>
+
+          <div class="pricing">
+            <div class="monthly">
+              <span class="amount">₦${plan.monthly_price_naira.toLocaleString()}</span>
+              <span class="period">/month</span>
+            </div>
+            <div class="annual">
+              <span class="amount">₦${plan.annual_price_naira.toLocaleString()}</span>
+              <span class="period">/year</span>
+              ${plan.annual_discount_percentage > 0 ?
+                `<span class="savings">Save ${plan.annual_discount_percentage}%</span>` : ''}
+            </div>
+          </div>
+
+          <ul class="features">
+            ${plan.features.map(f => `<li>${f}</li>`).join('')}
+          </ul>
+
+          <button class="select-plan" data-tier="${plan.tier}">
+            ${plan.tier === 'trial' ? 'Start Free Trial' : 'Select Plan'}
+          </button>
+        </div>
+      `;
+      pricingContainer.innerHTML += card;
+    });
+  } catch (error) {
+    console.error('Failed to load pricing:', error);
+  }
+}
+```
+
+### 13.2 Manual Subscription Override
+
+**Endpoint:** `POST /platform/subscriptions/{tenant_id}/override`
+**Auth:** Platform Admin (Super Admin)
+**Use Cases:** Enterprise deals, promotional upgrades, VIP exceptions, support resolutions
+
+```typescript
+interface OverrideRequest {
+  tier: 'trial' | 'lite' | 'professional' | 'enterprise';
+  billing_cycle?: 'monthly' | 'annual';  // null for trial
+  reason: string;  // Required for audit trail (10-500 chars)
+  apply_tier_capabilities: boolean;  // Default: true
+}
+
+// Override subscription
+const response = await fetch(
+  'http://localhost:8000/api/v1/platform/subscriptions/tenant-uuid/override',
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer PLATFORM_ADMIN_TOKEN',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      tier: 'professional',
+      billing_cycle: 'monthly',
+      reason: 'Enterprise deal closed - promotional upgrade for 6 months',
+      apply_tier_capabilities: true  // Reset capabilities to tier defaults
+    })
+  }
+);
+
+// Response
+{
+  "success": true,
+  "message": "Successfully overridden subscription to professional",
+  "tenant_id": "tenant-uuid",
+  "previous_tier": "trial",
+  "new_tier": "professional",
+  "capabilities_applied": true
+}
+```
+
+**Important Notes:**
+- `apply_tier_capabilities: true` - Resets ALL capabilities to tier defaults (recommended)
+- `apply_tier_capabilities: false` - Preserves manual capability overrides
+- All overrides logged in subscription_history with admin name for audit trail
+- For trial tier, billing_cycle must be null
+
+**Admin Dashboard Example:**
+
+```typescript
+async function upgradeToEnterprise(tenantId: string) {
+  const reason = prompt('Enter reason for upgrade (required for audit):');
+  if (!reason || reason.length < 10) {
+    alert('Please provide a detailed reason (min 10 characters)');
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `http://localhost:8000/api/v1/platform/subscriptions/${tenantId}/override`,
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          tier: 'enterprise',
+          billing_cycle: 'annual',
+          reason: reason,
+          apply_tier_capabilities: true
+        })
+      }
+    );
+
+    const result = await response.json();
+
+    if (result.success) {
+      alert(`Tenant upgraded from ${result.previous_tier} to ${result.new_tier}`);
+      refreshTenantList();
+    }
+  } catch (error) {
+    alert('Override failed: ' + error.message);
+  }
+}
+```
+
+### 13.3 Extend Trial Period
+
+**Endpoint:** `POST /platform/subscriptions/{tenant_id}/trial/extend`
+**Auth:** Platform Admin (Super Admin)
+**Use Cases:** Sales demos, support issues, re-engagement campaigns
+
+```typescript
+interface TrialExtensionRequest {
+  days: number;  // 1-90 days
+  reason: string;  // Required for audit trail (10-500 chars)
+}
+
+// Extend trial by 14 days
+const response = await fetch(
+  'http://localhost:8000/api/v1/platform/subscriptions/tenant-uuid/trial/extend',
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer PLATFORM_ADMIN_TOKEN',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      days: 14,
+      reason: 'Sales demo needs more time for evaluation - enterprise deal in progress'
+    })
+  }
+);
+
+// Response
+{
+  "success": true,
+  "message": "Trial extended by 14 days",
+  "tenant_id": "tenant-uuid",
+  "previous_trial_end": "2026-01-28T10:00:00Z",
+  "new_trial_end": "2026-02-11T10:00:00Z",
+  "days_extended": 14
+}
+```
+
+**Important Notes:**
+- Only works for tenants on trial tier (HTTP 400 if paid subscription)
+- Can extend active trials or reactivate expired trials
+- If trial already expired, extends from current date
+- Maximum extension: 90 days
+- All extensions logged in subscription_history
+
+**Error Responses:**
+
+```typescript
+// HTTP 400 - Not a trial subscription
+{
+  "detail": "Can only extend trial tier subscriptions"
+}
+
+// HTTP 404 - Tenant not found
+{
+  "detail": "Tenant not found"
+}
+```
+
+### 13.4 Get Subscription Details
+
+**Endpoint:** `GET /platform/subscriptions/{tenant_id}`
+**Auth:** Platform Admin (Super Admin)
+**Returns:** Complete subscription info with history and payment stats
+
+```typescript
+const response = await fetch(
+  'http://localhost:8000/api/v1/platform/subscriptions/tenant-uuid',
+  {
+    headers: {
+      'Authorization': 'Bearer PLATFORM_ADMIN_TOKEN'
+    }
+  }
+);
+
+// Response
+{
+  "tenant_id": "tenant-uuid",
+  "tenant_name": "Acme Corp",
+
+  // Current subscription
+  "subscription_tier": "professional",
+  "subscription_status": "active",
+  "billing_cycle": "monthly",
+  "trial_ends_at": null,
+  "subscription_starts_at": "2026-01-15T10:00:00Z",
+
+  // Override tracking
+  "has_overrides": true,
+  "override_fields": ["max_conversations_per_month"],  // Fields with manual overrides
+
+  // History (last 10 changes)
+  "recent_changes": [
+    {
+      "id": "history-uuid",
+      "tenant_id": "tenant-uuid",
+      "action": "upgrade",
+      "previous_tier": "lite",
+      "new_tier": "professional",
+      "previous_status": "active",
+      "new_status": "active",
+      "changed_by_type": "webhook",
+      "changed_by_name": "Paystack Webhook",
+      "reason": "Payment successful for professional monthly",
+      "created_at": "2026-01-20T10:00:00Z"
+    },
+    {
+      "id": "history-uuid-2",
+      "tenant_id": "tenant-uuid",
+      "action": "override",
+      "previous_tier": "trial",
+      "new_tier": "lite",
+      "changed_by_type": "platform_admin",
+      "changed_by_name": "admin@luranai.com",
+      "reason": "Early adopter program - free Lite tier for 3 months",
+      "created_at": "2026-01-15T10:00:00Z"
+    }
+  ],
+
+  // Payment stats
+  "total_payments": 3,
+  "total_revenue_naira": 45000.0  // ₦45,000
+}
+```
+
+**Admin Dashboard Example:**
+
+```typescript
+async function viewSubscriptionDetails(tenantId: string) {
+  const response = await fetch(
+    `http://localhost:8000/api/v1/platform/subscriptions/${tenantId}`,
+    { headers: { 'Authorization': `Bearer ${adminToken}` } }
+  );
+
+  const details = await response.json();
+
+  // Display subscription info
+  document.getElementById('tenant-name').textContent = details.tenant_name;
+  document.getElementById('current-tier').textContent = details.subscription_tier;
+  document.getElementById('status').textContent = details.subscription_status;
+  document.getElementById('total-revenue').textContent =
+    `₦${details.total_revenue_naira.toLocaleString()}`;
+
+  // Show override warning
+  if (details.has_overrides) {
+    document.getElementById('override-warning').innerHTML = `
+      ⚠️ Manual overrides active on: ${details.override_fields.join(', ')}
+    `;
+  }
+
+  // Display history timeline
+  const timeline = details.recent_changes.map(change => `
+    <div class="timeline-item">
+      <span class="date">${new Date(change.created_at).toLocaleDateString()}</span>
+      <strong>${change.action}</strong>: ${change.previous_tier} → ${change.new_tier}
+      <div class="meta">By: ${change.changed_by_name} | ${change.reason}</div>
+    </div>
+  `).join('');
+
+  document.getElementById('history-timeline').innerHTML = timeline;
+}
+```
+
+### 13.5 List Payment Transactions
+
+**Endpoint:** `GET /platform/subscriptions/payments/all`
+**Auth:** Platform Admin (Super Admin)
+**Use Cases:** Financial reconciliation, failed payment review, revenue reporting
+
+**Query Parameters:**
+- `tenant_id` (optional): Filter by tenant UUID
+- `status` (optional): Filter by payment status (success, pending, failed)
+- `limit` (default: 100, max: 1000): Maximum results
+- `offset` (default: 0): Pagination offset
+
+```typescript
+// Get all successful payments
+const response = await fetch(
+  'http://localhost:8000/api/v1/platform/subscriptions/payments/all?status=success&limit=50',
+  {
+    headers: {
+      'Authorization': 'Bearer PLATFORM_ADMIN_TOKEN'
+    }
+  }
+);
+
+// Response
+[
+  {
+    "id": "payment-uuid",
+    "tenant_id": "tenant-uuid",
+    "tenant_name": "Acme Corp",
+    "reference": "luran_sub_abc12345",
+    "amount": 1500000,  // Kobo (₦15,000)
+    "currency": "NGN",
+    "status": "success",
+    "tier": "professional",
+    "billing_cycle": "monthly",
+    "customer_email": "billing@acmecorp.com",
+    "paid_at": "2026-01-20T10:30:00Z",
+    "created_at": "2026-01-20T10:25:00Z"
+  },
+  // ... more transactions
+]
+```
+
+**Admin Dashboard Example - Payment History:**
+
+```typescript
+async function loadPaymentHistory(filters = {}) {
+  const params = new URLSearchParams();
+  if (filters.tenantId) params.append('tenant_id', filters.tenantId);
+  if (filters.status) params.append('status', filters.status);
+  params.append('limit', '100');
+  params.append('offset', filters.offset || '0');
+
+  const response = await fetch(
+    `http://localhost:8000/api/v1/platform/subscriptions/payments/all?${params}`,
+    { headers: { 'Authorization': `Bearer ${adminToken}` } }
+  );
+
+  const transactions = await response.json();
+
+  const table = transactions.map(tx => `
+    <tr class="${tx.status === 'failed' ? 'failed' : ''}">
+      <td>${new Date(tx.paid_at || tx.created_at).toLocaleDateString()}</td>
+      <td>${tx.tenant_name}</td>
+      <td>${tx.tier}</td>
+      <td>₦${(tx.amount / 100).toLocaleString()}</td>
+      <td><span class="status-${tx.status}">${tx.status}</span></td>
+      <td>${tx.reference}</td>
+    </tr>
+  `).join('');
+
+  document.getElementById('payment-table').innerHTML = table;
+
+  // Calculate revenue
+  const totalRevenue = transactions
+    .filter(tx => tx.status === 'success')
+    .reduce((sum, tx) => sum + tx.amount, 0);
+
+  document.getElementById('total-revenue').textContent =
+    `₦${(totalRevenue / 100).toLocaleString()}`;
+}
+```
+
+### 13.6 Filter Tenants by Subscription
+
+**Endpoint:** `GET /platform/tenants` (Enhanced with subscription filters)
+**Auth:** Platform Admin (Super Admin)
+**Use Cases:** Trial conversion outreach, payment follow-up, enterprise customer lists
+
+**New Query Parameters:**
+- `subscription_status` (optional): trial, active, trial_expired, past_due, canceled
+- `subscription_tier` (optional): trial, lite, professional, enterprise
+- `trial_expiring_days` (optional): Find trials expiring within N days (0-90)
+- `limit` (default: 100, max: 1000): Maximum results
+- `offset` (default: 0): Pagination offset
+
+```typescript
+// Find all trial_expired tenants (for conversion outreach)
+const response = await fetch(
+  'http://localhost:8000/api/v1/platform/tenants?subscription_status=trial_expired&limit=50',
+  {
+    headers: {
+      'Authorization': 'Bearer PLATFORM_ADMIN_TOKEN'
+    }
+  }
+);
+
+// Find trials expiring in 7 days (for reminder emails)
+const expiringSoon = await fetch(
+  'http://localhost:8000/api/v1/platform/tenants?trial_expiring_days=7',
+  {
+    headers: {
+      'Authorization': 'Bearer PLATFORM_ADMIN_TOKEN'
+    }
+  }
+);
+
+// Find all enterprise customers
+const enterprise = await fetch(
+  'http://localhost:8000/api/v1/platform/tenants?subscription_tier=enterprise',
+  {
+    headers: {
+      'Authorization': 'Bearer PLATFORM_ADMIN_TOKEN'
+    }
+  }
+);
+```
+
+**Admin Dashboard Example - Tenant Filtering:**
+
+```typescript
+async function filterTenants() {
+  const status = document.getElementById('status-filter').value;
+  const tier = document.getElementById('tier-filter').value;
+  const expiringDays = document.getElementById('expiring-filter').value;
+
+  const params = new URLSearchParams();
+  if (status) params.append('subscription_status', status);
+  if (tier) params.append('subscription_tier', tier);
+  if (expiringDays) params.append('trial_expiring_days', expiringDays);
+  params.append('limit', '100');
+
+  const response = await fetch(
+    `http://localhost:8000/api/v1/platform/tenants?${params}`,
+    { headers: { 'Authorization': `Bearer ${adminToken}` } }
+  );
+
+  const tenants = await response.json();
+
+  // Display filtered tenants
+  const list = tenants.map(tenant => `
+    <div class="tenant-card">
+      <h3>${tenant.name}</h3>
+      <div class="subscription-info">
+        <span class="tier">${tenant.subscription_tier}</span>
+        <span class="status ${tenant.subscription_status}">
+          ${tenant.subscription_status}
+        </span>
+      </div>
+      ${tenant.trial_ends_at ? `
+        <div class="trial-info">
+          Trial ends: ${new Date(tenant.trial_ends_at).toLocaleDateString()}
+          ${getTrialDaysRemaining(tenant.trial_ends_at) <= 7 ?
+            '<span class="warning">⚠️ Expiring soon</span>' : ''}
+        </div>
+      ` : ''}
+      <div class="actions">
+        <button onclick="viewDetails('${tenant.id}')">View Details</button>
+        <button onclick="extendTrial('${tenant.id}')">Extend Trial</button>
+        <button onclick="upgradeToEnterprise('${tenant.id}')">Upgrade</button>
+      </div>
+    </div>
+  `).join('');
+
+  document.getElementById('tenant-list').innerHTML = list;
+}
+
+function getTrialDaysRemaining(trialEndsAt: string): number {
+  const now = new Date();
+  const end = new Date(trialEndsAt);
+  return Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+}
+```
+
+---
+
+**Platform Admin Subscription Management - Key Points:**
+
+1. **Public Pricing API** - No auth required, perfect for marketing websites
+2. **Manual Overrides** - Upgrade tenants without payment for special deals
+3. **Trial Extensions** - Extend or reactivate trials for sales/support
+4. **Complete History** - All changes logged with admin names for compliance
+5. **Payment Tracking** - View all transactions with filters and revenue stats
+6. **Smart Filtering** - Find tenants by subscription criteria for targeted outreach
+7. **Override Persistence** - Manual capability changes survive tier upgrades
+
+**Next Steps:**
+1. Build platform admin dashboard with subscription management UI
+2. Implement trial expiration notification system
+3. Create payment reconciliation reports
+4. Set up automated trial expiration emails
+5. Build tenant filtering for outreach campaigns
+
+For implementation details, see the plan documentation and service code in `/app/services/platform_subscription_service.py`.
+
+---
+
+## 14. User Flows with Diagrams
 
 ### Flow 1: Company Registration
 

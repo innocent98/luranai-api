@@ -79,13 +79,17 @@ class TenantService:
         )
         self.db.add(ai_config)
 
-        # Create default capabilities
+        # Create default capabilities (trial tier)
         capabilities = TenantCapabilities(
             tenant_id=db_tenant.id,
             can_create_tickets=True,
-            can_access_analytics=True,
+            can_access_analytics=False,  # No analytics in trial
             can_upload_knowledge=True,
-            max_knowledge_mb=100,
+            max_knowledge_mb=10,  # 10 MB for trial
+            max_conversations_per_month=100,  # 100 conversations/month for trial
+            max_knowledge_sources=2,  # Only 2 sources for trial
+            can_use_url_sources=False,  # Files only, no URLs in trial
+            max_team_members=1,  # Only 1 user (admin) for trial
         )
         self.db.add(capabilities)
 
@@ -96,6 +100,19 @@ class TenantService:
         response = TenantResponse.model_validate(db_tenant)
         response.api_key = api_key  # Add the plain API key to response
         return response
+
+    def get_tenant(self, tenant_id: UUID) -> Optional[Tenant]:
+        """
+        Get raw tenant model by ID.
+
+        Args:
+            tenant_id: Tenant UUID
+
+        Returns:
+            Tenant model if found, None otherwise
+        """
+        stmt = select(Tenant).where(Tenant.id == tenant_id)
+        return self.db.execute(stmt).scalar_one_or_none()
 
     def get_tenant_by_id(self, tenant_id: UUID, include_relations: bool = True) -> Optional[TenantResponse]:
         """

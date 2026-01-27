@@ -4,8 +4,9 @@ import hashlib
 from typing import Optional, Dict, Any
 from uuid import UUID, uuid4
 
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.exc import IntegrityError
 from loguru import logger
 
@@ -94,6 +95,9 @@ class KnowledgeService:
                     chunk_count=0,
                     meta=source_data.meta or {},
                     uploaded_by=source_data.uploaded_by,
+                    source_category=source_data.source_category,
+                    source_url=source_data.source_url,
+                    file_size_bytes=source_data.file_size_bytes,
                 )
                 self.db.add(db_source)
                 self.db.commit()
@@ -420,6 +424,90 @@ class KnowledgeService:
 
         return [KnowledgeSourceResponse.model_validate(s) for s in sources]
 
+    def check_knowledge_source_limit(
+        self,
+        tenant_id: UUID,
+        source_category: str = "file",
+    ) -> None:
+        """
+        Check if tenant can add another knowledge source.
+
+        Args:
+            tenant_id: Tenant UUID
+            source_category: "file" or "url"
+
+        Raises:
+            HTTPException 403: Limit reached
+        """
+        from app.services.tenant_service import TenantService
+
+        tenant_service = TenantService(self.db)
+        capabilities = tenant_service.get_capabilities(tenant_id)
+
+        if not capabilities:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Tenant capabilities not found"
+            )
+
+        # Check if uploads enabled
+        if not capabilities.can_upload_knowledge:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Knowledge uploads disabled for your subscription"
+            )
+
+        # Check URL source permission
+        if source_category == "url" and not capabilities.can_use_url_sources:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "url_sources_disabled",
+                    "message": "URL sources not enabled for trial tier. Upgrade to Lite for webpage scraping.",
+                    "upgrade_url": "/dashboard/upgrade",
+                }
+            )
+
+        # Count existing sources (files + URLs combined)
+        total_sources = self.db.query(KnowledgeSource).filter(
+            KnowledgeSource.tenant_id == tenant_id,
+            KnowledgeSource.status == SourceStatus.ACTIVE,
+        ).count()
+
+        # Check combined limit
+        if capabilities.max_knowledge_sources is not None:
+            if total_sources >= capabilities.max_knowledge_sources:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "knowledge_limit_reached",
+                        "message": f"Knowledge source limit reached ({total_sources}/{capabilities.max_knowledge_sources}).",
+                        "current_count": total_sources,
+                        "limit": capabilities.max_knowledge_sources,
+                        "upgrade_message": "Upgrade to Professional for 30 sources or Enterprise for unlimited.",
+                    }
+                )
+
+    def calculate_tenant_storage_mb(self, tenant_id: UUID) -> float:
+        """
+        Calculate total storage used by tenant in MB.
+
+        Includes ACTIVE and PROCESSING sources to prevent exceeding limits
+        while files are being processed.
+
+        Args:
+            tenant_id: Tenant UUID
+
+        Returns:
+            Storage in MB
+        """
+        total_bytes = self.db.query(func.sum(KnowledgeSource.file_size_bytes)).filter(
+            KnowledgeSource.tenant_id == tenant_id,
+            KnowledgeSource.status.in_([SourceStatus.ACTIVE, SourceStatus.PROCESSING]),
+        ).scalar() or 0
+
+        return total_bytes / 1024 / 1024  # Convert to MB
+
     def get_active_chunks_for_tenant(self, tenant_id: UUID) -> list[KnowledgeChunkResponse]:
         """
         Get all active chunks for a tenant (for RAG retrieval).
@@ -486,6 +574,9 @@ class KnowledgeService:
         source_type: SourceType = SourceType.HELP_DOC,
         document_metadata: Optional[Dict[str, Any]] = None,
         uploaded_by: Optional[UUID] = None,
+        source_category: str = "file",
+        source_url: Optional[str] = None,
+        file_size_bytes: Optional[int] = None,
     ) -> KnowledgeSourceResponse:
         """
         Create source and chunks WITHOUT embeddings.
@@ -530,6 +621,10 @@ class KnowledgeService:
                 source_type=source_type,
                 content_hash=content_hash,
                 meta=document_metadata or {},
+                uploaded_by=uploaded_by,
+                source_category=source_category,
+                source_url=source_url,
+                file_size_bytes=file_size_bytes,
             )
             source = self.create_source(source_data)
             logger.info(f"Created knowledge source: {source.id} (version {source.version})")
@@ -584,6 +679,9 @@ class KnowledgeService:
         source_type: SourceType = SourceType.HELP_DOC,
         document_metadata: Optional[Dict[str, Any]] = None,
         uploaded_by: Optional[UUID] = None,
+        source_category: str = "file",
+        source_url: Optional[str] = None,
+        file_size_bytes: Optional[int] = None,
     ) -> KnowledgeSourceResponse:
         """
         Process a document: chunk, embed, and store in PostgreSQL + Qdrant.
@@ -626,6 +724,10 @@ class KnowledgeService:
                 source_type=source_type,
                 content_hash=content_hash,
                 meta=document_metadata or {},
+                uploaded_by=uploaded_by,
+                source_category=source_category,
+                source_url=source_url,
+                file_size_bytes=file_size_bytes,
             )
             source = self.create_source(source_data)
             logger.info(f"Created knowledge source: {source.id} (version {source.version})")

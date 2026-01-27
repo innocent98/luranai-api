@@ -4,7 +4,8 @@ import enum
 import uuid
 from typing import Optional
 
-from sqlalchemy import Boolean, Float, Integer, JSON, String, Text, Enum as SQLEnum
+from datetime import datetime
+from sqlalchemy import Boolean, Float, Integer, JSON, String, Text, Enum as SQLEnum, DateTime
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import ForeignKey
 
@@ -100,6 +101,43 @@ class Tenant(Base, UUIDMixin, TimestampMixin):
         comment="Allow file uploads in widget chat",
     )
 
+    # Subscription & Trial Tracking
+    subscription_tier: Mapped[str] = mapped_column(
+        String(50),
+        default="trial",
+        nullable=False,
+        index=True,
+        comment="Subscription tier: trial, lite, professional, enterprise",
+    )
+    subscription_status: Mapped[str] = mapped_column(
+        String(50),
+        default="trialing",
+        nullable=False,
+        index=True,
+        comment="Status: trialing, active, past_due, canceled, trial_expired",
+    )
+    billing_cycle: Mapped[Optional[str]] = mapped_column(
+        String(20),
+        nullable=True,
+        comment="Billing cycle: monthly, annual (null for trial)",
+    )
+    trial_ends_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        comment="When 30-day trial expires (set on signup)",
+    )
+    subscription_starts_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When paid subscription started",
+    )
+    subscription_ends_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When subscription ends (canceled or expired)",
+    )
+
     # Relationships
     ai_config: Mapped[Optional["TenantAIConfig"]] = relationship(
         "TenantAIConfig",
@@ -115,6 +153,11 @@ class Tenant(Base, UUIDMixin, TimestampMixin):
     )
     processing_jobs: Mapped[list["ProcessingJob"]] = relationship(
         "ProcessingJob",
+        back_populates="tenant",
+        cascade="all, delete-orphan",
+    )
+    payment_transactions: Mapped[list["PaymentTransaction"]] = relationship(
+        "PaymentTransaction",
         back_populates="tenant",
         cascade="all, delete-orphan",
     )
@@ -254,6 +297,34 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
         Integer,
         nullable=True,
         comment="Monthly conversation limit (null = unlimited)",
+    )
+
+    # Combined Knowledge Sources (Files + URLs)
+    max_knowledge_sources: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Total knowledge sources: files + URLs combined (null = unlimited)",
+    )
+    can_use_url_sources: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Can scrape webpage URLs as knowledge sources",
+    )
+
+    # Team Member Limits
+    max_team_members: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Maximum team members allowed (null = unlimited)",
+    )
+
+    # Override Tracking
+    override_flags: Mapped[Optional[dict]] = mapped_column(
+        JSON,
+        nullable=True,
+        default=dict,
+        comment="Track manual capability overrides: {field_name: true} to persist through tier upgrades",
     )
 
     # Relationships

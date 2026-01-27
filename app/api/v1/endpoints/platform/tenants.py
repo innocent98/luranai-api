@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_super_admin, get_db
 from app.services.tenant_service import TenantService
+from app.services.platform_subscription_service import PlatformSubscriptionService
 from app.schemas.tenant import (
     TenantResponse,
     TenantListResponse,
@@ -22,26 +23,67 @@ router = APIRouter()
 
 @router.get("", response_model=list[TenantListResponse], status_code=status.HTTP_200_OK)
 def list_all_tenants(
-    status_filter: Optional[TenantStatus] = Query(None, description="Filter by status"),
+    status_filter: Optional[TenantStatus] = Query(None, description="Filter by tenant status (ACTIVE, INACTIVE, SUSPENDED)"),
+    subscription_status: Optional[str] = Query(None, description="Filter by subscription status (trial, active, trial_expired, etc.)"),
+    subscription_tier: Optional[str] = Query(None, description="Filter by subscription tier (trial, lite, professional, enterprise)"),
+    trial_expiring_days: Optional[int] = Query(None, ge=0, le=90, description="Find trials expiring within N days (0-90)"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum results"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
 ):
     """
-    List all tenants (platform admin only).
+    List all tenants with optional subscription filters (platform admin only).
 
-    This endpoint is for the platform admin dashboard to view all registered companies.
+    This endpoint is for the platform admin dashboard to view and filter tenants.
+
+    Filters:
+    - status_filter: Filter by tenant status (ACTIVE, INACTIVE, SUSPENDED)
+    - subscription_status: Filter by subscription status (trial, active, trial_expired, past_due, etc.)
+    - subscription_tier: Filter by subscription tier (trial, lite, professional, enterprise)
+    - trial_expiring_days: Find trials expiring within N days (useful for outreach campaigns)
+
+    Use cases:
+    - Find trial_expired tenants for conversion outreach
+    - List enterprise customers
+    - Identify trials expiring in 7 days for reminder emails
+    - Filter past_due subscriptions for payment follow-up
 
     Args:
-        status_filter: Optional status filter (ACTIVE, INACTIVE, SUSPENDED)
+        status_filter: Optional tenant status filter
+        subscription_status: Optional subscription status filter
+        subscription_tier: Optional subscription tier filter
+        trial_expiring_days: Optional trial expiration filter (days)
+        limit: Maximum results (1-1000)
+        offset: Pagination offset
         db: Database session
         current_admin: Current platform admin
 
     Returns:
-        List of all tenants in the system
+        List of tenants matching filter criteria
     """
-    tenant_service = TenantService(db)
-    tenants = tenant_service.get_all_tenants(status=status_filter)
-    return tenants
+    # If subscription filters provided, use subscription service
+    if subscription_status or subscription_tier or trial_expiring_days is not None:
+        subscription_service = PlatformSubscriptionService(db)
+        tenants = subscription_service.get_tenants_by_subscription(
+            subscription_status=subscription_status,
+            subscription_tier=subscription_tier,
+            trial_expiring_days=trial_expiring_days,
+            limit=limit,
+            offset=offset,
+        )
+
+        # Apply status filter if provided
+        if status_filter:
+            tenants = [t for t in tenants if t.status == status_filter]
+
+        # Convert to list response format
+        return [TenantListResponse.model_validate(t) for t in tenants]
+    else:
+        # Use existing tenant service for simple status filtering
+        tenant_service = TenantService(db)
+        tenants = tenant_service.get_all_tenants(status=status_filter)
+        return tenants
 
 
 @router.get("/{tenant_id}", response_model=TenantResponse, status_code=status.HTTP_200_OK)

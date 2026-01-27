@@ -53,9 +53,18 @@ class TenantCapabilitiesBase(BaseModel):
     can_create_tickets: bool = Field(default=True, description="Can escalate to support tickets")
     can_access_analytics: bool = Field(default=True, description="Can view analytics dashboard")
     can_upload_knowledge: bool = Field(default=True, description="Can upload knowledge documents")
-    max_knowledge_mb: int = Field(default=100, ge=0, description="Maximum knowledge storage in MB")
+    max_knowledge_mb: Optional[int] = Field(default=100, ge=0, description="Maximum knowledge storage in MB (null = unlimited)")
     max_conversations_per_month: Optional[int] = Field(
         None, ge=0, description="Monthly conversation limit (null = unlimited)"
+    )
+    max_knowledge_sources: Optional[int] = Field(
+        None, ge=0, description="Total knowledge sources (files+URLs)"
+    )
+    can_use_url_sources: bool = Field(
+        default=False, description="Can use URL sources"
+    )
+    max_team_members: Optional[int] = Field(
+        None, ge=0, description="Maximum team members"
     )
 
 
@@ -114,6 +123,9 @@ class TenantCapabilitiesUpdate(BaseModel):
     can_upload_knowledge: Optional[bool] = None
     max_knowledge_mb: Optional[int] = Field(None, ge=0)
     max_conversations_per_month: Optional[int] = Field(None, ge=0)
+    max_knowledge_sources: Optional[int] = Field(None, ge=0)
+    can_use_url_sources: Optional[bool] = None
+    max_team_members: Optional[int] = Field(None, ge=0)
 
 
 # Response schemas
@@ -146,6 +158,12 @@ class TenantResponse(TenantBase):
 
     id: UUID
     api_key: Optional[str] = Field(None, description="API key (only provided at creation)")
+    subscription_tier: str
+    subscription_status: str
+    billing_cycle: Optional[str] = None
+    trial_ends_at: Optional[datetime] = None
+    subscription_starts_at: Optional[datetime] = None
+    subscription_ends_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     ai_config: Optional[TenantAIConfigResponse] = None
@@ -158,5 +176,9 @@ class TenantListResponse(TenantBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    subscription_tier: str
+    subscription_status: str
+    billing_cycle: Optional[str] = None
+    trial_ends_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime

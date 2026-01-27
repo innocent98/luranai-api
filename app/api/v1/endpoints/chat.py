@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from loguru import logger
 
-from app.api.deps import get_current_tenant_admin, get_current_user, get_db, verify_tenant_access
+from app.api.deps import get_current_tenant_admin, get_current_user, get_db, verify_tenant_access, verify_subscription_active
 from app.services.conversation_service import ConversationService
 from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
@@ -207,6 +207,36 @@ async def send_message(
                 detail="tenant_id and user_identifier are required for new sessions"
             )
 
+        # Check conversation limit before creating new session
+        from datetime import datetime, timedelta
+        capabilities = tenant_service.get_capabilities(message_data.tenant_id)
+
+        if capabilities and capabilities.max_conversations_per_month is not None:
+            # Get start of current month
+            from datetime import timezone as tz
+            now = datetime.now(tz.utc)
+            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+            # Count conversations this month
+            from app.db.models.conversation import ConversationSession
+            monthly_count = db.query(ConversationSession).filter(
+                ConversationSession.tenant_id == message_data.tenant_id,
+                ConversationSession.created_at >= month_start,
+            ).count()
+
+            # Check limit
+            if monthly_count >= capabilities.max_conversations_per_month:
+                raise HTTPException(
+                    status_code=402,
+                    detail={
+                        "error": "conversation_limit_reached",
+                        "message": f"Monthly conversation limit of {capabilities.max_conversations_per_month} reached.",
+                        "current_count": monthly_count,
+                        "limit": capabilities.max_conversations_per_month,
+                        "resets_at": (month_start + timedelta(days=32)).replace(day=1).isoformat(),
+                    }
+                )
+
         # Convert to ConversationSessionCreate
         session_create = ConversationSessionCreate(
             tenant_id=message_data.tenant_id,
@@ -241,6 +271,42 @@ async def send_message(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tenant not found"
         )
+
+    # Check subscription status (trial expiration, etc.)
+    tenant_model = tenant_service.get_tenant(session.tenant_id)
+    if tenant_model:
+        from datetime import datetime
+
+        # Check trial expiration
+        if tenant_model.subscription_status == "trialing":
+            from datetime import timezone as tz
+            now = datetime.now(tz.utc)
+            if tenant_model.trial_ends_at and now > tenant_model.trial_ends_at:
+                # Auto-update status
+                tenant_model.subscription_status = "trial_expired"
+                db.commit()
+
+                raise HTTPException(
+                    status_code=402,  # Payment Required
+                    detail={
+                        "error": "trial_expired",
+                        "message": "Your 30-day trial has expired. Please upgrade to continue using Luran.",
+                        "trial_ended": tenant_model.trial_ends_at.isoformat(),
+                        "upgrade_url": "/dashboard/upgrade",
+                    }
+                )
+
+        # Check subscription status
+        if tenant_model.subscription_status in ["trial_expired", "canceled", "past_due"]:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "error": "subscription_inactive",
+                    "message": f"Subscription {tenant_model.subscription_status}. Please update payment.",
+                    "status": tenant_model.subscription_status,
+                    "upgrade_url": "/dashboard/billing",
+                }
+            )
 
     tenant_config = tenant_service.get_ai_config(session.tenant_id)
     if not tenant_config:

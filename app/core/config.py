@@ -58,6 +58,20 @@ class Settings(BaseSettings):
             )
         return v
 
+    @field_validator("PAYSTACK_SECRET_KEY")
+    @classmethod
+    def validate_paystack_secret_key(cls, v: str) -> str:
+        """Ensure PAYSTACK_SECRET_KEY is set."""
+        if not v or v.strip() == "":
+            raise ValueError(
+                "PAYSTACK_SECRET_KEY required. Get from: https://dashboard.paystack.com/#/settings/developers"
+            )
+        if not v.startswith("sk_"):
+            raise ValueError(
+                "PAYSTACK_SECRET_KEY must start with 'sk_' (secret key). Use sk_test_ for testing."
+            )
+        return v
+
     # Database
     DATABASE_URL: str
     DATABASE_POOL_SIZE: int = 20
@@ -102,6 +116,14 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: Optional[str] = None
     CLOUDINARY_API_SECRET: Optional[str] = None
     CLOUDINARY_FOLDER: str = "luran/widget_logos"
+
+    # Paystack Payment Gateway
+    PAYSTACK_SECRET_KEY: str
+    PAYSTACK_PUBLIC_KEY: Optional[str] = None
+    # DEPRECATED: Paystack uses PAYSTACK_SECRET_KEY for webhook verification
+    # See: https://paystack.com/docs/payments/webhooks/#verify-webhook-signature
+    PAYSTACK_WEBHOOK_SECRET: Optional[str] = None  # Not used - kept for backwards compatibility
+    PAYSTACK_BASE_URL: str = "https://api.paystack.co"
 
     # Backup Configuration (for database backups)
     ENABLE_CLOUD_BACKUP: bool = False

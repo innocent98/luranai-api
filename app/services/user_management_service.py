@@ -3,6 +3,7 @@
 from typing import Optional
 from uuid import UUID
 
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from loguru import logger
@@ -27,6 +28,41 @@ class UserManagementService:
     def __init__(self, db: Session):
         """Initialize user management service with database session."""
         self.db = db
+
+    def check_team_member_limit(self, tenant_id: UUID) -> None:
+        """
+        Check if tenant can add another team member.
+
+        Raises:
+            HTTPException 403: Team member limit reached
+        """
+        from app.services.tenant_service import TenantService
+
+        tenant_service = TenantService(self.db)
+        capabilities = tenant_service.get_capabilities(tenant_id)
+
+        if not capabilities:
+            return
+
+        # Count active users
+        active_count = self.db.query(User).filter(
+            User.tenant_id == tenant_id,
+            User.is_active == True,
+        ).count()
+
+        # Check limit
+        if capabilities.max_team_members is not None:
+            if active_count >= capabilities.max_team_members:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "team_member_limit_reached",
+                        "message": f"Team member limit reached ({active_count}/{capabilities.max_team_members}).",
+                        "current_count": active_count,
+                        "limit": capabilities.max_team_members,
+                        "upgrade_message": "Upgrade to Professional for 10 members or Enterprise for unlimited.",
+                    }
+                )
 
     def invite_user(
         self,
@@ -68,6 +104,9 @@ class UserManagementService:
         tenant = self.db.execute(stmt).scalar_one_or_none()
         if not tenant:
             raise ValueError("Tenant not found")
+
+        # Check team member limit
+        self.check_team_member_limit(tenant_id)
 
         try:
             # Generate temporary password

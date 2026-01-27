@@ -9,6 +9,7 @@ from app.api.v1.endpoints import (
     api_keys,
     widget,
     tenant,
+    subscription,
     knowledge,
     chat,
     tickets,
@@ -16,8 +17,10 @@ from app.api.v1.endpoints import (
     websocket,
     analytics,
     reviews,
+    webhooks,
 )
 from app.api.v1.endpoints.platform import tenants as platform_tenants
+from app.api.v1.endpoints.platform import subscriptions as platform_subscriptions
 
 api_router = APIRouter()
 
@@ -69,11 +72,25 @@ api_router.include_router(
     tags=["platform-tenants"],
 )
 
+# Platform admin subscription management endpoints
+api_router.include_router(
+    platform_subscriptions.router,
+    prefix="/platform/subscriptions",
+    tags=["platform-subscriptions"],
+)
+
 # Tenant self-management endpoints
 api_router.include_router(
     tenant.router,
     prefix="/tenant",
     tags=["tenant"],
+)
+
+# Subscription management endpoints
+api_router.include_router(
+    subscription.router,
+    prefix="/subscription",
+    tags=["subscription"],
 )
 
 # Knowledge management endpoints
@@ -90,6 +107,9 @@ api_router.include_router(analytics.router, prefix="/analytics", tags=["analytic
 
 # Review and rating endpoints
 api_router.include_router(reviews.router, prefix="/reviews", tags=["reviews"])
+
+# Webhook endpoints (Paystack, etc.)
+api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
 
 # Job management endpoints (background processing)
 api_router.include_router(jobs.router, tags=["jobs"])

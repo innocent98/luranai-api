@@ -1,0 +1,267 @@
+"""Subscription management endpoints."""
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_current_tenant_admin, get_db
+from app.schemas.user import UserResponse
+from app.schemas.subscription import (
+    SubscriptionUpgradeRequest,
+    SubscriptionUpgradeResponse,
+)
+from app.schemas.payment import (
+    PaymentInitializeRequest,
+    PaymentInitializeResponse,
+    PaymentVerificationRequest,
+    PaymentVerificationResponse,
+)
+from app.schemas.platform_subscription import PricingPlanResponse
+from app.services.subscription_service import SubscriptionService
+from app.services.paystack_service import PaystackService
+from app.services.webhook_handler_service import WebhookHandlerService
+from app.services.platform_subscription_service import PlatformSubscriptionService
+from app.core.config import settings
+
+router = APIRouter()
+
+
+@router.post("/upgrade/initialize", response_model=PaymentInitializeResponse)
+async def initialize_subscription_payment(
+    payment_request: PaymentInitializeRequest,
+    current_user: UserResponse = Depends(get_current_tenant_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Initialize payment for subscription upgrade.
+
+    Creates a Paystack transaction and returns payment URL.
+    User will be redirected to Paystack to complete payment.
+
+    After payment, webhook will handle subscription upgrade automatically.
+
+    Args:
+        payment_request: Payment initialization request with tier and billing cycle
+        current_user: Current authenticated tenant admin
+        db: Database session
+
+    Returns:
+        Payment initialization response with authorization URL
+
+    Raises:
+        HTTPException 400: Invalid tier or billing cycle
+        HTTPException 402: Trial expired or subscription inactive
+    """
+    # Validate tier and billing cycle
+    if payment_request.tier not in ["lite", "professional"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid tier. Choose 'lite' or 'professional'. For Enterprise, contact sales.",
+        )
+
+    if payment_request.billing_cycle not in ["monthly", "annual"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid billing cycle. Choose 'monthly' or 'annual'.",
+        )
+
+    # Initialize Paystack payment
+    paystack_service = PaystackService(db)
+    webhook_handler = WebhookHandlerService(db)
+
+    try:
+        # Initialize recurring subscription
+        payment_data = await paystack_service.initialize_subscription(
+            email=current_user.email,
+            tier=payment_request.tier,
+            billing_cycle=payment_request.billing_cycle,
+            tenant_id=str(current_user.tenant_id),
+            callback_url=f"{settings.SERVER_HOST}/subscription/verify",
+        )
+
+        # Create transaction record
+        webhook_handler.create_transaction(
+            tenant_id=current_user.tenant_id,
+            reference=payment_data["reference"],
+            amount=payment_data["amount"],
+            tier=payment_request.tier,
+            billing_cycle=payment_request.billing_cycle,
+            customer_email=current_user.email,
+        )
+
+        return PaymentInitializeResponse(
+            authorization_url=payment_data["authorization_url"],
+            access_code=payment_data["access_code"],
+            reference=payment_data["reference"],
+            amount=payment_data["amount"],
+            currency=payment_data["currency"],
+        )
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to initialize payment: {str(e)}",
+        )
+
+
+@router.post("/upgrade/verify", response_model=PaymentVerificationResponse)
+async def verify_subscription_payment(
+    verification_request: PaymentVerificationRequest,
+    current_user: UserResponse = Depends(get_current_tenant_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Verify payment and check subscription upgrade status.
+
+    This endpoint is called after user returns from Paystack payment page.
+    It verifies the payment status and returns the result.
+
+    Note: Subscription upgrade is handled by webhook automatically.
+    This endpoint just verifies payment status for UI feedback.
+
+    Args:
+        verification_request: Verification request with payment reference
+        current_user: Current authenticated tenant admin
+        db: Database session
+
+    Returns:
+        Payment verification response with status
+
+    Raises:
+        HTTPException 400: Invalid reference
+        HTTPException 404: Transaction not found
+    """
+    paystack_service = PaystackService(db)
+    webhook_handler = WebhookHandlerService(db)
+
+    try:
+        # Verify transaction with Paystack
+        verification_data = await paystack_service.verify_transaction(
+            verification_request.reference
+        )
+
+        # Get transaction record
+        transaction = webhook_handler.get_transaction_by_reference(
+            verification_request.reference
+        )
+
+        if not transaction:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Transaction not found",
+            )
+
+        # Verify tenant matches
+        if transaction.tenant_id != current_user.tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Unauthorized: Transaction belongs to different tenant",
+            )
+
+        return PaymentVerificationResponse(
+            status=verification_data["status"],
+            reference=verification_data["reference"],
+            amount=verification_data["amount"],
+            currency=verification_data["currency"],
+            paid_at=verification_data.get("paid_at"),
+            channel=verification_data.get("channel"),
+            customer_email=verification_data.get("customer_email"),
+            subscription_code=transaction.subscription_code,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to verify payment: {str(e)}",
+        )
+
+
+@router.post("/upgrade", response_model=SubscriptionUpgradeResponse)
+async def upgrade_subscription_direct(
+    upgrade_data: SubscriptionUpgradeRequest,
+    current_user: UserResponse = Depends(get_current_tenant_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Direct subscription upgrade (for testing/admin use only).
+
+    ⚠️ DEPRECATED: Use /upgrade/initialize for production.
+
+    This endpoint upgrades subscription without payment processing.
+    Should only be used for:
+    - Testing
+    - Admin manual upgrades
+    - Promotional free upgrades
+
+    Args:
+        upgrade_data: Upgrade request with tier and billing cycle
+        current_user: Current authenticated tenant admin
+        db: Database session
+
+    Returns:
+        Subscription upgrade response
+
+    Raises:
+        HTTPException 400: Invalid tier
+        HTTPException 404: Tenant not found
+    """
+    subscription_service = SubscriptionService(db)
+
+    try:
+        tenant = subscription_service.upgrade_subscription(
+            tenant_id=current_user.tenant_id,
+            tier=upgrade_data.tier,
+            billing_cycle=upgrade_data.billing_cycle,
+        )
+
+        return SubscriptionUpgradeResponse(
+            message="Subscription upgraded successfully (direct - no payment)",
+            tier=tenant.subscription_tier,
+            status=tenant.subscription_status,
+            billing_cycle=tenant.billing_cycle,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+
+@router.get("/plans", response_model=list[PricingPlanResponse], status_code=status.HTTP_200_OK)
+async def get_pricing_plans(
+    db: Session = Depends(get_db),
+):
+    """
+    Get public pricing information for all subscription tiers.
+
+    This endpoint is PUBLIC (no authentication required) and designed for:
+    - Marketing website pricing pages
+    - Signup flow tier selection
+    - Mobile app pricing display
+    - Customer self-service portals
+
+    Returns pricing in both kobo (Nigerian smallest currency unit) and Naira,
+    along with capabilities, features list, and savings calculations.
+
+    Args:
+        db: Database session
+
+    Returns:
+        List of all subscription tiers with pricing and features
+    """
+    service = PlatformSubscriptionService(db)
+
+    try:
+        plans = service.get_pricing_plans()
+        return plans
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get pricing plans: {str(e)}",
+        )

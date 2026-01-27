@@ -1,12 +1,13 @@
 """Company registration service for self-service signup."""
 
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from loguru import logger
 
 from app.core.security import get_password_hash
-from app.db.models.tenant import Tenant, TenantStatus
+from app.db.models.tenant import Tenant, TenantStatus, TenantAIConfig, TenantCapabilities
 from app.db.models.user import User, UserRole
 from app.schemas.auth import (
     CompanyRegistrationRequest,
@@ -66,6 +67,14 @@ class CompanyRegistrationService:
             # Generate temporary password
             temp_password = generate_temp_password()
 
+            # Calculate trial end date (30 days from now)
+            trial_ends_at = datetime.now(timezone.utc) + timedelta(days=30)
+
+            # Generate API key for tenant
+            import secrets
+            api_key = secrets.token_urlsafe(32)
+            api_key_hash = get_password_hash(api_key)
+
             # Create tenant
             display_name = (
                 registration_data.company_display_name
@@ -75,9 +84,38 @@ class CompanyRegistrationService:
                 name=tenant_name,
                 display_name=display_name,
                 status=TenantStatus.ACTIVE,  # Active immediately, but user needs to verify email
+                api_key_hash=api_key_hash,
+                subscription_tier="trial",
+                subscription_status="trialing",
+                trial_ends_at=trial_ends_at,
             )
             self.db.add(tenant)
             self.db.flush()  # Get tenant ID without committing
+
+            # Create default AI config
+            ai_config = TenantAIConfig(
+                tenant_id=tenant.id,
+                brand_voice={},
+                escalation_keywords=[],
+                confidence_threshold=0.55,
+                max_response_tokens=800,  # Trial tier default
+                grounding_requirement=True,
+            )
+            self.db.add(ai_config)
+
+            # Create trial tier capabilities
+            capabilities = TenantCapabilities(
+                tenant_id=tenant.id,
+                can_create_tickets=True,
+                can_access_analytics=False,  # No analytics in trial
+                can_upload_knowledge=True,
+                max_knowledge_mb=10,  # 10 MB for trial
+                max_conversations_per_month=100,  # 100 conversations/month for trial
+                max_knowledge_sources=2,  # Only 2 sources for trial
+                can_use_url_sources=False,  # Files only, no URLs in trial
+                max_team_members=1,  # Only 1 user (admin) for trial
+            )
+            self.db.add(capabilities)
 
             # Create admin user (inactive until email verified)
             admin_user = User(

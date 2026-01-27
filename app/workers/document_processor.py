@@ -88,6 +88,9 @@ async def process_document_ingestion(
         source_type = SourceType(input_data["source_type"])  # Convert string to enum
         document_metadata = input_data.get("metadata", {})
         uploaded_by = UUID(input_data["uploaded_by"]) if input_data.get("uploaded_by") else None
+        source_category = input_data.get("source_category", "file")
+        source_url = input_data.get("source_url")
+        file_size_bytes = input_data.get("file_size_bytes")
 
         # Initialize knowledge service
         knowledge_service = KnowledgeService(db)
@@ -102,6 +105,9 @@ async def process_document_ingestion(
             source_type=source_type,
             document_metadata=document_metadata,
             uploaded_by=uploaded_by,
+            source_category=source_category,
+            source_url=source_url,
+            file_size_bytes=file_size_bytes,
         )
 
         # Update job with total chunks

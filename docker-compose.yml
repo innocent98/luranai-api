@@ -6,6 +6,7 @@ services:
       - "8000:8000"
     volumes:
       - ./app:/app/app
+      - ./alembic:/app/alembic
     env_file:
       - .env
     depends_on:
@@ -34,6 +35,7 @@ services:
     command: python worker.py
     volumes:
       - ./app:/app/app
+      - ./alembic:/app/alembic
       - ./worker.py:/app/worker.py
     env_file:
       - .env

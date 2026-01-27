@@ -1,0 +1,527 @@
+"""Platform admin subscription management service."""
+
+from datetime import datetime, timezone, timedelta
+from uuid import UUID
+from typing import Optional
+from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_, func
+
+from app.db.models.tenant import Tenant, TenantCapabilities
+from app.db.models.subscription import SubscriptionHistory
+from app.db.models.payment import PaymentTransaction
+from app.schemas.platform_subscription import (
+    TenantSubscriptionDetailResponse,
+    SubscriptionHistoryResponse,
+    PricingPlanResponse,
+    PaymentTransactionResponse,
+    SubscriptionOverrideResponse,
+    TrialExtensionResponse,
+)
+from app.services.subscription_service import SubscriptionService
+
+
+class PlatformSubscriptionService:
+    """Platform admin operations for subscription management."""
+
+    # Pricing in kobo (Nigerian currency: 100 kobo = 1 Naira)
+    PRICING = {
+        "trial": {
+            "monthly": 0,
+            "annual": 0,
+        },
+        "lite": {
+            "monthly": 500000,  # ₦5,000/month
+            "annual": 5400000,  # ₦54,000/year (10% discount)
+        },
+        "professional": {
+            "monthly": 1500000,  # ₦15,000/month
+            "annual": 16200000,  # ₦162,000/year (10% discount)
+        },
+        "enterprise": {
+            "monthly": 5000000,  # ₦50,000/month
+            "annual": 54000000,  # ₦540,000/year (10% discount)
+        },
+    }
+
+    TIER_DISPLAY_NAMES = {
+        "trial": "Trial",
+        "lite": "Lite",
+        "professional": "Professional",
+        "enterprise": "Enterprise",
+    }
+
+    TIER_DESCRIPTIONS = {
+        "trial": "Try out the platform with limited features",
+        "lite": "Perfect for small businesses getting started",
+        "professional": "Advanced features for growing teams",
+        "enterprise": "Unlimited everything for large organizations",
+    }
+
+    TIER_FEATURES = {
+        "trial": [
+            "2 knowledge sources",
+            "10MB storage",
+            "100 conversations/month",
+            "1 team member",
+            "Email support",
+        ],
+        "lite": [
+            "10 knowledge sources",
+            "50MB storage",
+            "1,000 conversations/month",
+            "3 team members",
+            "URL scraping",
+            "Analytics dashboard",
+            "Priority email support",
+        ],
+        "professional": [
+            "30 knowledge sources",
+            "200MB storage",
+            "5,000 conversations/month",
+            "10 team members",
+            "URL scraping",
+            "Analytics dashboard",
+            "Advanced AI responses",
+            "Priority support",
+        ],
+        "enterprise": [
+            "Unlimited knowledge sources",
+            "Unlimited storage",
+            "Unlimited conversations",
+            "Unlimited team members",
+            "URL scraping",
+            "Analytics dashboard",
+            "Premium AI responses",
+            "24/7 priority support",
+            "Dedicated account manager",
+            "Custom integrations",
+        ],
+    }
+
+    def __init__(self, db: Session):
+        """Initialize platform subscription service."""
+        self.db = db
+        self.subscription_service = SubscriptionService(db)
+
+    def override_tenant_subscription(
+        self,
+        tenant_id: UUID,
+        tier: str,
+        billing_cycle: Optional[str],
+        reason: str,
+        admin_id: UUID,
+        admin_name: str,
+        apply_tier_capabilities: bool = True,
+    ) -> SubscriptionOverrideResponse:
+        """
+        Manually override a tenant's subscription (platform admin only).
+
+        Args:
+            tenant_id: Tenant UUID
+            tier: New tier to assign
+            billing_cycle: Billing cycle (null for trial)
+            reason: Reason for override (audit trail)
+            admin_id: Platform admin ID making the change
+            admin_name: Platform admin name
+            apply_tier_capabilities: Reset capabilities to tier defaults
+
+        Returns:
+            SubscriptionOverrideResponse
+
+        Raises:
+            ValueError: If tenant not found or invalid tier
+        """
+        tenant = self.db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if not tenant:
+            raise ValueError("Tenant not found")
+
+        if tier not in self.subscription_service.TIER_CONFIGS:
+            raise ValueError(f"Invalid tier: {tier}")
+
+        # Validate billing cycle
+        if tier != "trial" and not billing_cycle:
+            raise ValueError("Billing cycle required for paid tiers")
+        if tier == "trial":
+            billing_cycle = None
+
+        # Store previous state
+        previous_tier = tenant.subscription_tier
+        previous_status = tenant.subscription_status
+
+        # Update tenant subscription
+        tenant.subscription_tier = tier
+        tenant.subscription_status = "active" if tier != "trial" else "trial"
+        tenant.billing_cycle = billing_cycle
+
+        if tier != "trial":
+            tenant.subscription_starts_at = datetime.now(timezone.utc)
+            tenant.trial_ends_at = None
+        else:
+            # If moving back to trial, set trial end date
+            if not tenant.trial_ends_at or tenant.trial_ends_at < datetime.now(timezone.utc):
+                tenant.trial_ends_at = datetime.now(timezone.utc) + timedelta(days=14)
+
+        # Update capabilities
+        if apply_tier_capabilities:
+            self._update_capabilities_with_overrides(tenant_id, tier, respect_overrides=False)
+        else:
+            self._update_capabilities_with_overrides(tenant_id, tier, respect_overrides=True)
+
+        # Record history
+        history = SubscriptionHistory(
+            tenant_id=tenant_id,
+            action="override",
+            previous_tier=previous_tier,
+            new_tier=tier,
+            previous_status=previous_status,
+            new_status=tenant.subscription_status,
+            changed_by_type="platform_admin",
+            changed_by_id=admin_id,
+            changed_by_name=admin_name,
+            reason=reason,
+            event_metadata={
+                "billing_cycle": billing_cycle,
+                "capabilities_applied": apply_tier_capabilities,
+            },
+        )
+        self.db.add(history)
+
+        self.db.commit()
+
+        return SubscriptionOverrideResponse(
+            success=True,
+            message=f"Successfully overridden subscription to {tier}",
+            tenant_id=tenant_id,
+            previous_tier=previous_tier,
+            new_tier=tier,
+            capabilities_applied=apply_tier_capabilities,
+        )
+
+    def extend_trial(
+        self,
+        tenant_id: UUID,
+        days: int,
+        reason: str,
+        admin_id: UUID,
+        admin_name: str,
+    ) -> TrialExtensionResponse:
+        """
+        Extend trial period for a tenant.
+
+        Args:
+            tenant_id: Tenant UUID
+            days: Number of days to extend
+            reason: Reason for extension (audit trail)
+            admin_id: Platform admin ID making the change
+            admin_name: Platform admin name
+
+        Returns:
+            TrialExtensionResponse
+
+        Raises:
+            ValueError: If tenant not found or not on trial tier
+        """
+        tenant = self.db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if not tenant:
+            raise ValueError("Tenant not found")
+
+        if tenant.subscription_tier != "trial":
+            raise ValueError("Can only extend trial tier subscriptions")
+
+        # Calculate new trial end date
+        if not tenant.trial_ends_at:
+            # If no trial end date, start from now
+            previous_end = datetime.now(timezone.utc)
+        else:
+            previous_end = tenant.trial_ends_at
+
+        # If trial already expired, extend from now
+        if previous_end < datetime.now(timezone.utc):
+            new_end = datetime.now(timezone.utc) + timedelta(days=days)
+            # Reactivate if expired
+            if tenant.subscription_status == "trial_expired":
+                tenant.subscription_status = "trial"
+        else:
+            # Extend from current end date
+            new_end = previous_end + timedelta(days=days)
+
+        tenant.trial_ends_at = new_end
+
+        # Record history
+        history = SubscriptionHistory(
+            tenant_id=tenant_id,
+            action="extend_trial",
+            previous_tier="trial",
+            new_tier="trial",
+            previous_status=tenant.subscription_status,
+            new_status="trial",
+            changed_by_type="platform_admin",
+            changed_by_id=admin_id,
+            changed_by_name=admin_name,
+            reason=reason,
+            event_metadata={
+                "days_extended": days,
+                "previous_end": previous_end.isoformat(),
+                "new_end": new_end.isoformat(),
+            },
+        )
+        self.db.add(history)
+
+        self.db.commit()
+
+        return TrialExtensionResponse(
+            success=True,
+            message=f"Trial extended by {days} days",
+            tenant_id=tenant_id,
+            previous_trial_end=previous_end,
+            new_trial_end=new_end,
+            days_extended=days,
+        )
+
+    def get_subscription_details(
+        self,
+        tenant_id: UUID,
+    ) -> TenantSubscriptionDetailResponse:
+        """
+        Get complete subscription details for a tenant (platform admin view).
+
+        Args:
+            tenant_id: Tenant UUID
+
+        Returns:
+            TenantSubscriptionDetailResponse with full details
+
+        Raises:
+            ValueError: If tenant not found
+        """
+        tenant = self.db.query(Tenant).filter(Tenant.id == tenant_id).first()
+        if not tenant:
+            raise ValueError("Tenant not found")
+
+        # Get capabilities and override flags
+        capabilities = self.db.query(TenantCapabilities).filter(
+            TenantCapabilities.tenant_id == tenant_id
+        ).first()
+
+        override_flags = capabilities.override_flags if capabilities else {}
+        has_overrides = bool(override_flags)
+        override_fields = list(override_flags.keys()) if override_flags else []
+
+        # Get recent history (last 10 changes)
+        history = self.db.query(SubscriptionHistory).filter(
+            SubscriptionHistory.tenant_id == tenant_id
+        ).order_by(SubscriptionHistory.created_at.desc()).limit(10).all()
+
+        history_responses = [
+            SubscriptionHistoryResponse.model_validate(h) for h in history
+        ]
+
+        # Get payment stats
+        payment_stats = self.db.query(
+            func.count(PaymentTransaction.id).label("total_payments"),
+            func.coalesce(func.sum(PaymentTransaction.amount), 0).label("total_revenue_kobo"),
+        ).filter(
+            and_(
+                PaymentTransaction.tenant_id == tenant_id,
+                PaymentTransaction.status == "success",
+            )
+        ).first()
+
+        total_payments = payment_stats.total_payments if payment_stats else 0
+        total_revenue_kobo = payment_stats.total_revenue_kobo if payment_stats else 0
+        total_revenue_naira = total_revenue_kobo / 100
+
+        return TenantSubscriptionDetailResponse(
+            tenant_id=tenant.id,
+            tenant_name=tenant.name,
+            subscription_tier=tenant.subscription_tier,
+            subscription_status=tenant.subscription_status,
+            billing_cycle=tenant.billing_cycle,
+            trial_ends_at=tenant.trial_ends_at,
+            subscription_starts_at=tenant.subscription_starts_at,
+            has_overrides=has_overrides,
+            override_fields=override_fields,
+            recent_changes=history_responses,
+            total_payments=total_payments,
+            total_revenue_naira=total_revenue_naira,
+        )
+
+    def get_tenants_by_subscription(
+        self,
+        subscription_status: Optional[str] = None,
+        subscription_tier: Optional[str] = None,
+        trial_expiring_days: Optional[int] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Tenant]:
+        """
+        Filter tenants by subscription criteria.
+
+        Args:
+            subscription_status: Filter by status (trial, active, trial_expired, etc.)
+            subscription_tier: Filter by tier (trial, lite, professional, enterprise)
+            trial_expiring_days: Find trials expiring within N days
+            limit: Maximum results
+            offset: Pagination offset
+
+        Returns:
+            List of tenants matching criteria
+        """
+        query = self.db.query(Tenant)
+
+        if subscription_status:
+            query = query.filter(Tenant.subscription_status == subscription_status)
+
+        if subscription_tier:
+            query = query.filter(Tenant.subscription_tier == subscription_tier)
+
+        if trial_expiring_days is not None:
+            # Find trials expiring within N days
+            now = datetime.now(timezone.utc)
+            expiry_threshold = now + timedelta(days=trial_expiring_days)
+            query = query.filter(
+                and_(
+                    Tenant.subscription_tier == "trial",
+                    Tenant.trial_ends_at.isnot(None),
+                    Tenant.trial_ends_at <= expiry_threshold,
+                    Tenant.trial_ends_at > now,  # Not already expired
+                )
+            )
+
+        query = query.limit(limit).offset(offset)
+        return query.all()
+
+    def get_payment_transactions(
+        self,
+        tenant_id: Optional[UUID] = None,
+        status: Optional[str] = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[PaymentTransactionResponse]:
+        """
+        Get payment transactions with filters (platform admin view).
+
+        Args:
+            tenant_id: Filter by tenant
+            status: Filter by payment status
+            limit: Maximum results
+            offset: Pagination offset
+
+        Returns:
+            List of payment transactions with tenant names
+        """
+        query = self.db.query(
+            PaymentTransaction,
+            Tenant.name.label("tenant_name")
+        ).join(
+            Tenant,
+            PaymentTransaction.tenant_id == Tenant.id
+        )
+
+        if tenant_id:
+            query = query.filter(PaymentTransaction.tenant_id == tenant_id)
+
+        if status:
+            query = query.filter(PaymentTransaction.status == status)
+
+        query = query.order_by(PaymentTransaction.created_at.desc())
+        query = query.limit(limit).offset(offset)
+
+        results = query.all()
+
+        return [
+            PaymentTransactionResponse(
+                id=payment.id,
+                tenant_id=payment.tenant_id,
+                tenant_name=tenant_name,
+                reference=payment.reference,
+                amount=payment.amount,
+                currency=payment.currency,
+                status=payment.status,
+                tier=payment.tier,
+                billing_cycle=payment.billing_cycle,
+                customer_email=payment.customer_email,
+                paid_at=payment.paid_at,
+                created_at=payment.created_at,
+            )
+            for payment, tenant_name in results
+        ]
+
+    def get_pricing_plans(self) -> list[PricingPlanResponse]:
+        """
+        Get public pricing information for all tiers.
+
+        Returns:
+            List of pricing plans with capabilities and features
+        """
+        plans = []
+
+        for tier, config in self.subscription_service.TIER_CONFIGS.items():
+            monthly_kobo = self.PRICING[tier]["monthly"]
+            annual_kobo = self.PRICING[tier]["annual"]
+
+            monthly_naira = monthly_kobo / 100
+            annual_naira = annual_kobo / 100
+
+            # Calculate savings
+            annual_equivalent = monthly_naira * 12
+            annual_savings = annual_equivalent - annual_naira
+            annual_discount_pct = (
+                (annual_savings / annual_equivalent * 100) if annual_equivalent > 0 else 0
+            )
+
+            plan = PricingPlanResponse(
+                tier=tier,
+                display_name=self.TIER_DISPLAY_NAMES[tier],
+                description=self.TIER_DESCRIPTIONS[tier],
+                monthly_price_kobo=monthly_kobo,
+                annual_price_kobo=annual_kobo,
+                monthly_price_naira=monthly_naira,
+                annual_price_naira=annual_naira,
+                annual_savings_naira=annual_savings,
+                annual_discount_percentage=round(annual_discount_pct, 1),
+                capabilities=config,
+                features=self.TIER_FEATURES[tier],
+                is_popular=(tier == "professional"),  # Mark professional as popular
+            )
+            plans.append(plan)
+
+        return plans
+
+    def _update_capabilities_with_overrides(
+        self,
+        tenant_id: UUID,
+        tier: str,
+        respect_overrides: bool = True,
+    ):
+        """
+        Update tenant capabilities based on tier, respecting manual overrides.
+
+        Args:
+            tenant_id: Tenant UUID
+            tier: New tier
+            respect_overrides: If True, preserve fields in override_flags
+        """
+        config = self.subscription_service.TIER_CONFIGS.get(tier)
+        if not config:
+            raise ValueError(f"Invalid tier: {tier}")
+
+        capabilities = self.db.query(TenantCapabilities).filter(
+            TenantCapabilities.tenant_id == tenant_id
+        ).first()
+
+        if not capabilities:
+            raise ValueError("Capabilities not found")
+
+        # Get override flags (fields that should NOT be reset)
+        override_flags = capabilities.override_flags or {} if respect_overrides else {}
+
+        # Update capability fields
+        for key, value in config.items():
+            if hasattr(capabilities, key):
+                # Skip if manually overridden and respect_overrides is True
+                if key not in override_flags:
+                    setattr(capabilities, key, value)
+                # else: keep current value (override persists)
+
+        self.db.commit()

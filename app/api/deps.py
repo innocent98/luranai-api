@@ -1,5 +1,6 @@
 from typing import Generator, Optional, Literal
 from uuid import UUID
+from datetime import datetime, timedelta
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -15,6 +16,7 @@ from app.schemas.user import TokenData, UserResponse
 from app.schemas.platform_admin import PlatformAdminResponse
 from app.db.models.user import UserRole
 from app.db.models.platform_admin import PlatformAdminRole
+from app.db.models.tenant import Tenant
 
 security = HTTPBearer()
 
@@ -89,6 +91,114 @@ async def get_current_tenant_admin(
             detail="Not enough permissions. Tenant admin access required.",
         )
     return current_user
+
+
+async def verify_subscription_active(
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Tenant:
+    """
+    Verify tenant has active subscription.
+
+    Checks:
+    - Trial hasn't expired
+    - Subscription is active (not canceled/past_due)
+
+    Raises:
+        HTTPException 402: Trial expired or subscription inactive
+    """
+    from app.services.tenant_service import TenantService
+
+    tenant_service = TenantService(db)
+    tenant = tenant_service.get_tenant(current_user.tenant_id)
+
+    if not tenant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant not found"
+        )
+
+    # Check trial expiration
+    if tenant.subscription_status == "trialing":
+        from datetime import timezone as tz
+        now = datetime.now(tz.utc)
+        if tenant.trial_ends_at and now > tenant.trial_ends_at:
+            # Auto-update status
+            tenant.subscription_status = "trial_expired"
+            db.commit()
+
+            raise HTTPException(
+                status_code=402,  # Payment Required
+                detail={
+                    "error": "trial_expired",
+                    "message": "Your 30-day trial has expired. Please upgrade to continue using Luran.",
+                    "trial_ended": tenant.trial_ends_at.isoformat(),
+                    "upgrade_url": "/dashboard/upgrade",
+                    "subscription_tier": tenant.subscription_tier,
+                }
+            )
+
+    # Check subscription status
+    if tenant.subscription_status in ["trial_expired", "canceled", "past_due"]:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "error": "subscription_inactive",
+                "message": f"Subscription {tenant.subscription_status}. Please update payment.",
+                "status": tenant.subscription_status,
+                "upgrade_url": "/dashboard/billing",
+            }
+        )
+
+    return tenant
+
+
+async def verify_conversation_limit(
+    current_user: UserResponse = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    """
+    Check if tenant has reached monthly conversation limit.
+
+    Raises:
+        HTTPException 402: Monthly limit reached
+    """
+    from app.services.tenant_service import TenantService
+    from app.db.models.conversation import ConversationSession
+
+    tenant_service = TenantService(db)
+    capabilities = tenant_service.get_capabilities(current_user.tenant_id)
+
+    if not capabilities:
+        return
+
+    # Skip if unlimited
+    if capabilities.max_conversations_per_month is None:
+        return
+
+    # Get start of current month
+    from datetime import timezone as tz
+    now = datetime.now(tz.utc)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    # Count conversations this month
+    monthly_count = db.query(ConversationSession).filter(
+        ConversationSession.tenant_id == current_user.tenant_id,
+        ConversationSession.created_at >= month_start,
+    ).count()
+
+    # Check limit
+    if monthly_count >= capabilities.max_conversations_per_month:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "error": "conversation_limit_reached",
+                "message": f"Monthly conversation limit of {capabilities.max_conversations_per_month} reached.",
+                "current_count": monthly_count,
+                "limit": capabilities.max_conversations_per_month,
+                "resets_at": (month_start + timedelta(days=32)).replace(day=1).isoformat(),
+            }
+        )
 
 
 async def get_current_user_or_platform_admin(

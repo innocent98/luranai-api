@@ -37,6 +37,9 @@ class KnowledgeSourceCreate(KnowledgeSourceBase):
     file_url: Optional[str] = Field(None, max_length=1000, description="Storage location URL")
     content_hash: str = Field(..., min_length=32, max_length=64, description="Content hash")
     uploaded_by: Optional[UUID] = Field(None, description="User who uploaded this source")
+    source_category: str = Field(default="file", description="Source category: file, url")
+    source_url: Optional[str] = Field(None, max_length=2048, description="Original URL")
+    file_size_bytes: Optional[int] = Field(None, ge=0, description="File size in bytes")
 
 
 class DocumentUploadRequest(BaseModel):
@@ -109,6 +112,9 @@ class KnowledgeSourceResponse(KnowledgeSourceBase):
     status: SourceStatus
     chunk_count: int
     uploaded_by: Optional[UUID]
+    source_category: str
+    source_url: Optional[str]
+    file_size_bytes: Optional[int]
     created_at: datetime
     updated_at: datetime
 
