@@ -1,0 +1,86 @@
+"""
+Pricing API Schemas
+
+Schemas for platform admin pricing management endpoints.
+"""
+
+from typing import Optional
+from pydantic import BaseModel, Field
+
+
+class PricingPlanCapabilitiesUpdate(BaseModel):
+    """Capabilities update for subscription plan."""
+    can_access_analytics: Optional[bool] = None
+    max_knowledge_sources: Optional[int] = None
+    can_use_url_sources: Optional[bool] = None
+    max_knowledge_mb: Optional[int] = None
+    max_conversations_per_month: Optional[int] = None
+    max_team_members: Optional[int] = None
+    max_response_tokens: Optional[int] = None
+
+
+class PricingPlanUpdateRequest(BaseModel):
+    """Request to update subscription plan pricing and capabilities."""
+    monthly_price_kobo: Optional[int] = Field(None, description="Monthly price in kobo", ge=0)
+    annual_price_kobo: Optional[int] = Field(None, description="Annual price in kobo", ge=0)
+    display_name: Optional[str] = Field(None, description="Display name", min_length=1, max_length=100)
+    description: Optional[str] = Field(None, description="Plan description", min_length=1, max_length=500)
+    capabilities: Optional[PricingPlanCapabilitiesUpdate] = Field(None, description="Capability updates")
+    features: Optional[list[str]] = Field(None, description="List of feature descriptions")
+    is_active: Optional[bool] = Field(None, description="Whether plan is active")
+    sort_order: Optional[int] = Field(None, description="Display order")
+    reason: str = Field(..., description="Reason for pricing change (audit trail)", min_length=1)
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "monthly_price_kobo": 1500000,
+                "annual_price_kobo": 15000000,
+                "capabilities": {
+                    "max_knowledge_sources": 15,
+                    "max_conversations_per_month": 1500,
+                },
+                "features": [
+                    "15 knowledge sources",
+                    "50MB storage",
+                    "1,500 conversations/month",
+                ],
+                "description": "Updated plan for small businesses",
+                "reason": "Market adjustment based on competitor analysis",
+            }
+        }
+
+
+class PricingPlanCapabilitiesResponse(BaseModel):
+    """Capabilities for pricing plan response."""
+    can_access_analytics: bool
+    max_knowledge_sources: Optional[int]
+    can_use_url_sources: bool
+    max_knowledge_mb: Optional[int]
+    max_conversations_per_month: Optional[int]
+    max_team_members: Optional[int]
+    max_response_tokens: int
+
+
+class PricingPlanResponse(BaseModel):
+    """Response model for subscription plan."""
+    tier: str
+    display_name: str
+    description: str
+    monthly_price_kobo: int
+    annual_price_kobo: int
+    monthly_price_naira: float
+    annual_price_naira: float
+    capabilities: PricingPlanCapabilitiesResponse
+    features: list[str]
+    is_active: bool
+    sort_order: int
+
+    class Config:
+        from_attributes = True
+
+
+class PricingPlanListResponse(BaseModel):
+    """Response for listing all pricing plans."""
+    plans: list[PricingPlanResponse]
+    total: int

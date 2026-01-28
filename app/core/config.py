@@ -1,5 +1,5 @@
 from typing import List, Optional
-from pydantic import AnyHttpUrl, field_validator, EmailStr
+from pydantic import AnyHttpUrl, field_validator, EmailStr, ConfigDict
 from pydantic_settings import BaseSettings
 
 
@@ -142,9 +142,11 @@ class Settings(BaseSettings):
     # Security Headers
     ENABLE_HSTS: bool = False
 
-    class Config:
-        case_sensitive = True
-        env_file = ".env"
+    model_config = ConfigDict(
+        case_sensitive=True,
+        env_file=".env",
+        extra="ignore"  # Ignore extra fields in .env (like POSTGRES_*, PGADMIN_*)
+    )
 
 
 settings = Settings()

@@ -1,0 +1,476 @@
+"""Financial reporting and forecasting service for platform admins."""
+
+from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional
+from decimal import Decimal
+
+from loguru import logger
+from sqlalchemy import select, func, and_, or_, case
+from sqlalchemy.orm import Session
+
+from app.db.models.tenant import Tenant
+from app.db.models.payment import PaymentTransaction
+from app.db.models.subscription import SubscriptionHistory
+
+
+class FinancialReportingService:
+    """Service for financial analytics and forecasting."""
+
+    def __init__(self, db: Session):
+        """
+        Initialize financial reporting service.
+
+        Args:
+            db: Database session
+        """
+        self.db = db
+
+        # Pricing tiers (in Naira)
+        self.pricing = {
+            "lite": {"monthly": 12000, "annual": 120000},
+            "professional": {"monthly": 35000, "annual": 350000},
+            "enterprise": {"monthly": 0, "annual": 0},  # Contact pricing
+        }
+
+    def get_revenue_breakdown(
+        self,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """
+        Get detailed revenue breakdown by tier, billing cycle, and time period.
+
+        Args:
+            start_date: Start date for analysis (defaults to 30 days ago)
+            end_date: End date for analysis (defaults to now)
+
+        Returns:
+            Dict with revenue breakdown and analysis
+        """
+        try:
+            if not end_date:
+                end_date = datetime.utcnow()
+            if not start_date:
+                start_date = end_date - timedelta(days=30)
+
+            # Get successful payments in period
+            payments_query = select(PaymentTransaction).where(
+                and_(
+                    PaymentTransaction.status == "success",
+                    PaymentTransaction.created_at >= start_date,
+                    PaymentTransaction.created_at <= end_date,
+                )
+            )
+
+            result = self.db.execute(payments_query)
+            payments = result.scalars().all()
+
+            # Calculate total revenue
+            total_revenue = sum(payment.amount for payment in payments)
+
+            # Revenue by tier (from tenant info at payment time)
+            revenue_by_tier = {}
+            payment_counts_by_tier = {}
+
+            for payment in payments:
+                # Get tenant info
+                tenant_query = select(Tenant).where(Tenant.id == payment.tenant_id)
+                tenant_result = self.db.execute(tenant_query)
+                tenant = tenant_result.scalars().first()
+
+                if tenant:
+                    tier = tenant.subscription_tier.lower()
+                    if tier not in revenue_by_tier:
+                        revenue_by_tier[tier] = 0
+                        payment_counts_by_tier[tier] = 0
+
+                    revenue_by_tier[tier] += payment.amount
+                    payment_counts_by_tier[tier] += 1
+
+            # Revenue by billing cycle
+            revenue_by_cycle = {}
+            payment_counts_by_cycle = {}
+
+            for payment in payments:
+                tenant_query = select(Tenant).where(Tenant.id == payment.tenant_id)
+                tenant_result = self.db.execute(tenant_query)
+                tenant = tenant_result.scalars().first()
+
+                if tenant and tenant.billing_cycle:
+                    cycle = tenant.billing_cycle
+                    if cycle not in revenue_by_cycle:
+                        revenue_by_cycle[cycle] = 0
+                        payment_counts_by_cycle[cycle] = 0
+
+                    revenue_by_cycle[cycle] += payment.amount
+                    payment_counts_by_cycle[cycle] += 1
+
+            # Average revenue per payment
+            avg_revenue = total_revenue / len(payments) if payments else 0
+
+            # Daily revenue breakdown
+            daily_revenue = {}
+            current_date = start_date.date()
+            end = end_date.date()
+
+            while current_date <= end:
+                daily_revenue[current_date.isoformat()] = 0
+                current_date += timedelta(days=1)
+
+            for payment in payments:
+                date_key = payment.created_at.date().isoformat()
+                if date_key in daily_revenue:
+                    daily_revenue[date_key] += payment.amount
+
+            return {
+                "period": {
+                    "start": start_date.isoformat(),
+                    "end": end_date.isoformat(),
+                    "days": (end_date - start_date).days,
+                },
+                "total_revenue": float(total_revenue),
+                "total_payments": len(payments),
+                "average_revenue_per_payment": float(avg_revenue),
+                "revenue_by_tier": {k: float(v) for k, v in revenue_by_tier.items()},
+                "payment_counts_by_tier": payment_counts_by_tier,
+                "revenue_by_billing_cycle": {k: float(v) for k, v in revenue_by_cycle.items()},
+                "payment_counts_by_cycle": payment_counts_by_cycle,
+                "daily_revenue": {k: float(v) for k, v in daily_revenue.items()},
+                "currency": "NGN",
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting revenue breakdown: {e}")
+            raise
+
+    def get_payment_analytics(
+        self,
+        days: int = 30,
+    ) -> Dict[str, Any]:
+        """
+        Get payment success/failure analytics.
+
+        Args:
+            days: Number of days to analyze (default 30)
+
+        Returns:
+            Dict with payment analytics
+        """
+        try:
+            end_date = datetime.utcnow()
+            start_date = end_date - timedelta(days=days)
+
+            # Get all payment attempts
+            payments_query = select(PaymentTransaction).where(
+                and_(
+                    PaymentTransaction.created_at >= start_date,
+                    PaymentTransaction.created_at <= end_date,
+                )
+            )
+
+            result = self.db.execute(payments_query)
+            payments = result.scalars().all()
+
+            # Count by status
+            status_counts = {"success": 0, "failed": 0, "pending": 0}
+            for payment in payments:
+                if payment.status in status_counts:
+                    status_counts[payment.status] += 1
+
+            total_attempts = len(payments)
+            success_rate = (
+                (status_counts["success"] / total_attempts * 100)
+                if total_attempts > 0
+                else 0
+            )
+
+            # Revenue from successful payments
+            successful_revenue = sum(
+                payment.amount for payment in payments if payment.status == "success"
+            )
+
+            # Potential lost revenue from failures
+            failed_revenue = sum(
+                payment.amount for payment in payments if payment.status == "failed"
+            )
+
+            # Payment methods breakdown (if tracked)
+            payment_methods = {}
+            for payment in payments:
+                method = getattr(payment, 'payment_method', 'card')  # Default to 'card'
+                if method not in payment_methods:
+                    payment_methods[method] = {"count": 0, "success": 0, "failed": 0}
+
+                payment_methods[method]["count"] += 1
+                if payment.status == "success":
+                    payment_methods[method]["success"] += 1
+                elif payment.status == "failed":
+                    payment_methods[method]["failed"] += 1
+
+            # Calculate success rates by method
+            for method, stats in payment_methods.items():
+                if stats["count"] > 0:
+                    stats["success_rate"] = (stats["success"] / stats["count"] * 100)
+
+            # Recent failed payments for investigation
+            recent_failures_query = select(PaymentTransaction).where(
+                and_(
+                    PaymentTransaction.status == "failed",
+                    PaymentTransaction.created_at >= start_date,
+                )
+            ).order_by(PaymentTransaction.created_at.desc()).limit(10)
+
+            failures_result = self.db.execute(recent_failures_query)
+            recent_failures = failures_result.scalars().all()
+
+            failure_details = [
+                {
+                    "payment_reference": str(payment.payment_reference),
+                    "amount": float(payment.amount),
+                    "tenant_id": str(payment.tenant_id),
+                    "created_at": payment.created_at.isoformat(),
+                }
+                for payment in recent_failures
+            ]
+
+            return {
+                "period_days": days,
+                "total_attempts": total_attempts,
+                "status_counts": status_counts,
+                "success_rate": float(success_rate),
+                "successful_revenue": float(successful_revenue),
+                "potential_lost_revenue": float(failed_revenue),
+                "payment_methods": {
+                    method: {
+                        "count": stats["count"],
+                        "success": stats["success"],
+                        "failed": stats["failed"],
+                        "success_rate": float(stats.get("success_rate", 0)),
+                    }
+                    for method, stats in payment_methods.items()
+                },
+                "recent_failures": failure_details,
+                "currency": "NGN",
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting payment analytics: {e}")
+            raise
+
+    def get_subscription_forecast(
+        self,
+        months: int = 6,
+    ) -> Dict[str, Any]:
+        """
+        Generate subscription revenue forecast based on current trends.
+
+        Args:
+            months: Number of months to forecast (default 6)
+
+        Returns:
+            Dict with revenue forecast
+        """
+        try:
+            # Get current active subscriptions
+            active_query = select(
+                Tenant.subscription_tier,
+                Tenant.billing_cycle,
+                func.count(Tenant.id).label("count")
+            ).where(
+                and_(
+                    Tenant.subscription_status == "active",
+                    Tenant.subscription_tier != "trial",
+                )
+            ).group_by(Tenant.subscription_tier, Tenant.billing_cycle)
+
+            result = self.db.execute(active_query)
+            active_subscriptions = result.all()
+
+            # Calculate current MRR
+            current_mrr = 0
+            for tier, cycle, count in active_subscriptions:
+                tier_lower = tier.lower()
+                if tier_lower in self.pricing:
+                    if cycle == "monthly":
+                        current_mrr += self.pricing[tier_lower]["monthly"] * count
+                    elif cycle == "annual":
+                        current_mrr += (self.pricing[tier_lower]["annual"] / 12) * count
+
+            # Get growth rate from last 3 months
+            three_months_ago = datetime.utcnow() - timedelta(days=90)
+            two_months_ago = datetime.utcnow() - timedelta(days=60)
+
+            # Conversions 3 months ago
+            old_conversions_query = select(func.count(Tenant.id)).where(
+                and_(
+                    Tenant.subscription_status == "active",
+                    Tenant.subscription_starts_at >= three_months_ago,
+                    Tenant.subscription_starts_at < two_months_ago,
+                )
+            )
+            old_result = self.db.execute(old_conversions_query)
+            old_conversions = old_result.scalar() or 0
+
+            # Recent conversions (last month)
+            recent_month_start = datetime.utcnow() - timedelta(days=30)
+            recent_conversions_query = select(func.count(Tenant.id)).where(
+                and_(
+                    Tenant.subscription_status == "active",
+                    Tenant.subscription_starts_at >= recent_month_start,
+                )
+            )
+            recent_result = self.db.execute(recent_conversions_query)
+            recent_conversions = recent_result.scalar() or 0
+
+            # Calculate monthly growth rate
+            if old_conversions > 0:
+                monthly_growth_rate = ((recent_conversions - old_conversions) / old_conversions)
+            else:
+                monthly_growth_rate = 0.05  # Default 5% growth if no historical data
+
+            # Cap growth rate at reasonable limits
+            monthly_growth_rate = max(min(monthly_growth_rate, 0.20), -0.10)  # Between -10% and +20%
+
+            # Generate forecast
+            forecast = []
+            projected_mrr = current_mrr
+
+            for month in range(1, months + 1):
+                projected_mrr *= (1 + monthly_growth_rate)
+
+                forecast.append({
+                    "month": month,
+                    "date": (datetime.utcnow() + timedelta(days=30 * month)).strftime("%Y-%m"),
+                    "projected_mrr": float(projected_mrr),
+                    "projected_arr": float(projected_mrr * 12),
+                })
+
+            # Calculate total projected revenue
+            total_projected = sum(f["projected_mrr"] for f in forecast)
+
+            return {
+                "current_mrr": float(current_mrr),
+                "current_arr": float(current_mrr * 12),
+                "monthly_growth_rate": float(monthly_growth_rate * 100),
+                "forecast_months": months,
+                "forecast": forecast,
+                "total_projected_revenue": float(total_projected),
+                "currency": "NGN",
+                "disclaimer": "Forecast based on current trends and may vary with market conditions",
+            }
+
+        except Exception as e:
+            logger.error(f"Error generating subscription forecast: {e}")
+            raise
+
+    def get_refund_report(
+        self,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """
+        Get refund tracking and analysis.
+
+        Args:
+            start_date: Start date for analysis (defaults to 30 days ago)
+            end_date: End date for analysis (defaults to now)
+
+        Returns:
+            Dict with refund statistics
+        """
+        try:
+            if not end_date:
+                end_date = datetime.utcnow()
+            if not start_date:
+                start_date = end_date - timedelta(days=30)
+
+            # Query subscription history for refunds/cancellations
+            refunds_query = select(SubscriptionHistory).where(
+                and_(
+                    SubscriptionHistory.created_at >= start_date,
+                    SubscriptionHistory.created_at <= end_date,
+                    SubscriptionHistory.action.in_(["cancellation", "refund"]),
+                )
+            )
+
+            result = self.db.execute(refunds_query)
+            refund_records = result.scalars().all()
+
+            # Count refunds
+            total_refunds = len(refund_records)
+
+            # Estimate refunded amount (if we had refund amounts in metadata)
+            # For now, we'll track count only
+            refunds_by_tier = {}
+            for record in refund_records:
+                tenant_query = select(Tenant).where(Tenant.id == record.tenant_id)
+                tenant_result = self.db.execute(tenant_query)
+                tenant = tenant_result.scalars().first()
+
+                if tenant:
+                    tier = record.old_tier or tenant.subscription_tier
+                    tier_lower = tier.lower() if tier else "unknown"
+
+                    if tier_lower not in refunds_by_tier:
+                        refunds_by_tier[tier_lower] = 0
+
+                    refunds_by_tier[tier_lower] += 1
+
+            # Refunds by reason (if tracked in metadata)
+            refunds_by_reason = {}
+            for record in refund_records:
+                reason = record.reason or "No reason provided"
+                if reason not in refunds_by_reason:
+                    refunds_by_reason[reason] = 0
+                refunds_by_reason[reason] += 1
+
+            # Recent refunds
+            recent_refunds = [
+                {
+                    "tenant_id": str(record.tenant_id),
+                    "tier": record.old_tier,
+                    "reason": record.reason,
+                    "created_at": record.created_at.isoformat(),
+                }
+                for record in sorted(refund_records, key=lambda x: x.created_at, reverse=True)[:10]
+            ]
+
+            return {
+                "period": {
+                    "start": start_date.isoformat(),
+                    "end": end_date.isoformat(),
+                },
+                "total_refunds": total_refunds,
+                "refunds_by_tier": refunds_by_tier,
+                "refunds_by_reason": refunds_by_reason,
+                "recent_refunds": recent_refunds,
+            }
+
+        except Exception as e:
+            logger.error(f"Error getting refund report: {e}")
+            raise
+
+    def get_financial_summary(self) -> Dict[str, Any]:
+        """
+        Get comprehensive financial summary.
+
+        Returns:
+            Dict with all financial metrics
+        """
+        try:
+            revenue_breakdown = self.get_revenue_breakdown()
+            payment_analytics = self.get_payment_analytics()
+            forecast = self.get_subscription_forecast()
+            refunds = self.get_refund_report()
+
+            return {
+                "revenue": revenue_breakdown,
+                "payments": payment_analytics,
+                "forecast": forecast,
+                "refunds": refunds,
+                "generated_at": datetime.utcnow().isoformat(),
+            }
+
+        except Exception as e:
+            logger.error(f"Error generating financial summary: {e}")
+            raise

@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block title %}Payment Failed - Action Required{% endblock %}
+
+{% block content %}
+<h1>Payment Failed - Please Update Your Payment Method</h1>
+
+<p>Hi {{ admin_name }},</p>
+
+<p>
+    We attempted to process your payment for <strong>{{ company_name }}</strong>'s
+    Luran subscription, but it was unsuccessful.
+</p>
+
+<div class="warning">
+    <strong>⚠️ Action Required:</strong>
+    <p style="margin: 8px 0 0 0;">
+        Please update your payment method within <strong>{{ grace_days }} days</strong>
+        to avoid service interruption.
+    </p>
+</div>
+
+<h3 style="margin-top: 30px;">Payment Details</h3>
+
+<div class="credential-box">
+    <div class="credential-label">Plan</div>
+    <div class="credential-value">{{ plan_name }}</div>
+</div>
+
+<div class="credential-box">
+    <div class="credential-label">Amount Due</div>
+    <div class="credential-value">{{ currency }} {{ amount }}</div>
+</div>
+
+<div class="credential-box">
+    <div class="credential-label">Payment Attempted</div>
+    <div class="credential-value">{{ payment_date }}</div>
+</div>
+
+{% if failure_reason %}
+<div class="credential-box">
+    <div class="credential-label">Failure Reason</div>
+    <div class="credential-value">{{ failure_reason }}</div>
+</div>
+{% endif %}
+
+<div class="credential-box">
+    <div class="credential-label">Service Suspension Date</div>
+    <div class="credential-value">{{ suspension_date }}</div>
+</div>
+
+<center>
+    <a href="{{ app_url }}/billing/payment-methods" class="button">
+        Update Payment Method
+    </a>
+</center>
+
+<p style="color: #6b7280; font-size: 14px; margin-top: 20px; text-align: center;">
+    Or visit your billing dashboard: {{ app_url }}/billing
+</p>
+
+<h3 style="margin-top: 40px;">Common Payment Issues</h3>
+<ul style="color: #4b5563;">
+    <li><strong>Insufficient funds:</strong> Ensure your account has enough balance</li>
+    <li><strong>Expired card:</strong> Check if your card has expired and needs updating</li>
+    <li><strong>Incorrect details:</strong> Verify your card number, CVV, and billing address</li>
+    <li><strong>Bank restrictions:</strong> Contact your bank if they're blocking the transaction</li>
+</ul>
+
+<div class="info">
+    <strong>💡 Need Help?</strong>
+    <p style="margin: 8px 0 0 0;">
+        If you're having trouble updating your payment method or believe this is an error,
+        please contact our support team immediately. We're here to help ensure uninterrupted service.
+    </p>
+</div>
+
+<h3 style="margin-top: 30px;">What Happens Next?</h3>
+<p style="color: #4b5563;">
+    <strong>If payment is updated within {{ grace_days }} days:</strong><br>
+    Your service will continue without interruption. We'll automatically retry the payment.
+</p>
+
+<p style="color: #4b5563;">
+    <strong>If payment is not updated by {{ suspension_date }}:</strong><br>
+    Your subscription will be suspended, and your team will lose access to Luran features.
+    Your data will be safely stored for {{ data_retention_days }} days.
+</p>
+
+<center style="margin-top: 30px;">
+    <a href="{{ app_url }}/support" style="color: #2563eb; text-decoration: none; font-weight: 600;">
+        Contact Support →
+    </a>
+</center>
+{% endblock %}

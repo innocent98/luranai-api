@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+
+{% block title %}Subscription Confirmed - Welcome to {{ plan_name }}!{% endblock %}
+
+{% block content %}
+<h1>Welcome to Luran {{ plan_name }}! 🎉</h1>
+
+<p>Hi {{ admin_name }},</p>
+
+<p>
+    Thank you for upgrading <strong>{{ company_name }}</strong> to the
+    <strong>{{ plan_name }}</strong> plan! Your payment has been processed successfully.
+</p>
+
+<div class="info">
+    <strong>✓ Subscription Active</strong>
+    <p style="margin: 8px 0 0 0;">
+        Your account has been upgraded and all features are now available.
+    </p>
+</div>
+
+<h3 style="margin-top: 30px;">Payment Summary</h3>
+
+<div class="credential-box">
+    <div class="credential-label">Plan</div>
+    <div class="credential-value">{{ plan_name }}</div>
+</div>
+
+<div class="credential-box">
+    <div class="credential-label">Amount Paid</div>
+    <div class="credential-value">{{ currency }} {{ amount }}</div>
+</div>
+
+<div class="credential-box">
+    <div class="credential-label">Billing Cycle</div>
+    <div class="credential-value">{{ billing_cycle }}</div>
+</div>
+
+<div class="credential-box">
+    <div class="credential-label">Next Billing Date</div>
+    <div class="credential-value">{{ next_billing_date }}</div>
+</div>
+
+<div class="credential-box">
+    <div class="credential-label">Payment Reference</div>
+    <div class="credential-value">{{ payment_reference }}</div>
+</div>
+
+<h3 style="margin-top: 40px;">Your {{ plan_name }} Features</h3>
+<ul style="color: #4b5563;">
+    {% if features.conversations %}
+    <li><strong>{{ features.conversations }}</strong> conversations per month</li>
+    {% endif %}
+    {% if features.team_members %}
+    <li>Up to <strong>{{ features.team_members }}</strong> team members</li>
+    {% endif %}
+    {% if features.knowledge_sources %}
+    <li><strong>{{ features.knowledge_sources }}</strong> knowledge sources</li>
+    {% endif %}
+    {% if features.custom_branding %}
+    <li>Custom branding and white-label options</li>
+    {% endif %}
+    {% if features.priority_support %}
+    <li>Priority email and chat support</li>
+    {% endif %}
+    {% if features.advanced_analytics %}
+    <li>Advanced analytics and reporting</li>
+    {% endif %}
+    {% if features.api_access %}
+    <li>API access and webhooks</li>
+    {% endif %}
+</ul>
+
+<center>
+    <a href="{{ app_url }}/dashboard" class="button">
+        Go to Dashboard
+    </a>
+</center>
+
+<h3 style="margin-top: 40px;">Manage Your Subscription</h3>
+<p>
+    You can view your invoices, update payment methods, or change your plan anytime from your
+    <a href="{{ app_url }}/billing">billing dashboard</a>.
+</p>
+
+<p style="margin-top: 30px;">
+    Need help maximizing your plan? Our team is here to assist you every step of the way.
+</p>
+{% endblock %}

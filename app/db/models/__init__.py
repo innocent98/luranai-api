@@ -28,6 +28,8 @@ from app.db.models.job import ProcessingJob, JobStatus, JobType
 from app.db.models.review import SessionRating, PlatformFeedback, FeedbackCategory
 from app.db.models.payment import PaymentTransaction
 from app.db.models.subscription import SubscriptionHistory
+from app.db.models.email_notification import EmailNotification
+from app.db.models.subscription_plan import SubscriptionPlan
 
 __all__ = [
     "Base",
@@ -74,4 +76,7 @@ __all__ = [
     "PaymentTransaction",
     # Subscription models
     "SubscriptionHistory",
+    "SubscriptionPlan",
+    # Email notification models
+    "EmailNotification",
 ]

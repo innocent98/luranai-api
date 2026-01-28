@@ -68,6 +68,10 @@
    - Get Subscription Details
    - List Payment Transactions
    - Filter Tenants by Subscription
+   - Platform Pricing Management (Database-Driven)
+     - List All Subscription Plans
+     - Update Subscription Plan Pricing
+     - Pricing Change Audit Trail
 14. [User Flows with Diagrams](#user-flows-with-diagrams)
 14. [Common Patterns](#common-patterns)
 15. [Frontend Pages Checklist](#frontend-pages-checklist)
@@ -5103,6 +5107,348 @@ Authorization: Bearer {tenant_token}
 
 ---
 
+### 12.4 View Current Subscription
+
+Get details about the current user's subscription including status, billing cycle, capabilities, and trial/expiry dates.
+
+**Page:** `/dashboard/subscription` or `/dashboard/billing`
+
+**Endpoint:** `GET /subscription/my-subscription`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** Any authenticated user (not just TENANT_ADMIN)
+
+**Response:**
+```json
+{
+  "tenant_id": "123e4567-e89b-12d3-a456-426614174000",
+  "tenant_name": "Acme Corp",
+  "subscription_tier": "professional",
+  "subscription_status": "active",
+  "billing_cycle": "annual",
+  "trial_ends_at": null,
+  "subscription_starts_at": "2026-01-15T10:00:00Z",
+  "subscription_ends_at": null,
+  "next_billing_date": "2027-01-15T10:00:00Z",
+  "can_upgrade": true,
+  "can_cancel": true,
+  "is_trial": false,
+  "days_until_expiry": null
+}
+```
+
+**Response Fields:**
+- `subscription_tier` - Current tier: `trial`, `lite`, `professional`, `enterprise`
+- `subscription_status` - Status: `trialing`, `active`, `past_due`, `canceled`, `trial_expired`
+- `billing_cycle` - Billing cycle: `monthly`, `annual` (null for trial)
+- `trial_ends_at` - When trial expires (null if not on trial)
+- `subscription_starts_at` - When paid subscription started (null if on trial)
+- `subscription_ends_at` - When subscription ends if canceled (null if active)
+- `next_billing_date` - Next automatic payment date (null if canceled or trial)
+- `can_upgrade` - Whether user can upgrade (trial or lower tier)
+- `can_cancel` - Whether user can cancel (active paid subscription)
+- `is_trial` - Whether currently on trial period
+- `days_until_expiry` - Days remaining until trial/subscription expires (null if no expiry)
+
+**Frontend Example:**
+```typescript
+async function loadSubscriptionInfo() {
+  try {
+    const response = await fetch('/api/v1/subscription/my-subscription', {
+      headers: {
+        'Authorization': `Bearer ${tenantToken}`
+      }
+    });
+
+    const subscription = await response.json();
+
+    // Display subscription tier badge
+    document.getElementById('tier-badge').textContent = subscription.subscription_tier.toUpperCase();
+
+    // Show trial expiry warning if applicable
+    if (subscription.is_trial && subscription.days_until_expiry <= 7) {
+      showTrialExpiryWarning(subscription.days_until_expiry);
+    }
+
+    // Enable/disable upgrade button
+    document.getElementById('upgrade-btn').disabled = !subscription.can_upgrade;
+
+    // Enable/disable cancel button
+    document.getElementById('cancel-btn').disabled = !subscription.can_cancel;
+
+    // Display next billing date
+    if (subscription.next_billing_date) {
+      document.getElementById('next-billing').textContent =
+        `Next billing: ${new Date(subscription.next_billing_date).toLocaleDateString()}`;
+    }
+  } catch (error) {
+    console.error('Failed to load subscription:', error);
+  }
+}
+```
+
+---
+
+### 12.5 Cancel Subscription
+
+Cancel the current user's active subscription. Only TENANT_ADMIN users can cancel.
+
+**Page:** `/dashboard/subscription/cancel`
+
+**Endpoint:** `POST /subscription/cancel`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Request:**
+```json
+{
+  "reason": "Found a better alternative",
+  "immediate": false
+}
+```
+
+**Request Fields:**
+- `reason` - Optional cancellation reason (for feedback)
+- `immediate` - If `true`, cancel immediately (may be eligible for prorated refund). If `false`, cancel at end of billing period (default)
+
+**Response:**
+```json
+{
+  "message": "Subscription will be canceled on 2027-01-15",
+  "status": "active",
+  "ends_at": "2027-01-15T10:00:00Z",
+  "refund_eligible": false,
+  "can_reactivate_until": "2027-01-15T10:00:00Z"
+}
+```
+
+**Response Fields:**
+- `message` - Confirmation message
+- `status` - New subscription status (`active` if end-of-period, `canceled` if immediate)
+- `ends_at` - When subscription will end
+- `refund_eligible` - Whether user may be eligible for refund (true for immediate cancellation)
+- `can_reactivate_until` - Deadline to reactivate before data deletion (30-day grace period)
+
+**Cancellation Behavior:**
+- **Immediate Cancellation** (`immediate: true`):
+  - Subscription canceled right away
+  - May be eligible for prorated refund (contact support)
+  - 30-day grace period to reactivate
+  - After 30 days, data is permanently deleted
+
+- **End-of-Period Cancellation** (`immediate: false`):
+  - Subscription remains active until end of current billing cycle
+  - No refund (you paid for full period)
+  - Service available until end date
+  - Can reactivate until end date
+
+**Important Notes:**
+- Cannot cancel trial subscriptions (they expire automatically)
+- Cannot cancel already canceled subscriptions
+- Cancellation is recorded in subscription history with admin info
+- After cancellation, data is retained for 30 days, then permanently deleted
+
+**Frontend Example:**
+```typescript
+async function cancelSubscription(immediate = false) {
+  // Show confirmation dialog
+  const confirmed = confirm(
+    immediate
+      ? 'Cancel subscription immediately? You may be eligible for a prorated refund.'
+      : 'Cancel at end of billing period? Your service will remain active until then.'
+  );
+
+  if (!confirmed) return;
+
+  try {
+    const response = await fetch('/api/v1/subscription/cancel', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${tenantToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        reason: document.getElementById('cancel-reason').value || null,
+        immediate: immediate
+      })
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail);
+    }
+
+    const result = await response.json();
+
+    // Show success message
+    alert(result.message);
+
+    // Redirect to dashboard
+    window.location.href = '/dashboard';
+  } catch (error) {
+    console.error('Cancellation failed:', error);
+    alert(`Failed to cancel: ${error.message}`);
+  }
+}
+```
+
+**Error Responses:**
+```json
+// 400 Bad Request - Cannot cancel trial
+{
+  "detail": "Cannot cancel trial subscription. Trial will expire automatically."
+}
+
+// 400 Bad Request - Already canceled
+{
+  "detail": "Subscription is already canceled"
+}
+
+// 403 Forbidden - Not tenant admin
+{
+  "detail": "Only TENANT_ADMIN can cancel subscriptions"
+}
+```
+
+---
+
+### 12.6 View Subscription History
+
+Get a chronological list of all subscription changes for the current tenant.
+
+**Page:** `/dashboard/subscription/history` or `/dashboard/billing/history`
+
+**Endpoint:** `GET /subscription/history`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** Any authenticated user (not just TENANT_ADMIN)
+
+**Query Parameters:**
+- `limit` - Maximum number of records to return (default: 20, max: 100)
+
+**Example:**
+```
+GET /subscription/history?limit=50
+```
+
+**Response:**
+```json
+[
+  {
+    "id": "789e4567-e89b-12d3-a456-426614174999",
+    "tenant_id": "123e4567-e89b-12d3-a456-426614174000",
+    "action": "upgrade",
+    "previous_tier": "trial",
+    "new_tier": "professional",
+    "previous_status": "trialing",
+    "new_status": "active",
+    "changed_by_type": "user",
+    "changed_by_name": "admin@acmecorp.com",
+    "reason": "User upgraded via payment",
+    "created_at": "2026-01-15T10:00:00Z"
+  },
+  {
+    "id": "890e4567-e89b-12d3-a456-426614174888",
+    "tenant_id": "123e4567-e89b-12d3-a456-426614174000",
+    "action": "extend_trial",
+    "previous_tier": "trial",
+    "new_tier": "trial",
+    "previous_status": "trial",
+    "new_status": "trial",
+    "changed_by_type": "platform_admin",
+    "changed_by_name": "Platform Admin",
+    "reason": "Extended trial for sales demo",
+    "created_at": "2026-01-01T14:30:00Z"
+  },
+  {
+    "id": "901e4567-e89b-12d3-a456-426614174777",
+    "tenant_id": "123e4567-e89b-12d3-a456-426614174000",
+    "action": "cancellation",
+    "previous_tier": "lite",
+    "new_tier": "lite",
+    "previous_status": "active",
+    "new_status": "canceled",
+    "changed_by_type": "user",
+    "changed_by_name": "admin@acmecorp.com",
+    "reason": "User requested cancellation",
+    "created_at": "2025-12-20T09:15:00Z"
+  }
+]
+```
+
+**Response Fields:**
+- `id` - Unique history entry ID
+- `tenant_id` - Tenant UUID
+- `action` - Action type: `upgrade`, `downgrade`, `cancellation`, `override`, `extend_trial`, `tier_change`
+- `previous_tier` - Tier before change (trial, lite, professional, enterprise)
+- `new_tier` - Tier after change
+- `previous_status` - Status before change
+- `new_status` - Status after change
+- `changed_by_type` - Who made the change: `user`, `platform_admin`, `webhook`
+- `changed_by_name` - Name/email of person who made the change
+- `reason` - Explanation for the change (user input or system message)
+- `created_at` - When the change occurred (ISO 8601 timestamp)
+
+**Frontend Example:**
+```typescript
+async function loadSubscriptionHistory() {
+  try {
+    const response = await fetch('/api/v1/subscription/history?limit=20', {
+      headers: {
+        'Authorization': `Bearer ${tenantToken}`
+      }
+    });
+
+    const history = await response.json();
+
+    // Render history timeline
+    const historyContainer = document.getElementById('subscription-history');
+    historyContainer.innerHTML = history.map(entry => `
+      <div class="history-entry">
+        <div class="entry-date">${new Date(entry.created_at).toLocaleDateString()}</div>
+        <div class="entry-action">
+          <strong>${entry.action.replace('_', ' ').toUpperCase()}</strong>
+          ${entry.previous_tier !== entry.new_tier
+            ? `<span>${entry.previous_tier} → ${entry.new_tier}</span>`
+            : ''}
+        </div>
+        <div class="entry-details">
+          ${entry.reason || 'No reason provided'}
+        </div>
+        <div class="entry-author">
+          Changed by: ${entry.changed_by_name} (${entry.changed_by_type})
+        </div>
+      </div>
+    `).join('');
+  } catch (error) {
+    console.error('Failed to load history:', error);
+  }
+}
+```
+
+**Common Actions:**
+- `upgrade` - User upgraded to higher tier (via payment or admin)
+- `downgrade` - Downgraded to lower tier
+- `cancellation` - Subscription was canceled
+- `override` - Platform admin manually changed subscription
+- `extend_trial` - Platform admin extended trial period
+- `tier_change` - Generic tier change (not upgrade/downgrade)
+
+---
+
 ### Summary
 
 **What You've Learned:**
@@ -5117,6 +5463,10 @@ Authorization: Bearer {tenant_token}
 **Key Endpoints:**
 - `POST /subscription/upgrade/initialize` - Start payment
 - `POST /subscription/upgrade/verify` - Confirm payment
+- `GET /subscription/my-subscription` - View current subscription
+- `POST /subscription/cancel` - Cancel subscription
+- `GET /subscription/history` - View subscription change history
+- `GET /subscription/plans` - Get public pricing (no auth required)
 - `POST /webhooks/paystack` - Process payment events (backend)
 
 **Next Steps:**
@@ -5124,7 +5474,9 @@ Authorization: Bearer {tenant_token}
 2. Test payment flow with Paystack test cards
 3. Implement subscription status banners
 4. Add limit usage displays (e.g., "Using 45/100 conversations")
-5. Create billing history page
+5. Create billing history page using GET /subscription/history
+6. Add "View Subscription" page using GET /subscription/my-subscription
+7. Implement subscription cancellation flow
 
 For complete details on subscription enforcement, webhooks, recurring billing, testing checklist, and troubleshooting, see the full documentation in `/docs/SUBSCRIPTION_PRICING_MODEL.md`.
 
@@ -5189,12 +5541,12 @@ const plans = await response.json();
     "tier": "lite",
     "display_name": "Lite",
     "description": "Perfect for small businesses getting started",
-    "monthly_price_kobo": 500000,  // ₦5,000
-    "annual_price_kobo": 5400000,  // ₦54,000
-    "monthly_price_naira": 5000.0,
-    "annual_price_naira": 54000.0,
-    "annual_savings_naira": 6000.0,
-    "annual_discount_percentage": 10.0,
+    "monthly_price_kobo": 1200000,  // ₦12,000
+    "annual_price_kobo": 12000000,  // ₦120,000
+    "monthly_price_naira": 12000.0,
+    "annual_price_naira": 120000.0,
+    "annual_savings_naira": 24000.0,
+    "annual_discount_percentage": 16.7,
     "capabilities": { /* ... */ },
     "features": [ /* ... */ ],
     "is_popular": false
@@ -5203,51 +5555,20 @@ const plans = await response.json();
     "tier": "professional",
     "display_name": "Professional",
     "description": "Advanced features for growing teams",
-    "monthly_price_kobo": 1500000,  // ₦15,000
-    "annual_price_kobo": 16200000,  // ₦162,000
-    "monthly_price_naira": 15000.0,
-    "annual_price_naira": 162000.0,
-    "annual_savings_naira": 18000.0,
-    "annual_discount_percentage": 10.0,
+    "monthly_price_kobo": 3500000,  // ₦35,000
+    "annual_price_kobo": 35000000,  // ₦350,000
+    "monthly_price_naira": 35000.0,
+    "annual_price_naira": 350000.0,
+    "annual_savings_naira": 70000.0,
+    "annual_discount_percentage": 16.7,
     "capabilities": { /* ... */ },
     "features": [ /* ... */ ],
     "is_popular": true  // Marked as recommended
-  },
-  {
-    "tier": "enterprise",
-    "display_name": "Enterprise",
-    "description": "Unlimited everything for large organizations",
-    "monthly_price_kobo": 5000000,  // ₦50,000
-    "annual_price_kobo": 54000000,  // ₦540,000
-    "monthly_price_naira": 50000.0,
-    "annual_price_naira": 540000.0,
-    "annual_savings_naira": 60000.0,
-    "annual_discount_percentage": 10.0,
-    "capabilities": {
-      "can_access_analytics": true,
-      "max_knowledge_sources": null,  // Unlimited
-      "can_use_url_sources": true,
-      "max_knowledge_mb": null,  // Unlimited
-      "max_conversations_per_month": null,  // Unlimited
-      "max_team_members": null,  // Unlimited
-      "max_response_tokens": 2000
-    },
-    "features": [
-      "Unlimited knowledge sources",
-      "Unlimited storage",
-      "Unlimited conversations",
-      "Unlimited team members",
-      "URL scraping",
-      "Analytics dashboard",
-      "Premium AI responses",
-      "24/7 priority support",
-      "Dedicated account manager",
-      "Custom integrations"
-    ],
-    "is_popular": false
   }
 ]
 ```
+
+**Note:** Enterprise tier is excluded from public pricing plans. It requires custom pricing and should be handled via "Contact Sales" flow.
 
 **Frontend Example - Pricing Page:**
 
@@ -5743,6 +6064,400 @@ function getTrialDaysRemaining(trialEndsAt: string): number {
 5. **Payment Tracking** - View all transactions with filters and revenue stats
 6. **Smart Filtering** - Find tenants by subscription criteria for targeted outreach
 7. **Override Persistence** - Manual capability changes survive tier upgrades
+8. **Dynamic Pricing Management** - Update pricing and capabilities without code changes
+
+### 13.6 Platform Pricing Management (Database-Driven)
+
+**New Feature:** Platform admins can now manage subscription pricing and capabilities directly through the database and API, eliminating the need for code deployments for pricing changes. Added 2026-01-27.
+
+#### 13.6.1 List All Subscription Plans (Platform Admin)
+
+**Endpoint:** `GET /platform/pricing`
+**Auth:** Platform Admin (Super Admin only)
+**Use Cases:** View all plan configurations, audit current pricing
+
+```typescript
+// Fetch all subscription plans (including inactive)
+const response = await fetch(
+  'http://localhost:8000/api/v1/platform/pricing?include_inactive=true',
+  {
+    headers: {
+      'Authorization': 'Bearer PLATFORM_ADMIN_TOKEN',
+    }
+  }
+);
+
+const data = await response.json();
+
+// Response
+{
+  "plans": [
+    {
+      "tier": "trial",
+      "display_name": "Trial",
+      "description": "Try out the platform with limited features",
+      "monthly_price_kobo": 0,
+      "annual_price_kobo": 0,
+      "monthly_price_naira": 0.0,
+      "annual_price_naira": 0.0,
+      "capabilities": {
+        "can_access_analytics": false,
+        "max_knowledge_sources": 2,
+        "can_use_url_sources": false,
+        "max_knowledge_mb": 10,
+        "max_conversations_per_month": 100,
+        "max_team_members": 1,
+        "max_response_tokens": 800
+      },
+      "features": [
+        "2 knowledge sources",
+        "10MB storage",
+        "100 conversations/month",
+        "1 team member",
+        "Email support"
+      ],
+      "is_active": true,
+      "sort_order": 0
+    },
+    {
+      "tier": "lite",
+      "display_name": "Lite",
+      "description": "Perfect for small businesses getting started",
+      "monthly_price_kobo": 1200000,  // ₦12,000
+      "annual_price_kobo": 12000000,  // ₦120,000
+      "monthly_price_naira": 12000.0,
+      "annual_price_naira": 120000.0,
+      "capabilities": {
+        "can_access_analytics": true,
+        "max_knowledge_sources": 10,
+        "can_use_url_sources": true,
+        "max_knowledge_mb": 50,
+        "max_conversations_per_month": 1000,
+        "max_team_members": 3,
+        "max_response_tokens": 1000
+      },
+      "features": [
+        "10 knowledge sources",
+        "50MB storage",
+        "1,000 conversations/month",
+        "3 team members",
+        "URL scraping",
+        "Analytics dashboard",
+        "Priority email support"
+      ],
+      "is_active": true,
+      "sort_order": 1
+    },
+    {
+      "tier": "professional",
+      "display_name": "Professional",
+      "description": "Advanced features for growing teams",
+      "monthly_price_kobo": 3500000,  // ₦35,000
+      "annual_price_kobo": 35000000,  // ₦350,000
+      "monthly_price_naira": 35000.0,
+      "annual_price_naira": 350000.0,
+      "capabilities": {
+        "can_access_analytics": true,
+        "max_knowledge_sources": 30,
+        "can_use_url_sources": true,
+        "max_knowledge_mb": 200,
+        "max_conversations_per_month": 5000,
+        "max_team_members": 10,
+        "max_response_tokens": 1500
+      },
+      "features": [
+        "30 knowledge sources",
+        "200MB storage",
+        "5,000 conversations/month",
+        "10 team members",
+        "URL scraping",
+        "Analytics dashboard",
+        "Advanced AI responses",
+        "Priority support"
+      ],
+      "is_active": true,
+      "sort_order": 2
+    },
+    {
+      "tier": "enterprise",
+      "display_name": "Enterprise",
+      "description": "Contact us for custom pricing and unlimited features",
+      "monthly_price_kobo": 0,
+      "annual_price_kobo": 0,
+      "monthly_price_naira": 0.0,
+      "annual_price_naira": 0.0,
+      "capabilities": {
+        "can_access_analytics": true,
+        "max_knowledge_sources": null,  // Unlimited
+        "can_use_url_sources": true,
+        "max_knowledge_mb": null,  // Unlimited
+        "max_conversations_per_month": null,  // Unlimited
+        "max_team_members": null,  // Unlimited
+        "max_response_tokens": 2000
+      },
+      "features": [
+        "Unlimited knowledge sources",
+        "Unlimited storage",
+        "Unlimited conversations",
+        "Unlimited team members",
+        "URL scraping",
+        "Analytics dashboard",
+        "Premium AI responses",
+        "24/7 priority support",
+        "Dedicated account manager",
+        "Custom integrations"
+      ],
+      "is_active": true,
+      "sort_order": 3
+    }
+  ],
+  "total": 4
+}
+```
+
+**Query Parameters:**
+- `include_inactive` (optional): Include inactive plans (default: false)
+
+#### 13.6.2 Update Subscription Plan Pricing
+
+**Endpoint:** `PUT /platform/pricing/{tier}`
+**Auth:** Platform Admin (Super Admin only)
+**Use Cases:** Adjust pricing, update capabilities, modify features, deactivate plans
+
+```typescript
+interface PricingPlanUpdateRequest {
+  monthly_price_kobo?: number;  // Price in kobo (₦1 = 100 kobo)
+  annual_price_kobo?: number;   // Annual price in kobo
+  display_name?: string;         // Plan display name
+  description?: string;          // Plan description
+  capabilities?: {
+    can_access_analytics?: boolean;
+    max_knowledge_sources?: number;
+    can_use_url_sources?: boolean;
+    max_knowledge_mb?: number;
+    max_conversations_per_month?: number;
+    max_team_members?: number;
+    max_response_tokens?: number;
+  };
+  features?: string[];           // List of feature descriptions
+  is_active?: boolean;           // Active/inactive status
+  sort_order?: number;           // Display ordering
+  reason: string;                // REQUIRED: Reason for change (audit trail)
+}
+
+// Update Lite plan pricing
+const response = await fetch(
+  'http://localhost:8000/api/v1/platform/pricing/lite',
+  {
+    method: 'PUT',
+    headers: {
+      'Authorization': 'Bearer PLATFORM_ADMIN_TOKEN',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      monthly_price_kobo: 1500000,  // ₦15,000 (increased from ₦12,000)
+      annual_price_kobo: 15000000,  // ₦150,000 (increased from ₦120,000)
+      capabilities: {
+        max_knowledge_sources: 15,  // Increased from 10
+        max_conversations_per_month: 1500,  // Increased from 1000
+      },
+      features: [
+        "15 knowledge sources",  // Updated from 10
+        "50MB storage",
+        "1,500 conversations/month",  // Updated from 1,000
+        "3 team members",
+        "URL scraping",
+        "Analytics dashboard",
+        "Priority email support"
+      ],
+      reason: "Market adjustment based on competitor analysis and increased feature limits"
+    })
+  }
+);
+
+// Response: Updated plan with new pricing
+{
+  "tier": "lite",
+  "display_name": "Lite",
+  "description": "Perfect for small businesses getting started",
+  "monthly_price_kobo": 1500000,
+  "annual_price_kobo": 15000000,
+  "monthly_price_naira": 15000.0,
+  "annual_price_naira": 150000.0,
+  "capabilities": {
+    "can_access_analytics": true,
+    "max_knowledge_sources": 15,
+    "can_use_url_sources": true,
+    "max_knowledge_mb": 50,
+    "max_conversations_per_month": 1500,
+    "max_team_members": 3,
+    "max_response_tokens": 1000
+  },
+  "features": [
+    "15 knowledge sources",
+    "50MB storage",
+    "1,500 conversations/month",
+    "3 team members",
+    "URL scraping",
+    "Analytics dashboard",
+    "Priority email support"
+  ],
+  "is_active": true,
+  "sort_order": 1
+}
+```
+
+**Important Notes:**
+- All pricing changes require a `reason` for audit trail
+- Changes are logged in audit_logs table with admin details
+- Cache is invalidated immediately (updates reflect in real-time)
+- Partial updates supported (only provide fields you want to change)
+- Changes take effect immediately for new subscriptions
+- Existing subscriptions maintain their pricing until renewal
+
+**Frontend Example - Pricing Management UI:**
+
+```typescript
+async function updatePlanPricing(tier: string, updates: PricingPlanUpdateRequest) {
+  try {
+    const response = await fetch(
+      `http://localhost:8000/api/v1/platform/pricing/${tier}`,
+      {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${adminToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updates)
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to update pricing');
+    }
+
+    const updatedPlan = await response.json();
+
+    // Show success message
+    showNotification('success', `${updatedPlan.display_name} plan updated successfully`);
+
+    // Refresh pricing table
+    await loadPricingPlans();
+
+    return updatedPlan;
+  } catch (error) {
+    console.error('Error updating pricing:', error);
+    showNotification('error', error.message);
+    throw error;
+  }
+}
+
+// Example: Build pricing management form
+function renderPricingForm(plan: PricingPlan) {
+  return `
+    <form id="pricing-form-${plan.tier}" onsubmit="handlePricingUpdate(event, '${plan.tier}')">
+      <h3>Update ${plan.display_name} Plan</h3>
+
+      <!-- Pricing -->
+      <div class="form-section">
+        <h4>Pricing (in Naira)</h4>
+        <label>
+          Monthly Price:
+          <input type="number" name="monthly_price"
+                 value="${plan.monthly_price_naira}"
+                 step="1000" min="0" />
+        </label>
+        <label>
+          Annual Price:
+          <input type="number" name="annual_price"
+                 value="${plan.annual_price_naira}"
+                 step="1000" min="0" />
+        </label>
+      </div>
+
+      <!-- Capabilities -->
+      <div class="form-section">
+        <h4>Capabilities</h4>
+        <label>
+          <input type="checkbox" name="can_access_analytics"
+                 ${plan.capabilities.can_access_analytics ? 'checked' : ''} />
+          Analytics Access
+        </label>
+        <label>
+          Max Knowledge Sources:
+          <input type="number" name="max_knowledge_sources"
+                 value="${plan.capabilities.max_knowledge_sources || ''}"
+                 placeholder="Unlimited if empty" />
+        </label>
+        <label>
+          Max Conversations/Month:
+          <input type="number" name="max_conversations_per_month"
+                 value="${plan.capabilities.max_conversations_per_month || ''}"
+                 placeholder="Unlimited if empty" />
+        </label>
+        <label>
+          Max Team Members:
+          <input type="number" name="max_team_members"
+                 value="${plan.capabilities.max_team_members || ''}"
+                 placeholder="Unlimited if empty" />
+        </label>
+      </div>
+
+      <!-- Reason (Required) -->
+      <div class="form-section">
+        <label>
+          Reason for Change (Required):
+          <textarea name="reason" required minlength="10" maxlength="500"
+                    placeholder="Explain why you're making this change..."></textarea>
+        </label>
+      </div>
+
+      <button type="submit">Update Plan</button>
+    </form>
+  `;
+}
+
+async function handlePricingUpdate(event: Event, tier: string) {
+  event.preventDefault();
+  const form = event.target as HTMLFormElement;
+  const formData = new FormData(form);
+
+  // Convert Naira to kobo for API
+  const updates: PricingPlanUpdateRequest = {
+    monthly_price_kobo: parseFloat(formData.get('monthly_price') as string) * 100,
+    annual_price_kobo: parseFloat(formData.get('annual_price') as string) * 100,
+    capabilities: {
+      can_access_analytics: formData.get('can_access_analytics') === 'on',
+      max_knowledge_sources: parseInt(formData.get('max_knowledge_sources') as string) || null,
+      max_conversations_per_month: parseInt(formData.get('max_conversations_per_month') as string) || null,
+      max_team_members: parseInt(formData.get('max_team_members') as string) || null,
+    },
+    reason: formData.get('reason') as string,
+  };
+
+  await updatePlanPricing(tier, updates);
+}
+```
+
+#### 13.6.3 Pricing Change Audit Trail
+
+All pricing changes are automatically logged with:
+- Admin ID and email
+- Previous state (pricing, capabilities, features)
+- New state
+- Reason for change
+- Timestamp
+
+View audit logs via: `GET /platform/audit?action_type=update_pricing_plan`
+
+**Benefits of Database-Driven Pricing:**
+1. **No Code Deployments** - Update pricing without pushing code
+2. **Real-Time Updates** - Changes reflect immediately (5-minute cache)
+3. **Full Audit Trail** - Track all pricing changes with admin accountability
+4. **A/B Testing Ready** - Easy to test different pricing strategies
+5. **Promotional Flexibility** - Quick response to market conditions
+6. **Multi-Currency Ready** - Foundation for future currency support
 
 **Next Steps:**
 1. Build platform admin dashboard with subscription management UI
@@ -6175,3 +6890,1068 @@ After frontend is complete, the widget JavaScript and chat UI will be built sepa
 ---
 
 **Questions?** Contact the backend team for clarification on any endpoints.
+
+---
+
+## Platform Admin Analytics & Monitoring
+
+### Overview
+
+The platform admin dashboard provides comprehensive analytics, monitoring, and management capabilities across all tenants. All endpoints require platform admin authentication via `/platform/auth/login`.
+
+**Authentication:** All platform endpoints require `Authorization: Bearer <platform_admin_token>`
+
+---
+
+### 15. Platform Analytics
+
+**Authentication:** All analytics endpoints require Platform Admin authentication with SUPER_ADMIN role.
+
+**Base URL:** `/platform/analytics`
+
+---
+
+#### 15.1 Get Dashboard Summary
+
+Get comprehensive platform analytics dashboard with all key metrics in one call.
+
+**Endpoint:** `GET /platform/analytics/dashboard`
+
+**Auth Required:** Yes (Platform Admin / SUPER_ADMIN)
+
+**Query Parameters:** None
+
+**Response:**
+```json
+{
+  "revenue": {
+    "mrr": 35000.0,
+    "arr": 420000.0,
+    "mrr_growth_rate": 17.647058823529413,
+    "revenue_by_tier": {
+      "lite": 0.0,
+      "professional": 35000.0
+    },
+    "currency": "NGN",
+    "period": {
+      "start": "2025-12-28T21:53:00.049585",
+      "end": "2026-01-27T21:53:00.049585"
+    }
+  },
+  "subscriptions": {
+    "active_subscriptions": 1,
+    "trialing_tenants": 0,
+    "inactive_tenants": 0,
+    "trial_conversion_rate": 100.0,
+    "churn_rate": 0.0,
+    "churned_count": 0,
+    "converted_count": 1,
+    "tier_distribution": {
+      "professional": 1
+    },
+    "period_days": 30
+  },
+  "growth": {
+    "new_signups": 1,
+    "upgrades": 1,
+    "downgrades": 0,
+    "signup_growth_rate": 100.0,
+    "daily_trend": [
+      {"date": "2026-01-21", "count": 0},
+      {"date": "2026-01-22", "count": 0},
+      {"date": "2026-01-23", "count": 0},
+      {"date": "2026-01-24", "count": 0},
+      {"date": "2026-01-25", "count": 0},
+      {"date": "2026-01-26", "count": 1},
+      {"date": "2026-01-27", "count": 0}
+    ],
+    "period_days": 7
+  },
+  "usage": {
+    "total_conversations": 42,
+    "active_conversations_30d": 35,
+    "total_tickets": 8,
+    "active_tickets": 2,
+    "total_knowledge_sources": 15,
+    "avg_conversations_per_tenant": 42.0,
+    "active_tenants": 1
+  },
+  "generated_at": "2026-01-27T21:53:00.123456"
+}
+```
+
+**Use Case:** Primary dashboard endpoint - displays all key platform metrics at once for admin overview.
+
+---
+
+#### 15.2 Get Revenue Metrics
+
+Get platform-wide revenue metrics including MRR, ARR, and growth rates.
+
+**Endpoint:** `GET /platform/analytics/revenue`
+
+**Auth Required:** Yes (Platform Admin / SUPER_ADMIN)
+
+**Query Parameters:**
+- `start_date` (optional): Start date in ISO format (defaults to 30 days ago)
+- `end_date` (optional): End date in ISO format (defaults to now)
+
+**Response:**
+```json
+{
+  "mrr": 35000.0,
+  "arr": 420000.0,
+  "mrr_growth_rate": 17.647058823529413,
+  "revenue_by_tier": {
+    "lite": 0.0,
+    "professional": 35000.0
+  },
+  "currency": "NGN",
+  "period": {
+    "start": "2025-12-28T00:00:00",
+    "end": "2026-01-27T00:00:00"
+  }
+}
+```
+
+**Field Descriptions:**
+- `mrr`: Monthly Recurring Revenue in Naira (sum of all active monthly subscriptions + annualized monthly equivalent of annual subscriptions)
+- `arr`: Annual Recurring Revenue (MRR × 12)
+- `mrr_growth_rate`: Percentage growth compared to previous period
+- `revenue_by_tier`: MRR breakdown by subscription tier
+
+#### 15.2 Get Subscription Metrics
+
+Get subscription health metrics including churn and conversion rates.
+
+**Endpoint:** `GET /platform/analytics/subscriptions`
+
+**Query Parameters:**
+- `days` (optional): Number of days to analyze (default: 30, max: 365)
+
+**Response:**
+```json
+{
+  "active_subscriptions": 145,
+  "trialing_tenants": 52,
+  "inactive_tenants": 18,
+  "trial_conversion_rate": 68.5,
+  "churn_rate": 4.2,
+  "churned_count": 6,
+  "converted_count": 24,
+  "tier_distribution": {
+    "starter": 65,
+    "professional": 72,
+    "enterprise": 8
+  },
+  "period_days": 30
+}
+```
+
+#### 15.3 Get Growth Metrics
+
+Get platform growth trends including signups and upgrades.
+
+**Endpoint:** `GET /platform/analytics/growth`
+
+**Query Parameters:**
+- `days` (optional): Number of days to analyze (default: 30)
+
+**Response:**
+```json
+{
+  "new_signups": 38,
+  "upgrades": 24,
+  "downgrades": 2,
+  "signup_growth_rate": 22.5,
+  "daily_trend": [
+    {"date": "2026-01-21", "count": 5},
+    {"date": "2026-01-22", "count": 7},
+    {"date": "2026-01-23", "count": 3}
+  ],
+  "period_days": 30
+}
+```
+
+#### 15.4 Get Usage Metrics
+
+Get platform-wide usage statistics.
+
+**Endpoint:** `GET /platform/analytics/usage`
+
+**Response:**
+```json
+{
+  "total_conversations": 15847,
+  "active_conversations_30d": 3254,
+  "total_tickets": 1254,
+  "active_tickets": 87,
+  "total_knowledge_sources": 524,
+  "avg_conversations_per_tenant": 22.4,
+  "active_tenants": 145
+}
+```
+
+#### 15.5 Get Cohort Analysis
+
+Analyze tenant retention by signup cohort.
+
+**Endpoint:** `GET /platform/analytics/cohorts`
+
+**Query Parameters:**
+- `cohort_size` (optional): "week" or "month" (default: "month")
+- `months_back` (optional): Number of months to analyze (default: 6, max: 24)
+
+**Response:**
+```json
+{
+  "cohorts": [
+    {
+      "cohort": "2025-12",
+      "total_signups": 42,
+      "active_count": 38,
+      "churned_count": 4,
+      "retention_rate": 90.5,
+      "churn_rate": 9.5
+    }
+  ],
+  "cohort_size": "month",
+  "months_analyzed": 6,
+  "period": {
+    "start": "2025-07-27T00:00:00",
+    "end": "2026-01-27T00:00:00"
+  }
+}
+```
+
+#### 15.6 Get Dashboard Summary
+
+Get comprehensive dashboard with all metrics.
+
+**Endpoint:** `GET /platform/analytics/dashboard`
+
+**Response:** Combined response from all analytics endpoints above.
+
+---
+
+### 16. System Health Monitoring
+
+#### 16.1 Get Background Job Health
+
+Monitor ARQ background job status and failures.
+
+**Endpoint:** `GET /platform/health/jobs`
+
+**Query Parameters:**
+- `hours` (optional): Hours to analyze (default: 24, max: 168)
+
+**Response:**
+```json
+{
+  "period_hours": 24,
+  "status_counts": {
+    "pending": 5,
+    "processing": 2,
+    "completed": 143,
+    "failed": 3
+  },
+  "success_rate": 97.9,
+  "jobs_by_type": {
+    "document_ingestion": 120,
+    "trial_expiration_check": 15,
+    "subscription_confirmations": 13
+  },
+  "recent_failures": [
+    {
+      "id": "uuid",
+      "job_type": "document_ingestion",
+      "tenant_id": "uuid",
+      "error_message": "Rate limit exceeded",
+      "created_at": "2026-01-27T10:30:00"
+    }
+  ],
+  "health_status": "healthy"
+}
+```
+
+#### 16.2 Get API Health
+
+Monitor API performance from audit logs.
+
+**Endpoint:** `GET /platform/health/api`
+
+**Query Parameters:**
+- `hours` (optional): Hours to analyze (default: 1, max: 24)
+
+**Response:**
+```json
+{
+  "period_hours": 1,
+  "total_requests": 2547,
+  "requests_per_minute": 42.45,
+  "error_rate": 0.8,
+  "top_actions": [
+    {"action": "chat_message", "count": 854},
+    {"action": "knowledge_search", "count": 432}
+  ],
+  "health_status": "healthy"
+}
+```
+
+#### 16.3 Get Database Health
+
+Monitor database connection pool and performance.
+
+**Endpoint:** `GET /platform/health/database`
+
+**Response:**
+```json
+{
+  "connection_pool": {
+    "size": 20,
+    "checked_in": 17,
+    "checked_out": 3,
+    "overflow": 0,
+    "max_overflow": 40
+  },
+  "pool_utilization_percent": 15.0,
+  "response_time_ms": 12.5,
+  "database_size_mb": 2548.7,
+  "record_counts": {
+    "tenants": 197,
+    "users": 542,
+    "conversations": 15847
+  },
+  "health_status": "healthy"
+}
+```
+
+#### 16.4 Get Queue Health
+
+Monitor Redis/ARQ queue status.
+
+**Endpoint:** `GET /platform/health/queue`
+
+**Response:**
+```json
+{
+  "redis_ping_ms": 2.3,
+  "queue_length": 12,
+  "used_memory_mb": 145.8,
+  "memory_utilization_percent": 14.6,
+  "connected_clients": 8,
+  "failed_jobs_cached": 2,
+  "uptime_seconds": 86400,
+  "health_status": "healthy"
+}
+```
+
+#### 16.5 Get Overall Health
+
+Get comprehensive system health summary.
+
+**Endpoint:** `GET /platform/health/overall`
+
+**Response:**
+```json
+{
+  "overall_status": "healthy",
+  "timestamp": "2026-01-27T12:00:00",
+  "components": {
+    "background_jobs": {...},
+    "api": {...},
+    "database": {...},
+    "queue": {...}
+  }
+}
+```
+
+---
+
+### 17. Financial Reporting
+
+#### 17.1 Get Revenue Breakdown
+
+Detailed revenue analysis by tier and billing cycle.
+
+**Endpoint:** `GET /platform/financials/revenue-breakdown`
+
+**Query Parameters:**
+- `start_date` (optional): ISO format
+- `end_date` (optional): ISO format
+
+**Response:**
+```json
+{
+  "period": {
+    "start": "2026-01-01T00:00:00",
+    "end": "2026-01-27T00:00:00",
+    "days": 27
+  },
+  "total_revenue": 6750000.0,
+  "total_payments": 156,
+  "average_revenue_per_payment": 43269.23,
+  "revenue_by_tier": {
+    "starter": 1950000.0,
+    "professional": 4125000.0,
+    "enterprise": 675000.0
+  },
+  "payment_counts_by_tier": {
+    "starter": 78,
+    "professional": 55,
+    "enterprise": 23
+  },
+  "revenue_by_billing_cycle": {
+    "monthly": 5400000.0,
+    "annual": 1350000.0
+  },
+  "daily_revenue": {
+    "2026-01-01": 250000.0,
+    "2026-01-02": 175000.0
+  },
+  "currency": "NGN"
+}
+```
+
+#### 17.2 Get Payment Analytics
+
+Payment success/failure analysis.
+
+**Endpoint:** `GET /platform/financials/payment-analytics`
+
+**Query Parameters:**
+- `days` (optional): Days to analyze (default: 30, max: 365)
+
+**Response:**
+```json
+{
+  "period_days": 30,
+  "total_attempts": 178,
+  "status_counts": {
+    "success": 156,
+    "failed": 18,
+    "pending": 4
+  },
+  "success_rate": 87.6,
+  "successful_revenue": 6750000.0,
+  "potential_lost_revenue": 780000.0,
+  "payment_methods": {
+    "card": {
+      "count": 178,
+      "success": 156,
+      "failed": 18,
+      "success_rate": 87.6
+    }
+  },
+  "recent_failures": [],
+  "currency": "NGN"
+}
+```
+
+#### 17.3 Get Subscription Forecast
+
+Revenue forecast based on current trends.
+
+**Endpoint:** `GET /platform/financials/forecast`
+
+**Query Parameters:**
+- `months` (optional): Months to forecast (default: 6, max: 24)
+
+**Response:**
+```json
+{
+  "current_mrr": 2500000.0,
+  "current_arr": 30000000.0,
+  "monthly_growth_rate": 8.5,
+  "forecast_months": 6,
+  "forecast": [
+    {
+      "month": 1,
+      "date": "2026-02",
+      "projected_mrr": 2712500.0,
+      "projected_arr": 32550000.0
+    }
+  ],
+  "total_projected_revenue": 17437500.0,
+  "currency": "NGN",
+  "disclaimer": "Forecast based on current trends and may vary with market conditions"
+}
+```
+
+#### 17.4 Get Refund Report
+
+Refund tracking and analysis.
+
+**Endpoint:** `GET /platform/financials/refunds`
+
+**Query Parameters:**
+- `start_date` (optional): ISO format
+- `end_date` (optional): ISO format
+
+**Response:**
+```json
+{
+  "period": {
+    "start": "2026-01-01T00:00:00",
+    "end": "2026-01-27T00:00:00"
+  },
+  "total_refunds": 12,
+  "refunds_by_tier": {
+    "starter": 7,
+    "professional": 4,
+    "enterprise": 1
+  },
+  "refunds_by_reason": {
+    "service_issues": 5,
+    "switching_platforms": 4,
+    "budget_constraints": 3
+  },
+  "recent_refunds": []
+}
+```
+
+#### 17.5 Get Financial Summary
+
+Comprehensive financial overview.
+
+**Endpoint:** `GET /platform/financials/summary`
+
+**Response:** Combined response from all financial endpoints.
+
+---
+
+### 18. Audit Log Management
+
+#### 18.1 Search Audit Logs
+
+Search and filter platform audit logs.
+
+**Endpoint:** `GET /platform/audit/logs`
+
+**Query Parameters:**
+- `tenant_id` (optional): Filter by tenant UUID
+- `user_id` (optional): Filter by user UUID
+- `action` (optional): Filter by action (partial match)
+- `resource_type` (optional): Filter by resource type
+- `start_date` (optional): ISO format
+- `end_date` (optional): ISO format
+- `limit` (optional): Max results (default: 100, max: 1000)
+- `offset` (optional): Results offset (default: 0)
+
+**Response:**
+```json
+{
+  "logs": [
+    {
+      "id": "uuid",
+      "tenant_id": "uuid",
+      "user_id": "uuid",
+      "action": "subscription_override",
+      "resource_type": "tenant",
+      "resource_id": "uuid",
+      "changes": {
+        "old_tier": "trial",
+        "new_tier": "professional"
+      },
+      "ip_address": "192.168.1.1",
+      "user_agent": "Mozilla/5.0...",
+      "created_at": "2026-01-27T10:30:00"
+    }
+  ],
+  "pagination": {
+    "total": 5420,
+    "limit": 100,
+    "offset": 0,
+    "has_more": true
+  }
+}
+```
+
+#### 18.2 Export Audit Logs
+
+Export audit logs to CSV or JSON.
+
+**Endpoint:** `GET /platform/audit/logs/export`
+
+**Query Parameters:**
+- `format`: "csv" or "json" (required)
+- `tenant_id` (optional): Filter by tenant
+- `start_date` (optional): ISO format
+- `end_date` (optional): ISO format
+
+**Response:** File download (CSV or JSON)
+
+**Headers:**
+```
+Content-Type: text/csv (or application/json)
+Content-Disposition: attachment; filename=audit_logs_20260127_120000.csv
+```
+
+#### 18.3 Get Tenant Activity
+
+Activity summary for a specific tenant.
+
+**Endpoint:** `GET /platform/audit/tenant/{tenant_id}/activity`
+
+**Path Parameters:**
+- `tenant_id`: Tenant UUID
+
+**Query Parameters:**
+- `days` (optional): Days to analyze (default: 30, max: 365)
+
+**Response:**
+```json
+{
+  "tenant_id": "uuid",
+  "tenant_name": "acme_corp",
+  "period_days": 30,
+  "total_actions": 1254,
+  "active_users": 12,
+  "actions_breakdown": {
+    "chat_message": 854,
+    "knowledge_upload": 42,
+    "user_invited": 8
+  },
+  "daily_activity": {
+    "2026-01-27": 48,
+    "2026-01-26": 52
+  }
+}
+```
+
+#### 18.4 Get Security Events
+
+Security-related events with severity classification.
+
+**Endpoint:** `GET /platform/audit/security-events`
+
+**Query Parameters:**
+- `severity` (optional): "high", "medium", or "low"
+- `days` (optional): Days to analyze (default: 7, max: 90)
+- `limit` (optional): Max results (default: 100, max: 1000)
+
+**Response:**
+```json
+{
+  "period_days": 7,
+  "total_events": 24,
+  "severity_counts": {
+    "high": 3,
+    "medium": 12,
+    "low": 9
+  },
+  "events": [
+    {
+      "id": "uuid",
+      "severity": "high",
+      "action": "user_deactivated",
+      "tenant_id": "uuid",
+      "user_id": "uuid",
+      "resource_type": "user",
+      "changes": {...},
+      "ip_address": "192.168.1.1",
+      "created_at": "2026-01-27T10:30:00"
+    }
+  ]
+}
+```
+
+---
+
+### 19. Review & Feedback Management
+
+#### 19.1 Get All Session Ratings
+
+Cross-tenant session rating analytics.
+
+**Endpoint:** `GET /platform/reviews/ratings/all`
+
+**Query Parameters:**
+- `tenant_id` (optional): Filter by tenant UUID
+- `min_score` (optional): Min score (1-5)
+- `max_score` (optional): Max score (1-5)
+- `days` (optional): Days to analyze (default: 30, max: 365)
+- `limit` (optional): Max results (default: 100, max: 1000)
+- `offset` (optional): Results offset
+
+**Response:**
+```json
+{
+  "ratings": [
+    {
+      "id": "uuid",
+      "tenant_id": "uuid",
+      "session_id": "uuid",
+      "score": 5,
+      "comment": "Excellent service!",
+      "user_identifier": "user_12345",
+      "created_at": "2026-01-27T10:30:00"
+    }
+  ],
+  "statistics": {
+    "total_ratings": 2547,
+    "average_score": 4.2,
+    "score_distribution": {
+      "5": 1254,
+      "4": 854,
+      "3": 287,
+      "2": 102,
+      "1": 50
+    }
+  },
+  "pagination": {
+    "limit": 100,
+    "offset": 0,
+    "total": 2547
+  }
+}
+```
+
+#### 19.2 Analyze Sentiment
+
+Sentiment analysis from ratings and feedback.
+
+**Endpoint:** `GET /platform/reviews/sentiment-analysis`
+
+**Query Parameters:**
+- `tenant_id` (optional): Filter by tenant UUID
+- `days` (optional): Days to analyze (default: 30, max: 365)
+
+**Response:**
+```json
+{
+  "period_days": 30,
+  "session_ratings": {
+    "total": 2547,
+    "positive": 2108,
+    "neutral": 287,
+    "negative": 152,
+    "positive_percentage": 82.8
+  },
+  "platform_feedback": {
+    "satisfied": 184,
+    "unsatisfied": 24
+  },
+  "overall_sentiment_score": 78.5,
+  "sentiment_category": "positive"
+}
+```
+
+#### 19.3 Get Tenant Health Scores
+
+Calculate tenant health based on feedback.
+
+**Endpoint:** `GET /platform/reviews/tenant-health-scores`
+
+**Query Parameters:**
+- `days` (optional): Days to analyze (default: 30, max: 365)
+- `limit` (optional): Max tenants (default: 50, max: 200)
+
+**Response:**
+```json
+{
+  "period_days": 30,
+  "total_tenants": 145,
+  "tenants": [
+    {
+      "tenant_id": "uuid",
+      "tenant_name": "acme_corp",
+      "display_name": "Acme Corporation",
+      "health_score": 85.4,
+      "health_category": "excellent",
+      "metrics": {
+        "average_rating": 4.5,
+        "rating_count": 142,
+        "average_satisfaction": 4.2
+      }
+    }
+  ]
+}
+```
+
+#### 19.4 Get Platform Feedback
+
+Cross-tenant platform feedback.
+
+**Endpoint:** `GET /platform/reviews/feedback/platform`
+
+**Query Parameters:**
+- `tenant_id` (optional): Filter by tenant UUID
+- `category` (optional): Feedback category
+- `status` (optional): Feedback status
+- `days` (optional): Days to analyze (default: 30, max: 365)
+- `limit` (optional): Max results (default: 100, max: 1000)
+- `offset` (optional): Results offset
+
+**Response:**
+```json
+{
+  "feedback": [
+    {
+      "id": "uuid",
+      "tenant_id": "uuid",
+      "category": "feature_request",
+      "title": "Add bulk upload feature",
+      "description": "...",
+      "satisfaction_score": 4,
+      "status": "acknowledged",
+      "created_at": "2026-01-27T10:30:00"
+    }
+  ],
+  "total": 208,
+  "page": 1,
+  "page_size": 100
+}
+```
+
+---
+
+### 20. User Management
+
+#### 20.1 Search Users
+
+Cross-tenant user search.
+
+**Endpoint:** `GET /platform/users/search`
+
+**Query Parameters:**
+- `email` (optional): Email filter (partial match)
+- `tenant_id` (optional): Filter by tenant UUID
+- `role` (optional): "tenant_admin", "support_agent", or "viewer"
+- `is_active` (optional): Active status filter (true/false)
+- `limit` (optional): Max results (default: 100, max: 1000)
+- `offset` (optional): Results offset
+
+**Response:**
+```json
+{
+  "users": [
+    {
+      "id": "uuid",
+      "email": "john@acme.com",
+      "full_name": "John Doe",
+      "role": "tenant_admin",
+      "is_active": true,
+      "is_verified": true,
+      "tenant_id": "uuid",
+      "tenant_name": "acme_corp",
+      "tenant_display_name": "Acme Corporation",
+      "created_at": "2025-12-15T10:00:00",
+      "updated_at": "2026-01-27T09:00:00",
+      "last_login": "2026-01-27T08:30:00"
+    }
+  ],
+  "pagination": {
+    "total": 542,
+    "limit": 100,
+    "offset": 0,
+    "has_more": true
+  }
+}
+```
+
+#### 20.2 Get User Details
+
+Detailed user information with activity.
+
+**Endpoint:** `GET /platform/users/{user_id}`
+
+**Path Parameters:**
+- `user_id`: User UUID
+
+**Response:**
+```json
+{
+  "id": "uuid",
+  "email": "john@acme.com",
+  "full_name": "John Doe",
+  "role": "tenant_admin",
+  "is_active": true,
+  "is_verified": true,
+  "tenant": {
+    "id": "uuid",
+    "name": "acme_corp",
+    "display_name": "Acme Corporation",
+    "subscription_status": "active",
+    "subscription_tier": "professional"
+  },
+  "created_at": "2025-12-15T10:00:00",
+  "updated_at": "2026-01-27T09:00:00",
+  "last_login": "2026-01-27T08:30:00",
+  "recent_activity": {
+    "period_days": 30,
+    "total_actions": 245,
+    "actions_breakdown": {...},
+    "recent_actions": [...]
+  }
+}
+```
+
+#### 20.3 Get User Activity
+
+User activity summary from audit logs.
+
+**Endpoint:** `GET /platform/users/{user_id}/activity`
+
+**Path Parameters:**
+- `user_id`: User UUID
+
+**Query Parameters:**
+- `days` (optional): Days to analyze (default: 30, max: 365)
+
+**Response:**
+```json
+{
+  "period_days": 30,
+  "total_actions": 245,
+  "actions_breakdown": {
+    "chat_message": 154,
+    "knowledge_upload": 12,
+    "widget_config_update": 3
+  },
+  "recent_actions": [
+    {
+      "action": "chat_message",
+      "resource_type": "conversation",
+      "created_at": "2026-01-27T10:30:00"
+    }
+  ]
+}
+```
+
+#### 20.4 Deactivate User
+
+Deactivate a user account (requires platform admin).
+
+**Endpoint:** `POST /platform/users/{user_id}/deactivate`
+
+**Path Parameters:**
+- `user_id`: User UUID
+
+**Request Body:**
+```json
+{
+  "reason": "Policy violation - spam detected"
+}
+```
+
+**Response:**
+```json
+{
+  "status": "success",
+  "message": "User john@acme.com has been deactivated",
+  "user_id": "uuid",
+  "reason": "Policy violation - spam detected",
+  "deactivated_at": "2026-01-27T12:00:00"
+}
+```
+
+#### 20.5 Get Role Distribution
+
+User role distribution statistics.
+
+**Endpoint:** `GET /platform/users/analytics/role-distribution`
+
+**Response:**
+```json
+{
+  "total_users": 542,
+  "active_users": 487,
+  "inactive_users": 55,
+  "verified_users": 524,
+  "role_distribution": {
+    "tenant_admin": 197,
+    "support_agent": 284,
+    "viewer": 61
+  },
+  "recent_signups_30d": 38
+}
+```
+
+---
+
+### Health Status Values
+
+All health endpoints return one of these statuses:
+
+- **healthy**: System operating normally
+- **degraded**: System functional but experiencing issues
+- **unhealthy**: Critical issues requiring immediate attention
+- **unavailable**: Component not accessible
+
+---
+
+### Platform Admin Frontend Pages Checklist
+
+#### Analytics Dashboard
+- [ ] Revenue overview cards (MRR, ARR, growth rate)
+- [ ] Subscription health metrics (churn, conversion, active/trial counts)
+- [ ] Growth charts (daily signups, upgrades, trends)
+- [ ] Usage statistics (conversations, tickets, knowledge sources)
+- [ ] Cohort retention table
+- [ ] Date range selector
+
+#### System Health Monitor
+- [ ] Overall health status indicator
+- [ ] Background jobs panel (success rate, recent failures)
+- [ ] API health panel (request rate, error rate)
+- [ ] Database health panel (connection pool, response time)
+- [ ] Queue health panel (backlog, memory usage)
+- [ ] Real-time refresh toggle
+
+#### Financial Reports
+- [ ] Revenue breakdown table (by tier and cycle)
+- [ ] Payment analytics (success rate, failure reasons)
+- [ ] Revenue forecast chart (6-month projection)
+- [ ] Refund tracking table
+- [ ] Export to Excel/CSV button
+
+#### Audit Logs
+- [ ] Search filters (tenant, user, action, date range)
+- [ ] Audit log table with sorting
+- [ ] Export to CSV/JSON button
+- [ ] Tenant activity detail modal
+- [ ] Security events panel with severity indicators
+
+#### Review Management
+- [ ] Session ratings table with filters
+- [ ] Sentiment analysis dashboard
+- [ ] Tenant health scores ranking
+- [ ] Platform feedback management
+- [ ] Feedback status update
+
+#### User Management
+- [ ] User search with multiple filters
+- [ ] User details modal with activity timeline
+- [ ] Deactivate user confirmation dialog
+- [ ] Role distribution pie chart
+- [ ] Bulk actions support
+
+---
+
+### Important Notes for Platform Admin Features
+
+1. **Authentication:** All platform admin endpoints require `Bearer <platform_admin_token>` from `/platform/auth/login`
+
+2. **Rate Limiting:** Platform admin endpoints have higher rate limits (100 req/min) compared to tenant endpoints
+
+3. **Pagination:** Most list endpoints support limit/offset pagination with max 1000 results per request
+
+4. **Performance:** Analytics queries are optimized but may take 2-5 seconds for large datasets. Consider implementing loading states.
+
+5. **Export Limits:** Audit log exports are limited to 10,000 records per request. Use date range filters for larger exports.
+
+6. **Health Monitoring:** System health endpoints are designed for polling every 30-60 seconds. More frequent polling may impact performance.
+
+7. **Financial Data:** All financial amounts are in Nigerian Naira (NGN). MRR calculations include annual subscriptions divided by 12.
+
+8. **Security Events:** High severity events include admin creation/deletion, user deactivation, and subscription overrides. These should trigger alerts in the frontend.
+
+9. **Tenant Health Scores:** Calculated using 60% session ratings + 40% platform feedback satisfaction. Scores below 40 indicate at-risk tenants.
+
+10. **User Deactivation:** Deactivating a user logs the action in audit trails and notifies the tenant admin automatically (via email notification service).
+
+---
+
+**Last Updated:** 2026-01-27  
+**Backend Team Contact:** For questions about platform admin features

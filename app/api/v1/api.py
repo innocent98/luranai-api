@@ -21,6 +21,13 @@ from app.api.v1.endpoints import (
 )
 from app.api.v1.endpoints.platform import tenants as platform_tenants
 from app.api.v1.endpoints.platform import subscriptions as platform_subscriptions
+from app.api.v1.endpoints.platform import analytics as platform_analytics
+from app.api.v1.endpoints.platform import health as platform_health
+from app.api.v1.endpoints.platform import financials as platform_financials
+from app.api.v1.endpoints.platform import audit as platform_audit
+from app.api.v1.endpoints.platform import reviews as platform_reviews
+from app.api.v1.endpoints.platform import users as platform_users
+from app.api.v1.endpoints.platform import pricing as platform_pricing
 
 api_router = APIRouter()
 
@@ -77,6 +84,55 @@ api_router.include_router(
     platform_subscriptions.router,
     prefix="/platform/subscriptions",
     tags=["platform-subscriptions"],
+)
+
+# Platform admin analytics endpoints
+api_router.include_router(
+    platform_analytics.router,
+    prefix="/platform/analytics",
+    tags=["platform-analytics"],
+)
+
+# Platform admin system health endpoints
+api_router.include_router(
+    platform_health.router,
+    prefix="/platform/health",
+    tags=["platform-health"],
+)
+
+# Platform admin financial reporting endpoints
+api_router.include_router(
+    platform_financials.router,
+    prefix="/platform/financials",
+    tags=["platform-financials"],
+)
+
+# Platform admin audit log endpoints
+api_router.include_router(
+    platform_audit.router,
+    prefix="/platform/audit",
+    tags=["platform-audit"],
+)
+
+# Platform admin review & feedback endpoints
+api_router.include_router(
+    platform_reviews.router,
+    prefix="/platform/reviews",
+    tags=["platform-reviews"],
+)
+
+# Platform admin user management endpoints
+api_router.include_router(
+    platform_users.router,
+    prefix="/platform/users",
+    tags=["platform-users"],
+)
+
+# Platform admin pricing management endpoints
+api_router.include_router(
+    platform_pricing.router,
+    prefix="/platform/pricing",
+    tags=["platform-pricing"],
 )
 
 # Tenant self-management endpoints

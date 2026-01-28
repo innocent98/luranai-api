@@ -18,90 +18,17 @@ from app.schemas.platform_subscription import (
     TrialExtensionResponse,
 )
 from app.services.subscription_service import SubscriptionService
+from app.services.plan_service import PlanService
 
 
 class PlatformSubscriptionService:
     """Platform admin operations for subscription management."""
 
-    # Pricing in kobo (Nigerian currency: 100 kobo = 1 Naira)
-    PRICING = {
-        "trial": {
-            "monthly": 0,
-            "annual": 0,
-        },
-        "lite": {
-            "monthly": 500000,  # ₦5,000/month
-            "annual": 5400000,  # ₦54,000/year (10% discount)
-        },
-        "professional": {
-            "monthly": 1500000,  # ₦15,000/month
-            "annual": 16200000,  # ₦162,000/year (10% discount)
-        },
-        "enterprise": {
-            "monthly": 5000000,  # ₦50,000/month
-            "annual": 54000000,  # ₦540,000/year (10% discount)
-        },
-    }
-
-    TIER_DISPLAY_NAMES = {
-        "trial": "Trial",
-        "lite": "Lite",
-        "professional": "Professional",
-        "enterprise": "Enterprise",
-    }
-
-    TIER_DESCRIPTIONS = {
-        "trial": "Try out the platform with limited features",
-        "lite": "Perfect for small businesses getting started",
-        "professional": "Advanced features for growing teams",
-        "enterprise": "Unlimited everything for large organizations",
-    }
-
-    TIER_FEATURES = {
-        "trial": [
-            "2 knowledge sources",
-            "10MB storage",
-            "100 conversations/month",
-            "1 team member",
-            "Email support",
-        ],
-        "lite": [
-            "10 knowledge sources",
-            "50MB storage",
-            "1,000 conversations/month",
-            "3 team members",
-            "URL scraping",
-            "Analytics dashboard",
-            "Priority email support",
-        ],
-        "professional": [
-            "30 knowledge sources",
-            "200MB storage",
-            "5,000 conversations/month",
-            "10 team members",
-            "URL scraping",
-            "Analytics dashboard",
-            "Advanced AI responses",
-            "Priority support",
-        ],
-        "enterprise": [
-            "Unlimited knowledge sources",
-            "Unlimited storage",
-            "Unlimited conversations",
-            "Unlimited team members",
-            "URL scraping",
-            "Analytics dashboard",
-            "Premium AI responses",
-            "24/7 priority support",
-            "Dedicated account manager",
-            "Custom integrations",
-        ],
-    }
-
     def __init__(self, db: Session):
         """Initialize platform subscription service."""
         self.db = db
         self.subscription_service = SubscriptionService(db)
+        self.plan_service = PlanService(db)
 
     def override_tenant_subscription(
         self,
@@ -135,7 +62,7 @@ class PlatformSubscriptionService:
         if not tenant:
             raise ValueError("Tenant not found")
 
-        if tier not in self.subscription_service.TIER_CONFIGS:
+        if not self.plan_service.validate_tier(tier):
             raise ValueError(f"Invalid tier: {tier}")
 
         # Validate billing cycle
@@ -451,15 +378,23 @@ class PlatformSubscriptionService:
         """
         Get public pricing information for all tiers.
 
+        Note: Enterprise tier is excluded from public plans (contact-only).
+
         Returns:
             List of pricing plans with capabilities and features
         """
         plans = []
 
-        for tier, config in self.subscription_service.TIER_CONFIGS.items():
-            monthly_kobo = self.PRICING[tier]["monthly"]
-            annual_kobo = self.PRICING[tier]["annual"]
+        # Get all active plans from database
+        db_plans = self.plan_service.get_all_plans(active_only=True)
 
+        for plan in db_plans:
+            # Exclude enterprise from public pricing (contact-only)
+            if plan.tier == "enterprise":
+                continue
+
+            monthly_kobo = plan.monthly_price_kobo
+            annual_kobo = plan.annual_price_kobo
             monthly_naira = monthly_kobo / 100
             annual_naira = annual_kobo / 100
 
@@ -470,21 +405,21 @@ class PlatformSubscriptionService:
                 (annual_savings / annual_equivalent * 100) if annual_equivalent > 0 else 0
             )
 
-            plan = PricingPlanResponse(
-                tier=tier,
-                display_name=self.TIER_DISPLAY_NAMES[tier],
-                description=self.TIER_DESCRIPTIONS[tier],
+            pricing_plan = PricingPlanResponse(
+                tier=plan.tier,
+                display_name=plan.display_name,
+                description=plan.description,
                 monthly_price_kobo=monthly_kobo,
                 annual_price_kobo=annual_kobo,
                 monthly_price_naira=monthly_naira,
                 annual_price_naira=annual_naira,
                 annual_savings_naira=annual_savings,
                 annual_discount_percentage=round(annual_discount_pct, 1),
-                capabilities=config,
-                features=self.TIER_FEATURES[tier],
-                is_popular=(tier == "professional"),  # Mark professional as popular
+                capabilities=plan.get_capabilities(),
+                features=plan.features,
+                is_popular=(plan.tier == "professional"),  # Mark professional as popular
             )
-            plans.append(plan)
+            plans.append(pricing_plan)
 
         return plans
 
@@ -502,9 +437,7 @@ class PlatformSubscriptionService:
             tier: New tier
             respect_overrides: If True, preserve fields in override_flags
         """
-        config = self.subscription_service.TIER_CONFIGS.get(tier)
-        if not config:
-            raise ValueError(f"Invalid tier: {tier}")
+        config = self.plan_service.get_plan_config(tier)
 
         capabilities = self.db.query(TenantCapabilities).filter(
             TenantCapabilities.tenant_id == tenant_id

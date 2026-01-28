@@ -138,6 +138,27 @@ async def verify_subscription_active(
                 }
             )
 
+    # Check active subscription expiration (for end-of-period cancellations)
+    if tenant.subscription_status == "active":
+        from datetime import timezone as tz
+        now = datetime.now(tz.utc)
+
+        # If subscription has an end date and it has passed, auto-expire
+        if tenant.subscription_ends_at and now > tenant.subscription_ends_at:
+            tenant.subscription_status = "canceled"
+            db.commit()
+
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "error": "subscription_expired",
+                    "message": "Your subscription has ended. Please reactivate to continue using Luran.",
+                    "subscription_ended": tenant.subscription_ends_at.isoformat(),
+                    "upgrade_url": "/dashboard/billing",
+                    "subscription_tier": tenant.subscription_tier,
+                }
+            )
+
     # Check subscription status
     if tenant.subscription_status in ["trial_expired", "canceled", "past_due"]:
         raise HTTPException(

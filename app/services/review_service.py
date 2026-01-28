@@ -448,3 +448,268 @@ class ReviewService:
             page=(offset // limit) + 1 if limit > 0 else 1,
             page_size=limit,
         )
+
+    # ===== Platform-Wide Analytics Methods =====
+
+    def get_all_session_ratings(
+        self,
+        tenant_id: Optional[UUID] = None,
+        min_score: Optional[int] = None,
+        max_score: Optional[int] = None,
+        days: int = 30,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict:
+        """
+        Get session ratings across all tenants (platform admin only).
+
+        Args:
+            tenant_id: Optional tenant filter
+            min_score: Minimum score filter
+            max_score: Maximum score filter
+            days: Number of days to look back
+            limit: Max results
+            offset: Results offset
+
+        Returns:
+            Dict with ratings and statistics
+        """
+        from datetime import datetime, timedelta
+
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days)
+
+        # Build filters
+        filters = [SessionRating.created_at >= start_date]
+
+        if tenant_id:
+            filters.append(SessionRating.tenant_id == tenant_id)
+        if min_score is not None:
+            filters.append(SessionRating.score >= min_score)
+        if max_score is not None:
+            filters.append(SessionRating.score <= max_score)
+
+        # Get total count
+        count_stmt = select(func.count(SessionRating.id)).where(and_(*filters))
+        total = self.db.execute(count_stmt).scalar() or 0
+
+        # Get ratings
+        stmt = (
+            select(SessionRating)
+            .where(and_(*filters))
+            .order_by(desc(SessionRating.created_at))
+            .limit(limit)
+            .offset(offset)
+        )
+
+        ratings = self.db.execute(stmt).scalars().all()
+
+        # Calculate statistics
+        avg_stmt = select(func.avg(SessionRating.score)).where(and_(*filters))
+        avg_score = self.db.execute(avg_stmt).scalar() or 0
+
+        # Score distribution
+        score_dist_stmt = (
+            select(SessionRating.score, func.count(SessionRating.id).label("count"))
+            .where(and_(*filters))
+            .group_by(SessionRating.score)
+        )
+        score_dist = self.db.execute(score_dist_stmt).all()
+
+        return {
+            "ratings": [SessionRatingResponse.model_validate(r) for r in ratings],
+            "statistics": {
+                "total_ratings": total,
+                "average_score": float(avg_score),
+                "score_distribution": {score: count for score, count in score_dist},
+            },
+            "pagination": {
+                "limit": limit,
+                "offset": offset,
+                "total": total,
+            },
+        }
+
+    def analyze_sentiment(
+        self,
+        tenant_id: Optional[UUID] = None,
+        days: int = 30,
+    ) -> dict:
+        """
+        Analyze sentiment from ratings and feedback.
+
+        Args:
+            tenant_id: Optional tenant filter
+            days: Number of days to analyze
+
+        Returns:
+            Dict with sentiment analysis
+        """
+        from datetime import datetime, timedelta
+
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days)
+
+        # Session ratings sentiment
+        rating_filters = [SessionRating.created_at >= start_date]
+        if tenant_id:
+            rating_filters.append(SessionRating.tenant_id == tenant_id)
+
+        # Count by score ranges (positive, neutral, negative)
+        positive_stmt = select(func.count(SessionRating.id)).where(
+            and_(SessionRating.score >= 4, *rating_filters)
+        )
+        neutral_stmt = select(func.count(SessionRating.id)).where(
+            and_(SessionRating.score == 3, *rating_filters)
+        )
+        negative_stmt = select(func.count(SessionRating.id)).where(
+            and_(SessionRating.score <= 2, *rating_filters)
+        )
+
+        positive_count = self.db.execute(positive_stmt).scalar() or 0
+        neutral_count = self.db.execute(neutral_stmt).scalar() or 0
+        negative_count = self.db.execute(negative_stmt).scalar() or 0
+
+        total_ratings = positive_count + neutral_count + negative_count
+
+        # Platform feedback sentiment
+        feedback_filters = [PlatformFeedback.created_at >= start_date]
+        if tenant_id:
+            feedback_filters.append(PlatformFeedback.tenant_id == tenant_id)
+
+        # Count by satisfaction score
+        satisfied_stmt = select(func.count(PlatformFeedback.id)).where(
+            and_(PlatformFeedback.satisfaction_score >= 4, *feedback_filters)
+        )
+        unsatisfied_stmt = select(func.count(PlatformFeedback.id)).where(
+            and_(PlatformFeedback.satisfaction_score <= 2, *feedback_filters)
+        )
+
+        satisfied_count = self.db.execute(satisfied_stmt).scalar() or 0
+        unsatisfied_count = self.db.execute(unsatisfied_stmt).scalar() or 0
+
+        # Calculate overall sentiment score (0-100)
+        if total_ratings > 0:
+            sentiment_score = (
+                (positive_count * 1.0 + neutral_count * 0.5 + negative_count * 0.0)
+                / total_ratings
+                * 100
+            )
+        else:
+            sentiment_score = 50  # Neutral default
+
+        return {
+            "period_days": days,
+            "session_ratings": {
+                "total": total_ratings,
+                "positive": positive_count,
+                "neutral": neutral_count,
+                "negative": negative_count,
+                "positive_percentage": (positive_count / total_ratings * 100) if total_ratings > 0 else 0,
+            },
+            "platform_feedback": {
+                "satisfied": satisfied_count,
+                "unsatisfied": unsatisfied_count,
+            },
+            "overall_sentiment_score": float(sentiment_score),
+            "sentiment_category": (
+                "positive" if sentiment_score >= 70
+                else "neutral" if sentiment_score >= 40
+                else "negative"
+            ),
+        }
+
+    def calculate_tenant_health_scores(
+        self,
+        days: int = 30,
+        limit: int = 50,
+    ) -> dict:
+        """
+        Calculate health scores for tenants based on feedback.
+
+        Args:
+            days: Number of days to analyze
+            limit: Max tenants to return
+
+        Returns:
+            Dict with tenant health scores
+        """
+        from datetime import datetime, timedelta
+        from app.db.models.tenant import Tenant
+
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=days)
+
+        # Get all active tenants
+        tenant_stmt = select(Tenant).where(
+            Tenant.subscription_status.in_(["active", "trialing"])
+        )
+        tenants = self.db.execute(tenant_stmt).scalars().all()
+
+        tenant_scores = []
+
+        for tenant in tenants:
+            # Get average session rating
+            avg_rating_stmt = select(func.avg(SessionRating.score)).where(
+                and_(
+                    SessionRating.tenant_id == tenant.id,
+                    SessionRating.created_at >= start_date,
+                )
+            )
+            avg_rating = self.db.execute(avg_rating_stmt).scalar() or 0
+
+            # Get rating count
+            rating_count_stmt = select(func.count(SessionRating.id)).where(
+                and_(
+                    SessionRating.tenant_id == tenant.id,
+                    SessionRating.created_at >= start_date,
+                )
+            )
+            rating_count = self.db.execute(rating_count_stmt).scalar() or 0
+
+            # Get platform feedback satisfaction
+            avg_satisfaction_stmt = select(func.avg(PlatformFeedback.satisfaction_score)).where(
+                and_(
+                    PlatformFeedback.tenant_id == tenant.id,
+                    PlatformFeedback.created_at >= start_date,
+                )
+            )
+            avg_satisfaction = self.db.execute(avg_satisfaction_stmt).scalar() or 0
+
+            # Calculate health score (0-100)
+            # Weight: 60% session ratings + 40% satisfaction
+            if rating_count > 0 or avg_satisfaction > 0:
+                health_score = (
+                    (avg_rating / 5 * 60) +
+                    (avg_satisfaction / 5 * 40)
+                )
+            else:
+                health_score = 0  # No data
+
+            tenant_scores.append({
+                "tenant_id": str(tenant.id),
+                "tenant_name": tenant.name,
+                "display_name": tenant.display_name,
+                "health_score": float(health_score),
+                "health_category": (
+                    "excellent" if health_score >= 80
+                    else "good" if health_score >= 60
+                    else "fair" if health_score >= 40
+                    else "poor" if health_score > 0
+                    else "no_data"
+                ),
+                "metrics": {
+                    "average_rating": float(avg_rating),
+                    "rating_count": rating_count,
+                    "average_satisfaction": float(avg_satisfaction),
+                },
+            })
+
+        # Sort by health score (descending)
+        tenant_scores.sort(key=lambda x: x["health_score"], reverse=True)
+
+        return {
+            "period_days": days,
+            "total_tenants": len(tenant_scores),
+            "tenants": tenant_scores[:limit],
+        }

@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+
+{% block title %}Your Luran Trial is Expiring Soon{% endblock %}
+
+{% block content %}
+<h1>Your Trial is Expiring in {{ days_remaining }} Days</h1>
+
+<p>Hi {{ admin_name }},</p>
+
+<p>
+    Your <strong>{{ company_name }}</strong> free trial of Luran will expire on
+    <strong>{{ expiry_date }}</strong>. Don't lose access to your AI-powered customer support!
+</p>
+
+{% if usage_summary %}
+<div class="info">
+    <strong>Your Usage This Month:</strong>
+    <ul style="margin: 8px 0 0 0; padding-left: 20px;">
+        {% if usage_summary.conversations %}
+        <li><strong>{{ usage_summary.conversations }}</strong> conversations handled</li>
+        {% endif %}
+        {% if usage_summary.tickets %}
+        <li><strong>{{ usage_summary.tickets }}</strong> support tickets managed</li>
+        {% endif %}
+        {% if usage_summary.knowledge_sources %}
+        <li><strong>{{ usage_summary.knowledge_sources }}</strong> knowledge sources uploaded</li>
+        {% endif %}
+    </ul>
+</div>
+{% endif %}
+
+<h3 style="margin-top: 30px;">Continue Your Success - Upgrade Today</h3>
+
+<p>Choose a plan that fits your needs:</p>
+
+<table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+    <tr>
+        <td style="padding: 20px; border: 2px solid #e5e7eb; border-radius: 8px; background-color: #f9fafb;">
+            <div style="font-weight: 600; font-size: 18px; color: #1f2937; margin-bottom: 8px;">Lite</div>
+            <div style="font-size: 24px; font-weight: bold; color: #2563eb; margin-bottom: 12px;">
+                {{ pricing.lite_monthly }}/month
+            </div>
+            <ul style="color: #4b5563; font-size: 14px; padding-left: 20px; margin: 0;">
+                <li>1,000 conversations/month</li>
+                <li>3 team members</li>
+                <li>10 knowledge sources</li>
+                <li>Priority email support</li>
+            </ul>
+        </td>
+    </tr>
+</table>
+
+<table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+    <tr>
+        <td style="padding: 20px; border: 2px solid #2563eb; border-radius: 8px; background-color: #eff6ff;">
+            <div style="display: inline-block; background-color: #2563eb; color: white; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; margin-bottom: 8px;">RECOMMENDED</div>
+            <div style="font-weight: 600; font-size: 18px; color: #1f2937; margin-bottom: 8px;">Professional</div>
+            <div style="font-size: 24px; font-weight: bold; color: #2563eb; margin-bottom: 12px;">
+                {{ pricing.professional_monthly }}/month
+            </div>
+            <ul style="color: #4b5563; font-size: 14px; padding-left: 20px; margin: 0;">
+                <li>5,000 conversations/month</li>
+                <li>10 team members</li>
+                <li>30 knowledge sources</li>
+                <li>Advanced AI responses</li>
+                <li>Priority support</li>
+            </ul>
+        </td>
+    </tr>
+</table>
+
+<center>
+    <a href="{{ app_url }}/billing/upgrade" class="button">
+        Upgrade Now and Keep Your Data
+    </a>
+</center>
+
+<p style="color: #6b7280; font-size: 14px; margin-top: 20px; text-align: center;">
+    Or view all plans at: {{ app_url }}/pricing
+</p>
+
+<div class="warning">
+    <strong>⚠️ What happens if you don't upgrade:</strong>
+    <ul style="margin: 8px 0 0 0; padding-left: 20px;">
+        <li>Your AI assistant will stop responding to customers</li>
+        <li>Team members will lose access</li>
+        <li>Your knowledge base and conversation history will be archived</li>
+    </ul>
+</div>
+
+<p style="margin-top: 30px;">
+    Have questions about which plan is right for you? We're here to help!
+</p>
+{% endblock %}

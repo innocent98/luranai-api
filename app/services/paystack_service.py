@@ -12,27 +12,11 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.services.plan_service import PlanService
 
 
 class PaystackService:
     """Service for handling Paystack payment operations."""
-
-    # Subscription pricing (in Naira)
-    PRICING = {
-        "lite": {
-            "monthly": 12000,  # ₦12,000/month
-            "annual": 120000,  # ₦120,000/year (2 months free)
-        },
-        "professional": {
-            "monthly": 35000,  # ₦35,000/month
-            "annual": 350000,  # ₦350,000/year (2 months free)
-        },
-        "enterprise": {
-            # Custom pricing - contact sales
-            "monthly": None,
-            "annual": None,
-        },
-    }
 
     # Paystack plan codes (actual codes from Paystack dashboard)
     PLAN_CODES = {
@@ -44,6 +28,7 @@ class PaystackService:
 
     def __init__(self, db: Session):
         self.db = db
+        self.plan_service = PlanService(db)
         self.base_url = settings.PAYSTACK_BASE_URL
         self.secret_key = settings.PAYSTACK_SECRET_KEY
         self.headers = {
@@ -65,21 +50,18 @@ class PaystackService:
         Raises:
             ValueError: If invalid tier or billing cycle
         """
-        if tier not in self.PRICING:
-            raise ValueError(f"Invalid tier: {tier}")
-
         if billing_cycle not in ["monthly", "annual"]:
             raise ValueError(f"Invalid billing cycle: {billing_cycle}")
 
-        amount_naira = self.PRICING[tier][billing_cycle]
+        # Get price from database
+        amount_kobo = self.plan_service.get_pricing(tier, billing_cycle)
 
-        if amount_naira is None:
+        if amount_kobo == 0 and tier == "enterprise":
             raise ValueError(
                 f"Enterprise pricing is custom. Please contact sales."
             )
 
-        # Convert to kobo (1 Naira = 100 kobo)
-        return amount_naira * 100
+        return amount_kobo
 
     def get_plan_code(self, tier: str, billing_cycle: str) -> str:
         """

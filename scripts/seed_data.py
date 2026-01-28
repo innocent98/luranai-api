@@ -1,16 +1,11 @@
 """
-Seed database with initial test data.
+Seed database with initial data.
 
 Creates:
-- Platform admin
-- Test tenant (Weysure)
-- Luran company tenant
-- Tenant admins
-- AI configuration
-- Sample knowledge documents
+- Subscription plans (trial, lite, professional, enterprise)
+- Platform admin (admin@luranai.com)
 """
 
-import asyncio
 import sys
 from pathlib import Path
 
@@ -18,379 +13,216 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from uuid import UUID
 from app.db.session import SessionLocal
-from app.services.auth_service import AuthService
+from app.db.models.subscription_plan import SubscriptionPlan
 from app.services.platform_admin_auth_service import PlatformAdminAuthService
-from app.services.tenant_service import TenantService
-from app.services.knowledge_service import KnowledgeService
-from app.schemas.user import UserCreate
 from app.schemas.platform_admin import PlatformAdminCreate
-from app.schemas.tenant import TenantCreate, TenantAIConfigUpdate
-from app.db.models.knowledge import SourceType
-from app.db.models.user import UserRole
 from app.db.models.platform_admin import PlatformAdminRole
 from loguru import logger
 
 
-# Sample insurance FAQ document
-SAMPLE_FAQ = """
-What is covered under comprehensive insurance?
+def create_subscription_plans(db):
+    """Create subscription plans with pricing and capabilities."""
 
-Comprehensive insurance covers damage to your vehicle that is not caused by a collision. This includes:
-- Theft and vandalism
-- Fire and explosions
-- Natural disasters (floods, earthquakes, hurricanes)
-- Falling objects (tree branches, hail)
-- Animal strikes (hitting a deer)
-- Glass damage (windshield cracks)
+    plans_data = [
+        {
+            "tier": "trial",
+            "display_name": "Trial",
+            "description": "Try out the platform with limited features",
+            "monthly_price_kobo": 0,
+            "annual_price_kobo": 0,
+            "can_access_analytics": False,
+            "max_knowledge_sources": 2,
+            "can_use_url_sources": False,
+            "max_knowledge_mb": 10,
+            "max_conversations_per_month": 100,
+            "max_team_members": 1,
+            "max_response_tokens": 800,
+            "features": [
+                "2 knowledge sources",
+                "10MB storage",
+                "100 conversations/month",
+                "1 team member",
+                "Email support",
+            ],
+            "is_active": True,
+            "sort_order": 0,
+        },
+        {
+            "tier": "lite",
+            "display_name": "Lite",
+            "description": "Perfect for small businesses getting started",
+            "monthly_price_kobo": 1200000,  # ₦12,000/month
+            "annual_price_kobo": 12000000,  # ₦120,000/year
+            "can_access_analytics": True,
+            "max_knowledge_sources": 10,
+            "can_use_url_sources": True,
+            "max_knowledge_mb": 50,
+            "max_conversations_per_month": 1000,
+            "max_team_members": 3,
+            "max_response_tokens": 1000,
+            "features": [
+                "10 knowledge sources",
+                "50MB storage",
+                "1,000 conversations/month",
+                "3 team members",
+                "URL scraping",
+                "Analytics dashboard",
+                "Priority email support",
+            ],
+            "is_active": True,
+            "sort_order": 1,
+        },
+        {
+            "tier": "professional",
+            "display_name": "Professional",
+            "description": "Advanced features for growing teams",
+            "monthly_price_kobo": 3500000,  # ₦35,000/month
+            "annual_price_kobo": 35000000,  # ₦350,000/year
+            "can_access_analytics": True,
+            "max_knowledge_sources": 30,
+            "can_use_url_sources": True,
+            "max_knowledge_mb": 200,
+            "max_conversations_per_month": 5000,
+            "max_team_members": 10,
+            "max_response_tokens": 1500,
+            "features": [
+                "30 knowledge sources",
+                "200MB storage",
+                "5,000 conversations/month",
+                "10 team members",
+                "URL scraping",
+                "Analytics dashboard",
+                "Advanced AI responses",
+                "Priority support",
+            ],
+            "is_active": True,
+            "sort_order": 2,
+        },
+        {
+            "tier": "enterprise",
+            "display_name": "Enterprise",
+            "description": "Contact us for custom pricing and unlimited features",
+            "monthly_price_kobo": 0,  # Contact for pricing
+            "annual_price_kobo": 0,  # Contact for pricing
+            "can_access_analytics": True,
+            "max_knowledge_sources": None,  # Unlimited
+            "can_use_url_sources": True,
+            "max_knowledge_mb": None,  # Unlimited
+            "max_conversations_per_month": None,  # Unlimited
+            "max_team_members": None,  # Unlimited
+            "max_response_tokens": 2000,
+            "features": [
+                "Unlimited knowledge sources",
+                "Unlimited storage",
+                "Unlimited conversations",
+                "Unlimited team members",
+                "URL scraping",
+                "Analytics dashboard",
+                "Premium AI responses",
+                "24/7 priority support",
+                "Dedicated account manager",
+                "Custom integrations",
+            ],
+            "is_active": True,
+            "sort_order": 3,
+        },
+    ]
 
-Comprehensive coverage is optional but highly recommended for protecting your investment.
+    created_count = 0
+    updated_count = 0
 
-How do I file a claim?
+    for plan_data in plans_data:
+        # Check if plan already exists
+        existing = db.query(SubscriptionPlan).filter(
+            SubscriptionPlan.tier == plan_data["tier"]
+        ).first()
 
-Filing a claim is simple and can be done in several ways:
-1. Call our 24/7 claims hotline at 1-800-INSURANCE
-2. Use our mobile app to submit photos and details
-3. Visit any of our local offices
-4. File online through your customer portal
+        if existing:
+            # Update existing plan
+            for key, value in plan_data.items():
+                if key != "tier":  # Don't update tier
+                    setattr(existing, key, value)
+            updated_count += 1
+            logger.info(f"Updated subscription plan: {plan_data['tier']}")
+        else:
+            # Create new plan
+            plan = SubscriptionPlan(**plan_data)
+            db.add(plan)
+            created_count += 1
+            logger.info(f"Created subscription plan: {plan_data['tier']}")
 
-You'll need your policy number, date and location of incident, and any relevant documentation like police reports or photos.
-
-What is the deductible?
-
-A deductible is the amount you pay out-of-pocket before your insurance coverage kicks in. For example, if you have a $500 deductible and file a $3000 claim, you pay $500 and we cover the remaining $2500.
-
-Common deductible amounts:
-- $250 (higher premiums, lower out-of-pocket)
-- $500 (balanced option)
-- $1000 (lower premiums, higher out-of-pocket)
-
-You can adjust your deductible during renewal to balance premium costs.
-
-Can I add drivers to my policy?
-
-Yes! You can add additional drivers to your policy at any time. Common scenarios:
-- Adding a teenage driver (may increase premiums)
-- Adding a spouse or partner
-- Adding elderly parents
-
-Each driver's record will be evaluated and may affect your premium. To add a driver, contact your agent or use the online portal.
-
-What happens if I miss a payment?
-
-If you miss a payment, here's what happens:
-1. Grace period: You have 10 days from the due date to make payment without penalty
-2. Late fee: A $25 late fee is applied after the grace period
-3. Coverage lapse: After 30 days of non-payment, coverage may be suspended
-4. Policy cancellation: After 60 days, the policy may be cancelled
-
-We'll send multiple reminders via email and text. Set up autopay to avoid missing payments!
-
-How do I update my policy information?
-
-You can update your policy information in several ways:
-- Online through your customer portal (available 24/7)
-- Call our customer service at 1-800-INSURANCE
-- Visit any local office
-- Email your agent directly
-
-Common updates include: address changes, vehicle information, driver additions/removals, coverage adjustments, and payment methods.
-
-What is the claims process timeline?
-
-Our typical claims timeline:
-- Initial report: Immediate (24/7 availability)
-- Adjuster contact: Within 24-48 hours
-- Inspection scheduled: Within 3-5 business days
-- Initial estimate: Within 7 business days
-- Repair authorization: Within 2-3 days after estimate approval
-- Payment issued: Within 5 business days after completed repairs
-
-Complex claims may take longer. We'll keep you updated throughout the process.
-"""
+    db.commit()
+    return created_count, updated_count
 
 
-async def main():
-    """Seed the database with initial data."""
-    db = SessionLocal()
+def create_platform_admin(db):
+    """Create Luran platform admin."""
+
+    platform_admin_service = PlatformAdminAuthService(db)
+
+    admin_data = PlatformAdminCreate(
+        email="admin@luranai.com",
+        password="admin123",
+        full_name="Luran Platform Admin",
+        role=PlatformAdminRole.SUPER_ADMIN,
+    )
 
     try:
-        logger.info("=" * 60)
-        logger.info("Starting database seeding...")
-        logger.info("=" * 60)
+        platform_admin = platform_admin_service.create_admin(admin_data)
+        logger.success(f"Created platform admin: {platform_admin.email}")
+        return True
+    except Exception as e:
+        if "already exists" in str(e).lower():
+            logger.info("Platform admin already exists: admin@luranai.com")
+            return False
+        else:
+            logger.error(f"Failed to create platform admin: {e}")
+            raise
 
-        auth_service = AuthService(db)
-        platform_admin_service = PlatformAdminAuthService(db)
-        tenant_service = TenantService(db)
-        knowledge_service = KnowledgeService(db)
 
-        # Step 1: Create/Update platform admin
-        logger.info("\n1. Creating platform admin...")
-        try:
-            admin_data = PlatformAdminCreate(
-                email="admin@luranai.com",
-                password="admin123",  # Change in production!
-                full_name="Luran Platform Admin",
-                role=PlatformAdminRole.SUPER_ADMIN,
-            )
-            platform_admin = platform_admin_service.create_admin(admin_data)
-            logger.success(f"✓ Created platform admin: {platform_admin.email}")
-        except Exception as e:
-            if "already exists" in str(e).lower():
-                logger.warning("Platform admin already exists, skipping...")
-            else:
-                raise
+def main():
+    """Main seeding function."""
+    logger.info("Starting database seeding...")
 
-        # Step 2: Create test tenant (Weysure)
-        logger.info("\n2. Creating test tenant (Weysure)...")
-        try:
-            tenant_data = TenantCreate(
-                name="weysure",
-                display_name="Weysure Insurance",
-                description="AI-powered insurance support for Weysure customers",
-            )
-            tenant = tenant_service.create_tenant(tenant_data)
-            tenant_id = tenant.id
-            logger.success(f"✓ Created tenant: {tenant.display_name} (ID: {tenant_id})")
-            logger.info(f"  API Key: {tenant.api_key[:20]}...")
-        except Exception as e:
-            if "already exists" in str(e).lower():
-                logger.warning("Tenant already exists, fetching...")
-                tenant = tenant_service.get_tenant_by_name("weysure")
-                if not tenant:
-                    raise Exception("Could not find or create Weysure tenant")
-                tenant_id = tenant.id
-                logger.info(f"  Using existing tenant ID: {tenant_id}")
-            else:
-                raise
-
-        # Step 3: Create tenant admin user
-        logger.info("\n3. Creating tenant admin user...")
-        try:
-            admin_data = UserCreate(
-                email="admin@weysure.com",
-                password="weysure123",  # Change in production!
-                full_name="Weysure Admin",
-                role=UserRole.TENANT_ADMIN,
-                tenant_id=tenant_id,
-            )
-            tenant_admin = auth_service.create_user(admin_data)
-            logger.success(f"✓ Created tenant admin: {tenant_admin.email}")
-        except Exception as e:
-            if "already exists" in str(e).lower():
-                logger.warning("Tenant admin already exists, skipping...")
-            else:
-                raise
-
-        # Step 4: Configure AI settings
-        logger.info("\n4. Configuring AI settings...")
-        ai_config_data = TenantAIConfigUpdate(
-            brand_voice={
-                "tone": "professional",
-                "formality_level": "balanced",
-                "greeting_style": "warm",
-                "emoji_usage": False,
-            },
-            allowed_topics=[
-                "insurance coverage",
-                "claims process",
-                "policy information",
-                "billing and payments",
-                "account management",
-            ],
-            blocked_topics=[
-                "personal medical advice",
-                "legal advice",
-                "investment advice",
-            ],
-            escalation_keywords=[
-                "lawyer",
-                "lawsuit",
-                "complaint",
-                "supervisor",
-                "cancel policy",
-                "fraud",
-            ],
-            confidence_threshold=0.55,
-            max_response_tokens=400,
-            grounding_requirement=True,
-            custom_instructions="Always be empathetic when discussing claims. Remind users about our 24/7 claims hotline for urgent matters.",
+    db = SessionLocal()
+    try:
+        # Step 1: Create subscription plans
+        logger.info("Creating subscription plans...")
+        created, updated = create_subscription_plans(db)
+        logger.success(
+            f"Subscription plans: {created} created, {updated} updated"
         )
-        ai_config = tenant_service.update_ai_config(tenant_id, ai_config_data)
-        logger.success("✓ AI configuration updated")
-        logger.info(f"  Confidence threshold: {ai_config.confidence_threshold}")
-        logger.info(f"  Max tokens: {ai_config.max_response_tokens}")
 
-        # Step 5: Upload knowledge document
-        logger.info("\n5. Uploading sample knowledge document...")
-        try:
-            source = await knowledge_service.process_document(
-                tenant_id=tenant_id,
-                document_text=SAMPLE_FAQ,
-                document_name="insurance_faq.txt",
-                source_type=SourceType.FAQ,
-                document_metadata={
-                    "language": "en",
-                    "category": "general",
-                    "author": "support_team",
-                },
-            )
-            logger.success(f"✓ Uploaded knowledge document: {source.name}")
-            logger.info(f"  Source ID: {source.id}")
-            logger.info(f"  Version: {source.version}")
-            logger.info(f"  Chunks created: {source.chunk_count}")
-            logger.info(f"  Status: {source.status}")
-        except Exception as e:
-            logger.error(f"✗ Failed to upload knowledge: {e}")
-            logger.warning("  (May be due to API quota limits)")
+        # Step 2: Create platform admin
+        logger.info("Creating platform admin...")
+        admin_created = create_platform_admin(db)
+        if admin_created:
+            logger.success("Platform admin created")
+        else:
+            logger.info("Platform admin already exists")
 
-        # Step 6: Create Luran company tenant
-        logger.info("\n6. Creating Luran company tenant...")
-        try:
-            luran_tenant_data = TenantCreate(
-                name="luran",
-                display_name="Luran AI Platform",
-                description="AI-powered customer support platform - Luran's own AI assistant",
-            )
-            luran_tenant = tenant_service.create_tenant(luran_tenant_data)
-            luran_tenant_id = luran_tenant.id
-            logger.success(f"✓ Created tenant: {luran_tenant.display_name} (ID: {luran_tenant_id})")
-            logger.info(f"  API Key: {luran_tenant.api_key[:20]}...")
-        except Exception as e:
-            if "already exists" in str(e).lower():
-                logger.warning("Luran tenant already exists, fetching...")
-                luran_tenant = tenant_service.get_tenant_by_name("luran")
-                if not luran_tenant:
-                    raise Exception("Could not find or create Luran tenant")
-                luran_tenant_id = luran_tenant.id
-                logger.info(f"  Using existing tenant ID: {luran_tenant_id}")
-            else:
-                raise
-
-        # Step 7: Create Luran tenant admin user
-        logger.info("\n7. Creating Luran tenant admin user...")
-        try:
-            luran_admin_data = UserCreate(
-                email="admin@luranai.com",
-                password="admin123",  # Change in production!
-                full_name="Luran Admin",
-                role=UserRole.TENANT_ADMIN,
-                tenant_id=luran_tenant_id,
-            )
-            luran_admin = auth_service.create_user(luran_admin_data)
-            logger.success(f"✓ Created Luran tenant admin: {luran_admin.email}")
-        except Exception as e:
-            if "already exists" in str(e).lower():
-                logger.warning("Luran tenant admin already exists, skipping...")
-            else:
-                raise
-
-        # Step 8: Configure Luran AI settings
-        logger.info("\n8. Configuring Luran AI settings...")
-        luran_ai_config_data = TenantAIConfigUpdate(
-            brand_voice={
-                "tone": "professional",
-                "formality_level": "balanced",
-                "greeting_style": "warm",
-                "emoji_usage": False,
-            },
-            allowed_topics=[
-                "platform features",
-                "knowledge base management",
-                "widget installation",
-                "AI configuration",
-                "team management",
-                "analytics and reporting",
-                "API and integrations",
-                "billing and pricing",
-                "security and compliance",
-                "troubleshooting",
-            ],
-            blocked_topics=[
-                "competitor platforms",
-                "internal operations",
-                "proprietary algorithms",
-            ],
-            escalation_keywords=[
-                "speak to sales",
-                "talk to support",
-                "urgent issue",
-                "platform down",
-                "critical bug",
-                "data breach",
-            ],
-            confidence_threshold=0.60,
-            max_response_tokens=500,
-            grounding_requirement=True,
-            custom_instructions="Always direct users to appropriate documentation sections. For billing inquiries, suggest contacting the sales team. For technical issues, provide troubleshooting steps before escalating.",
-        )
-        luran_ai_config = tenant_service.update_ai_config(luran_tenant_id, luran_ai_config_data)
-        logger.success("✓ Luran AI configuration updated")
-        logger.info(f"  Confidence threshold: {luran_ai_config.confidence_threshold}")
-        logger.info(f"  Max tokens: {luran_ai_config.max_response_tokens}")
-
-        # Step 9: Upload Luran knowledge document
-        logger.info("\n9. Uploading Luran platform knowledge document...")
-        try:
-            # Read the comprehensive Luran knowledge base
-            knowledge_file_path = project_root / "luran_platform_knowledge.txt"
-            with open(knowledge_file_path, "r", encoding="utf-8") as f:
-                luran_knowledge = f.read()
-
-            luran_source = await knowledge_service.process_document(
-                tenant_id=luran_tenant_id,
-                document_text=luran_knowledge,
-                document_name="luran_platform_knowledge.txt",
-                source_type=SourceType.HELP_DOC,
-                document_metadata={
-                    "language": "en",
-                    "category": "platform_documentation",
-                    "author": "luran_team",
-                    "version": "1.0",
-                },
-            )
-            logger.success(f"✓ Uploaded Luran knowledge document: {luran_source.name}")
-            logger.info(f"  Source ID: {luran_source.id}")
-            logger.info(f"  Version: {luran_source.version}")
-            logger.info(f"  Chunks created: {luran_source.chunk_count}")
-            logger.info(f"  Status: {luran_source.status}")
-        except Exception as e:
-            logger.error(f"✗ Failed to upload Luran knowledge: {e}")
-            logger.warning("  (May be due to API quota limits)")
-
-        # Print summary
-        logger.info("\n" + "=" * 60)
-        logger.success("Database seeding completed!")
-        logger.info("=" * 60)
-        logger.info("\nTest Credentials:")
-        logger.info("  Platform Admin:")
-        logger.info("    Email: admin@luranai.com")
-        logger.info("    Password: admin123")
-        logger.info("\n  Tenant Admin (Weysure):")
-        logger.info("    Email: admin@weysure.com")
-        logger.info("    Password: weysure123")
-        logger.info(f"\n  Weysure Tenant ID: {tenant_id}")
-        logger.info("\n  Tenant Admin (Luran):")
-        logger.info("    Email: admin@luranai.com")
-        logger.info("    Password: admin123")
-        logger.info(f"\n  Luran Tenant ID: {luran_tenant_id}")
-        logger.info("\nNext Steps:")
-        logger.info("  1. Server is already running via Docker")
-        logger.info("  2. Visit API docs: http://localhost:8000/api/v1/docs")
-        logger.info("  3. Login with tenant admin credentials to get JWT token")
-        logger.info("  4. Test chat endpoint with uploaded knowledge")
-        logger.info("  5. Try Luran's own AI - ask questions about the platform!")
-        logger.info("\nExample: Chat with Luran AI about 'How do I upload knowledge documents?'")
+        # Summary
+        logger.success("\n" + "=" * 50)
+        logger.success("Database seeding completed successfully!")
+        logger.success("=" * 50)
+        logger.success("\nCreated:")
+        logger.success(f"  - {created} new subscription plans")
+        logger.success(f"  - {updated} updated subscription plans")
+        if admin_created:
+            logger.success("  - 1 platform admin")
+        logger.success("\nPlatform Admin Credentials:")
+        logger.success("  Email: admin@luranai.com")
+        logger.success("  Password: admin123")
+        logger.success("=" * 50 + "\n")
 
     except Exception as e:
-        logger.error(f"Error during seeding: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        logger.error(f"Error seeding database: {e}")
+        db.rollback()
+        raise
     finally:
         db.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

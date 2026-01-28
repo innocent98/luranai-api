@@ -353,6 +353,346 @@ Luran Team
         # Don't fail the job if email fails
 
 
+# ============================================================================
+# Automated Email Notification Workers
+# ============================================================================
+
+
+async def check_trial_expiration_3days(ctx: dict) -> dict:
+    """
+    Check for trials expiring in 3 days and send reminder emails.
+
+    Scheduled: Daily at 9:00 AM UTC
+
+    Args:
+        ctx: ARQ context
+
+    Returns:
+        Result dict with count of emails sent
+    """
+    from datetime import timedelta
+    from sqlalchemy import select, and_
+    from app.db.models.tenant import Tenant
+    from app.services.email_notification_service import EmailNotificationService
+
+    logger.info("Running trial expiration check (3-day reminder)")
+
+    db = SessionLocal()
+    emails_sent = 0
+
+    try:
+        # Find tenants with trials expiring in 3 days
+        target_date = datetime.now(timezone.utc) + timedelta(days=3)
+        date_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        date_end = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+        query = select(Tenant).where(
+            and_(
+                Tenant.subscription_status == "trialing",
+                Tenant.trial_ends_at >= date_start,
+                Tenant.trial_ends_at <= date_end,
+            )
+        )
+
+        result = await db.execute(query)
+        expiring_tenants = result.scalars().all()
+
+        logger.info(f"Found {len(expiring_tenants)} tenants with trials expiring in 3 days")
+
+        # Send reminder emails
+        email_service = EmailNotificationService(db)
+
+        for tenant in expiring_tenants:
+            try:
+                success = await email_service.send_trial_expiration_reminder(
+                    tenant_id=tenant.id,
+                    days_remaining=3
+                )
+                if success:
+                    emails_sent += 1
+                    logger.info(f"Sent trial expiration reminder to tenant {tenant.name}")
+                else:
+                    logger.warning(f"Failed to send reminder to tenant {tenant.name}")
+            except Exception as e:
+                logger.error(f"Error sending reminder to tenant {tenant.name}: {e}")
+
+        logger.info(f"Trial expiration check complete. Sent {emails_sent}/{len(expiring_tenants)} emails")
+
+        return {
+            "status": "success",
+            "emails_sent": emails_sent,
+            "tenants_checked": len(expiring_tenants),
+        }
+
+    except Exception as e:
+        logger.error(f"Error in trial expiration check: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "emails_sent": emails_sent,
+        }
+    finally:
+        await db.close()
+
+
+async def send_subscription_confirmations(ctx: dict) -> dict:
+    """
+    Send confirmation emails for successful payments in the last 10 minutes.
+
+    Scheduled: Every 5 minutes
+
+    Args:
+        ctx: ARQ context
+
+    Returns:
+        Result dict with count of emails sent
+    """
+    from datetime import timedelta
+    from sqlalchemy import select, and_
+    from app.db.models.payment import PaymentTransaction
+    from app.services.email_notification_service import EmailNotificationService
+
+    logger.info("Running subscription confirmation email job")
+
+    db = SessionLocal()
+    emails_sent = 0
+
+    try:
+        # Find successful payments in the last 10 minutes
+        cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=10)
+
+        query = select(PaymentTransaction).where(
+            and_(
+                PaymentTransaction.status == "success",
+                PaymentTransaction.created_at >= cutoff_time,
+            )
+        )
+
+        result = await db.execute(query)
+        recent_payments = result.scalars().all()
+
+        logger.info(f"Found {len(recent_payments)} successful payments in last 10 minutes")
+
+        # Send confirmation emails
+        email_service = EmailNotificationService(db)
+
+        for payment in recent_payments:
+            try:
+                success = await email_service.send_subscription_confirmation(
+                    tenant_id=payment.tenant_id,
+                    payment_id=payment.id
+                )
+                if success:
+                    emails_sent += 1
+                    logger.info(f"Sent subscription confirmation for payment {payment.id}")
+            except Exception as e:
+                logger.error(f"Error sending confirmation for payment {payment.id}: {e}")
+
+        logger.info(f"Subscription confirmation job complete. Sent {emails_sent}/{len(recent_payments)} emails")
+
+        return {
+            "status": "success",
+            "emails_sent": emails_sent,
+            "payments_checked": len(recent_payments),
+        }
+
+    except Exception as e:
+        logger.error(f"Error in subscription confirmation job: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "emails_sent": emails_sent,
+        }
+    finally:
+        await db.close()
+
+
+async def send_payment_failure_emails(ctx: dict) -> dict:
+    """
+    Send notification emails for failed payments in the last 2 hours.
+
+    Scheduled: Every 30 minutes
+
+    Args:
+        ctx: ARQ context
+
+    Returns:
+        Result dict with count of emails sent
+    """
+    from datetime import timedelta
+    from sqlalchemy import select, and_
+    from app.db.models.payment import PaymentTransaction
+    from app.services.email_notification_service import EmailNotificationService
+
+    logger.info("Running payment failure notification job")
+
+    db = SessionLocal()
+    emails_sent = 0
+
+    try:
+        # Find failed payments in the last 2 hours
+        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=2)
+
+        query = select(PaymentTransaction).where(
+            and_(
+                PaymentTransaction.status == "failed",
+                PaymentTransaction.created_at >= cutoff_time,
+            )
+        )
+
+        result = await db.execute(query)
+        failed_payments = result.scalars().all()
+
+        logger.info(f"Found {len(failed_payments)} failed payments in last 2 hours")
+
+        # Send failure notification emails
+        email_service = EmailNotificationService(db)
+
+        for payment in failed_payments:
+            try:
+                success = await email_service.send_payment_failure_notification(
+                    tenant_id=payment.tenant_id,
+                    payment_id=payment.id,
+                    grace_days=7,
+                    failure_reason=None  # Could extract from payment metadata
+                )
+                if success:
+                    emails_sent += 1
+                    logger.info(f"Sent payment failure notification for payment {payment.id}")
+            except Exception as e:
+                logger.error(f"Error sending failure notification for payment {payment.id}: {e}")
+
+        logger.info(f"Payment failure job complete. Sent {emails_sent}/{len(failed_payments)} emails")
+
+        return {
+            "status": "success",
+            "emails_sent": emails_sent,
+            "payments_checked": len(failed_payments),
+        }
+
+    except Exception as e:
+        logger.error(f"Error in payment failure notification job: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "emails_sent": emails_sent,
+        }
+    finally:
+        await db.close()
+
+
+async def aggregate_daily_metrics(ctx: dict) -> dict:
+    """
+    Aggregate platform-wide metrics for analytics dashboard.
+
+    Scheduled: Daily at 1:00 AM UTC
+
+    Args:
+        ctx: ARQ context
+
+    Returns:
+        Result dict with aggregation status
+    """
+    from datetime import timedelta
+    from sqlalchemy import select, func
+    from app.db.models.tenant import Tenant
+    from app.db.models.audit import AnalyticsMetric
+
+    logger.info("Running daily metrics aggregation")
+
+    db = SessionLocal()
+    metrics_created = 0
+
+    try:
+        # Calculate yesterday's date range
+        today = datetime.now(timezone.utc).date()
+        yesterday = today - timedelta(days=1)
+        period_start = datetime.combine(yesterday, datetime.min.time()).replace(tzinfo=timezone.utc)
+        period_end = datetime.combine(yesterday, datetime.max.time()).replace(tzinfo=timezone.utc)
+
+        # Aggregate tenant count by subscription tier
+        tier_query = select(
+            Tenant.subscription_tier,
+            func.count(Tenant.id).label("count")
+        ).where(
+            Tenant.subscription_status == "active"
+        ).group_by(Tenant.subscription_tier)
+
+        tier_result = await db.execute(tier_query)
+        tier_counts = tier_result.all()
+
+        # Store tier metrics
+        for tier, count in tier_counts:
+            metric = AnalyticsMetric(
+                tenant_id=None,  # Platform-wide metric
+                metric_type=f"active_tenants_{tier}",
+                metric_value=float(count),
+                period_start=period_start,
+                period_end=period_end,
+                meta={"tier": tier}
+            )
+            db.add(metric)
+            metrics_created += 1
+
+        # Total active tenants
+        total_active_query = select(func.count(Tenant.id)).where(
+            Tenant.subscription_status == "active"
+        )
+        total_active_result = await db.execute(total_active_query)
+        total_active = total_active_result.scalar()
+
+        metric = AnalyticsMetric(
+            tenant_id=None,
+            metric_type="total_active_tenants",
+            metric_value=float(total_active or 0),
+            period_start=period_start,
+            period_end=period_end,
+            meta={}
+        )
+        db.add(metric)
+        metrics_created += 1
+
+        # Total trialing tenants
+        total_trial_query = select(func.count(Tenant.id)).where(
+            Tenant.subscription_status == "trialing"
+        )
+        total_trial_result = await db.execute(total_trial_query)
+        total_trial = total_trial_result.scalar()
+
+        metric = AnalyticsMetric(
+            tenant_id=None,
+            metric_type="total_trialing_tenants",
+            metric_value=float(total_trial or 0),
+            period_start=period_start,
+            period_end=period_end,
+            meta={}
+        )
+        db.add(metric)
+        metrics_created += 1
+
+        await db.commit()
+
+        logger.info(f"Daily metrics aggregation complete. Created {metrics_created} metrics for {yesterday}")
+
+        return {
+            "status": "success",
+            "metrics_created": metrics_created,
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
+        }
+
+    except Exception as e:
+        logger.error(f"Error in daily metrics aggregation: {e}")
+        await db.rollback()
+        return {
+            "status": "error",
+            "error": str(e),
+            "metrics_created": metrics_created,
+        }
+    finally:
+        await db.close()
+
+
 # ARQ worker settings
 def get_redis_settings():
     """Get Redis settings from environment at runtime."""
@@ -376,6 +716,10 @@ class WorkerSettings:
         process_document_ingestion,
         auto_abandon_inactive_conversations,
         auto_resolve_stale_tickets,
+        check_trial_expiration_3days,
+        send_subscription_confirmations,
+        send_payment_failure_emails,
+        aggregate_daily_metrics,
     ]
     redis_settings = get_redis_settings()
 
@@ -404,5 +748,31 @@ class WorkerSettings:
             hour=2,
             minute=0,
             run_at_startup=False,  # Don't run on startup
+        ),
+        # Check trial expiration (3-day reminder) - daily at 9 AM UTC
+        cron(
+            check_trial_expiration_3days,
+            hour=9,
+            minute=0,
+            run_at_startup=False,
+        ),
+        # Send subscription confirmation emails - every 5 minutes
+        cron(
+            send_subscription_confirmations,
+            minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
+            run_at_startup=False,
+        ),
+        # Send payment failure notifications - every 30 minutes
+        cron(
+            send_payment_failure_emails,
+            minute={0, 30},
+            run_at_startup=False,
+        ),
+        # Aggregate daily metrics - daily at 1 AM UTC
+        cron(
+            aggregate_daily_metrics,
+            hour=1,
+            minute=0,
+            run_at_startup=False,
         ),
     ]
