@@ -432,7 +432,7 @@ async def check_trial_expiration_3days(ctx: dict) -> dict:
             "emails_sent": emails_sent,
         }
     finally:
-        await db.close()
+        db.close()
 
 
 async def send_subscription_confirmations(ctx: dict) -> dict:
@@ -468,7 +468,7 @@ async def send_subscription_confirmations(ctx: dict) -> dict:
             )
         )
 
-        result = await db.execute(query)
+        result = db.execute(query)
         recent_payments = result.scalars().all()
 
         logger.info(f"Found {len(recent_payments)} successful payments in last 10 minutes")
@@ -504,7 +504,7 @@ async def send_subscription_confirmations(ctx: dict) -> dict:
             "emails_sent": emails_sent,
         }
     finally:
-        await db.close()
+        db.close()
 
 
 async def send_payment_failure_emails(ctx: dict) -> dict:
@@ -578,7 +578,7 @@ async def send_payment_failure_emails(ctx: dict) -> dict:
             "emails_sent": emails_sent,
         }
     finally:
-        await db.close()
+        db.close()
 
 
 async def aggregate_daily_metrics(ctx: dict) -> dict:
@@ -690,7 +690,7 @@ async def aggregate_daily_metrics(ctx: dict) -> dict:
             "metrics_created": metrics_created,
         }
     finally:
-        await db.close()
+        db.close()
 
 
 # ARQ worker settings
