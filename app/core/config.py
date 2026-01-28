@@ -72,6 +72,35 @@ class Settings(BaseSettings):
             )
         return v
 
+    @field_validator("FIRST_SUPERUSER_PASSWORD")
+    @classmethod
+    def validate_platform_admin_password(cls, v: str) -> str:
+        """Ensure platform admin initial password meets security requirements."""
+        if not v or v.strip() == "":
+            raise ValueError("Platform admin password must be set")
+
+        if len(v) < 12:
+            raise ValueError("Platform admin password must be at least 12 characters")
+
+        # Reject common weak passwords
+        dangerous = ["admin", "password", "changeme", "changethis", "12345678",
+                     "admin123", "password123", "luran", "luran123"]
+        if v.lower() in dangerous:
+            raise ValueError("Platform admin password is too weak. Use a strong, unique password")
+
+        # Require complexity (3 of 4: uppercase, lowercase, digit, special)
+        has_upper = any(c.isupper() for c in v)
+        has_lower = any(c.islower() for c in v)
+        has_digit = any(c.isdigit() for c in v)
+        has_special = any(c in "!@#$%^&*()_+-=[]{}|;:,.<>?" for c in v)
+
+        if sum([has_upper, has_lower, has_digit, has_special]) < 3:
+            raise ValueError(
+                "Password must contain 3 of: uppercase, lowercase, digits, special characters"
+            )
+
+        return v
+
     # Database
     DATABASE_URL: str
     DATABASE_POOL_SIZE: int = 20

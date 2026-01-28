@@ -7,13 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_platform_admin, get_db
+from app.utils.http_rate_limiter import platform_analytics_rate_limit
 from app.services.financial_reporting_service import FinancialReportingService
 from app.schemas.platform_admin import PlatformAdminResponse
 
 router = APIRouter()
 
 
-@router.get("/revenue-breakdown", status_code=status.HTTP_200_OK)
+@router.get("/revenue-breakdown", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
 def get_revenue_breakdown(
     start_date: Optional[str] = Query(None, description="Start date (ISO format)"),
     end_date: Optional[str] = Query(None, description="End date (ISO format)"),
@@ -52,7 +53,7 @@ def get_revenue_breakdown(
         )
 
 
-@router.get("/payment-analytics", status_code=status.HTTP_200_OK)
+@router.get("/payment-analytics", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
 def get_payment_analytics(
     days: int = Query(30, ge=1, le=365, description="Days to analyze"),
     db: Session = Depends(get_db),
@@ -77,7 +78,7 @@ def get_payment_analytics(
         )
 
 
-@router.get("/forecast", status_code=status.HTTP_200_OK)
+@router.get("/forecast", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
 def get_subscription_forecast(
     months: int = Query(6, ge=1, le=24, description="Months to forecast"),
     db: Session = Depends(get_db),
@@ -102,7 +103,7 @@ def get_subscription_forecast(
         )
 
 
-@router.get("/refunds", status_code=status.HTTP_200_OK)
+@router.get("/refunds", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
 def get_refund_report(
     start_date: Optional[str] = Query(None, description="Start date (ISO format)"),
     end_date: Optional[str] = Query(None, description="End date (ISO format)"),
@@ -141,7 +142,7 @@ def get_refund_report(
         )
 
 
-@router.get("/summary", status_code=status.HTTP_200_OK)
+@router.get("/summary", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
 def get_financial_summary(
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),

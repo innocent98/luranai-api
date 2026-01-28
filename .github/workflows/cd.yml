@@ -60,7 +60,7 @@ jobs:
             docker load < api-image.tar.gz
             
             # Pull other required images
-            docker-compose pull db redis qdrant pgadmin
+            docker-compose pull db redis qdrant
             
             # Run database migrations
             docker-compose run --rm api alembic upgrade head

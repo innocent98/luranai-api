@@ -18,6 +18,7 @@ from app.db.models.subscription_plan import SubscriptionPlan
 from app.services.platform_admin_auth_service import PlatformAdminAuthService
 from app.schemas.platform_admin import PlatformAdminCreate
 from app.db.models.platform_admin import PlatformAdminRole
+from app.core.config import settings
 from loguru import logger
 
 
@@ -157,13 +158,12 @@ def create_subscription_plans(db):
 
 
 def create_platform_admin(db):
-    """Create Luran platform admin."""
-
+    """Create Luran platform admin from environment variables."""
     platform_admin_service = PlatformAdminAuthService(db)
 
     admin_data = PlatformAdminCreate(
-        email="admin@luranai.com",
-        password="admin123",
+        email=settings.FIRST_SUPERUSER_EMAIL,
+        password=settings.FIRST_SUPERUSER_PASSWORD,
         full_name="Luran Platform Admin",
         role=PlatformAdminRole.SUPER_ADMIN,
     )
@@ -174,7 +174,7 @@ def create_platform_admin(db):
         return True
     except Exception as e:
         if "already exists" in str(e).lower():
-            logger.info("Platform admin already exists: admin@luranai.com")
+            logger.info(f"Platform admin already exists: {settings.FIRST_SUPERUSER_EMAIL}")
             return False
         else:
             logger.error(f"Failed to create platform admin: {e}")
@@ -212,8 +212,8 @@ def main():
         if admin_created:
             logger.success("  - 1 platform admin")
         logger.success("\nPlatform Admin Credentials:")
-        logger.success("  Email: admin@luranai.com")
-        logger.success("  Password: admin123")
+        logger.success(f"  Email: {settings.FIRST_SUPERUSER_EMAIL}")
+        logger.success("  Password: (from FIRST_SUPERUSER_PASSWORD env var)")
         logger.success("=" * 50 + "\n")
 
     except Exception as e:

@@ -18,7 +18,7 @@ from app.schemas.platform_admin import (
     CurrentPlatformAdminResponse,
     PlatformAdminListResponse,
 )
-from app.utils.http_rate_limiter import auth_rate_limit
+from app.utils.http_rate_limiter import auth_rate_limit, platform_admin_rate_limit
 
 router = APIRouter()
 
@@ -72,7 +72,7 @@ def get_current_admin_info(
     return current_admin
 
 
-@router.put("/me/password", status_code=status.HTTP_200_OK)
+@router.put("/me/password", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def update_password(
     password_data: PlatformAdminPasswordUpdate,
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
@@ -113,7 +113,7 @@ def update_password(
     "/admins",
     response_model=PlatformAdminResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(get_current_super_admin)],
+    dependencies=[Depends(get_current_super_admin), Depends(platform_admin_rate_limit)],
 )
 def create_platform_admin(
     admin_data: PlatformAdminCreate,
@@ -149,7 +149,7 @@ def create_platform_admin(
     "/admins",
     response_model=list[PlatformAdminListResponse],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(get_current_super_admin)],
+    dependencies=[Depends(get_current_super_admin), Depends(platform_admin_rate_limit)],
 )
 def list_platform_admins(db: Session = Depends(get_db)):
     """

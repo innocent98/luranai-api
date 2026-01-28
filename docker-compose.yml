@@ -28,6 +28,19 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   worker:
     build: .
@@ -50,57 +63,142 @@ services:
       QDRANT_URL: ${QDRANT_URL}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       ENVIRONMENT: ${ENVIRONMENT:-production}
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   db:
-    image: postgres:15
+    image: postgres:15-alpine
     container_name: luran_db
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "work_mem=8MB"
+      - "-c"
+      - "effective_cache_size=512MB"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./backups:/backups  # Backup storage directory
+      - ./backups:/backups
     ports:
       - "5432:5432"
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: luran_pgadmin
+  # Adminer - Lightweight database GUI (128MB vs PgAdmin's 500MB)
+  # Start only when needed: docker-compose up -d adminer
+  adminer:
+    image: adminer:latest
+    container_name: luran_adminer
     environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@luran.dev}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD}
-      PGADMIN_CONFIG_SERVER_MODE: 'False'
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
+      ADMINER_DEFAULT_SERVER: db
+      ADMINER_DESIGN: nette
     ports:
-      - "5050:80"
+      - "8080:8080"
     depends_on:
       - db
-    restart: unless-stopped
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M
+    profiles:
+      - tools
 
   redis:
     image: redis:7-alpine
     container_name: luran_redis
+    command: redis-server --maxmemory 512mb --maxmemory-policy allkeys-lru --save 60 1000
     ports:
       - "6379:6379"
     restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
 
   qdrant:
     image: qdrant/qdrant:latest
     container_name: luran_qdrant
     ports:
-      - "6333:6333"  # HTTP API
-      - "6334:6334"  # gRPC API
+      - "6333:6333"
+      - "6334:6334"
     volumes:
       - qdrant_data:/qdrant/storage
     restart: unless-stopped
     environment:
       - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__STORAGE__OPTIMIZERS__DEFAULT_SEGMENT_NUMBER=4
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   postgres_data:
-  pgadmin_data:
+  redis_data:
   qdrant_data:

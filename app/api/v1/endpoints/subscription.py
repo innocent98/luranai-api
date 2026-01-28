@@ -27,11 +27,12 @@ from app.services.paystack_service import PaystackService
 from app.services.webhook_handler_service import WebhookHandlerService
 from app.services.platform_subscription_service import PlatformSubscriptionService
 from app.core.config import settings
+from app.utils.http_rate_limiter import payment_rate_limit, subscription_rate_limit
 
 router = APIRouter()
 
 
-@router.post("/upgrade/initialize", response_model=PaymentInitializeResponse)
+@router.post("/upgrade/initialize", response_model=PaymentInitializeResponse, dependencies=[Depends(payment_rate_limit)])
 async def initialize_subscription_payment(
     payment_request: PaymentInitializeRequest,
     current_user: UserResponse = Depends(get_current_tenant_admin),
@@ -114,7 +115,7 @@ async def initialize_subscription_payment(
         )
 
 
-@router.post("/upgrade/verify", response_model=PaymentVerificationResponse)
+@router.post("/upgrade/verify", response_model=PaymentVerificationResponse, dependencies=[Depends(payment_rate_limit)])
 async def verify_subscription_payment(
     verification_request: PaymentVerificationRequest,
     current_user: UserResponse = Depends(get_current_tenant_admin),
@@ -188,7 +189,7 @@ async def verify_subscription_payment(
         )
 
 
-@router.post("/upgrade", response_model=SubscriptionUpgradeResponse)
+@router.post("/upgrade", response_model=SubscriptionUpgradeResponse, dependencies=[Depends(payment_rate_limit)])
 async def upgrade_subscription_direct(
     upgrade_data: SubscriptionUpgradeRequest,
     current_user: UserResponse = Depends(get_current_tenant_admin),
@@ -239,7 +240,7 @@ async def upgrade_subscription_direct(
         )
 
 
-@router.get("/plans", response_model=list[PricingPlanResponse], status_code=status.HTTP_200_OK)
+@router.get("/plans", response_model=list[PricingPlanResponse], status_code=status.HTTP_200_OK, dependencies=[Depends(subscription_rate_limit)])
 async def get_pricing_plans(
     db: Session = Depends(get_db),
 ):
@@ -273,7 +274,7 @@ async def get_pricing_plans(
         )
 
 
-@router.get("/my-subscription", response_model=MySubscriptionResponse)
+@router.get("/my-subscription", response_model=MySubscriptionResponse, dependencies=[Depends(subscription_rate_limit)])
 async def get_my_subscription(
     current_user: UserResponse = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -317,7 +318,7 @@ async def get_my_subscription(
         )
 
 
-@router.post("/cancel", response_model=SubscriptionCancelResponse)
+@router.post("/cancel", response_model=SubscriptionCancelResponse, dependencies=[Depends(subscription_rate_limit)])
 async def cancel_my_subscription(
     cancel_request: SubscriptionCancelRequest,
     current_user: UserResponse = Depends(get_current_tenant_admin),
@@ -378,7 +379,7 @@ async def cancel_my_subscription(
         )
 
 
-@router.get("/history", response_model=list[SubscriptionHistoryResponse])
+@router.get("/history", response_model=list[SubscriptionHistoryResponse], dependencies=[Depends(subscription_rate_limit)])
 async def get_subscription_history(
     limit: int = 20,
     current_user: UserResponse = Depends(get_current_user),
@@ -441,7 +442,8 @@ async def get_subscription_history(
     response_model=SubscriptionDowngradeResponse,
     status_code=status.HTTP_200_OK,
     summary="Downgrade subscription to lower tier",
-    description="Self-service downgrade with data validation. Validates tenant data fits within new tier limits before allowing downgrade."
+    description="Self-service downgrade with data validation. Validates tenant data fits within new tier limits before allowing downgrade.",
+    dependencies=[Depends(subscription_rate_limit)],
 )
 async def downgrade_subscription(
     downgrade_request: SubscriptionDowngradeRequest,

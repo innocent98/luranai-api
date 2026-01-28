@@ -23,8 +23,8 @@ fi
 # ============================================================================
 BACKUP_DIR="./backups"
 DB_CONTAINER="luran_db"
-DB_USER="user"
-DB_NAME="luran_db"
+DB_USER="${POSTGRES_USER}"  # From .env file
+DB_NAME="${POSTGRES_DB}"    # From .env file
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 DATE_PATH=$(date +"%Y/%m")
 BACKUP_FILE="luran_backup_${TIMESTAMP}.sql"

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from loguru import logger
 
 from app.api.deps import get_db, get_current_super_admin
+from app.utils.http_rate_limiter import platform_admin_rate_limit
 from app.db.models.platform_admin import PlatformAdmin
 from app.schemas.pricing import (
     PricingPlanUpdateRequest,
@@ -29,6 +30,7 @@ router = APIRouter()
     response_model=PricingPlanListResponse,
     summary="List all subscription plans",
     description="Get all subscription plans with pricing and capabilities (platform admin only)",
+    dependencies=[Depends(platform_admin_rate_limit)]
 )
 async def list_pricing_plans(
     db: Annotated[Session, Depends(get_db)],
@@ -84,6 +86,7 @@ async def list_pricing_plans(
     response_model=PricingPlanResponse,
     summary="Update subscription plan",
     description="Update pricing, capabilities, or metadata for a subscription plan (platform admin only)",
+    dependencies=[Depends(platform_admin_rate_limit)]
 )
 async def update_pricing_plan(
     tier: str,

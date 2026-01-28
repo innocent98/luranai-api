@@ -7,13 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_platform_admin, get_db
+from app.utils.http_rate_limiter import platform_analytics_rate_limit
 from app.services.platform_analytics_service import PlatformAnalyticsService
 from app.schemas.platform_admin import PlatformAdminResponse
 
 router = APIRouter()
 
 
-@router.get("/revenue", status_code=status.HTTP_200_OK)
+@router.get("/revenue", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
 def get_revenue_metrics(
     start_date: Optional[str] = Query(None, description="Start date (ISO format)"),
     end_date: Optional[str] = Query(None, description="End date (ISO format)"),
@@ -52,7 +53,7 @@ def get_revenue_metrics(
         )
 
 
-@router.get("/subscriptions", status_code=status.HTTP_200_OK)
+@router.get("/subscriptions", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
 def get_subscription_metrics(
     days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
     db: Session = Depends(get_db),
@@ -77,7 +78,7 @@ def get_subscription_metrics(
         )
 
 
-@router.get("/growth", status_code=status.HTTP_200_OK)
+@router.get("/growth", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
 def get_growth_metrics(
     days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
     db: Session = Depends(get_db),
@@ -102,7 +103,7 @@ def get_growth_metrics(
         )
 
 
-@router.get("/usage", status_code=status.HTTP_200_OK)
+@router.get("/usage", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
 def get_usage_metrics(
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
@@ -126,7 +127,7 @@ def get_usage_metrics(
         )
 
 
-@router.get("/cohorts", status_code=status.HTTP_200_OK)
+@router.get("/cohorts", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
 def get_cohort_analysis(
     cohort_size: str = Query("month", regex="^(week|month)$", description="Cohort size"),
     months_back: int = Query(6, ge=1, le=24, description="Months to analyze"),
@@ -155,7 +156,7 @@ def get_cohort_analysis(
         )
 
 
-@router.get("/dashboard", status_code=status.HTTP_200_OK)
+@router.get("/dashboard", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
 def get_dashboard_summary(
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),

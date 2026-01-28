@@ -107,6 +107,9 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
           SECRET_KEY: test_secret_key_for_ci_testing_32chars_minimum
           GOOGLE_API_KEY: test_google_api_key
+          PAYSTACK_SECRET_KEY: sk_test_ci_testing_key_12345
+          FIRST_SUPERUSER_EMAIL: ci_admin@test.com
+          FIRST_SUPERUSER_PASSWORD: CI_Test_P@ssw0rd_2026!
           ENVIRONMENT: test
         run: |
           poetry run pytest tests/ -v --cov=app --cov-report=xml --cov-report=term

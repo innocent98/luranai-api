@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_super_admin, get_db
+from app.utils.http_rate_limiter import platform_admin_rate_limit
 from app.services.tenant_service import TenantService
 from app.services.platform_subscription_service import PlatformSubscriptionService
 from app.schemas.tenant import (
@@ -21,7 +22,7 @@ from app.db.models.tenant import TenantStatus
 router = APIRouter()
 
 
-@router.get("", response_model=list[TenantListResponse], status_code=status.HTTP_200_OK)
+@router.get("", response_model=list[TenantListResponse], status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def list_all_tenants(
     status_filter: Optional[TenantStatus] = Query(None, description="Filter by tenant status (ACTIVE, INACTIVE, SUSPENDED)"),
     subscription_status: Optional[str] = Query(None, description="Filter by subscription status (trial, active, trial_expired, etc.)"),
@@ -86,7 +87,7 @@ def list_all_tenants(
         return tenants
 
 
-@router.get("/{tenant_id}", response_model=TenantResponse, status_code=status.HTTP_200_OK)
+@router.get("/{tenant_id}", response_model=TenantResponse, status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def get_tenant_by_id(
     tenant_id: UUID,
     db: Session = Depends(get_db),
@@ -115,7 +116,7 @@ def get_tenant_by_id(
     return tenant
 
 
-@router.delete("/{tenant_id}", status_code=status.HTTP_200_OK)
+@router.delete("/{tenant_id}", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def deactivate_tenant(
     tenant_id: UUID,
     db: Session = Depends(get_db),
@@ -153,6 +154,7 @@ def deactivate_tenant(
     "/{tenant_id}/capabilities",
     response_model=TenantCapabilitiesResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)]
 )
 def update_tenant_capabilities(
     tenant_id: UUID,

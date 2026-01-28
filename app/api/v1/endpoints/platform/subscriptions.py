@@ -17,6 +17,7 @@ from app.schemas.platform_subscription import (
     TrialExtensionResponse,
 )
 from app.schemas.platform_admin import PlatformAdminResponse
+from app.utils.http_rate_limiter import platform_admin_rate_limit
 
 router = APIRouter()
 
@@ -25,6 +26,7 @@ router = APIRouter()
     "/{tenant_id}/override",
     response_model=SubscriptionOverrideResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
 )
 def override_tenant_subscription(
     tenant_id: UUID,
@@ -81,6 +83,7 @@ def override_tenant_subscription(
     "/{tenant_id}/trial/extend",
     response_model=TrialExtensionResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
 )
 def extend_trial_period(
     tenant_id: UUID,
@@ -136,6 +139,7 @@ def extend_trial_period(
     "/{tenant_id}",
     response_model=TenantSubscriptionDetailResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
 )
 def get_tenant_subscription_details(
     tenant_id: UUID,
@@ -181,6 +185,7 @@ def get_tenant_subscription_details(
     "/payments/all",
     response_model=list[PaymentTransactionResponse],
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
 )
 def list_payment_transactions(
     tenant_id: Optional[UUID] = Query(None, description="Filter by tenant"),

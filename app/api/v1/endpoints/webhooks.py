@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.services.paystack_service import PaystackService
 from app.services.webhook_handler_service import WebhookHandlerService
+from app.utils.http_rate_limiter import webhook_rate_limit
 
 router = APIRouter()
 
@@ -28,6 +29,7 @@ router = APIRouter()
 
     Webhook URL: {BASE_URL}/api/v1/webhooks/paystack
     """,
+    dependencies=[Depends(webhook_rate_limit)],
 )
 async def paystack_webhook(
     request: Request,
@@ -117,6 +119,7 @@ async def paystack_webhook(
     status_code=status.HTTP_200_OK,
     summary="Webhook health check",
     description="Simple health check endpoint for webhook configuration testing.",
+    dependencies=[Depends(webhook_rate_limit)],
 )
 async def webhook_health():
     """

@@ -7,6 +7,15 @@
 
 1. [Authentication Overview](#authentication-overview)
 2. [Platform Admin Dashboard](#platform-admin-dashboard)
+   - Platform Admin Login
+   - Get Current Platform Admin Info
+   - Change Platform Admin Password
+   - Create New Platform Admin
+   - List All Platform Admins
+   - **List All Tenants (Platform Admin)**
+   - **Get Tenant Details (Platform Admin)**
+   - **Deactivate Tenant (Platform Admin)**
+   - **Update Tenant Capabilities (Platform Admin)**
 3. [Company/Tenant Dashboard](#companytenant-dashboard)
    - Company Registration, Login, Email Verification
    - Company Settings & Information
@@ -264,6 +273,297 @@ Authorization: Bearer {platform_admin_token}
   }
 ]
 ```
+
+---
+
+### 1.6 List All Tenants (Platform Admin)
+
+**Page:** `/platform-admin/tenants`
+
+**Endpoint:** `GET /platform/tenants`
+
+**Headers:**
+```
+Authorization: Bearer {platform_admin_token}
+```
+
+**Required Role:** SUPER_ADMIN
+
+**Query Parameters:**
+```
+?status_filter=ACTIVE
+?subscription_status=active
+?subscription_tier=professional
+?trial_expiring_days=7
+?limit=100
+?offset=0
+```
+
+**Parameter Details:**
+- `status_filter`: Filter by tenant status - `ACTIVE`, `INACTIVE`, or `SUSPENDED`
+- `subscription_status`: Filter by subscription - `trialing`, `active`, `trial_expired`, `canceled`, `past_due`
+- `subscription_tier`: Filter by tier - `trial`, `lite`, `professional`, `enterprise`
+- `trial_expiring_days`: Find trials expiring within N days (0-90)
+- `limit`: Maximum results (1-1000, default: 100)
+- `offset`: Pagination offset (default: 0)
+
+**Response:**
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "acme_corp",
+    "display_name": "Acme Corporation",
+    "description": "AI-powered customer support for Acme",
+    "status": "ACTIVE",
+    "subscription_tier": "professional",
+    "subscription_status": "active",
+    "billing_cycle": "monthly",
+    "trial_ends_at": null,
+    "created_at": "2026-01-10T00:00:00Z",
+    "updated_at": "2026-01-15T12:00:00Z"
+  },
+  {
+    "id": "660e9500-f39c-52e5-b827-557766551111",
+    "name": "techstart_inc",
+    "display_name": "TechStart Inc",
+    "description": "Startup AI support",
+    "status": "ACTIVE",
+    "subscription_tier": "trial",
+    "subscription_status": "trialing",
+    "billing_cycle": null,
+    "trial_ends_at": "2026-01-25T00:00:00Z",
+    "created_at": "2026-01-18T00:00:00Z",
+    "updated_at": "2026-01-18T00:00:00Z"
+  }
+]
+```
+
+**Use Cases:**
+- View all customers
+- Find trial_expired tenants for conversion outreach
+- List enterprise customers
+- Identify trials expiring in 7 days for reminder emails
+- Filter past_due subscriptions for payment follow-up
+
+**Frontend Display:**
+- Table with columns: Company Name, Status, Subscription Tier, Trial Ends, Created Date
+- Filters dropdown for status, subscription status, tier
+- Search by company name
+- Pagination controls
+
+---
+
+### 1.7 Get Tenant Details (Platform Admin)
+
+**Page:** `/platform-admin/tenants/{tenant_id}`
+
+**Endpoint:** `GET /platform/tenants/{tenant_id}`
+
+**Headers:**
+```
+Authorization: Bearer {platform_admin_token}
+```
+
+**Required Role:** SUPER_ADMIN
+
+**Response:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "acme_corp",
+  "display_name": "Acme Corporation",
+  "description": "AI-powered customer support for Acme",
+  "status": "ACTIVE",
+  "subscription_tier": "professional",
+  "subscription_status": "active",
+  "billing_cycle": "monthly",
+  "trial_ends_at": null,
+  "subscription_starts_at": "2026-01-10T00:00:00Z",
+  "subscription_ends_at": null,
+  "created_at": "2026-01-10T00:00:00Z",
+  "updated_at": "2026-01-15T12:00:00Z",
+  "ai_config": {
+    "id": "ai-config-uuid",
+    "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+    "brand_voice": {
+      "tone": "professional",
+      "formality_level": "balanced",
+      "greeting_style": "warm",
+      "emoji_usage": false
+    },
+    "allowed_topics": [
+      "product features",
+      "pricing",
+      "technical support"
+    ],
+    "blocked_topics": [
+      "competitor comparisons"
+    ],
+    "escalation_keywords": [
+      "speak to human",
+      "talk to manager"
+    ],
+    "confidence_threshold": 0.55,
+    "max_response_tokens": 800,
+    "grounding_requirement": true,
+    "custom_instructions": "Always mention our 24/7 support hotline.",
+    "created_at": "2026-01-10T00:00:00Z",
+    "updated_at": "2026-01-15T10:00:00Z"
+  },
+  "capabilities": {
+    "id": "capabilities-uuid",
+    "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+    "can_create_tickets": true,
+    "can_access_analytics": true,
+    "can_upload_knowledge": true,
+    "max_knowledge_mb": 200,
+    "max_conversations_per_month": 5000,
+    "max_knowledge_sources": 30,
+    "can_use_url_sources": true,
+    "max_team_members": 10,
+    "created_at": "2026-01-10T00:00:00Z",
+    "updated_at": "2026-01-15T11:00:00Z"
+  }
+}
+```
+
+**Use Case:**
+- View complete tenant details including AI configuration and capabilities
+- Troubleshoot customer issues
+- Verify subscription settings
+
+**Frontend Display:**
+- Tenant information card (name, status, dates)
+- Subscription details section
+- AI configuration section (expandable)
+- Capabilities/limits section
+- Action buttons (Edit Capabilities, Suspend Tenant)
+
+---
+
+### 1.8 Deactivate Tenant (Platform Admin)
+
+**Page:** `/platform-admin/tenants/{tenant_id}` (delete/suspend button)
+
+**Endpoint:** `DELETE /platform/tenants/{tenant_id}`
+
+**Headers:**
+```
+Authorization: Bearer {platform_admin_token}
+```
+
+**Required Role:** SUPER_ADMIN
+
+**Response:**
+```json
+{
+  "message": "Tenant deactivated successfully"
+}
+```
+
+**Note:** This is a soft delete - sets tenant status to `INACTIVE`. Data is preserved for compliance and potential reactivation.
+
+**Use Cases:**
+- Subscription expired/cancelled
+- Terms of service violation
+- Company requested account closure
+- Non-payment suspension
+
+**Frontend Action:**
+- Show confirmation dialog: "Deactivate this tenant? This will suspend their account access."
+- On confirm, call API and show success message
+- Update tenant list/status
+
+**Error Response (Tenant not found):**
+```json
+{
+  "detail": "Tenant not found"
+}
+```
+
+---
+
+### 1.9 Update Tenant Capabilities (Platform Admin)
+
+**Page:** `/platform-admin/tenants/{tenant_id}/edit`
+
+**Endpoint:** `PUT /platform/tenants/{tenant_id}/capabilities`
+
+**Headers:**
+```
+Authorization: Bearer {platform_admin_token}
+Content-Type: application/json
+```
+
+**Required Role:** SUPER_ADMIN
+
+**Request:** (all fields optional)
+```json
+{
+  "can_create_tickets": true,
+  "can_access_analytics": true,
+  "can_upload_knowledge": true,
+  "max_knowledge_mb": 500,
+  "max_conversations_per_month": 10000,
+  "max_knowledge_sources": 50,
+  "can_use_url_sources": true,
+  "max_team_members": 25
+}
+```
+
+**Field Descriptions:**
+- `can_create_tickets`: Whether bot can create support tickets when escalating
+- `can_access_analytics`: Whether tenant can view analytics dashboard
+- `can_upload_knowledge`: Whether tenant can upload knowledge base documents
+- `max_knowledge_mb`: Storage limit for knowledge base in MB (null = unlimited)
+- `max_conversations_per_month`: Monthly conversation limit (null = unlimited)
+- `max_knowledge_sources`: Total knowledge sources - files + URLs (null = unlimited)
+- `can_use_url_sources`: Whether tenant can use URL sources for knowledge
+- `max_team_members`: Maximum team members allowed (null = unlimited)
+
+**Response:**
+```json
+{
+  "id": "capabilities-uuid",
+  "tenant_id": "550e8400-e29b-41d4-a716-446655440000",
+  "can_create_tickets": true,
+  "can_access_analytics": true,
+  "can_upload_knowledge": true,
+  "max_knowledge_mb": 500,
+  "max_conversations_per_month": 10000,
+  "max_knowledge_sources": 50,
+  "can_use_url_sources": true,
+  "max_team_members": 25,
+  "created_at": "2026-01-10T00:00:00Z",
+  "updated_at": "2026-01-20T14:30:00Z"
+}
+```
+
+**Use Cases:**
+- Subscription tier upgrade/downgrade
+- Enable/disable features based on payment status
+- Increase limits for enterprise customers
+- Apply trial period restrictions
+- Custom pricing/limits for special cases
+
+**Frontend Display:**
+- Form with toggles for boolean capabilities (can_create_tickets, etc.)
+- Number inputs for limits (max_knowledge_mb, max_conversations_per_month, etc.)
+- Checkbox for "Unlimited" that sets value to null
+- Save button that calls this endpoint
+
+**Error Response (Tenant not found):**
+```json
+{
+  "detail": "Tenant not found"
+}
+```
+
+**Frontend Action:**
+- Show success message: "Capabilities updated successfully"
+- Refresh tenant details
+- Display updated limits
 
 ---
 

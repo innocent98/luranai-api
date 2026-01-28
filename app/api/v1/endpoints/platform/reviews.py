@@ -7,13 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_platform_admin, get_db
+from app.utils.http_rate_limiter import platform_admin_rate_limit
 from app.services.review_service import ReviewService
 from app.schemas.platform_admin import PlatformAdminResponse
 
 router = APIRouter()
 
 
-@router.get("/ratings/all", status_code=status.HTTP_200_OK)
+@router.get("/ratings/all", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def get_all_session_ratings(
     tenant_id: Optional[str] = Query(None, description="Tenant ID filter"),
     min_score: Optional[int] = Query(None, ge=1, le=5, description="Minimum score"),
@@ -59,7 +60,7 @@ def get_all_session_ratings(
         )
 
 
-@router.get("/sentiment-analysis", status_code=status.HTTP_200_OK)
+@router.get("/sentiment-analysis", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def get_sentiment_analysis(
     tenant_id: Optional[str] = Query(None, description="Tenant ID filter"),
     days: int = Query(30, ge=1, le=365, description="Days to analyze"),
@@ -97,7 +98,7 @@ def get_sentiment_analysis(
         )
 
 
-@router.get("/tenant-health-scores", status_code=status.HTTP_200_OK)
+@router.get("/tenant-health-scores", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def get_tenant_health_scores(
     days: int = Query(30, ge=1, le=365, description="Days to analyze"),
     limit: int = Query(50, ge=1, le=200, description="Max tenants to return"),
@@ -127,7 +128,7 @@ def get_tenant_health_scores(
         )
 
 
-@router.get("/feedback/platform", status_code=status.HTTP_200_OK)
+@router.get("/feedback/platform", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def get_platform_feedback_all(
     tenant_id: Optional[str] = Query(None, description="Tenant ID filter"),
     category: Optional[str] = Query(None, description="Feedback category filter"),

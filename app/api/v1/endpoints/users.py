@@ -14,6 +14,7 @@ from app.schemas.user import (
     UserUpdate,
     UserRegeneratePasswordResponse,
 )
+from app.utils.http_rate_limiter import team_management_rate_limit
 
 router = APIRouter()
 
@@ -22,6 +23,7 @@ router = APIRouter()
     "",
     response_model=UserResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(team_management_rate_limit)],
 )
 def invite_team_member(
     invite_data: UserInviteRequest,
@@ -65,6 +67,7 @@ def invite_team_member(
     "",
     response_model=list[UserListResponse],
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(team_management_rate_limit)],
 )
 def list_team_members(
     current_user: UserResponse = Depends(get_current_tenant_admin),
@@ -92,6 +95,7 @@ def list_team_members(
     "/{user_id}",
     response_model=UserResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(team_management_rate_limit)],
 )
 def get_team_member(
     user_id: UUID,
@@ -132,6 +136,7 @@ def get_team_member(
     "/{user_id}",
     response_model=UserResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(team_management_rate_limit)],
 )
 def update_team_member(
     user_id: UUID,
@@ -175,6 +180,7 @@ def update_team_member(
 @router.delete(
     "/{user_id}",
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(team_management_rate_limit)],
 )
 def deactivate_team_member(
     user_id: UUID,
@@ -216,6 +222,7 @@ def deactivate_team_member(
     "/{user_id}/regenerate-password",
     response_model=UserRegeneratePasswordResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(team_management_rate_limit)],
 )
 def regenerate_user_password(
     user_id: UUID,

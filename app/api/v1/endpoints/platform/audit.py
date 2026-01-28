@@ -8,13 +8,14 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_platform_admin, get_db
+from app.utils.http_rate_limiter import platform_admin_rate_limit
 from app.services.enhanced_audit_service import EnhancedAuditService
 from app.schemas.platform_admin import PlatformAdminResponse
 
 router = APIRouter()
 
 
-@router.get("/logs", status_code=status.HTTP_200_OK)
+@router.get("/logs", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def search_audit_logs(
     tenant_id: Optional[str] = Query(None, description="Tenant ID filter"),
     user_id: Optional[str] = Query(None, description="User ID filter"),
@@ -69,7 +70,7 @@ def search_audit_logs(
         )
 
 
-@router.get("/logs/export", status_code=status.HTTP_200_OK)
+@router.get("/logs/export", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def export_audit_logs(
     format: str = Query("csv", regex="^(csv|json)$", description="Export format"),
     tenant_id: Optional[str] = Query(None, description="Tenant ID filter"),
@@ -123,7 +124,7 @@ def export_audit_logs(
         )
 
 
-@router.get("/tenant/{tenant_id}/activity", status_code=status.HTTP_200_OK)
+@router.get("/tenant/{tenant_id}/activity", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def get_tenant_activity(
     tenant_id: UUID,
     days: int = Query(30, ge=1, le=365, description="Days to analyze"),
@@ -157,7 +158,7 @@ def get_tenant_activity(
         )
 
 
-@router.get("/security-events", status_code=status.HTTP_200_OK)
+@router.get("/security-events", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def get_security_events(
     severity: Optional[str] = Query(None, regex="^(high|medium|low)$", description="Severity filter"),
     days: int = Query(7, ge=1, le=90, description="Days to analyze"),

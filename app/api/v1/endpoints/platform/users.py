@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_platform_admin, get_db
+from app.utils.http_rate_limiter import platform_admin_rate_limit
 from app.services.user_management_service import UserManagementService
 from app.schemas.platform_admin import PlatformAdminResponse
 from app.db.models.user import UserRole
@@ -20,7 +21,7 @@ class UserDeactivationRequest(BaseModel):
     reason: str
 
 
-@router.get("/search", status_code=status.HTTP_200_OK)
+@router.get("/search", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def search_users(
     email: Optional[str] = Query(None, description="Email filter (partial match)"),
     tenant_id: Optional[str] = Query(None, description="Tenant ID filter"),
@@ -69,7 +70,7 @@ def search_users(
         )
 
 
-@router.get("/{user_id}", status_code=status.HTTP_200_OK)
+@router.get("/{user_id}", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def get_user_details(
     user_id: UUID,
     db: Session = Depends(get_db),
@@ -99,7 +100,7 @@ def get_user_details(
         )
 
 
-@router.get("/{user_id}/activity", status_code=status.HTTP_200_OK)
+@router.get("/{user_id}/activity", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def get_user_activity(
     user_id: UUID,
     days: int = Query(30, ge=1, le=365, description="Days to analyze"),
@@ -128,7 +129,7 @@ def get_user_activity(
         )
 
 
-@router.post("/{user_id}/deactivate", status_code=status.HTTP_200_OK)
+@router.post("/{user_id}/deactivate", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def deactivate_user(
     user_id: UUID,
     request: UserDeactivationRequest,
@@ -163,7 +164,7 @@ def deactivate_user(
         )
 
 
-@router.get("/analytics/role-distribution", status_code=status.HTTP_200_OK)
+@router.get("/analytics/role-distribution", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
 def get_role_distribution(
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
