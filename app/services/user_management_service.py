@@ -366,3 +366,304 @@ class UserManagementService:
         except Exception as e:
             logger.error(f"Error getting role distribution: {e}")
             raise
+
+    def invite_user(
+        self,
+        invite_data,
+        tenant_id: UUID,
+        invited_by_name: str,
+    ):
+        """
+        Invite a new team member (tenant-scoped).
+
+        Args:
+            invite_data: User invitation data
+            tenant_id: Tenant ID
+            invited_by_name: Name of user who invited them
+
+        Returns:
+            Created user response
+
+        Raises:
+            ValueError: If user already exists or invalid role
+        """
+        from app.core.security import get_password_hash
+        from app.utils.password import generate_temp_password
+        from app.services.email_service import email_service
+        from app.db.models.user import UserRole
+        from app.schemas.user import UserResponse
+
+        try:
+            # Check if user already exists
+            existing_query = select(User).where(User.email == invite_data.email)
+            existing_result = self.db.execute(existing_query)
+            existing_user = existing_result.scalars().first()
+
+            if existing_user:
+                raise ValueError(f"User with email {invite_data.email} already exists")
+
+            # Validate role (only SUPPORT_AGENT or VIEWER allowed for team invites)
+            if invite_data.role not in [UserRole.SUPPORT_AGENT, UserRole.VIEWER]:
+                raise ValueError("Invalid role. Only SUPPORT_AGENT or VIEWER allowed")
+
+            # Generate temporary password
+            temp_password = generate_temp_password()
+
+            # Create user
+            new_user = User(
+                email=invite_data.email,
+                hashed_password=get_password_hash(temp_password),
+                full_name=invite_data.full_name,
+                role=invite_data.role,
+                tenant_id=tenant_id,
+                is_active=True,  # Active immediately after invite
+            )
+
+            self.db.add(new_user)
+            self.db.flush()
+
+            # Send invite email
+            email_service.send_user_invite_email(
+                user_email=new_user.email,
+                user_name=new_user.full_name,
+                company_name=self._get_tenant_name(tenant_id),
+                role=invite_data.role.value,
+                temp_password=temp_password,
+                invited_by=invited_by_name,
+            )
+
+            self.db.commit()
+            self.db.refresh(new_user)
+
+            logger.info(f"User {new_user.email} invited to tenant {tenant_id}")
+
+            return UserResponse(
+                id=new_user.id,
+                email=new_user.email,
+                full_name=new_user.full_name,
+                role=new_user.role,
+                tenant_id=new_user.tenant_id,
+                is_active=new_user.is_active,
+                created_at=new_user.created_at,
+                updated_at=new_user.updated_at,
+            )
+
+        except ValueError:
+            raise
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Error inviting user: {e}")
+            raise
+
+    def _get_tenant_name(self, tenant_id: UUID) -> str:
+        """Get tenant display name."""
+        tenant_query = select(Tenant).where(Tenant.id == tenant_id)
+        tenant_result = self.db.execute(tenant_query)
+        tenant = tenant_result.scalars().first()
+        return tenant.display_name if tenant else "Unknown"
+
+    def get_user_by_id(self, user_id: UUID, tenant_id: UUID):
+        """
+        Get user by ID within tenant (tenant-scoped).
+
+        Args:
+            user_id: User ID
+            tenant_id: Tenant ID
+
+        Returns:
+            User response or None
+
+        Raises:
+            ValueError: If user not in tenant
+        """
+        from app.schemas.user import UserResponse
+
+        try:
+            user_query = select(User).where(
+                User.id == user_id,
+                User.tenant_id == tenant_id
+            )
+            user_result = self.db.execute(user_query)
+            user = user_result.scalars().first()
+
+            if not user:
+                return None
+
+            return UserResponse(
+                id=user.id,
+                email=user.email,
+                full_name=user.full_name,
+                role=user.role,
+                tenant_id=user.tenant_id,
+                is_active=user.is_active,
+                created_at=user.created_at,
+                updated_at=user.updated_at,
+            )
+
+        except Exception as e:
+            logger.error(f"Error getting user by ID: {e}")
+            raise
+
+    def update_user(self, user_id: UUID, tenant_id: UUID, update_data):
+        """
+        Update user within tenant (tenant-scoped).
+
+        Args:
+            user_id: User ID
+            tenant_id: Tenant ID
+            update_data: User update data
+
+        Returns:
+            Updated user response
+
+        Raises:
+            ValueError: If user not found or trying to update admin
+        """
+        from app.db.models.user import UserRole
+        from app.schemas.user import UserResponse
+
+        try:
+            user_query = select(User).where(
+                User.id == user_id,
+                User.tenant_id == tenant_id
+            )
+            user_result = self.db.execute(user_query)
+            user = user_result.scalars().first()
+
+            if not user:
+                raise ValueError("User not found")
+
+            # Prevent updating tenant admin
+            if user.role == UserRole.TENANT_ADMIN:
+                raise ValueError("Cannot update tenant admin user")
+
+            # Update fields
+            if update_data.full_name is not None:
+                user.full_name = update_data.full_name
+            if update_data.role is not None:
+                if update_data.role not in [UserRole.SUPPORT_AGENT, UserRole.VIEWER]:
+                    raise ValueError("Invalid role")
+                user.role = update_data.role
+
+            user.updated_at = datetime.utcnow()
+
+            self.db.commit()
+            self.db.refresh(user)
+
+            logger.info(f"User {user.email} updated")
+
+            return UserResponse(
+                id=user.id,
+                email=user.email,
+                full_name=user.full_name,
+                role=user.role,
+                tenant_id=user.tenant_id,
+                is_active=user.is_active,
+                created_at=user.created_at,
+                updated_at=user.updated_at,
+            )
+
+        except ValueError:
+            raise
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Error updating user: {e}")
+            raise
+
+    def deactivate_user(self, user_id: UUID, tenant_id: UUID):
+        """
+        Deactivate user within tenant (tenant-scoped).
+
+        Args:
+            user_id: User ID
+            tenant_id: Tenant ID
+
+        Raises:
+            ValueError: If user not found or trying to deactivate admin
+        """
+        from app.db.models.user import UserRole
+
+        try:
+            user_query = select(User).where(
+                User.id == user_id,
+                User.tenant_id == tenant_id
+            )
+            user_result = self.db.execute(user_query)
+            user = user_result.scalars().first()
+
+            if not user:
+                raise ValueError("User not found")
+
+            if user.role == UserRole.TENANT_ADMIN:
+                raise ValueError("Cannot deactivate tenant admin")
+
+            if not user.is_active:
+                raise ValueError("User is already inactive")
+
+            user.is_active = False
+            user.updated_at = datetime.utcnow()
+
+            self.db.commit()
+
+            logger.info(f"User {user.email} deactivated")
+
+        except ValueError:
+            raise
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Error deactivating user: {e}")
+            raise
+
+    def regenerate_password(self, user_id: UUID, tenant_id: UUID):
+        """
+        Regenerate password for user within tenant.
+
+        Args:
+            user_id: User ID
+            tenant_id: Tenant ID
+
+        Returns:
+            Response with new temporary password
+
+        Raises:
+            ValueError: If user not found
+        """
+        from app.core.security import get_password_hash
+        from app.utils.password import generate_temp_password
+        from app.schemas.user import UserRegeneratePasswordResponse
+
+        try:
+            user_query = select(User).where(
+                User.id == user_id,
+                User.tenant_id == tenant_id
+            )
+            user_result = self.db.execute(user_query)
+            user = user_result.scalars().first()
+
+            if not user:
+                raise ValueError("User not found")
+
+            # Generate new temporary password
+            temp_password = generate_temp_password()
+
+            # Update user password
+            user.hashed_password = get_password_hash(temp_password)
+            user.updated_at = datetime.utcnow()
+
+            self.db.commit()
+
+            logger.info(f"Password regenerated for user {user.email}")
+
+            return UserRegeneratePasswordResponse(
+                message="Password regenerated successfully",
+                user_id=user.id,
+                email=user.email,
+                temp_password=temp_password,
+            )
+
+        except ValueError:
+            raise
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Error regenerating password: {e}")
+            raise

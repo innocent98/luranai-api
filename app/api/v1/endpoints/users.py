@@ -87,8 +87,8 @@ def list_team_members(
         HTTPException: 403 if not tenant admin
     """
     user_service = UserManagementService(db)
-    users = user_service.list_users(tenant_id=current_user.tenant_id)
-    return users
+    result = user_service.search_users(tenant_id=current_user.tenant_id)
+    return result["users"]
 
 
 @router.get(
