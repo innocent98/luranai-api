@@ -1527,7 +1527,7 @@ Widget should work with strict CSP policies:
 ## Contact
 
 **Widget Development Team:**
-- Email: widget@luran.dev
+- Email: widget@luranai.com
 - Slack: #widget-development
 
 **Questions or Issues:**

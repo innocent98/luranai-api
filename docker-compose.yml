@@ -20,7 +20,7 @@ services:
       QDRANT_URL: ${QDRANT_URL}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY}
       ENVIRONMENT: ${ENVIRONMENT:-production}
-      API_WORKERS: ${API_WORKERS:-4}
+      API_WORKERS: ${API_WORKERS:-2}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]

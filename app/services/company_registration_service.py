@@ -136,18 +136,16 @@ class CompanyRegistrationService:
                 expiry_hours=24,
             )
 
-            # Send welcome email with credentials and verification link
-            email_sent = email_service.send_welcome_email(
-                company_name=display_name,
-                admin_email=admin_user.email,
-                admin_name=admin_user.full_name,
-                temp_password=temp_password,
+            # Send verification email (credentials will be sent after verification)
+            email_sent = email_service.send_verification_email(
+                email=admin_user.email,
+                user_name=admin_user.full_name,
                 verification_token=verification_token,
             )
 
             if not email_sent:
                 logger.warning(
-                    f"Failed to send welcome email to {admin_user.email}, "
+                    f"Failed to send verification email to {admin_user.email}, "
                     "but registration will proceed"
                 )
 
@@ -210,14 +208,43 @@ class CompanyRegistrationService:
                 verified=True,
             )
 
-        # Activate user
+        # Generate new temporary password
+        temp_password = generate_temp_password()
+
+        # Update user password and activate account
+        user.hashed_password = get_password_hash(temp_password)
         user.is_active = True
+
+        # Get tenant information for welcome email
+        tenant_stmt = select(Tenant).where(Tenant.id == user.tenant_id)
+        tenant = self.db.execute(tenant_stmt).scalar_one_or_none()
+
+        if not tenant:
+            logger.error(f"Tenant not found for user {user.id}")
+            raise ValueError("Tenant not found")
+
+        # Commit database changes before sending email
         self.db.commit()
 
         logger.info(f"Email verified for user {user.email} (user_id={user.id})")
 
+        # Send welcome email with login credentials
+        email_sent = email_service.send_welcome_email(
+            company_name=tenant.display_name,
+            admin_email=user.email,
+            admin_name=user.full_name,
+            temp_password=temp_password,
+            verification_token=None,  # No verification needed, already verified
+        )
+
+        if not email_sent:
+            logger.warning(
+                f"Failed to send welcome email to {user.email} after verification, "
+                "but account is active"
+            )
+
         return EmailVerificationResponse(
-            message="Email verified successfully! You can now log in.",
+            message="Email verified successfully! Check your email for login credentials.",
             verified=True,
         )
 

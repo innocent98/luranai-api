@@ -129,7 +129,7 @@ Pages to build for Luran staff (platform admins).
 **Request:**
 ```json
 {
-  "email": "admin@luran.dev",
+  "email": "admin@luranai.com",
   "password": "your-password"
 }
 ```
@@ -164,7 +164,7 @@ Authorization: Bearer {platform_admin_token}
 ```json
 {
   "id": "uuid",
-  "email": "admin@luran.dev",
+  "email": "admin@luranai.com",
   "full_name": "Admin User",
   "role": "SUPER_ADMIN",
   "is_active": true,
@@ -218,7 +218,7 @@ Authorization: Bearer {platform_admin_token}
 **Request:**
 ```json
 {
-  "email": "newadmin@luran.dev",
+  "email": "newadmin@luranai.com",
   "full_name": "New Admin",
   "role": "ADMIN",
   "password": "secure-password"
@@ -229,7 +229,7 @@ Authorization: Bearer {platform_admin_token}
 ```json
 {
   "id": "uuid",
-  "email": "newadmin@luran.dev",
+  "email": "newadmin@luranai.com",
   "full_name": "New Admin",
   "role": "ADMIN",
   "is_active": true,
@@ -257,7 +257,7 @@ Authorization: Bearer {platform_admin_token}
 [
   {
     "id": "uuid",
-    "email": "admin@luran.dev",
+    "email": "admin@luranai.com",
     "full_name": "Admin User",
     "role": "SUPER_ADMIN",
     "is_active": true,
@@ -265,7 +265,7 @@ Authorization: Bearer {platform_admin_token}
   },
   {
     "id": "uuid",
-    "email": "john@luran.dev",
+    "email": "john@luranai.com",
     "full_name": "John Smith",
     "role": "ADMIN",
     "is_active": true,
@@ -1101,7 +1101,7 @@ Show this as a read-only view of your current subscription tier.
 
 **To Upgrade:**
 Display "Contact support to upgrade" button that opens:
-- Email: support@luran.com
+- Email: support@luranai.com
 - Subject: "Upgrade Request - [Your Company Name]"
 - Or link to pricing page
 

@@ -82,7 +82,7 @@ def test_company_registration_flow():
         response = requests.post(
             f"{BASE_URL}/platform/auth/login",
             json={
-                "email": "admin@luran.dev",
+                "email": "admin@luranai.com",
                 "password": "admin123",  # Assuming default password
             },
         )

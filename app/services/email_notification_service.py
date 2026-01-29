@@ -192,7 +192,8 @@ class EmailNotificationService:
                     "lite_monthly": "₦12,000",
                     "professional_monthly": "₦35,000",
                 },
-                "app_url": f"{settings.SERVER_HOST}:{settings.SERVER_PORT}",
+                "app_url": settings.FRONTEND_URL,
+                "doc_url": settings.FRONTEND_DOC_URL,
                 "current_year": datetime.now().year,
             }
 
@@ -314,7 +315,8 @@ class EmailNotificationService:
                     in ["professional", "enterprise"],
                     "api_access": tenant.subscription_tier == "enterprise",
                 },
-                "app_url": f"{settings.SERVER_HOST}:{settings.SERVER_PORT}",
+                "app_url": settings.FRONTEND_URL,
+                "doc_url": settings.FRONTEND_DOC_URL,
                 "current_year": datetime.now().year,
             }
 
@@ -430,7 +432,8 @@ class EmailNotificationService:
                 "grace_days": grace_days,
                 "suspension_date": suspension_date.strftime("%B %d, %Y"),
                 "data_retention_days": 30,
-                "app_url": f"{settings.SERVER_HOST}:{settings.SERVER_PORT}",
+                "app_url": settings.FRONTEND_URL,
+                "doc_url": settings.FRONTEND_DOC_URL,
                 "current_year": datetime.now().year,
             }
 

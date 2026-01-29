@@ -9,7 +9,7 @@
 ## Test Credentials
 
 ### Superuser
-- **Email:** admin@luran.dev
+- **Email:** admin@luranai.com
 - **Password:** admin123
 
 ### Tenant Admin (Weysure Insurance)

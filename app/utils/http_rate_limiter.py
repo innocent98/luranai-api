@@ -7,10 +7,18 @@ from app.core.logger import log
 
 
 # Rate limiters for different endpoint types
+# Regular user login - moderate protection
 auth_rate_limiter = RedisRateLimiter(
     key_prefix="http_auth",
     max_calls=5,
-    window_seconds=60,
+    window_seconds=600,  # 5 per 10 minutes (better brute force protection)
+)
+
+# Platform admin login - stricter protection (more sensitive endpoint)
+platform_admin_auth_rate_limiter = RedisRateLimiter(
+    key_prefix="http_platform_admin_auth",
+    max_calls=3,
+    window_seconds=900,  # 3 per 15 minutes (stricter for admin access)
 )
 
 chat_rate_limiter = RedisRateLimiter(
@@ -25,11 +33,23 @@ upload_rate_limiter = RedisRateLimiter(
     window_seconds=3600,
 )
 
-# Public registration endpoints (IP-based, aggressive)
+# Public registration endpoints (IP-based, separate limits)
 registration_rate_limiter = RedisRateLimiter(
     key_prefix="http_registration",
     max_calls=3,
-    window_seconds=3600,  # 3 per hour
+    window_seconds=3600,  # 3 registrations per hour (prevent spam)
+)
+
+verification_rate_limiter = RedisRateLimiter(
+    key_prefix="http_verification",
+    max_calls=10,
+    window_seconds=3600,  # 10 verifications per hour (user already registered)
+)
+
+resend_verification_rate_limiter = RedisRateLimiter(
+    key_prefix="http_resend_verification",
+    max_calls=5,
+    window_seconds=3600,  # 5 resends per hour (allow retries, prevent spam)
 )
 
 # Webhook endpoints (IP-based)
@@ -133,11 +153,14 @@ def create_rate_limit_dependency(
 
 # Pre-configured dependencies
 auth_rate_limit = create_rate_limit_dependency(auth_rate_limiter, "ip")
+platform_admin_auth_rate_limit = create_rate_limit_dependency(platform_admin_auth_rate_limiter, "ip")
 chat_rate_limit = create_rate_limit_dependency(chat_rate_limiter, "user")
 upload_rate_limit = create_rate_limit_dependency(upload_rate_limiter, "user")
 
-# Public endpoints
+# Public endpoints (each with separate rate limiter)
 registration_rate_limit = create_rate_limit_dependency(registration_rate_limiter, "ip")
+verification_rate_limit = create_rate_limit_dependency(verification_rate_limiter, "ip")
+resend_verification_rate_limit = create_rate_limit_dependency(resend_verification_rate_limiter, "ip")
 webhook_rate_limit = create_rate_limit_dependency(webhook_rate_limiter, "ip")
 
 # Authenticated endpoints

@@ -41,7 +41,7 @@ docker-compose up -d
 
 - **API:** http://localhost:8000
 - **API Docs:** http://localhost:8000/api/v1/docs
-- **pgAdmin:** http://localhost:5050 (admin@luran.dev / admin123)
+- **pgAdmin:** http://localhost:5050 (admin@luranai.com / admin123)
 - **Qdrant Dashboard:** http://localhost:6333/dashboard
 
 ### 3. Test Credentials

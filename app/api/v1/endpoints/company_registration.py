@@ -11,7 +11,11 @@ from app.schemas.auth import (
     EmailVerificationRequest,
     EmailVerificationResponse,
 )
-from app.utils.http_rate_limiter import registration_rate_limit
+from app.utils.http_rate_limiter import (
+    registration_rate_limit,
+    verification_rate_limit,
+    resend_verification_rate_limit,
+)
 
 router = APIRouter()
 
@@ -58,7 +62,7 @@ def register_company(
     "/verify-email",
     response_model=EmailVerificationResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(registration_rate_limit)],
+    dependencies=[Depends(verification_rate_limit)],
 )
 def verify_email(
     verification_request: EmailVerificationRequest,
@@ -94,7 +98,7 @@ def verify_email(
 @router.post(
     "/resend-verification",
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(registration_rate_limit)],
+    dependencies=[Depends(resend_verification_rate_limit)],
 )
 def resend_verification_email(
     email: str,

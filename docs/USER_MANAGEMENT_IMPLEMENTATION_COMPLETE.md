@@ -53,7 +53,7 @@ Login as platform admin (Luran staff).
 **Request:**
 ```json
 {
-  "email": "admin@luran.dev",
+  "email": "admin@luranai.com",
   "password": "your-password"
 }
 ```
@@ -76,7 +76,7 @@ Get current platform admin information.
 ```json
 {
   "id": "uuid",
-  "email": "admin@luran.dev",
+  "email": "admin@luranai.com",
   "full_name": "Admin User",
   "role": "SUPER_ADMIN",
   "is_active": true,
@@ -107,7 +107,7 @@ Create a new platform admin.
 **Request:**
 ```json
 {
-  "email": "newadmin@luran.dev",
+  "email": "newadmin@luranai.com",
   "full_name": "New Admin",
   "role": "ADMIN",
   "password": "secure-password"
@@ -514,7 +514,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES=30
 
 ### Existing Super Admin
 
-The existing super admin (`admin@luran.dev`) has been automatically migrated:
+The existing super admin (`admin@luranai.com`) has been automatically migrated:
 
 **Before:**
 - Located in `users` table with `role = SUPER_ADMIN`
@@ -637,7 +637,7 @@ No changes to existing tenant users. They continue working as before with:
 For questions or issues:
 - Check logs: `app.log`
 - Review OpenAPI docs: `http://localhost:8000/docs`
-- Contact: support@luran.com
+- Contact: support@luranai.com
 
 ---
 

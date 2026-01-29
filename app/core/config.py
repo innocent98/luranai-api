@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     # Server
     SERVER_HOST: str = "http://localhost"
     SERVER_PORT: int = 8000
+    FRONTEND_URL: str = "http://localhost:3000"  # Frontend application URL for email links
+    FRONTEND_DOC_URL: str = "http://localhost:3002"  # Documentation/marketing site URL
 
     # Security
     SECRET_KEY: str

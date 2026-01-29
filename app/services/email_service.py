@@ -118,7 +118,8 @@ class EmailService:
                 admin_email=admin_email,
                 temp_password=temp_password,
                 verification_token=verification_token,
-                app_url=f"{settings.SERVER_HOST}:{settings.SERVER_PORT}",
+                app_url=settings.FRONTEND_URL,
+                doc_url=settings.FRONTEND_DOC_URL,
                 current_year=datetime.now().year,
             )
 
@@ -161,7 +162,7 @@ class EmailService:
                 role=role.replace("_", " ").title(),
                 temp_password=temp_password,
                 invited_by=invited_by,
-                app_url=f"{settings.SERVER_HOST}:{settings.SERVER_PORT}",
+                app_url=settings.FRONTEND_URL,
                 current_year=datetime.now().year,
             )
 
@@ -191,7 +192,7 @@ class EmailService:
         """
         try:
             template = self.jinja_env.get_template("password_reset.html")
-            reset_link = f"{settings.SERVER_HOST}:{settings.SERVER_PORT}/reset-password?token={reset_token}"
+            reset_link = f"{settings.FRONTEND_URL}/reset-password?token={reset_token}"
 
             html_content = template.render(
                 user_name=user_name,
@@ -255,7 +256,7 @@ class EmailService:
         """
         try:
             template = self.jinja_env.get_template("email_verification.html")
-            verification_link = f"{settings.SERVER_HOST}:{settings.SERVER_PORT}/verify-email?token={verification_token}"
+            verification_link = f"{settings.FRONTEND_URL}/verify-email?token={verification_token}"
 
             html_content = template.render(
                 user_name=user_name,

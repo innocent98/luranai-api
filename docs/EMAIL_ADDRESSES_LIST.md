@@ -48,11 +48,11 @@ EMAILS_FROM_NAME=Luran
 
 ## Optional/Internal Emails (NOT used for sending)
 
-### `admin@luran.dev`
+### `admin@luranai.com`
 
 **Purpose**: PgAdmin database management UI login
 
-**Environment Variable**: `PGADMIN_EMAIL=admin@luran.dev`
+**Environment Variable**: `PGADMIN_EMAIL=admin@luranai.com`
 
 **Notes**:
 - Only used for logging into PgAdmin web interface

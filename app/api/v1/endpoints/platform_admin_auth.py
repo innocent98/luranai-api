@@ -18,7 +18,10 @@ from app.schemas.platform_admin import (
     CurrentPlatformAdminResponse,
     PlatformAdminListResponse,
 )
-from app.utils.http_rate_limiter import auth_rate_limit, platform_admin_rate_limit
+from app.utils.http_rate_limiter import (
+    platform_admin_auth_rate_limit,
+    platform_admin_rate_limit,
+)
 
 router = APIRouter()
 
@@ -27,7 +30,7 @@ router = APIRouter()
     "/login",
     response_model=PlatformAdminToken,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(auth_rate_limit)]
+    dependencies=[Depends(platform_admin_auth_rate_limit)]
 )
 def login(login_data: PlatformAdminLoginRequest, db: Session = Depends(get_db)):
     """

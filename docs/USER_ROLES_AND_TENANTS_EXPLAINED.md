@@ -112,7 +112,7 @@ class User:
 # Current super admin in your database:
 {
     "id": "328b71d4-0c6c-46d5-b351-c67ff5bd7609",
-    "email": "admin@luran.dev",
+    "email": "admin@luranai.com",
     "full_name": "Super Admin",
     "role": "SUPER_ADMIN",
     "tenant_id": None,          # ← No tenant!
@@ -132,7 +132,7 @@ class User:
 - ✅ Platform-wide analytics
 
 **Real-world example:**
-You log in as admin@luran.dev and can see:
+You log in as admin@luranai.com and can see:
 - Weysure has 50 conversations today
 - AegisScribe has 100 conversations today
 - Total platform usage statistics
@@ -346,7 +346,7 @@ verify_tenant_access():
 ### Example 2: Super Admin Can Access Anything
 
 ```python
-# Logged in as: admin@luran.dev (SUPER_ADMIN)
+# Logged in as: admin@luranai.com (SUPER_ADMIN)
 # Their tenant_id: None
 # Their is_superuser: True
 
@@ -481,7 +481,7 @@ db.query(ConversationSession).filter(
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    LURAN PLATFORM                           │
-│                 (admin@luran.dev owns)                      │
+│                 (admin@luranai.com owns)                      │
 └─────────────────────────────────────────────────────────────┘
                             │
         ┌───────────────────┼───────────────────┐
