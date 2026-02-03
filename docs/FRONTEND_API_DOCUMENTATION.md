@@ -4967,7 +4967,7 @@ Luran implements a **tier-based subscription system** with automatic trial perio
 
 **Key Features:**
 - ✅ **30-Day Free Trial** - Automatically starts on company registration
-- ✅ **4 Subscription Tiers** - Trial, Lite, Professional, Enterprise
+- ✅ **5 Subscription Tiers** - Trial, Lite, Professional, Growth, Enterprise
 - ✅ **Recurring Billing** - Paystack subscription plans (monthly & annual)
 - ✅ **Usage Limits** - Conversations, knowledge sources, team members, storage
 - ✅ **Trial Expiration Enforcement** - Platform blocks access after 30 days
@@ -4989,23 +4989,25 @@ Registration → 30-Day Trial → Trial Expires → Payment Required → Active 
 
 ### Pricing Tiers
 
-| Feature | Trial (30 days) | Lite | Professional | Enterprise |
-|---------|-----------------|------|--------------|------------|
-| **Monthly Price** | ₦0 | ₦12,000 | ₦35,000 | Custom |
-| **Annual Price** | N/A | ₦120,000 (save ₦24k) | ₦350,000 (save ₦70k) | Custom |
-| | | | | |
-| **Conversations/month** | 100 | 1,000 | 5,000 | Unlimited |
-| **Knowledge sources** | 2 (files only) | 10 (files+URLs) | 30 (files+URLs) | Unlimited |
-| **Storage** | 10 MB | 50 MB | 200 MB | Unlimited |
-| **URL scraping** | ❌ | ✅ | ✅ | ✅ |
-| **Team members** | 1 | 3 | 10 | Unlimited |
-| **AI tokens/response** | 800 | 1,000 | 1,500 | 2,000 |
-| | | | | |
-| **Analytics** | ❌ | ✅ Basic | ✅ Advanced | ✅ Custom |
-| **API access** | ❌ | ❌ | ✅ | ✅ |
-| **Support** | Community | Email 24-48h | Priority 4-8h | Dedicated 1-2h |
+| Feature | Trial (30 days) | Lite | Professional | Growth | Enterprise |
+|---------|-----------------|------|--------------|--------|------------|
+| **Monthly Price** | ₦0 | ₦9,000 | ₦40,000 | ₦80,000 | Volume-based |
+| **Annual Price** | N/A | ₦90,000 (save ₦18k) | ₦400,000 (save ₦80k) | ₦800,000 (save ₦160k) | Custom |
+| | | | | | |
+| **Conversations/month** | 200 | 2,000 | 10,000 | 25,000 | Unlimited |
+| **Knowledge sources** | 2 (files only) | 15 (files+URLs) | 50 (files+URLs) | 50 (files+URLs) | Unlimited |
+| **Storage** | 10 MB | 50 MB | 200 MB | 500 MB | Unlimited |
+| **URL scraping** | ❌ | ✅ | ✅ | ✅ | ✅ |
+| **Team members** | 1 | 3 | 10 | 20 | Unlimited |
+| **AI tokens/response** | 800 | 1,000 | 1,500 | 1,500 | 2,000 |
+| | | | | | |
+| **Analytics** | ❌ | ✅ Basic | ✅ Advanced | ✅ Advanced | ✅ Custom |
+| **API access** | ❌ | ❌ | ✅ | ✅ | ✅ |
+| **Support** | Community | Email 24-48h | Priority 4-8h | Priority 4-8h | Dedicated 1-2h |
 
 **Annual Billing Discount:** 2 months free (10 months price for 12 months service)
+
+**Enterprise Volume Pricing:** See section 13.7 for volume-based pricing calculator (25K-300K+ conversations)
 
 ---
 
@@ -5824,14 +5826,14 @@ const plans = await response.json();
       "max_knowledge_sources": 2,
       "can_use_url_sources": false,
       "max_knowledge_mb": 10,
-      "max_conversations_per_month": 100,
+      "max_conversations_per_month": 200,
       "max_team_members": 1,
       "max_response_tokens": 800
     },
     "features": [
       "2 knowledge sources",
       "10MB storage",
-      "100 conversations/month",
+      "200 conversations/month",
       "1 team member",
       "Email support"
     ],
@@ -6767,6 +6769,402 @@ View audit logs via: `GET /platform/audit?action_type=update_pricing_plan`
 5. Build tenant filtering for outreach campaigns
 
 For implementation details, see the plan documentation and service code in `/app/services/platform_subscription_service.py`.
+
+### 13.7 Enterprise Volume-Based Pricing Calculator
+
+**New Feature:** Platform admins can calculate Enterprise tier pricing based on conversation volume and compare with Growth tier. Enterprise pricing uses a flat-rate model where all conversations are charged at the rate determined by the total volume range. Added 2026-02-03.
+
+#### Enterprise Pricing Structure
+
+| Volume Range | Price/Conversation | Example Monthly Cost |
+|--------------|-------------------|---------------------|
+| 25,000-50,000 | ₦3.00 | ₦75K-₦150K |
+| 50,001-100,000 | ₦2.75 | ₦137K-₦275K |
+| 100,001-200,000 | ₦2.50 | ₦250K-₦500K |
+| 200,001-300,000 | ₦2.30 | ₦460K-₦690K |
+| 300,001+ | ₦2.20 (capped) | ₦660K+ |
+
+**Pricing Model:** Flat rate based on total volume range (not progressive brackets)
+- Example: 30,000 conversations = ALL 30,000 × ₦3.00 = ₦90,000
+- Example: 75,000 conversations = ALL 75,000 × ₦2.75 = ₦206,250
+
+#### 13.7.1 Get Enterprise Pricing Tiers
+
+**Endpoint:** `GET /platform/pricing/enterprise/tiers`
+**Auth:** Platform Admin (Super Admin only)
+**Use Cases:** View volume pricing structure, generate quotes, sales proposals
+
+```typescript
+// Fetch Enterprise pricing tiers
+const response = await fetch(
+  'http://localhost:8000/api/v1/platform/pricing/enterprise/tiers',
+  {
+    headers: {
+      'Authorization': 'Bearer PLATFORM_ADMIN_TOKEN'
+    }
+  }
+);
+
+// Response
+{
+  "tiers": [
+    {
+      "range": "25,000-50,000",
+      "min_conversations": 25000,
+      "max_conversations": 50000,
+      "price_per_conv_kobo": 300,
+      "price_per_conv_naira": 3.0,
+      "example_monthly_cost_naira": 75000.0
+    },
+    {
+      "range": "50,001-100,000",
+      "min_conversations": 50001,
+      "max_conversations": 100000,
+      "price_per_conv_kobo": 275,
+      "price_per_conv_naira": 2.75,
+      "example_monthly_cost_naira": 137502.75
+    },
+    {
+      "range": "100,001-200,000",
+      "min_conversations": 100001,
+      "max_conversations": 200000,
+      "price_per_conv_kobo": 250,
+      "price_per_conv_naira": 2.5,
+      "example_monthly_cost_naira": 250002.5
+    },
+    {
+      "range": "200,001-300,000",
+      "min_conversations": 200001,
+      "max_conversations": 300000,
+      "price_per_conv_kobo": 230,
+      "price_per_conv_naira": 2.3,
+      "example_monthly_cost_naira": 460002.3
+    },
+    {
+      "range": "300,001+",
+      "min_conversations": 300001,
+      "max_conversations": null,
+      "price_per_conv_kobo": 220,
+      "price_per_conv_naira": 2.2,
+      "example_monthly_cost_naira": 660002.2
+    }
+  ],
+  "note": "Enterprise pricing is volume-based with tiered rates. Higher volumes get progressively lower per-conversation rates, capped at ₦2.20/conversation for 300K+ conversations."
+}
+```
+
+**Frontend Example - Display Pricing Tiers:**
+
+```typescript
+async function displayEnterprisePricingTiers() {
+  const response = await fetch(
+    'http://localhost:8000/api/v1/platform/pricing/enterprise/tiers',
+    { headers: { 'Authorization': `Bearer ${adminToken}` } }
+  );
+
+  const data = await response.json();
+
+  const table = data.tiers.map(tier => `
+    <tr>
+      <td>${tier.range}</td>
+      <td>₦${tier.price_per_conv_naira.toFixed(2)}</td>
+      <td>₦${tier.example_monthly_cost_naira.toLocaleString('en-NG', {maximumFractionDigits: 0})}</td>
+    </tr>
+  `).join('');
+
+  document.getElementById('pricing-tiers-table').innerHTML = table;
+}
+```
+
+#### 13.7.2 Calculate Enterprise Pricing
+
+**Endpoint:** `POST /platform/pricing/enterprise/calculate`
+**Auth:** Platform Admin (Super Admin only)
+**Use Cases:** Generate customer quotes, pricing proposals, sales conversations
+
+```typescript
+interface PricingCalculatorRequest {
+  conversations: number;  // Expected monthly conversation volume (min: 1)
+}
+
+// Calculate pricing for 100,000 conversations
+const response = await fetch(
+  'http://localhost:8000/api/v1/platform/pricing/enterprise/calculate',
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer PLATFORM_ADMIN_TOKEN',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      conversations: 100000
+    })
+  }
+);
+
+// Response
+{
+  "conversations": 100000,
+  "tier_breakdown": [
+    {
+      "range": "50,001-100,000",
+      "conversations_in_tier": 100000,
+      "price_per_conv_kobo": 275,
+      "price_per_conv_naira": 2.75,
+      "subtotal_kobo": 27500000,
+      "subtotal_naira": 275000.0
+    }
+  ],
+  "total_cost_kobo": 27500000,
+  "total_cost_naira": 275000.0,
+  "average_price_per_conv_kobo": 275,
+  "average_price_per_conv_naira": 2.75,
+  "ai_cost_estimate": {
+    "cost_per_conv_kobo": 56,
+    "total_kobo": 5600000,
+    "total_naira": 56000.0
+  },
+  "profit_margin": {
+    "profit_kobo": 21900000,
+    "profit_naira": 219000.0,
+    "margin_percentage": 79.64
+  }
+}
+```
+
+**Error Response (Below Minimum Volume):**
+
+```json
+{
+  "detail": {
+    "error": "minimum_volume_not_met",
+    "message": "Enterprise pricing starts at 25,000 conversations/month",
+    "recommended_tier": "growth",
+    "growth_tier_cost_naira": 80000
+  }
+}
+```
+
+**Frontend Example - Pricing Calculator:**
+
+```typescript
+async function calculateEnterprisePricing(conversations: number) {
+  try {
+    const response = await fetch(
+      'http://localhost:8000/api/v1/platform/pricing/enterprise/calculate',
+      {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${adminToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ conversations })
+      }
+    );
+
+    if (!response.ok) {
+      const error = await response.json();
+      if (error.detail?.error === 'minimum_volume_not_met') {
+        showWarning(`Volume too low. Recommend Growth tier at ₦${error.detail.growth_tier_cost_naira.toLocaleString()}/month`);
+        return;
+      }
+      throw new Error(error.detail || 'Calculation failed');
+    }
+
+    const result = await response.json();
+
+    // Display results
+    document.getElementById('total-cost').textContent =
+      `₦${result.total_cost_naira.toLocaleString('en-NG', {maximumFractionDigits: 2})}`;
+
+    document.getElementById('cost-per-conv').textContent =
+      `₦${result.average_price_per_conv_naira.toFixed(2)}`;
+
+    document.getElementById('profit-margin').textContent =
+      `${result.profit_margin.margin_percentage}%`;
+
+    // Show breakdown
+    const breakdown = result.tier_breakdown.map(tier => `
+      <div class="breakdown-item">
+        <span>${tier.range}</span>
+        <span>${tier.conversations_in_tier.toLocaleString()} × ₦${tier.price_per_conv_naira}</span>
+        <span>₦${tier.subtotal_naira.toLocaleString('en-NG', {maximumFractionDigits: 2})}</span>
+      </div>
+    `).join('');
+
+    document.getElementById('pricing-breakdown').innerHTML = breakdown;
+
+  } catch (error) {
+    console.error('Pricing calculation error:', error);
+    showError(error.message);
+  }
+}
+
+// Example usage
+document.getElementById('calculate-btn').addEventListener('click', () => {
+  const conversations = parseInt(document.getElementById('conversations-input').value);
+  if (conversations > 0) {
+    calculateEnterprisePricing(conversations);
+  }
+});
+```
+
+#### 13.7.3 Compare Growth vs Enterprise Pricing
+
+**Endpoint:** `POST /platform/pricing/enterprise/compare`
+**Auth:** Platform Admin (Super Admin only)
+**Use Cases:** Tier recommendations, upgrade guidance, cost optimization
+
+```typescript
+// Compare Growth vs Enterprise for 40,000 conversations
+const response = await fetch(
+  'http://localhost:8000/api/v1/platform/pricing/enterprise/compare',
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer PLATFORM_ADMIN_TOKEN',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      conversations: 40000
+    })
+  }
+);
+
+// Response - When Enterprise is recommended
+{
+  "recommended_tier": "enterprise",
+  "conversations": 40000,
+  "growth_tier_with_overage": {
+    "base_cost_kobo": 8000000,
+    "base_cost_naira": 80000,
+    "overage_conversations": 15000,
+    "overage_cost_kobo": 6000000,
+    "overage_cost_naira": 60000.0,
+    "total_cost_kobo": 14000000,
+    "total_cost_naira": 140000.0
+  },
+  "enterprise_tier": {
+    "total_cost_kobo": 12000000,
+    "total_cost_naira": 120000.0,
+    "average_price_per_conv_naira": 3.0
+  },
+  "savings": {
+    "amount_kobo": 2000000,
+    "amount_naira": 20000.0,
+    "percentage": 14.29
+  },
+  "recommendation": "Enterprise tier is more cost-effective for this volume"
+}
+
+// Response - When Growth is recommended (≤25,000 conversations)
+{
+  "recommended_tier": "growth",
+  "conversations": 20000,
+  "reason": "Volume (20,000) within Growth tier limit",
+  "growth_tier": {
+    "cost_kobo": 8000000,
+    "cost_naira": 80000,
+    "conversations_included": 25000,
+    "price_per_conv_naira": 3.2
+  },
+  "note": "Growth tier is recommended for volumes up to 25,000 conversations"
+}
+```
+
+**Frontend Example - Tier Comparison:**
+
+```typescript
+async function compareGrowthVsEnterprise(conversations: number) {
+  const response = await fetch(
+    'http://localhost:8000/api/v1/platform/pricing/enterprise/compare',
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${adminToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ conversations })
+    }
+  );
+
+  const comparison = await response.json();
+
+  if (comparison.recommended_tier === 'growth') {
+    // Growth tier recommended
+    showRecommendation(`
+      <div class="recommendation growth">
+        <h3>✅ Recommended: Growth Tier</h3>
+        <p>${comparison.reason}</p>
+        <div class="pricing">
+          <strong>₦${comparison.growth_tier.cost_naira.toLocaleString()}/month</strong>
+          <small>Includes ${comparison.growth_tier.conversations_included.toLocaleString()} conversations</small>
+          <small>₦${comparison.growth_tier.price_per_conv_naira.toFixed(2)} per conversation</small>
+        </div>
+      </div>
+    `);
+  } else {
+    // Enterprise tier recommended
+    showRecommendation(`
+      <div class="recommendation enterprise">
+        <h3>✅ Recommended: Enterprise Tier</h3>
+        <p>${comparison.recommendation}</p>
+
+        <div class="comparison-table">
+          <div class="tier growth">
+            <h4>Growth + Overage</h4>
+            <div>Base: ₦${comparison.growth_tier_with_overage.base_cost_naira.toLocaleString()}</div>
+            <div>Overage (${comparison.growth_tier_with_overage.overage_conversations.toLocaleString()} convos):
+                 ₦${comparison.growth_tier_with_overage.overage_cost_naira.toLocaleString()}</div>
+            <div class="total">Total: ₦${comparison.growth_tier_with_overage.total_cost_naira.toLocaleString()}</div>
+          </div>
+
+          <div class="tier enterprise">
+            <h4>Enterprise</h4>
+            <div>${conversations.toLocaleString()} × ₦${comparison.enterprise_tier.average_price_per_conv_naira}</div>
+            <div class="total">Total: ₦${comparison.enterprise_tier.total_cost_naira.toLocaleString()}</div>
+          </div>
+        </div>
+
+        <div class="savings">
+          💰 Save ₦${comparison.savings.amount_naira.toLocaleString()}
+          (${comparison.savings.percentage}%) with Enterprise
+        </div>
+      </div>
+    `);
+  }
+}
+
+// Example: Volume slider with real-time comparison
+document.getElementById('volume-slider').addEventListener('input', (e) => {
+  const conversations = parseInt(e.target.value);
+  document.getElementById('volume-display').textContent = conversations.toLocaleString();
+
+  // Debounce API calls
+  clearTimeout(window.comparisonTimeout);
+  window.comparisonTimeout = setTimeout(() => {
+    compareGrowthVsEnterprise(conversations);
+  }, 500);
+});
+```
+
+**Key Features:**
+
+1. **Transparent Pricing** - No more "contact sales" mystery for Enterprise
+2. **Automated Quotes** - Generate pricing instantly for any volume
+3. **Profit Margin Analysis** - See profitability at ₦0.56 AI cost per conversation
+4. **Tier Recommendations** - Automatic comparison with Growth tier
+5. **Sales Tool** - Help sales team quote customers accurately
+6. **Volume Discounts** - Progressively lower rates for higher volumes (₦3.00 → ₦2.20)
+
+**Pricing Examples:**
+
+| Volume | Tier Used | Total Cost | Avg Price/Conv | Margin |
+|--------|-----------|------------|----------------|--------|
+| 30,000 | 25K-50K | ₦90,000 | ₦3.00 | 81.33% |
+| 75,000 | 50K-100K | ₦206,250 | ₦2.75 | 79.64% |
+| 150,000 | 100K-200K | ₦375,000 | ₦2.50 | 77.60% |
+| 350,000 | 300K+ | ₦770,000 | ₦2.20 | 74.55% |
 
 ---
 
