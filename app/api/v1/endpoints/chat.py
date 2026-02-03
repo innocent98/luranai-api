@@ -520,8 +520,8 @@ async def send_message(
             logger.info("Auto-escalating due to user request")
 
         elif escalation_decision.action == EscalationAction.OFFER_ESCALATION:
-            # No knowledge available - offer escalation immediately
-            ai_response_text = "I don't have information about that. Would you like me to connect you with someone from our team?"
+            # No knowledge available - offer escalation with empowering language
+            ai_response_text = "I'd like to help you with that, but to give you the most accurate information, I'd recommend connecting with our support team. They'll have access to the specific details you need. Shall I transfer you to someone who can assist?"
             token_count = 0
             quality = ResponseQuality(is_substantial=False, has_uncertainty=True, word_count=0, char_count=0)
             logger.info("No knowledge available, offering escalation")
@@ -539,8 +539,8 @@ async def send_message(
                     logger.warning(f"Hard gate triggered: avg_similarity={avg_similarity:.2f} < {rag_service.MIN_RELEVANT_SIMILARITY}")
 
             if should_skip_generation:
-                # Don't call Gemini - return canned response
-                ai_response_text = "I don't have information about that. Would you like me to connect you with someone from our team?"
+                # Don't call AI - return empowering escalation offer
+                ai_response_text = "I'd like to help you with that, but to give you the most accurate information, I'd recommend connecting with our support team. They'll have access to the specific details you need. Shall I transfer you to someone who can assist?"
                 token_count = 0
                 quality = ResponseQuality(
                     is_substantial=False,
