@@ -24,6 +24,8 @@ class PaystackService:
         "lite_annual": "PLN_yeostwggamfwy3b",
         "professional_monthly": "PLN_ev747ystsd08nhq",
         "professional_annual": "PLN_pz9lyqt3q4uajn4",
+        "growth_monthly": "PLN_2poizrt6dhmf40e",
+        "growth_annual": "PLN_af25zpt8c6hdins",
     }
 
     def __init__(self, db: Session):
@@ -41,7 +43,7 @@ class PaystackService:
         Get subscription amount in kobo.
 
         Args:
-            tier: Subscription tier (lite, professional, enterprise)
+            tier: Subscription tier (lite, professional, growth, enterprise)
             billing_cycle: Billing cycle (monthly, annual)
 
         Returns:
