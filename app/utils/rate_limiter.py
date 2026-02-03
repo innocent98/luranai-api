@@ -229,46 +229,20 @@ class QuotaCircuitBreaker:
 
 
 # Global rate limiter instances
-# Google Embedding API: gemini-embedding-1.0
-# Official limits: 100 RPM, 1,000 RPD (from Google AI Studio)
-# We use 90 RPM to stay safe (90% of limit)
-embedding_rate_limiter = RedisRateLimiter(
-    key_prefix="google_embedding_api",
-    max_calls=90,  # 90 RPM (was 10, now using full capacity)
+# OpenAI Embedding API: text-embedding-3-small
+# Official limits: 3,000 RPM (Tier 1)
+# We use 2,700 RPM to stay safe (90% of limit)
+openai_embedding_rate_limiter = RedisRateLimiter(
+    key_prefix="openai_embedding_api",
+    max_calls=2700,  # 90% of 3,000 RPM
     window_seconds=60,
 )
 
-# Daily quota tracker (1,000 per day for gemini-embedding-1.0)
-embedding_daily_limiter = RedisRateLimiter(
-    key_prefix="google_embedding_daily",
-    max_calls=1000,  # Actual limit from screenshot
-    window_seconds=86400,  # 24 hours
-)
-
-# Circuit breaker for daily quota
-embedding_circuit_breaker = QuotaCircuitBreaker(
-    rate_limiter=embedding_daily_limiter,
-    warning_threshold=0.8,  # Warn at 80% (800 requests)
-    block_threshold=0.95,   # Block at 95% (950 requests)
-)
-
-# Gemma-3-12b chat model rate limiters
-# Official limits: 30 RPM, 14,400 RPD (from Google AI Studio)
-gemma_rate_limiter = RedisRateLimiter(
-    key_prefix="google_gemma_api",
-    max_calls=27,  # 90% of 30 RPM
+# OpenAI Chat API: gpt-4o-mini
+# Official limits: 500 RPM (Tier 1)
+# We use 450 RPM to stay safe (90% of limit)
+openai_llm_rate_limiter = RedisRateLimiter(
+    key_prefix="openai_llm_api",
+    max_calls=450,  # 90% of 500 RPM
     window_seconds=60,
-)
-
-gemma_daily_limiter = RedisRateLimiter(
-    key_prefix="google_gemma_daily",
-    max_calls=14400,  # Full daily quota
-    window_seconds=86400,  # 24 hours
-)
-
-# Circuit breaker for gemma daily quota
-gemma_circuit_breaker = QuotaCircuitBreaker(
-    rate_limiter=gemma_daily_limiter,
-    warning_threshold=0.8,  # Warn at 80% (11,520 requests)
-    block_threshold=0.95,   # Block at 95% (13,680 requests)
 )

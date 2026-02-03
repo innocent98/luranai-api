@@ -50,13 +50,17 @@ class Settings(BaseSettings):
             raise ValueError("SECRET_KEY must be at least 32 characters")
         return v
 
-    @field_validator("GOOGLE_API_KEY")
+    @field_validator("OPENAI_API_KEY")
     @classmethod
-    def validate_google_api_key(cls, v: str) -> str:
-        """Ensure GOOGLE_API_KEY is set."""
+    def validate_openai_api_key(cls, v: str) -> str:
+        """Ensure OPENAI_API_KEY is set."""
         if not v or v.strip() == "":
             raise ValueError(
-                "GOOGLE_API_KEY required. Get from: https://makersuite.google.com/app/apikey"
+                "OPENAI_API_KEY required. Get from: https://platform.openai.com/api-keys"
+            )
+        if not v.startswith("sk-"):
+            raise ValueError(
+                "OPENAI_API_KEY must start with 'sk-'. Check your API key."
             )
         return v
 
@@ -116,18 +120,12 @@ class Settings(BaseSettings):
     QDRANT_API_KEY: Optional[str] = None
     QDRANT_COLLECTION_NAME: str
 
-    # Google AI
-    GOOGLE_API_KEY: str
-    EMBEDDING_MODEL: str # gemini-embedding-1.0: 100 RPM, 1K RPD
+    # OpenAI
+    OPENAI_API_KEY: str
+    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"  # 3K RPM, $0.00002/1K tokens
+    OPENAI_LLM_MODEL: str = "gpt-4o-mini"  # 500 RPM, $0.150/1M input, $0.600/1M output
 
-    # AI Model Selection
-    # PRODUCTION MODEL (Gemini Flash - Fast, cost-effective, high quality)
-    GEMINI_MODEL: str # Flash: 10 RPM free tier, 1M RPD | Cost: ~$0.075/1M input, ~$0.30/1M output
-
-    # DEVELOPMENT MODEL (Gemma - Free, open source)
-    # GEMINI_MODEL: str = "models/gemma-3-12b-it"  # Gemma: 30 RPM, 14.4K RPD | Cost: FREE
-
-    EMBEDDING_DIMENSION: int = 3072  # gemini-embedding-001 produces 3072-dim vectors
+    EMBEDDING_DIMENSION: int = 1536  # text-embedding-3-small produces 1536-dim vectors
 
     # Email (optional)
     SMTP_TLS: bool = True

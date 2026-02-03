@@ -690,63 +690,54 @@ Answer the customer's question using ONLY the information provided above. Be nat
         model_name: Optional[str] = None,
     ) -> tuple[str, Optional[int], bool]:
         """
-        Generate AI response using Gemini API.
+        Generate AI response using OpenAI API.
 
         Args:
             prompt: Assembled prompt components
             max_tokens: Maximum tokens for response
-            model_name: Model name to use (defaults to settings.GEMINI_MODEL)
+            model_name: Model name to use (defaults to settings.OPENAI_LLM_MODEL)
 
         Returns:
             Tuple of (AI response text, token count, is_api_error)
             - is_api_error=True means technical failure (503, timeout, etc.)
               Don't evaluate quality or offer escalation for API errors
         """
-        from google import genai
+        from openai import AsyncOpenAI
         from app.core.config import settings
         from loguru import logger
-        from app.utils.rate_limiter import (
-            gemma_rate_limiter,
-            gemma_circuit_breaker,
-        )
+        from app.utils.rate_limiter import openai_llm_rate_limiter
 
         # Use provided model or default from settings
-        model = model_name or settings.GEMINI_MODEL
+        model = model_name or settings.OPENAI_LLM_MODEL
 
         try:
-            # Apply rate limiting for gemma-3-12b (30 RPM, 14.4K RPD)
-            await gemma_rate_limiter.acquire()
-            await gemma_circuit_breaker.check_and_acquire()
+            # Apply rate limiting (450 RPM, 90% of 500 limit)
+            await openai_llm_rate_limiter.acquire()
 
             # Create client
-            client = genai.Client(api_key=settings.GOOGLE_API_KEY)
+            client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
             # Generate response
-            # Note: Using dict config instead of GenerateContentConfig for compatibility
-            logger.debug(f"Calling Gemini API with max_output_tokens={max_tokens}")
-            response = client.models.generate_content(
+            logger.debug(f"Calling OpenAI API with max_tokens={max_tokens}")
+            response = await client.chat.completions.create(
                 model=model,
-                contents=prompt.full_prompt,
-                config={
-                    'max_output_tokens': max_tokens,
-                    'temperature': 0.4,  # Increased from 0.2 for more natural, varied responses while maintaining groundedness
-                    'top_p': 0.9,  # Add nucleus sampling for controlled variation
-                },
+                messages=[
+                    {"role": "system", "content": "You are a helpful customer support assistant."},
+                    {"role": "user", "content": prompt.full_prompt}
+                ],
+                max_tokens=max_tokens,
+                temperature=0.4,  # Increased from 0.2 for more natural, varied responses while maintaining groundedness
+                top_p=0.9,  # Add nucleus sampling for controlled variation
             )
 
             # Extract text
-            response_text = response.text
+            response_text = response.choices[0].message.content
 
-            # Debug: Check response structure
-            logger.debug(f"Response candidates: {len(response.candidates) if hasattr(response, 'candidates') else 'N/A'}")
-            if hasattr(response, 'candidates') and response.candidates:
-                logger.debug(f"First candidate finish_reason: {response.candidates[0].finish_reason if hasattr(response.candidates[0], 'finish_reason') else 'N/A'}")
-
-            # Extract token count with error handling
+            # Extract token count
             token_count = None
             try:
-                if hasattr(response, 'usage_metadata') and response.usage_metadata:
-                    token_count = response.usage_metadata.total_token_count
+                if response.usage:
+                    token_count = response.usage.total_tokens
             except Exception as token_error:
                 logger.warning(f"Failed to extract token count: {token_error}")
 
@@ -763,7 +754,7 @@ Answer the customer's question using ONLY the information provided above. Be nat
                 logger.warning("API service temporarily unavailable (503)")
                 return "I apologize, but I'm temporarily unable to process requests. Please try again in a moment.", None, True
 
-            elif "blocked" in error_msg or "safety" in error_msg or "content" in error_msg:
+            elif "blocked" in error_msg or "safety" in error_msg or "content" in error_msg or "content_filter" in error_msg:
                 logger.warning("Content blocked by safety filters")
                 return "I'm unable to process that request. Would you like me to connect you with someone from our team?", None, True
 

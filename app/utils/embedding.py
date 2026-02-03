@@ -1,20 +1,20 @@
-"""Embedding generation utilities using Google AI."""
+"""Embedding generation utilities using OpenAI."""
 
 from typing import List, Optional
-from google import genai
+from openai import AsyncOpenAI
 from loguru import logger
 
 from app.core.config import settings
-from app.utils.rate_limiter import embedding_rate_limiter, embedding_circuit_breaker
+from app.utils.rate_limiter import openai_embedding_rate_limiter
 
 
 class EmbeddingService:
-    """Service for generating text embeddings using Google AI."""
+    """Service for generating text embeddings using OpenAI."""
 
     def __init__(self):
-        """Initialize embedding service with Google AI."""
-        self.client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-        self.model = settings.EMBEDDING_MODEL
+        """Initialize embedding service with OpenAI."""
+        self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        self.model = settings.OPENAI_EMBEDDING_MODEL
 
     async def generate_embedding(self, text: str, use_rate_limit: bool = True) -> Optional[List[float]]:
         """
@@ -28,31 +28,22 @@ class EmbeddingService:
             Embedding vector or None if error
         """
         try:
-            # Apply rate limiting with circuit breaker
+            # Apply rate limiting
             if use_rate_limit:
-                # Check per-minute rate limit
-                await embedding_rate_limiter.acquire()
-
-                # Check daily quota with circuit breaker
-                # (will raise RuntimeError if quota nearly exhausted)
-                await embedding_circuit_breaker.check_and_acquire()
+                await openai_embedding_rate_limiter.acquire()
 
             # Generate embedding
-            result = self.client.models.embed_content(
+            response = await self.client.embeddings.create(
                 model=self.model,
-                contents=text,
+                input=text,
             )
 
-            # Access embedding from response object
-            embedding = result.embeddings[0].values
+            # Extract embedding from response
+            embedding = response.data[0].embedding
 
             logger.debug(f"Generated embedding of dimension {len(embedding)}")
             return embedding
 
-        except RuntimeError as e:
-            # Circuit breaker opened - quota exhausted
-            logger.error(f"Circuit breaker triggered: {e}")
-            return None
         except Exception as e:
             logger.error(f"Error generating embedding: {e}")
             return None
@@ -69,30 +60,22 @@ class EmbeddingService:
             Embedding vector or None if error
         """
         try:
-            # Apply rate limiting with circuit breaker
+            # Apply rate limiting
             if use_rate_limit:
-                # Check per-minute rate limit
-                await embedding_rate_limiter.acquire()
+                await openai_embedding_rate_limiter.acquire()
 
-                # Check daily quota with circuit breaker
-                await embedding_circuit_breaker.check_and_acquire()
-
-            # Generate embedding with query task type
-            result = self.client.models.embed_content(
+            # Generate embedding (OpenAI doesn't distinguish between document and query embeddings)
+            response = await self.client.embeddings.create(
                 model=self.model,
-                contents=query,
+                input=query,
             )
 
-            # Access embedding from response object
-            embedding = result.embeddings[0].values
+            # Extract embedding from response
+            embedding = response.data[0].embedding
 
             logger.debug(f"Generated query embedding of dimension {len(embedding)}")
             return embedding
 
-        except RuntimeError as e:
-            # Circuit breaker opened - quota exhausted
-            logger.error(f"Circuit breaker triggered: {e}")
-            return None
         except Exception as e:
             logger.error(f"Error generating query embedding: {e}")
             return None
@@ -105,7 +88,7 @@ class EmbeddingService:
 
         IMPORTANT: This method processes texts sequentially with rate limiting
         to avoid exceeding API quotas. For large batches, this will take time
-        (e.g., 30 texts = ~3 minutes at 10 requests/minute).
+        (e.g., 100 texts = ~2 minutes at 2,700 requests/minute with rate limiting).
 
         Args:
             texts: List of texts to embed
