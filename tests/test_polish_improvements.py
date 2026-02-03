@@ -27,8 +27,8 @@ class TestSimilarityThresholds:
         """RAGService should have similarity threshold constants."""
         assert hasattr(RAGService, 'MIN_SCORE_THRESHOLD')
         assert hasattr(RAGService, 'MIN_RELEVANT_SIMILARITY')
-        assert RAGService.MIN_SCORE_THRESHOLD == 0.45
-        assert RAGService.MIN_RELEVANT_SIMILARITY == 0.5
+        assert RAGService.MIN_SCORE_THRESHOLD == 0.35
+        assert RAGService.MIN_RELEVANT_SIMILARITY == 0.40
 
 
 class TestConfidenceScoreRemoval:
@@ -105,12 +105,27 @@ class TestMaxChunkCharsTODO:
     """Test that MAX_CHUNK_CHARS has TODO comment."""
 
     def test_token_safety_todo_exists(self):
-        """RAGService should have MAX_CHUNK_CHARS constant with TODO."""
+        """RAGService should have MAX_CHUNK_CHARS constant."""
         assert hasattr(RAGService, 'MAX_CHUNK_CHARS')
-        assert RAGService.MAX_CHUNK_CHARS == 600
+        assert RAGService.MAX_CHUNK_CHARS == 900
 
-        # The TODO comment is in the source code
-        # This test just verifies the constant exists
+
+class TestTokenCounter:
+    """Test tiktoken integration."""
+
+    def test_token_counter_accuracy(self):
+        """Verify tiktoken integration works correctly."""
+        from app.utils.token_counter import count_tokens
+
+        # Test known token counts
+        assert count_tokens("Hello world") == 2
+        assert count_tokens("") == 0
+
+        # Test longer text
+        long_text = "This is a longer piece of text " * 10
+        tokens = count_tokens(long_text)
+        assert tokens > 0
+        assert tokens < len(long_text)  # Tokens < characters
 
 
 @pytest.fixture

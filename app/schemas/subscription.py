@@ -9,7 +9,7 @@ from uuid import UUID
 class SubscriptionUpgradeRequest(BaseModel):
     """Schema for subscription upgrade request."""
 
-    tier: str = Field(..., description="Target tier: lite, professional, enterprise")
+    tier: str = Field(..., description="Target tier: lite, professional, growth, enterprise")
     billing_cycle: str = Field(default="monthly", description="Billing cycle: monthly, annual")
 
     class Config:
@@ -35,7 +35,7 @@ class MySubscriptionResponse(BaseModel):
 
     tenant_id: UUID
     tenant_name: str
-    subscription_tier: str = Field(..., description="Current tier: trial, lite, professional, enterprise")
+    subscription_tier: str = Field(..., description="Current tier: trial, lite, professional, growth, enterprise")
     subscription_status: str = Field(..., description="Status: trial, active, canceled, past_due, trial_expired")
     billing_cycle: Optional[str] = Field(None, description="Billing cycle: monthly, annual")
     trial_ends_at: Optional[datetime] = Field(None, description="Trial end date (null if not on trial)")
@@ -101,7 +101,7 @@ class SubscriptionCancelResponse(BaseModel):
 class SubscriptionDowngradeRequest(BaseModel):
     """Request to downgrade subscription."""
 
-    tier: str = Field(..., description="Target tier (lite, professional)")
+    tier: str = Field(..., description="Target tier (lite, professional, growth)")
     reason: Optional[str] = Field(None, description="Reason for downgrade", max_length=500)
 
     class Config:

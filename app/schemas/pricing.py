@@ -84,3 +84,86 @@ class PricingPlanListResponse(BaseModel):
     """Response for listing all pricing plans."""
     plans: list[PricingPlanResponse]
     total: int
+
+
+# Enterprise Pricing Calculator Schemas
+
+class VolumeTierBreakdown(BaseModel):
+    """Breakdown for a single volume pricing tier."""
+
+    range: str = Field(..., description="Volume range (e.g., '25,000-50,000')")
+    conversations_in_tier: int = Field(..., description="Conversations falling in this tier")
+    price_per_conv_kobo: int = Field(..., description="Price per conversation in kobo")
+    price_per_conv_naira: float = Field(..., description="Price per conversation in Naira")
+    subtotal_kobo: int = Field(..., description="Subtotal cost for this tier in kobo")
+    subtotal_naira: float = Field(..., description="Subtotal cost for this tier in Naira")
+
+
+class CostEstimate(BaseModel):
+    """AI cost estimate."""
+
+    cost_per_conv_kobo: int = Field(..., description="AI cost per conversation in kobo")
+    total_kobo: int = Field(..., description="Total AI cost in kobo")
+    total_naira: float = Field(..., description="Total AI cost in Naira")
+
+
+class ProfitMargin(BaseModel):
+    """Profit margin calculation."""
+
+    profit_kobo: int = Field(..., description="Profit in kobo")
+    profit_naira: float = Field(..., description="Profit in Naira")
+    margin_percentage: float = Field(..., description="Profit margin percentage")
+
+
+class EnterprisePricingResponse(BaseModel):
+    """Response from enterprise pricing calculator."""
+
+    conversations: int = Field(..., description="Monthly conversation volume")
+    tier_breakdown: list[VolumeTierBreakdown] = Field(..., description="Pricing breakdown by tier")
+    total_cost_kobo: int = Field(..., description="Total monthly cost in kobo")
+    total_cost_naira: float = Field(..., description="Total monthly cost in Naira")
+    average_price_per_conv_kobo: int = Field(..., description="Average price per conversation in kobo")
+    average_price_per_conv_naira: float = Field(..., description="Average price per conversation in Naira")
+    ai_cost_estimate: CostEstimate = Field(..., description="Estimated AI costs")
+    profit_margin: ProfitMargin = Field(..., description="Profit margin analysis")
+
+
+class VolumePricingTier(BaseModel):
+    """Volume pricing tier definition."""
+
+    range: str = Field(..., description="Conversation range")
+    min_conversations: int = Field(..., description="Minimum conversations in tier")
+    max_conversations: Optional[int] = Field(None, description="Maximum conversations in tier (null for unlimited)")
+    price_per_conv_kobo: int = Field(..., description="Price per conversation in kobo")
+    price_per_conv_naira: float = Field(..., description="Price per conversation in Naira")
+    example_monthly_cost_naira: float = Field(..., description="Example monthly cost at minimum volume")
+
+
+class EnterprisePricingTiersResponse(BaseModel):
+    """List of all Enterprise volume pricing tiers."""
+
+    tiers: list[VolumePricingTier] = Field(..., description="All pricing tiers")
+    note: str = Field(
+        default="Pricing is volume-based. Higher volumes get lower per-conversation rates.",
+        description="Explanation of pricing model"
+    )
+
+
+class PricingCalculatorRequest(BaseModel):
+    """Request to calculate Enterprise pricing."""
+
+    conversations: int = Field(..., ge=1, description="Expected monthly conversation volume")
+
+
+class TierComparison(BaseModel):
+    """Comparison between Growth and Enterprise tiers."""
+
+    recommended_tier: str = Field(..., description="Recommended tier")
+    conversations: int = Field(..., description="Monthly conversations")
+    growth_tier_with_overage: Optional[dict] = Field(None, description="Growth tier cost with overage")
+    enterprise_tier: Optional[dict] = Field(None, description="Enterprise tier cost")
+    savings: Optional[dict] = Field(None, description="Savings with Enterprise")
+    recommendation: str = Field(..., description="Recommendation explanation")
+    growth_tier: Optional[dict] = Field(None, description="Growth tier details")
+    reason: Optional[str] = Field(None, description="Reason for recommendation")
+    note: Optional[str] = Field(None, description="Additional notes")

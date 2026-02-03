@@ -408,6 +408,3 @@ else:
   - Profit: ₦881,280                                                                                                                                                                                
   - Margin: 84%                                                                                                                                                                                     
   - Assessment: ✅ Better for customer acquisition, still profitable   
-
-  #### Question
-  is it possible to reduce the input token and maybe compress, mostly the system prompt? or we have a balance prompt already?

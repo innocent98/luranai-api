@@ -59,10 +59,10 @@ async def initialize_subscription_payment(
         HTTPException 402: Trial expired or subscription inactive
     """
     # Validate tier and billing cycle
-    if payment_request.tier not in ["lite", "professional"]:
+    if payment_request.tier not in ["lite", "professional", "growth"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid tier. Choose 'lite' or 'professional'. For Enterprise, contact sales.",
+            detail="Invalid tier. Choose 'lite', 'professional', or 'growth'. For Enterprise, contact sales.",
         )
 
     if payment_request.billing_cycle not in ["monthly", "annual"]:

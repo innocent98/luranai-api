@@ -7,6 +7,8 @@ services:
     volumes:
       - ./app:/app/app
       - ./alembic:/app/alembic
+      - ./scripts:/app/scripts
+      - ./tests:/app/tests
     env_file:
       - .env
     depends_on:
@@ -18,7 +20,10 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       QDRANT_URL: ${QDRANT_URL}
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL}
+      OPENAI_LLM_MODEL: ${OPENAI_LLM_MODEL}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION}
       ENVIRONMENT: ${ENVIRONMENT:-production}
       API_WORKERS: ${API_WORKERS:-2}
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -50,6 +55,7 @@ services:
       - ./app:/app/app
       - ./alembic:/app/alembic
       - ./worker.py:/app/worker.py
+      - ./scripts:/app/scripts
     env_file:
       - .env
     depends_on:
@@ -61,7 +67,10 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       REDIS_URL: ${REDIS_URL}
       QDRANT_URL: ${QDRANT_URL}
-      GOOGLE_API_KEY: ${GOOGLE_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL}
+      OPENAI_LLM_MODEL: ${OPENAI_LLM_MODEL}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION}
       ENVIRONMENT: ${ENVIRONMENT:-production}
     deploy:
       resources:

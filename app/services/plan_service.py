@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from loguru import logger
 
 from app.db.models.subscription_plan import SubscriptionPlan
+from app.utils.enterprise_pricing import EnterprisePricingCalculator
 
 
 class PlanCache:
@@ -296,3 +297,36 @@ class PlanService:
         """
         plans = self.get_all_plans(active_only=True)
         return [plan.tier for plan in plans]
+
+    def calculate_enterprise_pricing(self, conversations: int) -> dict:
+        """
+        Calculate Enterprise tier pricing based on conversation volume.
+
+        Args:
+            conversations: Expected monthly conversations
+
+        Returns:
+            Pricing calculation result with breakdown and margins
+        """
+        return EnterprisePricingCalculator.calculate_monthly_cost(conversations)
+
+    def get_enterprise_pricing_tiers(self) -> list[dict]:
+        """
+        Get all Enterprise volume pricing tiers.
+
+        Returns:
+            List of volume pricing tier definitions
+        """
+        return EnterprisePricingCalculator.get_pricing_tiers()
+
+    def compare_tiers_for_volume(self, conversations: int) -> dict:
+        """
+        Compare Growth vs Enterprise pricing for given volume.
+
+        Args:
+            conversations: Expected monthly conversation volume
+
+        Returns:
+            Comparison showing recommended tier and savings
+        """
+        return EnterprisePricingCalculator.compare_with_fixed_tiers(conversations)

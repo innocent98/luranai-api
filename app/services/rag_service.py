@@ -10,6 +10,7 @@ from loguru import logger
 from app.db.models.tenant import TenantAIConfig
 from app.schemas.knowledge import KnowledgeChunkResponse
 from app.schemas.conversation import MessageResponse
+from app.utils.token_counter import count_tokens
 
 
 class RAGService:
@@ -25,16 +26,15 @@ class RAGService:
         self.db = db
 
     # Similarity thresholds
-    MIN_SCORE_THRESHOLD = 0.40  # Vector search cutoff (Qdrant filter) - Lowered from 0.45 for better recall
-    MIN_RELEVANT_SIMILARITY = 0.42  # Quality gate for generation - Lowered from 0.5 to reduce false negatives
+    MIN_SCORE_THRESHOLD = 0.35  # Vector search cutoff - Lowered from 0.40 for better recall
+    MIN_RELEVANT_SIMILARITY = 0.40  # Quality gate - Balanced (was 0.42)
 
     # Token optimization settings
-    MAX_CHUNK_CHARS = 1200  # Max characters per knowledge chunk (~300 tokens) - Increased from 600 for more complete context
-    # TODO: Character-based approximation is NOT token-safe
-    #   - Gemini tokens ≠ characters (can vary by 2-3x)
-    #   - Multilingual content breaks this assumption (Chinese/Japanese use fewer chars per token)
-    #   - For production, use tiktoken or model-specific tokenizer for accurate counts
-    #   - Current approach works for English MVP, but log actual token usage for validation
+    MAX_CHUNK_CHARS = 900  # Max characters per knowledge chunk (~225 tokens)
+
+    # Chunk retrieval configuration
+    MAX_CHUNKS_RETRIEVE = 5  # Retrieve from Qdrant (was 3)
+    MAX_CHUNKS_KEEP = 4  # Keep after reranking (was 3)
 
     def normalize_query(self, query: str) -> str:
         """
@@ -147,9 +147,12 @@ class RAGService:
         # Avoids breaking bullet lists, tables, contact info, policies with qualifiers
         sentence_count = len(chunk_content.split(". "))
         if sentence_count < 3:
-            # Just use character truncation for short chunks
-            if len(chunk_content) > self.MAX_CHUNK_CHARS:
-                return chunk_content[:self.MAX_CHUNK_CHARS] + "..."
+            # Token-aware truncation for short chunks
+            chunk_tokens = count_tokens(chunk_content)
+            if chunk_tokens > 225:  # ~900 chars
+                # Truncate by characters as fallback
+                if len(chunk_content) > self.MAX_CHUNK_CHARS:
+                    return chunk_content[:self.MAX_CHUNK_CHARS] + "..."
             return chunk_content
 
         # Improved sentence splitting using regex
@@ -185,80 +188,38 @@ class RAGService:
         if not compressed.endswith(('.', '!', '?')):
             compressed += "."
 
-        # Ensure not too long (fallback to character truncation)
-        if len(compressed) > self.MAX_CHUNK_CHARS:
-            compressed = compressed[:self.MAX_CHUNK_CHARS] + "..."
+        # Token-aware truncation
+        chunk_tokens = count_tokens(compressed)
+        if chunk_tokens > 225:  # ~900 chars
+            # Fallback to character truncation
+            if len(compressed) > self.MAX_CHUNK_CHARS:
+                compressed = compressed[:self.MAX_CHUNK_CHARS] + "..."
 
         return compressed
 
     # System-level prompt (immutable)
-    SYSTEM_PROMPT = """You are a helpful customer support assistant for the Luran platform.
+    SYSTEM_PROMPT = """You are a customer support assistant for Luran. Answer questions using only the provided information.
 
-Your role is to answer customer questions based primarily on the information provided to you.
-You may connect related concepts and explain how things work, but do not invent facts or details.
+CORE RULES:
+1. Base answers on provided information
+2. Connect related concepts when clear
+3. Say "I don't know" if information is missing
+4. Never invent facts, numbers, or policies
+5. Don't mention sources or knowledge bases
 
-━━━━━━━━━━━━━━━━━━━━━━
-CORE RULES (NON-NEGOTIABLE)
-━━━━━━━━━━━━━━━━━━━━━━
-1. Base your answers on the provided information.
-2. You may make reasonable connections between related concepts.
-3. If the answer is not available, clearly say so.
-4. Do NOT invent facts, make up numbers, or create policies that don't exist.
-5. Do NOT mention sources, documents, or knowledge bases.
-6. Do NOT provide information outside allowed topics.
+STYLE: Professional, warm, clear. Use bullets for multi-step answers.
 
-━━━━━━━━━━━━━━━━━━━━━━
-RESPONSE STYLE
-━━━━━━━━━━━━━━━━━━━━━━
-• Warm, natural, and human — not robotic
-• Clear and helpful
-• Professional and calm
-• Provide complete answers based on available information
-• Use bullet points or lists when explaining multiple features or steps
+WHAT TO DO:
+✓ Answer directly with relevant details
+✓ Provide step-by-step instructions when needed
+✓ Offer human assistance ONLY if you lack information
 
-━━━━━━━━━━━━━━━━━━━━━━
-ANSWERING QUESTIONS
-━━━━━━━━━━━━━━━━━━━━━━
-• For broad questions (e.g., "What is X?" "Tell me about Y"): Provide comprehensive answers using all relevant information
-• For specific questions (e.g., "How do I...?" "Where is..."): Give focused, step-by-step answers
-• Always directly address what was asked
-• Include relevant details, features, or context that helps the user understand fully
+AVOID:
+✗ Emotional assumptions or filler phrases
+✗ Meta-references ("my knowledge base")
+✗ Unnecessary repetition
 
-━━━━━━━━━━━━━━━━━━━━━━
-WHAT TO INCLUDE (WHEN RELEVANT)
-━━━━━━━━━━━━━━━━━━━━━━
-✓ Direct, complete answer to the question
-✓ Key features or benefits when discussing products/services
-✓ Step-by-step instructions when explaining processes
-✓ Important details that help understanding
-✓ Clear next steps (if applicable)
-✓ Contact details (only when needed)
-✓ Offer to connect to a human ONLY when you do not know the answer
-
-━━━━━━━━━━━━━━━━━━━━━━
-STRICTLY AVOID
-━━━━━━━━━━━━━━━━━━━━━━
-✗ Emotional assumptions ("I'm sorry this happened", "That must be stressful")
-✗ Unnecessary filler phrases ("I hope this helps", "Let me know if…")
-✗ "According to my knowledge base…" or similar meta-references
-✗ Repeating information the user didn't ask for
-✗ Being overly brief when a comprehensive answer is appropriate
-
-━━━━━━━━━━━━━━━━━━━━━━
-ESCALATION BEHAVIOR
-━━━━━━━━━━━━━━━━━━━━━━
-• If information is missing or unclear:
-  → Say you don't have the information
-  → Offer to connect them to a human
-
-• If the user explicitly asks for a human:
-  → Acknowledge and comply
-
-━━━━━━━━━━━━━━━━━━━━━━
-OUTPUT
-━━━━━━━━━━━━━━━━━━━━━━
-Provide a helpful, complete answer based on the available information.
-Match the depth of your answer to the breadth of the question."""
+ESCALATION: If unsure or user requests, offer to connect them to a human."""
 
     def assemble_prompt(
         self,
@@ -375,10 +336,37 @@ CUSTOMER QUESTION:
 
 Answer the customer's question using ONLY the information provided above. Be natural and professional. Do not add information beyond what is explicitly available."""
 
+        # Calculate actual token counts
+        system_tokens = count_tokens(system_prompt)
+        tenant_tokens = count_tokens(tenant_instructions)
+        knowledge_tokens = count_tokens(knowledge_context)
+        history_tokens = count_tokens(history_context)
+        query_tokens = count_tokens(user_query)
+        structural_tokens = count_tokens(
+            "AVAILABLE INFORMATION:\n\nCONVERSATION HISTORY (may contain incomplete or previous assistant errors - verify against knowledge base):\n\n"
+            "IMPORTANT: Previous assistant messages may have been incomplete or incorrect. Always prioritize the AVAILABLE INFORMATION section above when answering.\n\n"
+            "CUSTOMER QUESTION:\n\n"
+            "Answer the customer's question using ONLY the information provided above. Be natural and professional. Do not add information beyond what is explicitly available."
+        )
+
+        total_prompt_tokens = (
+            system_tokens + tenant_tokens + knowledge_tokens +
+            history_tokens + query_tokens + structural_tokens
+        )
+
+        logger.debug(
+            f"Prompt token breakdown: "
+            f"system={system_tokens}, tenant={tenant_tokens}, "
+            f"knowledge={knowledge_tokens}, history={history_tokens}, "
+            f"query={query_tokens}, structural={structural_tokens}, "
+            f"total={total_prompt_tokens}"
+        )
+
         return PromptComponents(
             full_prompt=full_prompt,
             knowledge_chunks_used=len(retrieved_chunks),
             history_turns_used=len(recent_messages) if conversation_history else 0,
+            prompt_tokens=total_prompt_tokens,
         )
 
     def should_escalate(
@@ -604,7 +592,7 @@ Answer the customer's question using ONLY the information provided above. Be nat
         self,
         tenant_id: UUID,
         query: str,
-        max_chunks: int = 3,
+        max_chunks: int = 5,
         score_threshold: float = None,
     ) -> tuple[list[KnowledgeChunkResponse], list[float]]:
         """
@@ -613,7 +601,7 @@ Answer the customer's question using ONLY the information provided above. Be nat
         Args:
             tenant_id: Tenant UUID for filtering
             query: User query
-            max_chunks: Maximum chunks to retrieve (default: 3, re-ranked to top 2)
+            max_chunks: Maximum chunks to retrieve (default: 5, re-ranked to top 4)
             score_threshold: Minimum similarity score (defaults to MIN_SCORE_THRESHOLD)
 
         Returns:
@@ -672,7 +660,7 @@ Answer the customer's question using ONLY the information provided above. Be nat
                     query=normalized_query,  # Use normalized query
                     chunks=chunks,
                     similarity_scores=scores,
-                    top_k=3,  # Keep top 3 after re-ranking - Increased from 2 for more comprehensive context
+                    top_k=4,  # Changed from 3
                 )
                 scores = relevance_scores  # Update scores with reranked values
 

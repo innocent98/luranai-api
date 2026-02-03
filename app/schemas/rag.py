@@ -33,3 +33,4 @@ class PromptComponents(BaseModel):
     full_prompt: str = Field(..., description="Complete assembled prompt")
     knowledge_chunks_used: int = Field(..., description="Number of knowledge chunks included")
     history_turns_used: int = Field(..., description="Number of conversation turns included")
+    prompt_tokens: Optional[int] = Field(None, description="Accurate token count for prompt")

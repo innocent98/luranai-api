@@ -36,13 +36,13 @@ def create_subscription_plans(db):
             "max_knowledge_sources": 2,
             "can_use_url_sources": False,
             "max_knowledge_mb": 10,
-            "max_conversations_per_month": 100,
+            "max_conversations_per_month": 200,
             "max_team_members": 1,
             "max_response_tokens": 800,
             "features": [
                 "2 knowledge sources",
                 "10MB storage",
-                "100 conversations/month",
+                "200 conversations/month",
                 "1 team member",
                 "Email support",
             ],
@@ -53,19 +53,19 @@ def create_subscription_plans(db):
             "tier": "lite",
             "display_name": "Lite",
             "description": "Perfect for small businesses getting started",
-            "monthly_price_kobo": 1200000,  # ₦12,000/month
-            "annual_price_kobo": 12000000,  # ₦120,000/year
+            "monthly_price_kobo": 900000,  # ₦9,000/month
+            "annual_price_kobo": 9000000,  # ₦90,000/year
             "can_access_analytics": True,
-            "max_knowledge_sources": 10,
+            "max_knowledge_sources": 15,
             "can_use_url_sources": True,
             "max_knowledge_mb": 50,
-            "max_conversations_per_month": 1000,
+            "max_conversations_per_month": 2000,
             "max_team_members": 3,
             "max_response_tokens": 1000,
             "features": [
-                "10 knowledge sources",
+                "15 knowledge sources",
                 "50MB storage",
-                "1,000 conversations/month",
+                "2,000 conversations/month",
                 "3 team members",
                 "URL scraping",
                 "Analytics dashboard",
@@ -78,19 +78,19 @@ def create_subscription_plans(db):
             "tier": "professional",
             "display_name": "Professional",
             "description": "Advanced features for growing teams",
-            "monthly_price_kobo": 3500000,  # ₦35,000/month
-            "annual_price_kobo": 35000000,  # ₦350,000/year
+            "monthly_price_kobo": 4000000,  # ₦40,000/month
+            "annual_price_kobo": 40000000,  # ₦400,000/year
             "can_access_analytics": True,
-            "max_knowledge_sources": 30,
+            "max_knowledge_sources": 50,
             "can_use_url_sources": True,
             "max_knowledge_mb": 200,
-            "max_conversations_per_month": 5000,
+            "max_conversations_per_month": 10000,
             "max_team_members": 10,
             "max_response_tokens": 1500,
             "features": [
-                "30 knowledge sources",
+                "50 knowledge sources",
                 "200MB storage",
-                "5,000 conversations/month",
+                "10,000 conversations/month",
                 "10 team members",
                 "URL scraping",
                 "Analytics dashboard",
@@ -101,9 +101,35 @@ def create_subscription_plans(db):
             "sort_order": 2,
         },
         {
+            "tier": "growth",
+            "display_name": "Growth",
+            "description": "Perfect for scaling businesses with growing customer support needs",
+            "monthly_price_kobo": 8000000,  # ₦80,000/month
+            "annual_price_kobo": 80000000,  # ₦800,000/year
+            "can_access_analytics": True,
+            "max_knowledge_sources": 50,
+            "can_use_url_sources": True,
+            "max_knowledge_mb": 500,
+            "max_conversations_per_month": 25000,
+            "max_team_members": 20,
+            "max_response_tokens": 1500,
+            "features": [
+                "50 knowledge sources",
+                "500MB storage",
+                "25,000 conversations/month",
+                "20 team members",
+                "URL scraping",
+                "Advanced analytics",
+                "Priority support",
+                "Custom integrations",
+            ],
+            "is_active": True,
+            "sort_order": 3,
+        },
+        {
             "tier": "enterprise",
             "display_name": "Enterprise",
-            "description": "Contact us for custom pricing and unlimited features",
+            "description": "Volume-based pricing for high-scale operations (25K+ conversations)",
             "monthly_price_kobo": 0,  # Contact for pricing
             "annual_price_kobo": 0,  # Contact for pricing
             "can_access_analytics": True,
@@ -116,17 +142,15 @@ def create_subscription_plans(db):
             "features": [
                 "Unlimited knowledge sources",
                 "Unlimited storage",
-                "Unlimited conversations",
+                "Volume-based pricing (25K-300K+)",
                 "Unlimited team members",
-                "URL scraping",
-                "Analytics dashboard",
-                "Premium AI responses",
-                "24/7 priority support",
                 "Dedicated account manager",
                 "Custom integrations",
+                "SLA guarantees",
+                "24/7 premium support",
             ],
             "is_active": True,
-            "sort_order": 3,
+            "sort_order": 4,
         },
     ]
 

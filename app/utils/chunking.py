@@ -31,17 +31,16 @@ class TextChunker:
 
     def _estimate_token_count(self, text: str) -> int:
         """
-        Estimate token count (simple word-based approximation).
+        Accurate token count using tiktoken.
 
         Args:
             text: Input text
 
         Returns:
-            Approximate token count
+            Accurate token count
         """
-        # Simple approximation: 1 token ≈ 0.75 words
-        words = len(text.split())
-        return int(words * 1.33)
+        from app.utils.token_counter import count_tokens
+        return count_tokens(text, model="gpt-4o-mini")
 
     def _split_by_sentences(self, text: str) -> List[str]:
         """

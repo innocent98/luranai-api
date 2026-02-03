@@ -487,7 +487,7 @@ async def send_message(
         retrieved_chunks, similarity_scores = await rag_service.retrieve_relevant_chunks(
             tenant_id=session.tenant_id,
             query=message_data.message,
-            max_chunks=3,  # Retrieve 3, re-rank to top 3 for comprehensive answers
+            max_chunks=5,  # Changed from 3
             score_threshold=rag_service.MIN_SCORE_THRESHOLD,
         )
         logger.info(f"Retrieved {len(retrieved_chunks)} chunks with avg similarity: {sum(similarity_scores) / len(similarity_scores):.2f}" if similarity_scores else f"Retrieved {len(retrieved_chunks)} chunks")
@@ -572,9 +572,20 @@ async def send_message(
                 ai_response_text, token_count, is_api_error = await rag_service.generate_ai_response(
                     prompt=prompt_components,
                     max_tokens=tenant_config.max_response_tokens,
-                    model_name=settings.GEMINI_MODEL,
+                    model_name=settings.OPENAI_LLM_MODEL,
                 )
-                logger.info(f"Generated response ({token_count} tokens)")
+
+                # Log detailed token usage
+                if token_count and prompt_components.prompt_tokens:
+                    completion_tokens = token_count - prompt_components.prompt_tokens
+                    logger.info(
+                        f"Token usage - "
+                        f"prompt={prompt_components.prompt_tokens}, "
+                        f"completion={completion_tokens}, "
+                        f"total={token_count}"
+                    )
+                else:
+                    logger.info(f"Generated response ({token_count} tokens)")
 
                 # If API error, don't evaluate quality or offer escalation
                 if is_api_error:
@@ -617,6 +628,11 @@ async def send_message(
                     'word_count': quality.word_count,
                     'char_count': quality.char_count,
                 },
+                'token_breakdown': {
+                    'prompt_tokens': prompt_components.prompt_tokens if hasattr(prompt_components, 'prompt_tokens') else 0,
+                    'completion_tokens': token_count - prompt_components.prompt_tokens if token_count and hasattr(prompt_components, 'prompt_tokens') and prompt_components.prompt_tokens else 0,
+                    'total_tokens': token_count,
+                }
             }
         )
         logger.info(f"Saved assistant message: {assistant_message.id}")

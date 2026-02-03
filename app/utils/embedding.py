@@ -6,6 +6,7 @@ from loguru import logger
 
 from app.core.config import settings
 from app.utils.rate_limiter import openai_embedding_rate_limiter
+from app.utils.token_counter import count_tokens
 
 
 class EmbeddingService:
@@ -32,16 +33,23 @@ class EmbeddingService:
             if use_rate_limit:
                 await openai_embedding_rate_limiter.acquire()
 
+            # Count tokens BEFORE API call
+            input_tokens = count_tokens(text, model=self.model)
+
             # Generate embedding
             response = await self.client.embeddings.create(
                 model=self.model,
                 input=text,
             )
 
-            # Extract embedding from response
+            # Extract embedding and usage
             embedding = response.data[0].embedding
+            api_tokens = response.usage.prompt_tokens if response.usage else input_tokens
 
-            logger.debug(f"Generated embedding of dimension {len(embedding)}")
+            logger.debug(
+                f"Generated embedding: dim={len(embedding)}, "
+                f"tokens={api_tokens} (estimated={input_tokens})"
+            )
             return embedding
 
         except Exception as e:
@@ -64,16 +72,23 @@ class EmbeddingService:
             if use_rate_limit:
                 await openai_embedding_rate_limiter.acquire()
 
+            # Count tokens BEFORE API call
+            input_tokens = count_tokens(query, model=self.model)
+
             # Generate embedding (OpenAI doesn't distinguish between document and query embeddings)
             response = await self.client.embeddings.create(
                 model=self.model,
                 input=query,
             )
 
-            # Extract embedding from response
+            # Extract embedding and usage
             embedding = response.data[0].embedding
+            api_tokens = response.usage.prompt_tokens if response.usage else input_tokens
 
-            logger.debug(f"Generated query embedding of dimension {len(embedding)}")
+            logger.debug(
+                f"Generated query embedding: dim={len(embedding)}, "
+                f"tokens={api_tokens} (estimated={input_tokens})"
+            )
             return embedding
 
         except Exception as e:
