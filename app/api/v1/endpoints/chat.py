@@ -487,7 +487,7 @@ async def send_message(
         retrieved_chunks, similarity_scores = await rag_service.retrieve_relevant_chunks(
             tenant_id=session.tenant_id,
             query=message_data.message,
-            max_chunks=3,  # Retrieve 3, re-rank to top 2
+            max_chunks=3,  # Retrieve 3, re-rank to top 3 for comprehensive answers
             score_threshold=rag_service.MIN_SCORE_THRESHOLD,
         )
         logger.info(f"Retrieved {len(retrieved_chunks)} chunks with avg similarity: {sum(similarity_scores) / len(similarity_scores):.2f}" if similarity_scores else f"Retrieved {len(retrieved_chunks)} chunks")
@@ -504,7 +504,7 @@ async def send_message(
         # Step 6: Get conversation history for context (needed for ticket creation too)
         conversation_history = conversation_service.get_session_messages(
             session_id=session_id,
-            limit=10  # Last 5 turns (user + assistant) - reduced from 20 to save tokens
+            limit=20  # Last 10 turns (user + assistant) - Increased from 10 for better context
         )
 
         # Step 7: Generate AI response based on escalation action
@@ -562,7 +562,7 @@ async def send_message(
                     conversation_history=conversation_history,
                     company_name=tenant.display_name,
                     company_description=tenant.description,
-                    max_history_turns=5,  # Reduced from 10 to 5 (saves ~500 tokens)
+                    max_history_turns=10,  # Increased from 5 to 10 for better conversation continuity
                 )
                 logger.info(
                     f"Assembled prompt with {prompt_components.knowledge_chunks_used} chunks, "

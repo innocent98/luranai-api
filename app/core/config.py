@@ -8,13 +8,13 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Luran"
     VERSION: str = "0.1.0"
     API_V1_STR: str = "/api/v1"
-    ENVIRONMENT: str = "development"
+    ENVIRONMENT: str
 
     # Server
-    SERVER_HOST: str = "http://localhost"
+    SERVER_HOST: str
     SERVER_PORT: int = 8000
-    FRONTEND_URL: str = "http://localhost:3000"  # Frontend application URL for email links
-    FRONTEND_DOC_URL: str = "http://localhost:3002"  # Documentation/marketing site URL
+    FRONTEND_URL: str # Frontend application URL for email links
+    FRONTEND_DOC_URL: str # Documentation/marketing site URL
 
     # Security
     SECRET_KEY: str
@@ -109,20 +109,20 @@ class Settings(BaseSettings):
     DATABASE_MAX_OVERFLOW: int = 40
 
     # Redis
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str
 
     # Qdrant Vector Database
-    QDRANT_URL: str = "http://localhost:6333"
+    QDRANT_URL: str
     QDRANT_API_KEY: Optional[str] = None
-    QDRANT_COLLECTION_NAME: str = "luran_knowledge"
+    QDRANT_COLLECTION_NAME: str
 
     # Google AI
     GOOGLE_API_KEY: str
-    EMBEDDING_MODEL: str = "models/gemini-embedding-001"  # gemini-embedding-1.0: 100 RPM, 1K RPD
+    EMBEDDING_MODEL: str # gemini-embedding-1.0: 100 RPM, 1K RPD
 
     # AI Model Selection
     # PRODUCTION MODEL (Gemini Flash - Fast, cost-effective, high quality)
-    GEMINI_MODEL: str = "models/gemini-2.5-flash-lite"  # Flash: 10 RPM free tier, 1M RPD | Cost: ~$0.075/1M input, ~$0.30/1M output
+    GEMINI_MODEL: str # Flash: 10 RPM free tier, 1M RPD | Cost: ~$0.075/1M input, ~$0.30/1M output
 
     # DEVELOPMENT MODEL (Gemma - Free, open source)
     # GEMINI_MODEL: str = "models/gemma-3-12b-it"  # Gemma: 30 RPM, 14.4K RPD | Cost: FREE

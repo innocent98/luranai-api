@@ -82,7 +82,7 @@ async def initialize_subscription_payment(
             tier=payment_request.tier,
             billing_cycle=payment_request.billing_cycle,
             tenant_id=str(current_user.tenant_id),
-            callback_url=f"{settings.SERVER_HOST}/subscription/verify",
+            callback_url=f"{settings.FRONTEND_URL}/dashboard/settings/subscription/callback",
         )
 
         # Create transaction record

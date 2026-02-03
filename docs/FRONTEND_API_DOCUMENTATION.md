@@ -5318,7 +5318,7 @@ const response = await fetch('/api/v1/subscription/upgrade/initialize', {
 });
 ```
 
-Default callback: `{SERVER_HOST}/subscription/verify`
+Default callback: `{FRONTEND_URL}/dashboard/settings/subscription/callback`
 
 **What Happens:**
 1. System queries Paystack API: `GET /transaction/verify/{reference}`

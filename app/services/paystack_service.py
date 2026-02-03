@@ -130,7 +130,7 @@ class PaystackService:
                 "amount": amount,  # Required even with plan
                 "plan": plan_code,
                 "reference": reference,
-                "callback_url": callback_url or f"{settings.SERVER_HOST}/subscription/verify",
+                "callback_url": callback_url or f"{settings.FRONTEND_URL}/dashboard/settings/subscription/callback",
                 "metadata": {
                     "tenant_id": tenant_id,
                     "tier": tier,

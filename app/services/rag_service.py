@@ -25,11 +25,11 @@ class RAGService:
         self.db = db
 
     # Similarity thresholds
-    MIN_SCORE_THRESHOLD = 0.45  # Vector search cutoff (Qdrant filter)
-    MIN_RELEVANT_SIMILARITY = 0.5  # Quality gate for generation
+    MIN_SCORE_THRESHOLD = 0.40  # Vector search cutoff (Qdrant filter) - Lowered from 0.45 for better recall
+    MIN_RELEVANT_SIMILARITY = 0.42  # Quality gate for generation - Lowered from 0.5 to reduce false negatives
 
     # Token optimization settings
-    MAX_CHUNK_CHARS = 600  # Max characters per knowledge chunk (~150 tokens)
+    MAX_CHUNK_CHARS = 1200  # Max characters per knowledge chunk (~300 tokens) - Increased from 600 for more complete context
     # TODO: Character-based approximation is NOT token-safe
     #   - Gemini tokens ≠ characters (can vary by 2-3x)
     #   - Multilingual content breaks this assumption (Chinese/Japanese use fewer chars per token)
@@ -125,7 +125,7 @@ class RAGService:
         self,
         query: str,
         chunk_content: str,
-        max_sentences: int = 5,
+        max_sentences: int = 10,
     ) -> str:
         """
         Extract most relevant sentences from chunk based on query keywords.
@@ -194,17 +194,18 @@ class RAGService:
     # System-level prompt (immutable)
     SYSTEM_PROMPT = """You are a helpful customer support assistant for the Luran platform.
 
-Your role is to answer customer questions using ONLY the information explicitly provided to you.
-You must NEVER guess, infer, assume, or invent details.
+Your role is to answer customer questions based primarily on the information provided to you.
+You may connect related concepts and explain how things work, but do not invent facts or details.
 
 ━━━━━━━━━━━━━━━━━━━━━━
 CORE RULES (NON-NEGOTIABLE)
 ━━━━━━━━━━━━━━━━━━━━━━
-1. Use ONLY the provided information.
-2. If the answer is not available, clearly say so.
-3. Do NOT hallucinate, speculate, or fill gaps.
-4. Do NOT mention sources, documents, or knowledge bases.
-5. Do NOT provide information outside allowed topics.
+1. Base your answers on the provided information.
+2. You may make reasonable connections between related concepts.
+3. If the answer is not available, clearly say so.
+4. Do NOT invent facts, make up numbers, or create policies that don't exist.
+5. Do NOT mention sources, documents, or knowledge bases.
+6. Do NOT provide information outside allowed topics.
 
 ━━━━━━━━━━━━━━━━━━━━━━
 RESPONSE STYLE
@@ -340,7 +341,7 @@ Match the depth of your answer to the breadth of the question."""
                 chunk_content = self.compress_chunk_context(
                     query=user_query,
                     chunk_content=chunk.content,
-                    max_sentences=5,
+                    max_sentences=10,
                 )
                 context_parts.append(f"[Source {i}]\n{chunk_content}")
             knowledge_context = "\n\n".join(context_parts)
@@ -671,7 +672,7 @@ Answer the customer's question using ONLY the information provided above. Be nat
                     query=normalized_query,  # Use normalized query
                     chunks=chunks,
                     similarity_scores=scores,
-                    top_k=2,  # Keep top 2 after re-ranking
+                    top_k=3,  # Keep top 3 after re-ranking - Increased from 2 for more comprehensive context
                 )
                 scores = relevance_scores  # Update scores with reranked values
 
@@ -728,7 +729,7 @@ Answer the customer's question using ONLY the information provided above. Be nat
                 contents=prompt.full_prompt,
                 config={
                     'max_output_tokens': max_tokens,
-                    'temperature': 0.2,  # Lower for RAG-based support (0.2-0.3 recommended)
+                    'temperature': 0.4,  # Increased from 0.2 for more natural, varied responses while maintaining groundedness
                     'top_p': 0.9,  # Add nucleus sampling for controlled variation
                 },
             )

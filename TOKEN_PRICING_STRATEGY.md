@@ -169,3 +169,245 @@ else:
 - Gemma is **perfectly fine** for simple Q&A and development
 - Token costs are **minimal** compared to potential revenue
 - The real cost driver will be **infrastructure** (servers, database, vector DB) not AI tokens
+
+
+## Keep this here for reference
+ My honest take: At these profit margins (87-94%), quality matters more than cost. If GPT-4o-mini reduces escalations by even 5%, the saved support costs will exceed the extra ₦95K/month AI cost.
+                                                                                                                                                                                                    
+  Would you like me to:                                                                                                                                                                             
+  1. Create the Enterprise pricing calculation function?                                                                                                                                            
+  2. Add volume-based pricing tiers to your database?                                                                                                                                               
+  3. Build a cost calculator for different AI models?  
+
+
+  ### second
+   Action Items                                                                                                                                                                                      
+                                                                                                                                                                                                    
+  1. Track actual output tokens - Add logging to see real averages:                                                                                                                                 
+  # In rag_service.py, line 750-752                                                                                                                                                                 
+  candidates_token_count = response.usage_metadata.candidates_token_count                                                                                                                           
+  prompt_token_count = response.usage_metadata.prompt_token_count                                                                                                                                   
+  logger.info(f"Input: {prompt_token_count}, Output: {candidates_token_count}")                                                                                                                     
+                                                                                                                                                                                                    
+  2. Monitor for 1-2 weeks to get actual data                                                                                                                                                       
+  3. Calculate real costs based on actual usage                                                                                                                                                     
+                                                                                                                                                                                                    
+  Would you like me to add the token tracking code so you can see the real output token averages? 
+
+
+  ### CURRENT PRICING ANALYSIS (Facts)                                                                                                                                                                  
+                                                                                                                                                                                                    
+  Per-Conversation Cost to Customer                                                                                                                                                                 
+  ┌──────────────┬───────────────┬───────────────┬───────────────────┬──────────────────┬──────────────────┐                                                                                        
+  │     Tier     │ Monthly Price │ Conversations │ Cost/Conversation │ AI Cost (Gemini) │ Your Profit/Conv │                                                                                        
+  ├──────────────┼───────────────┼───────────────┼───────────────────┼──────────────────┼──────────────────┤                                                                                        
+  │ Trial        │ ₦0            │ 100           │ ₦0                │ ₦0.56            │ -₦0.56 (loss)    │                                                                                        
+  ├──────────────┼───────────────┼───────────────┼───────────────────┼──────────────────┼──────────────────┤                                                                                        
+  │ Lite         │ ₦12,000       │ 1,000         │ ₦12.00            │ ₦0.56            │ ₦11.44           │                                                                                        
+  ├──────────────┼───────────────┼───────────────┼───────────────────┼──────────────────┼──────────────────┤                                                                                        
+  │ Professional │ ₦35,000       │ 5,000         │ ₦7.00             │ ₦0.56            │ ₦6.44            │                                                                                        
+  ├──────────────┼───────────────┼───────────────┼───────────────────┼──────────────────┼──────────────────┤                                                                                        
+  │ Enterprise   │ Custom        │ Unlimited     │ ???               │ ₦0.56-0.66       │ ???              │                                                                                        
+  └──────────────┴───────────────┴───────────────┴───────────────────┴──────────────────┴──────────────────┘                                                                                        
+  ---                                                                                                                                                                                               
+  HONEST ASSESSMENT: Is This Good or One-Sided?                                                                                                                                                     
+                                                                                                                                                                                                    
+  🚨 LITE TIER IS OVERPRICED (One-sided toward you)                                                                                                                                                 
+                                                                                                                                                                                                    
+  Customer pays: ₦12 per conversation                                                                                                                                                               
+  Your cost: ₦0.56 per conversation                                                                                                                                                                 
+  Markup: 21x (2,100%)                                                                                                                                                                              
+                                                                                                                                                                                                    
+  Problems:                                                                                                                                                                                         
+  1. ₦12/conversation is expensive for small businesses                                                                                                                                             
+  2. Poor value proposition - customer might feel ripped off                                                                                                                                        
+  3. Competitor risk - Others could undercut you at ₦5-8/conversation                                                                                                                               
+  4. Low usage risk - Customer might pay ₦12,000 but only use 300 conversations = ₦40/conversation                                                                                                  
+                                                                                                                                                                                                    
+  Who this hurts:                                                                                                                                                                                   
+  - Small businesses trying out the platform                                                                                                                                                        
+  - Low-volume users who want basic features                                                                                                                                                        
+  - Price-sensitive markets                                                                                                                                                                         
+                                                                                                                                                                                                    
+  ✅ PROFESSIONAL TIER IS FAIRLY PRICED (Balanced)                                                                                                                                                  
+                                                                                                                                                                                                    
+  Customer pays: ₦7 per conversation                                                                                                                                                                
+  Your cost: ₦0.56 per conversation                                                                                                                                                                 
+  Markup: 12.5x (1,250%)                                                                                                                                                                            
+                                                                                                                                                                                                    
+  Why this works:                                                                                                                                                                                   
+  1. 42% discount from Lite - clear upgrade incentive                                                                                                                                               
+  2. ₦7/conversation feels reasonable for SMBs                                                                                                                                                      
+  3. 5,000 conversations/month = good volume for growing businesses                                                                                                                                 
+  4. Still 91% margin for you - very profitable                                                                                                                                                     
+                                                                                                                                                                                                    
+  Sweet spot pricing.                                                                                                                                                                               
+                                                                                                                                                                                                    
+  ⚠️ CONVERSATION LIMITS ARE TOO LOW (Hurts customers)                                                                                                                                              
+                                                                                                                                                                                                    
+  Reality check:                                                                                                                                                                                    
+  ┌───────────────────┬────────────────┬──────────────┬────────────┬───────────────┐                                                                                                                
+  │ Conversations/Day │ Monthly Volume │ Current Tier │   Price    │  Realistic?   │                                                                                                                
+  ├───────────────────┼────────────────┼──────────────┼────────────┼───────────────┤                                                                                                                
+  │ 10/day            │ 300            │ Trial (100)  │ ❌ Blocked │ Too low       │                                                                                                                
+  ├───────────────────┼────────────────┼──────────────┼────────────┼───────────────┤                                                                                                                
+  │ 33/day            │ 1,000          │ Lite         │ ₦12,000    │ Barely enough │                                                                                                                
+  ├───────────────────┼────────────────┼──────────────┼────────────┼───────────────┤                                                                                                                
+  │ 166/day           │ 5,000          │ Professional │ ₦35,000    │ OK for SMB    │                                                                                                                
+  ├───────────────────┼────────────────┼──────────────┼────────────┼───────────────┤                                                                                                                
+  │ 333/day           │ 10,000         │ ???          │ ???        │ GAP           │                                                                                                                
+  ├───────────────────┼────────────────┼──────────────┼────────────┼───────────────┤                                                                                                                
+  │ 1,666/day         │ 50,000         │ ???          │ ???        │ GAP           │                                                                                                                
+  ├───────────────────┼────────────────┼──────────────┼────────────┼───────────────┤                                                                                                                
+  │ 3,333/day         │ 100,000        │ Enterprise   │ Custom     │ Finally       │                                                                                                                
+  └───────────────────┴────────────────┴──────────────┴────────────┴───────────────┘                                                                                                                
+  The Problem:                                                                                                                                                                                      
+  - Huge gap between Professional (5K) and Enterprise (unlimited)                                                                                                                                   
+  - Customers doing 10K-50K conversations/month have NO tier                                                                                                                                        
+  - They're forced to jump to Enterprise pricing                                                                                                                                                    
+                                                                                                                                                                                                    
+  Missing tier:                                                                                                                                                                                     
+  - Growth/Scale tier: 10K-25K conversations at ₦50K-₦80K/month                                                                                                                                     
+  - Fills the gap between SMB and Enterprise                                                                                                                                                        
+                                                                                                                                                                                                    
+  ---                                                                                                                                                                                               
+  YOUR PROPOSED ENTERPRISE DISCOUNT: 20% OFF                                                                                                                                                        
+                                                                                                                                                                                                    
+  Option 1: 20% off Lite pricing                                                                                                                                                                    
+                                                                                                                                                                                                    
+  Lite: ₦12/conversation                                                                                                                                                                            
+  Enterprise (20% off): ₦9.60/conversation                                                                                                                                                          
+  ┌─────────┬────────────┬──────────────────┬────────────┬────────┐                                                                                                                                 
+  │ Volume  │    Cost    │ AI Cost (Gemini) │   Profit   │ Margin │                                                                                                                                 
+  ├─────────┼────────────┼──────────────────┼────────────┼────────┤                                                                                                                                 
+  │ 50,000  │ ₦480,000   │ ₦28,120          │ ₦451,880   │ 94.1%  │                                                                                                                                 
+  ├─────────┼────────────┼──────────────────┼────────────┼────────┤                                                                                                                                 
+  │ 100,000 │ ₦960,000   │ ₦56,240          │ ₦903,760   │ 94.1%  │                                                                                                                                 
+  ├─────────┼────────────┼──────────────────┼────────────┼────────┤                                                                                                                                 
+  │ 300,000 │ ₦2,880,000 │ ₦168,720         │ ₦2,711,280 │ 94.1%  │                                                                                                                                 
+  └─────────┴────────────┴──────────────────┴────────────┴────────┘                                                                                                                                 
+  My honest opinion: ❌ TOO EXPENSIVE                                                                                                                                                               
+  - ₦2.88M for 300K conversations is NOT competitive                                                                                                                                                
+  - Much higher than your earlier ₦1.5M-₦1.8M proposal                                                                                                                                              
+  - Large customers will negotiate hard or walk away                                                                                                                                                
+                                                                                                                                                                                                    
+  Option 2: 20% off Professional pricing ✅                                                                                                                                                         
+                                                                                                                                                                                                    
+  Professional: ₦7/conversation                                                                                                                                                                     
+  Enterprise (20% off): ₦5.60/conversation                                                                                                                                                          
+  ┌─────────┬────────────┬──────────────────┬────────────┬────────┐                                                                                                                                 
+  │ Volume  │    Cost    │ AI Cost (Gemini) │   Profit   │ Margin │                                                                                                                                 
+  ├─────────┼────────────┼──────────────────┼────────────┼────────┤                                                                                                                                 
+  │ 50,000  │ ₦280,000   │ ₦28,120          │ ₦251,880   │ 90.0%  │                                                                                                                                 
+  ├─────────┼────────────┼──────────────────┼────────────┼────────┤                                                                                                                                 
+  │ 100,000 │ ₦560,000   │ ₦56,240          │ ₦503,760   │ 90.0%  │                                                                                                                                 
+  ├─────────┼────────────┼──────────────────┼────────────┼────────┤                                                                                                                                 
+  │ 300,000 │ ₦1,680,000 │ ₦168,720         │ ₦1,511,280 │ 90.0%  │                                                                                                                                 
+  └─────────┴────────────┴──────────────────┴────────────┴────────┘                                                                                                                                 
+  My honest opinion: ✅ REASONABLE                                                                                                                                                                  
+  - ₦1.68M for 300K conversations matches your ₦1.5M-₦1.8M target                                                                                                                                   
+  - 90% margin is still excellent                                                                                                                                                                   
+  - ₦5.60/conversation is competitive for Enterprise                                                                                                                                                
+  - Fair discount for bulk volume                                                                                                                                                                   
+                                                                                                                                                                                                    
+  Option 3: Tiered Volume Discount (Better)                                                                                                                                                         
+                                                                                                                                                                                                    
+  Instead of flat 20%, use volume-based pricing:                                                                                                                                                    
+  ┌────────────────┬────────────────────┬───────────────────┬──────────────┐                                                                                                                        
+  │ Monthly Volume │ Price/Conversation │ Discount from Pro │ Monthly Cost │                                                                                                                        
+  ├────────────────┼────────────────────┼───────────────────┼──────────────┤                                                                                                                        
+  │ 5,000 (Pro)    │ ₦7.00              │ 0% (base)         │ ₦35,000      │                                                                                                                        
+  ├────────────────┼────────────────────┼───────────────────┼──────────────┤                                                                                                                        
+  │ 10,000-25,000  │ ₦6.00              │ 14% off           │ ₦60K-₦150K   │                                                                                                                        
+  ├────────────────┼────────────────────┼───────────────────┼──────────────┤                                                                                                                        
+  │ 25,000-75,000  │ ₦5.00              │ 29% off           │ ₦125K-₦375K  │                                                                                                                        
+  ├────────────────┼────────────────────┼───────────────────┼──────────────┤                                                                                                                        
+  │ 75,000-150,000 │ ₦4.00              │ 43% off           │ ₦300K-₦600K  │                                                                                                                        
+  ├────────────────┼────────────────────┼───────────────────┼──────────────┤                                                                                                                        
+  │ 150,000+       │ ₦3.50              │ 50% off           │ ₦525K+       │                                                                                                                        
+  └────────────────┴────────────────────┴───────────────────┴──────────────┘                                                                                                                        
+  At 300,000 conversations: ₦3.50/conv = ₦1,050,000/month                                                                                                                                           
+  - AI Cost: ₦168,720                                                                                                                                                                               
+  - Profit: ₦881,280                                                                                                                                                                                
+  - Margin: 84% (still excellent)                                                                                                                                                                   
+                                                                                                                                                                                                    
+  Why this is better:                                                                                                                                                                               
+  1. Rewards higher volume - the more they use, the cheaper it gets                                                                                                                                 
+  2. Sticky pricing - hard to churn when they're at ₦3.50/conversation                                                                                                                              
+  3. Competitive - matches SaaS pricing models                                                                                                                                                      
+  4. Fair for both sides - customer saves, you still profit 84%                                                                                                                                     
+                                                                                                                                                                                                    
+  ---                                                                                                                                                                                               
+  RECOMMENDED PRICING RESTRUCTURE                                                                                                                                                                   
+                                                                                                                                                                                                    
+  Current vs Proposed                                                                                                                                                                               
+  ┌──────────────┬───────────────┬───────────────┬──────────────┬───────────┬────────────┐                                                                                                          
+  │     Tier     │ Current Price │ Current Convs │  New Price   │ New Convs │ Cost/Conv  │                                                                                                          
+  ├──────────────┼───────────────┼───────────────┼──────────────┼───────────┼────────────┤                                                                                                          
+  │ Trial        │ ₦0            │ 100           │ ₦0           │ 200       │ ₦0         │                                                                                                          
+  ├──────────────┼───────────────┼───────────────┼──────────────┼───────────┼────────────┤                                                                                                          
+  │ Lite         │ ₦12,000       │ 1,000         │ ₦9,000       │ 2,000     │ ₦4.50      │                                                                                                          
+  ├──────────────┼───────────────┼───────────────┼──────────────┼───────────┼────────────┤                                                                                                          
+  │ Professional │ ₦35,000       │ 5,000         │ ₦35,000      │ 10,000    │ ₦3.50      │                                                                                                          
+  ├──────────────┼───────────────┼───────────────┼──────────────┼───────────┼────────────┤                                                                                                          
+  │ Growth (NEW) │ -             │ -             │ ₦75,000      │ 25,000    │ ₦3.00      │                                                                                                          
+  ├──────────────┼───────────────┼───────────────┼──────────────┼───────────┼────────────┤                                                                                                          
+  │ Enterprise   │ Custom        │ Unlimited     │ Volume-based │ Unlimited │ ₦2.50-4.00 │                                                                                                          
+  └──────────────┴───────────────┴───────────────┴──────────────┴───────────┴────────────┘                                                                                                          
+  Why These Changes?                                                                                                                                                                                
+                                                                                                                                                                                                    
+  Trial (200 convs):                                                                                                                                                                                
+  - Current 100 is too limiting (3.3/day)                                                                                                                                                           
+  - 200 gives 6-7 conversations/day                                                                                                                                                                 
+  - Still low enough to push upgrades                                                                                                                                                               
+  - Small cost increase for you (₦56 → ₦112)                                                                                                                                                        
+                                                                                                                                                                                                    
+  Lite (₦9K for 2,000 convs):                                                                                                                                                                       
+  - 25% price reduction but 2x conversations                                                                                                                                                        
+  - ₦4.50/conversation (down from ₦12) = much better value                                                                                                                                          
+  - 2,000 conversations = 66/day (realistic for small business)                                                                                                                                     
+  - Your margin: 88% (down from 95%, still excellent)                                                                                                                                               
+  - More competitive, less sticker shock                                                                                                                                                            
+                                                                                                                                                                                                    
+  Professional (₦35K for 10,000 convs):                                                                                                                                                             
+  - Same price but 2x conversations                                                                                                                                                                 
+  - ₦3.50/conversation (down from ₦7)                                                                                                                                                               
+  - 10,000 conversations = 333/day (good for growing SMB)                                                                                                                                           
+  - Your margin: 84% (still very healthy)                                                                                                                                                           
+                                                                                                                                                                                                    
+  Growth (NEW - ₦75K for 25,000 convs):                                                                                                                                                             
+  - Fills the gap between Pro and Enterprise                                                                                                                                                        
+  - ₦3.00/conversation                                                                                                                                                                              
+  - 25,000 conversations = 833/day                                                                                                                                                                  
+  - Targets mid-market customers                                                                                                                                                                    
+  - Your margin: 81%                                                                                                                                                                                
+                                                                                                                                                                                                    
+  Enterprise (Volume-based):                                                                                                                                                                        
+  - 20% off Professional = ₦5.60/conv base                                                                                                                                                          
+  - Volume discounts down to ₦2.50-3.50/conv at scale                                                                                                                                               
+  - Custom pricing for 100K+ volumes                                                                                                                                                                
+  - Your margin: 75-85%                                                                                                                                                                             
+                                                                                                                                                                                                    
+  ---                                                                                                                                                                                               
+  PROFIT COMPARISON (300K Conversations)                                                                                                                                                            
+                                                                                                                                                                                                    
+  Current Structure                                                                                                                                                                                 
+                                                                                                                                                                                                    
+  No clear tier - forced to negotiate custom Enterprise                                                                                                                                             
+                                                                                                                                                                                                    
+  Your Proposal: 20% off Professional                                                                                                                                                               
+                                                                                                                                                                                                    
+  - Price: ₦5.60/conv = ₦1,680,000                                                                                                                                                                  
+  - Profit: ₦1,511,280                                                                                                                                                                              
+  - Margin: 90%                                                                                                                                                                                     
+  - Assessment: ✅ Fair                                                                                                                                                                             
+                                                                                                                                                                                                    
+  My Proposal: Volume-based                                                                                                                                                                         
+                                                                                                                                                                                                    
+  - Price: ₦3.50/conv = ₦1,050,000                                                                                                                                                                  
+  - Profit: ₦881,280                                                                                                                                                                                
+  - Margin: 84%                                                                                                                                                                                     
+  - Assessment: ✅ Better for customer acquisition, still profitable   
+
+  #### Question
+  is it possible to reduce the input token and maybe compress, mostly the system prompt? or we have a balance prompt already?
