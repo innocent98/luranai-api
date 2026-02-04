@@ -236,7 +236,7 @@ class TextChunker:
 
 # Global instance
 text_chunker = TextChunker(
-    chunk_size=400,  # ~300 words
-    chunk_overlap=50,  # ~37 words overlap
-    min_chunk_size=100,  # ~75 words minimum
+    chunk_size=300,  # ~225 words (~1200 chars) - Better for semantic precision
+    chunk_overlap=50,  # ~37 words overlap - Preserve context across chunks
+    min_chunk_size=75,  # ~56 words minimum - Allow smaller focused chunks
 )
