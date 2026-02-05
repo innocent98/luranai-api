@@ -137,7 +137,6 @@ class PlatformFeedback(Base, UUIDMixin, TimestampMixin):
         String(50),
         default="open",
         nullable=False,
-        index=True,
         comment="Status: open, acknowledged, in_progress, resolved, closed",
     )
 
@@ -228,7 +227,6 @@ class PublicFeedback(Base, UUIDMixin, TimestampMixin):
         String(50),
         default="open",
         nullable=False,
-        index=True,
         comment="Status: open, acknowledged, in_progress, resolved, closed",
     )
 

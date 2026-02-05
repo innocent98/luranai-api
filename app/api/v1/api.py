@@ -13,6 +13,7 @@ from app.api.v1.endpoints import (
     knowledge,
     chat,
     tickets,
+    flows,
     jobs,
     websocket,
     analytics,
@@ -157,6 +158,9 @@ api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
 
 # Ticket management endpoints
 api_router.include_router(tickets.router, prefix="/tickets", tags=["tickets"])
+
+# Flow management endpoints
+api_router.include_router(flows.router, prefix="/flows", tags=["flows"])
 
 # Analytics endpoints
 api_router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])

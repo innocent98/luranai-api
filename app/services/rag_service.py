@@ -197,37 +197,71 @@ class RAGService:
 
         return compressed
 
-    # System-level prompt (immutable)
-    SYSTEM_PROMPT = """You are a customer support assistant for Luran. Answer questions using only the provided information.
+    # System-level prompt (intelligent conversational mode)
+    INTELLIGENT_SYSTEM_PROMPT = """You are a helpful customer support assistant for {company_name}.
 
-CORE RULES:
-1. Base answers on provided information
-2. Connect related concepts when clear
-3. If information is missing, take an empowering approach - focus on getting them the best help
-4. Never invent facts, numbers, or policies
-5. Don't mention sources or knowledge bases
+Your primary goal: Help customers effectively by combining available knowledge with natural conversation.
 
-STYLE: Professional, warm, empowering, clear. Use bullets for multi-step answers.
+## HOW TO HELP (Adaptive by Situation):
 
-WHAT TO DO:
-✓ Answer directly with relevant details
-✓ Provide step-by-step instructions when needed
-✓ When you can't answer, focus on getting them the most accurate information
-✓ Suggest specific departments or resources when escalating
-✓ Explain WHY you're connecting them (e.g., "for account-specific details", "for the most accurate information")
+### WHEN YOU HAVE SPECIFIC INFORMATION:
+→ Use it directly and confidently
+→ Provide exact details (pricing, features, policies)
+→ Be factual and precise
+→ Don't add information not in the provided knowledge
 
-AVOID:
-✗ Blunt phrases like "I don't know" without context
-✗ Over-apologizing or sounding uncertain
-✗ Meta-references ("my knowledge base")
-✗ Unnecessary repetition
+### WHEN YOU HAVE LIMITED/PARTIAL INFORMATION:
+→ Use what you have as a starting point
+→ Acknowledge what you know and what you're less certain about
+→ Ask clarifying questions to narrow down their need
+→ Guide them to be more specific
+→ Example: "Based on our integrations, I can see we support X and Y. Could you tell me more about which platform you're looking to integrate with?"
 
-ESCALATION: If unsure or user requests human help, be empowering and solution-focused:
-- Express your desire to help
-- Frame escalation as getting them the BEST/most accurate information
-- Mention the specific department when possible
-- Example: "I'd like to help you with that, but to give you the most accurate information, I'd recommend connecting with our [department] team. They have access to your specific account details. Shall I transfer you to someone who can assist?"
-"""
+### WHEN YOU HAVE NO RELEVANT INFORMATION:
+→ **For greetings/general inquiries:** Respond naturally and warmly, ask how you can help
+→ **For vague questions:** Ask clarifying questions to understand their need better
+→ **For specific questions:** After clarifying, if you still can't help, suggest connecting them with someone who has detailed access
+
+## IMPORTANT RULES:
+✓ **Never invent** specific facts, numbers, pricing, or policies
+✓ **Do reason** naturally - you can explain general concepts, make logical connections, ask questions
+✓ **Use conversation history** - reference what was discussed before, maintain context
+✓ **Ask before giving up** - Try clarifying questions before suggesting escalation
+✓ **Be conversational** - You're helping a person, not filling out a form
+
+## CONVERSATION APPROACH:
+1. If they're vague or exploratory → Ask clarifying questions to understand
+2. If you have information after clarifying → Answer with it
+3. If you tried clarifying but still can't help → Suggest human assistance with clear reasoning
+
+## ESCALATION (Last Resort Only):
+Only suggest escalation when:
+- User explicitly asks for human agent
+- You've asked clarifying questions but still can't help
+- They need account-specific information you don't have access to
+- Critical issue requiring immediate human attention
+
+When suggesting escalation, explain:
+- WHY it helps them (specific expertise, account access, etc.)
+- HOW it benefits them (faster resolution, detailed answers, etc.)
+
+Remember: Your job is to HELP, not just answer. Sometimes helping means asking the right questions first.
+
+---
+
+SUPPORT CONFIGURATION:
+{tenant_config}
+
+AVAILABLE INFORMATION:
+{knowledge_context}
+
+CONVERSATION HISTORY:
+{history_context}
+
+CUSTOMER QUESTION:
+{user_query}
+
+Help the customer based on what you have available. Be natural, helpful, and intelligent:"""
 
     def assemble_prompt(
         self,
@@ -240,11 +274,7 @@ ESCALATION: If unsure or user requests human help, be empowering and solution-fo
         max_history_turns: int = 10,
     ) -> "PromptComponents":
         """
-        Assemble a complete prompt for the AI model using 3-layer architecture.
-
-        Layer 1: Static system prompt (immutable)
-        Layer 2: Dynamic tenant configuration
-        Layer 3: User context (history + retrieved knowledge)
+        Assemble intelligent adaptive prompt with knowledge availability signaling.
 
         Args:
             ai_config: Tenant AI configuration
@@ -260,53 +290,47 @@ ESCALATION: If unsure or user requests human help, be empowering and solution-fo
         """
         from app.schemas.rag import PromptComponents
 
-        # Layer 1: System prompt (immutable)
-        system_prompt = self.SYSTEM_PROMPT
-
-        # Layer 2: Tenant-specific configuration (inline)
-        instructions = []
-        instructions.append(f"You are currently assisting users for: {company_name}")
+        # Build tenant configuration string
+        tenant_config_parts = []
+        tenant_config_parts.append(f"Company: {company_name}")
         if company_description:
-            instructions.append(f"\nCompany description:\n{company_description}")
+            tenant_config_parts.append(f"Description: {company_description}")
 
-        instructions.append("\nSUPPORT CONFIGURATION:")
-
-        # Brand voice
         if ai_config.brand_voice:
             voice = ai_config.brand_voice
             if voice.get("tone"):
-                instructions.append(f"- Tone: {voice['tone']}")
+                tenant_config_parts.append(f"Tone: {voice['tone']}")
             if voice.get("formality_level"):
-                instructions.append(f"- Formality: {voice['formality_level']}")
-            if voice.get("greeting_style"):
-                instructions.append(f"- Greeting style: {voice['greeting_style']}")
+                tenant_config_parts.append(f"Formality: {voice['formality_level']}")
 
-        # Topic restrictions
         if ai_config.allowed_topics:
             topics = ", ".join(ai_config.allowed_topics)
-            instructions.append(f"- ONLY discuss these topics: {topics}")
+            tenant_config_parts.append(f"ONLY discuss: {topics}")
 
         if ai_config.blocked_topics:
             topics = ", ".join(ai_config.blocked_topics)
-            instructions.append(f"- NEVER discuss these topics: {topics}")
+            tenant_config_parts.append(f"NEVER discuss: {topics}")
 
-        # Grounding requirement
         if ai_config.grounding_requirement:
-            instructions.append("- Only answer based on the information provided, never guess, hallucinate or make assumptions")
+            tenant_config_parts.append("Strict grounding: Only answer from provided information for factual questions")
 
-        # Custom instructions
         if ai_config.custom_instructions:
-            instructions.append(f"\nAdditional instructions:\n{ai_config.custom_instructions}")
+            tenant_config_parts.append(f"Additional: {ai_config.custom_instructions}")
 
-        tenant_instructions = "\n".join(instructions)
+        tenant_config = "\n".join(tenant_config_parts)
 
-        # Layer 3: Knowledge context (inline with truncation for token optimization)
+        # Knowledge context with intelligent signaling
         if not retrieved_chunks:
-            knowledge_context = "(No information available)"
+            knowledge_context = """(No specific knowledge base information available for this query.
+
+Guidance:
+- If this is a greeting or general inquiry, respond naturally and warmly
+- If this is a vague request, ask clarifying questions to understand their need
+- If this is a specific question, note that you'll need more details or suggest escalation
+- Don't immediately say you can't help - try to guide the conversation first)"""
         else:
             context_parts = []
             for i, chunk in enumerate(retrieved_chunks, 1):
-                # Compress chunk by extracting relevant sentences
                 chunk_content = self.compress_chunk_context(
                     query=user_query,
                     chunk_content=chunk.content,
@@ -315,9 +339,9 @@ ESCALATION: If unsure or user requests human help, be empowering and solution-fo
                 context_parts.append(f"[Source {i}]\n{chunk_content}")
             knowledge_context = "\n\n".join(context_parts)
 
-        # Layer 3: History context (inline)
+        # Conversation history
         if not conversation_history:
-            history_context = "No prior conversation history."
+            history_context = "(This is the first message in the conversation)"
         else:
             recent_messages = conversation_history[-(max_history_turns * 2):]
             history_parts = []
@@ -326,48 +350,32 @@ ESCALATION: If unsure or user requests human help, be empowering and solution-fo
                 history_parts.append(f"{role}: {msg.content}")
             history_context = "\n".join(history_parts)
 
-        # Assemble full prompt
-        full_prompt = f"""{system_prompt}
+        # Assemble full prompt using new intelligent template
+        full_prompt = self.INTELLIGENT_SYSTEM_PROMPT.format(
+            company_name=company_name,
+            tenant_config=tenant_config,
+            knowledge_context=knowledge_context,
+            history_context=history_context,
+            user_query=user_query,
+        )
 
-{tenant_instructions}
-
-AVAILABLE INFORMATION:
-{knowledge_context}
-
-CONVERSATION HISTORY (may contain incomplete or previous assistant errors - verify against knowledge base):
-{history_context}
-
-IMPORTANT: Previous assistant messages may have been incomplete or incorrect. Always prioritize the AVAILABLE INFORMATION section above when answering.
-
-CUSTOMER QUESTION:
-{user_query}
-
-Answer the customer's question using ONLY the information provided above. Be natural and professional. Do not add information beyond what is explicitly available."""
-
-        # Calculate actual token counts
-        system_tokens = count_tokens(system_prompt)
-        tenant_tokens = count_tokens(tenant_instructions)
+        # Calculate token counts
+        system_tokens = count_tokens(self.INTELLIGENT_SYSTEM_PROMPT)
+        tenant_tokens = count_tokens(tenant_config)
         knowledge_tokens = count_tokens(knowledge_context)
         history_tokens = count_tokens(history_context)
         query_tokens = count_tokens(user_query)
-        structural_tokens = count_tokens(
-            "AVAILABLE INFORMATION:\n\nCONVERSATION HISTORY (may contain incomplete or previous assistant errors - verify against knowledge base):\n\n"
-            "IMPORTANT: Previous assistant messages may have been incomplete or incorrect. Always prioritize the AVAILABLE INFORMATION section above when answering.\n\n"
-            "CUSTOMER QUESTION:\n\n"
-            "Answer the customer's question using ONLY the information provided above. Be natural and professional. Do not add information beyond what is explicitly available."
-        )
 
         total_prompt_tokens = (
             system_tokens + tenant_tokens + knowledge_tokens +
-            history_tokens + query_tokens + structural_tokens
+            history_tokens + query_tokens
         )
 
         logger.debug(
             f"Prompt token breakdown: "
             f"system={system_tokens}, tenant={tenant_tokens}, "
             f"knowledge={knowledge_tokens}, history={history_tokens}, "
-            f"query={query_tokens}, structural={structural_tokens}, "
-            f"total={total_prompt_tokens}"
+            f"query={query_tokens}, total={total_prompt_tokens}"
         )
 
         return PromptComponents(
@@ -387,10 +395,13 @@ Answer the customer's question using ONLY the information provided above. Be nat
         """
         Determine escalation strategy based on query patterns and knowledge availability.
 
+        NEW BEHAVIOR: Allows AI to handle scenarios conversationally before escalating.
+
         Args:
             user_query: User query text
             ai_config: Tenant AI configuration
             retrieved_chunks_count: Number of knowledge chunks retrieved
+            similarity_scores: Similarity scores for retrieved chunks
 
         Returns:
             EscalationDecision with action, reason, and skip_quality_check flag
@@ -400,7 +411,7 @@ Answer the customer's question using ONLY the information provided above. Be nat
 
         query_lower = user_query.lower().strip()
 
-        # Patterns that indicate user satisfaction/closing (should NOT escalate)
+        # Scenario 1: User satisfaction/closing (NO ESCALATION)
         satisfaction_patterns = [
             "thank", "thanks", "appreciate", "grateful",
             "that's all", "all set", "all good", "perfect", "great",
@@ -408,8 +419,6 @@ Answer the customer's question using ONLY the information provided above. Be nat
             "okay", "ok", "alright", "cool", "awesome", "nice",
             "bye", "goodbye", "see you", "talk later", "have a good",
         ]
-
-        # Check if this is a satisfaction/closing statement
         is_satisfaction = any(pattern in query_lower for pattern in satisfaction_patterns)
         if is_satisfaction and len(query_lower.split()) <= 10:
             logger.info(f"Detected satisfaction/closing statement, no escalation")
@@ -419,15 +428,17 @@ Answer the customer's question using ONLY the information provided above. Be nat
                 skip_quality_check=True,
             )
 
-        # Scenario 1: User explicitly requests human agent
+        # Scenario 2: User explicitly requests human agent (AUTO ESCALATE)
         human_request_patterns = [
-            "speak to agent", "speak with agent", "talk to agent", "talk with agent",
+            "speak to agent", "speak to an agent", "speak to a agent",
+            "speak with agent", "speak with an agent", "speak with a agent",
+            "talk to agent", "talk to an agent", "talk to a agent",
+            "talk with agent", "talk with an agent", "talk with a agent",
             "human agent", "real person", "actual person",
             "speak to someone", "talk to someone",
             "escalate", "transfer me", "get me someone",
             "customer service", "support team",
         ]
-
         if any(pattern in query_lower for pattern in human_request_patterns):
             logger.info(f"User explicitly requested human agent")
             return EscalationDecision(
@@ -435,7 +446,7 @@ Answer the customer's question using ONLY the information provided above. Be nat
                 reason="User requested human assistance",
             )
 
-        # Scenario 2: Check for critical escalation keywords (auto-escalate)
+        # Scenario 3: Critical escalation keywords (AUTO ESCALATE)
         for keyword in ai_config.escalation_keywords:
             if keyword.lower() in query_lower:
                 logger.warning(f"Critical escalation keyword detected: {keyword}")
@@ -444,31 +455,30 @@ Answer the customer's question using ONLY the information provided above. Be nat
                     reason=f"Escalation keyword detected: '{keyword}'",
                 )
 
-        # Scenario 3: AI has NO knowledge at all - offer escalation
+        # Scenario 4: NO knowledge - Let AI handle conversationally
+        # CHANGED: Don't immediately escalate - allow AI to clarify first
         if retrieved_chunks_count == 0:
-            logger.info(f"No knowledge chunks found, will offer escalation")
+            logger.info(f"No knowledge chunks found - allowing conversational mode")
             return EscalationDecision(
-                action=EscalationAction.OFFER_ESCALATION,
-                reason="No relevant knowledge available",
+                action=EscalationAction.NO_ESCALATION,
+                reason="conversational_mode",  # Signal for prompt assembly
             )
 
-        # Scenario 3b: Chunks exist but similarity scores are too low (not actually relevant)
+        # Scenario 5: Low quality knowledge - Let AI use what it has + clarify
         if similarity_scores and len(similarity_scores) > 0:
             avg_similarity = sum(similarity_scores) / len(similarity_scores)
-            # If average similarity is below threshold, the chunks probably aren't relevant
             if avg_similarity < self.MIN_RELEVANT_SIMILARITY:
-                logger.warning(f"Low similarity score: {avg_similarity:.2f}, offering escalation")
+                logger.info(f"Low similarity ({avg_similarity:.2f}) - allowing partial knowledge mode")
                 return EscalationDecision(
-                    action=EscalationAction.OFFER_ESCALATION,
-                    reason="Knowledge base has limited information on this topic",
+                    action=EscalationAction.NO_ESCALATION,
+                    reason="partial_knowledge_mode",
                 )
 
-        # Scenario 4: AI has knowledge - let it try to answer
-        # Response quality will be evaluated AFTER generation
-        logger.info(f"Knowledge available ({retrieved_chunks_count} chunks), AI will attempt to answer")
+        # Scenario 6: Good knowledge available (NO ESCALATION)
+        logger.info(f"Knowledge available ({retrieved_chunks_count} chunks), AI will answer")
         return EscalationDecision(
             action=EscalationAction.NO_ESCALATION,
-            reason=None,
+            reason="sufficient_knowledge",
         )
 
     def compute_can_answer(

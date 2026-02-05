@@ -113,6 +113,25 @@ from app.schemas.review import (
     PlatformFeedbackResponse,
     PlatformFeedbackListResponse,
 )
+from app.schemas.flow import (
+    FlowCreate,
+    FlowUpdate,
+    FlowResponse,
+    FlowDetailResponse,
+    FlowListResponse,
+    FlowExecutionCreate,
+    FlowExecutionUpdate,
+    FlowExecutionResponse,
+    FlowExecutionDetailResponse,
+    FlowExecutionListResponse,
+    FlowTemplateCreate,
+    FlowTemplateUpdate,
+    FlowTemplateResponse,
+    FlowTemplateListResponse,
+    FlowInstantiateRequest,
+    FlowExecuteRequest,
+    FlowValidationResponse,
+)
 
 __all__ = [
     # Tenant schemas
@@ -216,4 +235,22 @@ __all__ = [
     "PlatformFeedbackUpdate",
     "PlatformFeedbackResponse",
     "PlatformFeedbackListResponse",
+    # Flow schemas
+    "FlowCreate",
+    "FlowUpdate",
+    "FlowResponse",
+    "FlowDetailResponse",
+    "FlowListResponse",
+    "FlowExecutionCreate",
+    "FlowExecutionUpdate",
+    "FlowExecutionResponse",
+    "FlowExecutionDetailResponse",
+    "FlowExecutionListResponse",
+    "FlowTemplateCreate",
+    "FlowTemplateUpdate",
+    "FlowTemplateResponse",
+    "FlowTemplateListResponse",
+    "FlowInstantiateRequest",
+    "FlowExecuteRequest",
+    "FlowValidationResponse",
 ]

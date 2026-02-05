@@ -103,9 +103,9 @@ class TestOpenAILLM:
     """Test OpenAI LLM response generation."""
 
     @pytest.mark.asyncio
-    async def test_llm_response_generation(self):
+    async def test_llm_response_generation(self, db):
         """Test GPT-4o-mini generates valid responses."""
-        rag_service = RAGService()
+        rag_service = RAGService(db)
 
         # Mock prompt
         mock_prompt = Mock()
@@ -116,12 +116,12 @@ class TestOpenAILLM:
         mock_response.choices = [Mock(message=Mock(content="We have three pricing tiers: Basic, Pro, and Enterprise."))]
         mock_response.usage = Mock(total_tokens=50)
 
-        with patch("app.services.rag_service.AsyncOpenAI") as mock_openai_class:
+        with patch("openai.AsyncOpenAI") as mock_openai_class:
             mock_client = AsyncMock()
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
             mock_openai_class.return_value = mock_client
 
-            with patch("app.services.rag_service.openai_llm_rate_limiter.acquire", new_callable=AsyncMock):
+            with patch("app.utils.rate_limiter.openai_llm_rate_limiter.acquire", new_callable=AsyncMock):
                 response_text, token_count, is_api_error = await rag_service.generate_ai_response(
                     mock_prompt,
                     max_tokens=800
@@ -133,9 +133,9 @@ class TestOpenAILLM:
                 assert is_api_error is False
 
     @pytest.mark.asyncio
-    async def test_llm_token_counting(self):
+    async def test_llm_token_counting(self, db):
         """Test token counting in LLM responses."""
-        rag_service = RAGService()
+        rag_service = RAGService(db)
 
         mock_prompt = Mock()
         mock_prompt.full_prompt = "Test prompt"
@@ -149,51 +149,51 @@ class TestOpenAILLM:
             completion_tokens=50
         )
 
-        with patch("app.services.rag_service.AsyncOpenAI") as mock_openai_class:
+        with patch("openai.AsyncOpenAI") as mock_openai_class:
             mock_client = AsyncMock()
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
             mock_openai_class.return_value = mock_client
 
-            with patch("app.services.rag_service.openai_llm_rate_limiter.acquire", new_callable=AsyncMock):
+            with patch("app.utils.rate_limiter.openai_llm_rate_limiter.acquire", new_callable=AsyncMock):
                 _, token_count, _ = await rag_service.generate_ai_response(mock_prompt)
 
                 assert token_count == 100
 
     @pytest.mark.asyncio
-    async def test_llm_error_handling(self):
+    async def test_llm_error_handling(self, db):
         """Test LLM error handling."""
-        rag_service = RAGService()
+        rag_service = RAGService(db)
 
         mock_prompt = Mock()
         mock_prompt.full_prompt = "Test prompt"
 
-        with patch("app.services.rag_service.AsyncOpenAI") as mock_openai_class:
+        with patch("openai.AsyncOpenAI") as mock_openai_class:
             mock_client = AsyncMock()
             mock_client.chat.completions.create = AsyncMock(side_effect=Exception("Service unavailable"))
             mock_openai_class.return_value = mock_client
 
-            with patch("app.services.rag_service.openai_llm_rate_limiter.acquire", new_callable=AsyncMock):
+            with patch("app.utils.rate_limiter.openai_llm_rate_limiter.acquire", new_callable=AsyncMock):
                 response_text, token_count, is_api_error = await rag_service.generate_ai_response(mock_prompt)
 
                 assert is_api_error is True
                 assert "trouble processing" in response_text.lower() or "unable" in response_text.lower()
 
     @pytest.mark.asyncio
-    async def test_llm_rate_limit_error(self):
+    async def test_llm_rate_limit_error(self, db):
         """Test handling of rate limit errors."""
-        rag_service = RAGService()
+        rag_service = RAGService(db)
 
         mock_prompt = Mock()
         mock_prompt.full_prompt = "Test prompt"
 
-        with patch("app.services.rag_service.AsyncOpenAI") as mock_openai_class:
+        with patch("openai.AsyncOpenAI") as mock_openai_class:
             mock_client = AsyncMock()
             mock_client.chat.completions.create = AsyncMock(
                 side_effect=Exception("Rate limit exceeded")
             )
             mock_openai_class.return_value = mock_client
 
-            with patch("app.services.rag_service.openai_llm_rate_limiter.acquire", new_callable=AsyncMock):
+            with patch("app.utils.rate_limiter.openai_llm_rate_limiter.acquire", new_callable=AsyncMock):
                 response_text, token_count, is_api_error = await rag_service.generate_ai_response(mock_prompt)
 
                 assert is_api_error is True
@@ -216,6 +216,7 @@ class TestRateLimiters:
         assert openai_llm_rate_limiter.window_seconds == 60
 
     @pytest.mark.asyncio
+    @pytest.mark.skip(reason="Requires Redis connection")
     async def test_rate_limiter_usage_tracking(self):
         """Test rate limiter tracks usage correctly."""
         # Reset rate limiter
@@ -258,8 +259,9 @@ class TestConfiguration:
 class TestEndToEnd:
     """End-to-end integration tests."""
 
+    @pytest.mark.skip(reason="Requires valid OpenAI API key (E2E test)")
     @pytest.mark.asyncio
-    async def test_full_rag_pipeline(self):
+    async def test_full_rag_pipeline(self, db):
         """Test complete RAG pipeline with OpenAI."""
         # This would be a full integration test with actual API calls
         # Skip in CI/CD unless OpenAI API key is available
@@ -274,7 +276,7 @@ class TestEndToEnd:
         assert len(embedding) == 1536
 
         # Test LLM generation
-        rag_service = RAGService()
+        rag_service = RAGService(db)
         mock_prompt = Mock()
         mock_prompt.full_prompt = f"Answer this question: {query}"
 

@@ -408,3 +408,20 @@ else:
   - Profit: ₦881,280                                                                                                                                                                                
   - Margin: 84%                                                                                                                                                                                     
   - Assessment: ✅ Better for customer acquisition, still profitable   
+
+
+  ## FLow
+   3. Frontend Chat UI Adjustments                                                                                                                                                  
+                                                                                                                                                                                   
+  Minimal adjustments needed:                                                                                                                                                      
+                                                                                                                                                                                   
+  Already supported (no changes):                                                                                                                                                  
+  - Regular messages work as-is                                                                                                                                                    
+  - Flow messages appear like normal AI responses                                                                                                                                  
+                                                                                                                                                                                   
+  Optional enhancements:                                                                                                                                                           
+  - Buttons - If QUESTION nodes use buttons, UI should render them (currently returns buttons: null in meta)                                                                       
+  - Flow indicators - You could show "🤖 Automated Response" badge when meta.flow_triggered: true                                                                                  
+  - Loading states - Webhook nodes might take 1-2 seconds                                                                                                                          
+                                                                                                                                                                                   
+  Recommendation: Ship MVP without button support first, add buttons later if needed. 

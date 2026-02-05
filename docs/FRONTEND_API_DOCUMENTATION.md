@@ -81,11 +81,28 @@
      - List All Subscription Plans
      - Update Subscription Plan Pricing
      - Pricing Change Audit Trail
-14. [User Flows with Diagrams](#user-flows-with-diagrams)
-14. [Common Patterns](#common-patterns)
-15. [Frontend Pages Checklist](#frontend-pages-checklist)
-16. [Next Steps](#next-steps)
-17. [Important Notes](#important-notes)
+14. [Flow Automation System](#flow-automation-system)
+   - List Flow Templates
+   - Get Template Details
+   - Create Flow from Template
+   - Create Custom Flow (From Scratch)
+   - List Flows
+   - Get Flow Details
+   - Update Flow
+   - Activate Flow
+   - Deactivate Flow
+   - Delete Flow (Archive)
+   - Get Flow Executions
+   - Get Flow Analytics
+   - Node Type Reference (MESSAGE, QUESTION, TEXT_INPUT, RAG_QUERY, WEBHOOK, ESCALATE, END)
+   - Flow Best Practices
+   - Common Flow Patterns
+   - Subscription Tier Limits
+15. [User Flows with Diagrams](#user-flows-with-diagrams)
+16. [Common Patterns](#common-patterns)
+17. [Frontend Pages Checklist](#frontend-pages-checklist)
+18. [Next Steps](#next-steps)
+19. [Important Notes](#important-notes)
 
 ---
 
@@ -7151,6 +7168,1440 @@ document.getElementById('volume-slider').addEventListener('input', (e) => {
 **Key Features:**
 
 1. **Transparent Pricing** - No more "contact sales" mystery for Enterprise
+
+## 14. Flow Automation System
+
+Automated conversation workflows that allow tenants to create structured, multi-step interactions with branching logic, data collection, and external integrations.
+
+### Overview
+
+**What are Flows?**
+
+Flows are visual workflow automations that run **BEFORE** the AI chatbot, allowing you to:
+- Create structured conversations with predefined paths
+- Collect customer information with validation
+- Make decisions based on user responses
+- Call external APIs (CRMs, analytics, notification services)
+- Trigger escalations to human agents
+- Guide users through complex processes
+
+**When Flows Run:**
+
+```
+Customer Message → Flow Matching → Flow Execution → (Skip AI) → Response
+                                                   OR
+                                                   ↓
+                                         AI Chat Pipeline
+```
+
+**Key Concepts:**
+
+1. **Templates** - Pre-built flows you can use as starting points (optional)
+2. **Flows** - Your configured automation workflows
+3. **Triggers** - What activates a flow (keywords, first message, etc.)
+4. **Nodes** - Building blocks of flows (message, question, webhook, etc.)
+5. **Executions** - Individual runs of a flow in customer conversations
+
+---
+
+### 14.1 List Flow Templates
+
+**Page:** `/dashboard/flows/templates`
+
+**Endpoint:** `GET /flows/templates`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Query Parameters:**
+```
+?category=sales
+?limit=100
+?offset=0
+```
+
+**Category Values:**
+- `sales` - Lead qualification, demo booking, product recommendations
+- `support` - Ticket creation, FAQ handling, troubleshooting
+- `engagement` - Onboarding, feedback collection, newsletter signup
+
+**Response:**
+```json
+{
+  "templates": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "Welcome & Lead Qualification",
+      "description": "Greet new visitors, understand their needs, and qualify them as potential leads",
+      "category": "sales",
+      "min_tier": "lite",
+      "preview": {
+        "trigger_type": "first_message",
+        "node_count": 7,
+        "node_types": ["message", "text_input", "question", "webhook", "end"]
+      },
+      "created_at": "2026-01-20T00:00:00Z",
+      "updated_at": "2026-01-20T00:00:00Z"
+    },
+    {
+      "id": "660e9500-f39c-52e5-b827-557766551111",
+      "name": "Support Ticket Creation",
+      "description": "Collect issue details and create support tickets automatically",
+      "category": "support",
+      "min_tier": "lite",
+      "preview": {
+        "trigger_type": "keyword",
+        "node_count": 5,
+        "node_types": ["message", "text_input", "question", "escalate", "end"]
+      },
+      "created_at": "2026-01-20T00:00:00Z",
+      "updated_at": "2026-01-20T00:00:00Z"
+    }
+  ],
+  "total": 10,
+  "page": 1,
+  "page_size": 100
+}
+```
+
+**Display:**
+- Grid or list of template cards
+- Show template name, description, category badge
+- Preview: trigger type, node count, node types
+- "Use Template" button on each card
+- Filter dropdown by category
+- Search by template name
+
+**What Templates are Available:**
+
+10 pre-built templates across 3 categories:
+
+**Sales (4 templates):**
+1. Welcome & Lead Qualification
+2. Product Recommendation Engine
+3. Demo/Appointment Booking
+4. Pricing Information Guide
+
+**Support (4 templates):**
+1. Support Ticket Creation
+2. FAQ Handler
+3. Password Reset Flow
+4. Escalation Flow
+
+**Engagement (2 templates):**
+1. User Onboarding
+2. Feedback Collection
+
+---
+
+### 14.2 Get Template Details
+
+**Page:** `/dashboard/flows/templates/{template_id}`
+
+**Endpoint:** `GET /flows/templates/{template_id}`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Response:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "Welcome & Lead Qualification",
+  "description": "Greet new visitors, understand their needs, and qualify them as potential leads",
+  "category": "sales",
+  "min_tier": "lite",
+  "trigger_config": {
+    "trigger_type": "first_message"
+  },
+  "template_nodes": {
+    "start_node_id": "welcome",
+    "nodes": [
+      {
+        "id": "welcome",
+        "type": "message",
+        "config": {
+          "message": "Welcome! I'm here to help you learn more about our products and services."
+        }
+      },
+      {
+        "id": "ask_name",
+        "type": "text_input",
+        "config": {
+          "prompt": "What's your name?",
+          "variable": "customer_name",
+          "validation": {
+            "required": true,
+            "min_length": 2
+          }
+        }
+      },
+      {
+        "id": "ask_need",
+        "type": "question",
+        "config": {
+          "question": "What brings you here today?",
+          "options": [
+            {
+              "label": "Looking for a solution",
+              "value": "solution"
+            },
+            {
+              "label": "Just browsing",
+              "value": "browsing"
+            },
+            {
+              "label": "Need pricing info",
+              "value": "pricing"
+            }
+          ],
+          "variable": "visit_reason"
+        }
+      },
+      {
+        "id": "webhook_crm",
+        "type": "webhook",
+        "config": {
+          "url": "https://your-crm.com/api/leads",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "name": "{{customer_name}}",
+            "reason": "{{visit_reason}}",
+            "source": "chatbot"
+          }
+        }
+      },
+      {
+        "id": "end",
+        "type": "end",
+        "config": {}
+      }
+    ],
+    "edges": [
+      {"from": "welcome", "to": "ask_name"},
+      {"from": "ask_name", "to": "ask_need"},
+      {"from": "ask_need", "to": "webhook_crm"},
+      {"from": "webhook_crm", "to": "end"}
+    ]
+  },
+  "usage_instructions": {
+    "steps": [
+      "Click 'Use Template' to create a flow from this template",
+      "Customize the messages to match your brand voice",
+      "Update the webhook URL to your CRM endpoint",
+      "Add your CRM API credentials to the webhook headers",
+      "Activate the flow to make it live"
+    ],
+    "tips": [
+      "Test the flow in your chat widget before going live",
+      "Keep questions simple and clear",
+      "Provide clear button labels",
+      "Set up your CRM webhook endpoint first"
+    ]
+  },
+  "created_at": "2026-01-20T00:00:00Z",
+  "updated_at": "2026-01-20T00:00:00Z"
+}
+```
+
+**Display:**
+- Template overview card (name, description, category)
+- Visual flow diagram showing node connections
+- Trigger configuration
+- Node list with type badges
+- Usage instructions
+- "Use This Template" button
+- Preview in chat widget button
+
+---
+
+### 14.3 Create Flow from Template
+
+**Page:** `/dashboard/flows/templates/{template_id}` (Use Template button)
+
+**Endpoint:** `POST /flows/templates/{template_id}/use`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Query Parameters:**
+```
+?tenant_id={tenant_id}&name=My Welcome Flow
+```
+
+**Response:**
+```json
+{
+  "id": "2217fc0a-647c-4b30-9a26-2ee941a6205a",
+  "tenant_id": "71ca7137-8f94-4f11-8e81-2ac2d4126ed4",
+  "name": "My Welcome Flow",
+  "description": "Greet new visitors, understand their needs, and qualify them as potential leads",
+  "status": "draft",
+  "is_active": false,
+  "trigger_type": "first_message",
+  "trigger_config": {},
+  "nodes": {
+    "start_node_id": "welcome",
+    "nodes": [...],
+    "edges": [...]
+  },
+  "priority": 100,
+  "version": 1,
+  "created_by": "ca79fcd5-83ee-42b6-9b3f-985c3d7e2cb4",
+  "created_at": "2026-02-04T15:58:06Z",
+  "updated_at": "2026-02-04T15:58:06Z"
+}
+```
+
+**Frontend Action:**
+- Show success message: "Flow created from template!"
+- Redirect to flow editor: `/dashboard/flows/{flow_id}/edit`
+- Display: "Your flow is in draft mode. Customize it and activate when ready."
+
+**What Happens:**
+1. Template copied to your flows
+2. Flow created in `draft` status (not active)
+3. You can customize before activating
+4. All template nodes copied
+5. Trigger configuration copied
+6. You need to activate to make it live
+
+---
+
+### 14.4 Create Custom Flow (From Scratch)
+
+**Page:** `/dashboard/flows/create`
+
+**Endpoint:** `POST /flows`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+Content-Type: application/json
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Request:**
+```json
+{
+  "tenant_id": "71ca7137-8f94-4f11-8e81-2ac2d4126ed4",
+  "name": "Custom Support Flow",
+  "description": "A completely custom flow built from scratch",
+  "status": "draft",
+  "is_active": false,
+  "trigger_type": "keyword",
+  "trigger_config": {
+    "keywords": ["support", "help", "assistance"]
+  },
+  "nodes": {
+    "start_node_id": "greeting",
+    "nodes": [
+      {
+        "id": "greeting",
+        "type": "message",
+        "config": {
+          "message": "Hi! I understand you need support. Let me help you with that."
+        }
+      },
+      {
+        "id": "collect_issue",
+        "type": "text_input",
+        "config": {
+          "prompt": "Please describe your issue briefly:",
+          "variable": "issue_description",
+          "validation": {
+            "required": true,
+            "min_length": 10
+          }
+        }
+      },
+      {
+        "id": "end",
+        "type": "end",
+        "config": {}
+      }
+    ],
+    "edges": [
+      {"from": "greeting", "to": "collect_issue"},
+      {"from": "collect_issue", "to": "end"}
+    ]
+  },
+  "priority": 200,
+  "version": 1
+}
+```
+
+**Trigger Types:**
+- `first_message` - Triggers on user's first message in a new conversation
+- `keyword` - Triggers when message contains specific keywords
+- `manual` - Only triggered manually (not implemented yet)
+- `intent` - Triggers based on AI-detected intent (not implemented yet)
+- `schedule` - Triggers at specific times (not implemented yet)
+- `event` - Triggers on system events (not implemented yet)
+
+**Node Types (8 Available):**
+
+1. **MESSAGE** - Display a message to the user
+2. **QUESTION** - Ask a question with button options
+3. **TEXT_INPUT** - Collect free-form text input
+4. **CONDITION** - Branch based on collected data (not implemented yet)
+5. **RAG_QUERY** - Search knowledge base and return results
+6. **WEBHOOK** - Call external API
+7. **ESCALATE** - Transfer to human agent
+8. **END** - End the flow
+
+**Response:**
+```json
+{
+  "id": "04bb797f-4d08-4e13-a2e5-9b3893f4cc09",
+  "tenant_id": "71ca7137-8f94-4f11-8e81-2ac2d4126ed4",
+  "name": "Custom Support Flow",
+  "description": "A completely custom flow built from scratch",
+  "status": "draft",
+  "is_active": false,
+  "trigger_type": "keyword",
+  "trigger_config": {
+    "keywords": ["support", "help", "assistance"]
+  },
+  "nodes": {...},
+  "priority": 200,
+  "version": 1,
+  "created_by": "ca79fcd5-83ee-42b6-9b3f-985c3d7e2cb4",
+  "created_at": "2026-02-04T16:08:31Z",
+  "updated_at": "2026-02-04T16:08:31Z"
+}
+```
+
+**Frontend Action:**
+- Show success message: "Custom flow created!"
+- Redirect to flow editor or flow list
+- Display: "Flow created in draft mode. Activate when ready."
+
+---
+
+### 14.5 List Flows
+
+**Page:** `/dashboard/flows`
+
+**Endpoint:** `GET /flows`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Query Parameters:**
+```
+?tenant_id={tenant_id}
+?status_filter=active
+?is_active=true
+?limit=100
+?offset=0
+```
+
+**Status Filter Values:**
+- `draft` - Not yet activated
+- `active` - Currently active and running
+- `paused` - Temporarily deactivated
+- `archived` - Soft deleted
+
+**Response:**
+```json
+{
+  "flows": [
+    {
+      "id": "2217fc0a-647c-4b30-9a26-2ee941a6205a",
+      "tenant_id": "71ca7137-8f94-4f11-8e81-2ac2d4126ed4",
+      "name": "Welcome Flow",
+      "description": "Greet new visitors",
+      "status": "active",
+      "is_active": true,
+      "trigger_type": "first_message",
+      "trigger_config": {},
+      "nodes": {...},
+      "priority": 100,
+      "version": 1,
+      "created_by": "ca79fcd5-83ee-42b6-9b3f-985c3d7e2cb4",
+      "created_at": "2026-02-04T15:58:06Z",
+      "updated_at": "2026-02-04T16:00:44Z"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 100
+}
+```
+
+**Display:**
+- Table with columns: Name, Status, Trigger, Active, Last Modified, Actions
+- Status badge (draft/active/paused/archived)
+- Active toggle (green/red indicator)
+- Trigger type badge
+- Actions: Edit, Activate/Deactivate, Analytics, Delete
+- Filter dropdowns for status and active state
+- Search by flow name
+- "Create Flow" and "Browse Templates" buttons
+
+---
+
+### 14.6 Get Flow Details
+
+**Page:** `/dashboard/flows/{flow_id}`
+
+**Endpoint:** `GET /flows/{flow_id}`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Response:**
+```json
+{
+  "id": "2217fc0a-647c-4b30-9a26-2ee941a6205a",
+  "tenant_id": "71ca7137-8f94-4f11-8e81-2ac2d4126ed4",
+  "name": "Welcome Flow",
+  "description": "Greet new visitors",
+  "status": "active",
+  "is_active": true,
+  "trigger_type": "first_message",
+  "trigger_config": {},
+  "nodes": {
+    "start_node_id": "welcome",
+    "nodes": [...],
+    "edges": [...]
+  },
+  "priority": 100,
+  "version": 1,
+  "created_by": "ca79fcd5-83ee-42b6-9b3f-985c3d7e2cb4",
+  "created_at": "2026-02-04T15:58:06Z",
+  "updated_at": "2026-02-04T16:00:44Z",
+  "execution_count": 0,
+  "last_executed_at": null
+}
+```
+
+**Display:**
+- Flow information card (name, description, status, dates)
+- Visual flow diagram
+- Trigger configuration
+- Node list with details
+- Execution statistics (total runs, last run)
+- Actions: Edit, Activate/Deactivate, View Analytics, Delete
+- "Test Flow" button
+
+---
+
+### 14.7 Update Flow
+
+**Page:** `/dashboard/flows/{flow_id}/edit`
+
+**Endpoint:** `PUT /flows/{flow_id}`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+Content-Type: application/json
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Request:** (all fields optional)
+```json
+{
+  "name": "Updated Flow Name",
+  "description": "Updated description",
+  "trigger_config": {
+    "keywords": ["help", "support", "assist"]
+  },
+  "nodes": {
+    "start_node_id": "greeting",
+    "nodes": [...],
+    "edges": [...]
+  },
+  "priority": 150
+}
+```
+
+**Response:**
+```json
+{
+  "id": "2217fc0a-647c-4b30-9a26-2ee941a6205a",
+  "name": "Updated Flow Name",
+  "description": "Updated description",
+  "status": "active",
+  "is_active": true,
+  "trigger_config": {
+    "keywords": ["help", "support", "assist"]
+  },
+  "nodes": {...},
+  "priority": 150,
+  "version": 1,
+  "created_at": "2026-02-04T15:58:06Z",
+  "updated_at": "2026-02-04T16:10:00Z"
+}
+```
+
+**What You Can Update:**
+- Name, description
+- Trigger configuration (keywords, etc.)
+- Nodes (add, remove, modify)
+- Priority (higher = executes first)
+
+**What You Cannot Update:**
+- Trigger type (keyword, first_message, etc.) - must recreate flow
+- Status - use activate/deactivate endpoints
+- Tenant ID
+- Created by
+
+**Frontend Action:**
+- Show success message: "Flow updated successfully"
+- Refresh flow details
+- Display: "Changes take effect immediately"
+
+---
+
+### 14.8 Activate Flow
+
+**Page:** `/dashboard/flows/{flow_id}` (Activate button)
+
+**Endpoint:** `POST /flows/{flow_id}/activate`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Response:**
+```json
+{
+  "id": "2217fc0a-647c-4b30-9a26-2ee941a6205a",
+  "name": "Welcome Flow",
+  "status": "active",
+  "is_active": true,
+  "trigger_type": "first_message",
+  "updated_at": "2026-02-04T16:00:44Z"
+}
+```
+
+**Frontend Action:**
+- Show success message: "Flow activated! It will now run in conversations."
+- Update flow status badge to "Active"
+- Change button to "Deactivate"
+- Show green indicator
+
+**What Happens:**
+1. Flow status set to `active`
+2. `is_active` set to `true`
+3. Flow will now match and execute when triggered
+4. Takes effect immediately
+
+---
+
+### 14.9 Deactivate Flow
+
+**Page:** `/dashboard/flows/{flow_id}` (Deactivate button)
+
+**Endpoint:** `POST /flows/{flow_id}/deactivate`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Response:**
+```json
+{
+  "id": "2217fc0a-647c-4b30-9a26-2ee941a6205a",
+  "name": "Welcome Flow",
+  "status": "paused",
+  "is_active": false,
+  "trigger_type": "first_message",
+  "updated_at": "2026-02-04T16:01:36Z"
+}
+```
+
+**Frontend Action:**
+- Show success message: "Flow deactivated. It will no longer run."
+- Update flow status badge to "Paused"
+- Change button to "Activate"
+- Show red/gray indicator
+
+**What Happens:**
+1. Flow status set to `paused`
+2. `is_active` set to `false`
+3. Flow will no longer match or execute
+4. Takes effect immediately
+5. Can be reactivated anytime
+
+---
+
+### 14.10 Delete Flow (Archive)
+
+**Page:** `/dashboard/flows` (Delete button)
+
+**Endpoint:** `DELETE /flows/{flow_id}`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Required Role:** TENANT_ADMIN
+
+**Response:**
+```
+HTTP 204 No Content
+```
+
+**Frontend Action:**
+- Show confirmation dialog: "Delete this flow? This action cannot be undone."
+- On confirm:
+  - Show success message: "Flow deleted"
+  - Remove from flow list
+  - Redirect to flows list
+
+**What Happens:**
+- Soft delete: Flow status set to `archived`
+- `is_active` set to `false`
+- Flow will no longer match or execute
+- Execution history preserved
+- Data retained for analytics
+- Not shown in regular flow list (only in archived filter)
+
+---
+
+### 14.11 Get Flow Executions
+
+**Page:** `/dashboard/flows/{flow_id}/executions`
+
+**Endpoint:** `GET /flows/{flow_id}/executions`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Query Parameters:**
+```
+?status=completed
+?limit=100
+?offset=0
+```
+
+**Status Values:**
+- `pending` - Queued, not started
+- `running` - Currently executing
+- `completed` - Successfully finished
+- `failed` - Execution failed
+- `cancelled` - Manually cancelled
+
+**Response:**
+```json
+{
+  "executions": [
+    {
+      "id": "exec-uuid-1",
+      "flow_id": "2217fc0a-647c-4b30-9a26-2ee941a6205a",
+      "session_id": "session-uuid-1",
+      "current_node_id": null,
+      "collected_data": {
+        "customer_name": "John Doe",
+        "email": "john@example.com",
+        "visit_reason": "solution"
+      },
+      "status": "completed",
+      "result_data": {
+        "webhook_response": {
+          "lead_id": "12345",
+          "status": "created"
+        }
+      },
+      "error_message": null,
+      "started_at": "2026-02-04T17:00:00Z",
+      "completed_at": "2026-02-04T17:02:30Z",
+      "created_at": "2026-02-04T17:00:00Z",
+      "updated_at": "2026-02-04T17:02:30Z"
+    }
+  ],
+  "total": 0,
+  "page": 1,
+  "page_size": 100
+}
+```
+
+**Display:**
+- Table with columns: Session, Status, Started, Completed, Duration, Actions
+- Status badge (pending/running/completed/failed)
+- Collected data preview
+- Duration calculation
+- "View Details" button
+- Filter by status dropdown
+- Date range filter
+
+---
+
+### 14.12 Get Flow Analytics
+
+**Page:** `/dashboard/flows/{flow_id}/analytics`
+
+**Endpoint:** `GET /flows/{flow_id}/analytics`
+
+**Headers:**
+```
+Authorization: Bearer {tenant_token}
+```
+
+**Response:**
+```json
+{
+  "flow_id": "2217fc0a-647c-4b30-9a26-2ee941a6205a",
+  "flow_name": "Welcome Flow",
+  "total_executions": 0,
+  "status_breakdown": {
+    "pending": 0,
+    "running": 0,
+    "completed": 0,
+    "failed": 0,
+    "cancelled": 0
+  },
+  "success_rate_percentage": 0,
+  "average_completion_time_seconds": null,
+  "last_execution": null
+}
+```
+
+**Display:**
+- KPI cards:
+  - Total executions
+  - Success rate (percentage)
+  - Avg completion time
+  - Last run timestamp
+- Status breakdown pie chart
+- Execution trend line chart (daily/weekly/monthly)
+- Top exit nodes (where users drop off)
+- Most collected variables
+- Date range selector
+
+---
+
+### 14.13 Node Type Reference
+
+#### MESSAGE Node
+
+Display a message to the user. Automatically advances to next node.
+
+**Configuration:**
+```json
+{
+  "type": "message",
+  "config": {
+    "message": "Welcome to our support! How can I help you today?",
+    "next": "ask_issue"
+  }
+}
+```
+
+**Fields:**
+- `message` (required) - Message text to display
+- `next` (optional) - Next node ID to execute
+
+**Use Cases:**
+- Welcome messages
+- Confirmations
+- Status updates
+- Information delivery
+
+---
+
+#### QUESTION Node
+
+Ask a question with predefined button options.
+
+**Configuration:**
+```json
+{
+  "type": "question",
+  "config": {
+    "question": "What type of support do you need?",
+    "options": [
+      {
+        "label": "Technical Support",
+        "value": "technical"
+      },
+      {
+        "label": "Billing Question",
+        "value": "billing"
+      },
+      {
+        "label": "General Inquiry",
+        "value": "general"
+      }
+    ],
+    "variable": "support_type"
+  }
+}
+```
+
+**Fields:**
+- `question` (required) - Question text
+- `options` (required) - Array of button options (2-6 buttons)
+  - `label` - Button text shown to user
+  - `value` - Value stored in variable
+- `variable` (optional) - Variable name to store selected value
+- `next` (optional) - Default next node if not specified in option
+
+**Option-Level Routing:**
+```json
+{
+  "options": [
+    {
+      "label": "Technical Support",
+      "value": "technical",
+      "next": "technical_flow"
+    },
+    {
+      "label": "Billing Question",
+      "value": "billing",
+      "next": "billing_flow"
+    }
+  ]
+}
+```
+
+**Use Cases:**
+- Multiple choice questions
+- Menu navigation
+- Decision branching
+- Category selection
+
+---
+
+#### TEXT_INPUT Node
+
+Collect free-form text input from the user with optional validation.
+
+**Configuration:**
+```json
+{
+  "type": "text_input",
+  "config": {
+    "prompt": "What's your email address?",
+    "variable": "customer_email",
+    "validation": {
+      "required": true,
+      "type": "email",
+      "min_length": 5,
+      "max_length": 100
+    },
+    "confirmation": "Got it, thanks!",
+    "next": "send_webhook"
+  }
+}
+```
+
+**Fields:**
+- `prompt` (required) - Question/prompt for user
+- `variable` (required) - Variable name to store input
+- `validation` (optional) - Validation rules
+  - `required` - Whether input is required
+  - `type` - Validation type: `email`, `phone`, `number`, `text`
+  - `min_length` - Minimum character length
+  - `max_length` - Maximum character length
+  - `pattern` - Regex pattern to match
+- `confirmation` (optional) - Confirmation message after valid input
+- `next` (required) - Next node ID
+
+**Validation Types:**
+- `email` - Validates email format
+- `phone` - Validates phone number
+- `number` - Validates numeric input
+- `text` - No specific validation, just length checks
+
+**Use Cases:**
+- Collect email addresses
+- Gather customer names
+- Get issue descriptions
+- Capture feedback
+- Collect phone numbers
+
+---
+
+#### RAG_QUERY Node
+
+Search the knowledge base and return AI-generated response.
+
+**Configuration:**
+```json
+{
+  "type": "rag_query",
+  "config": {
+    "query_template": "{{user_message}}",
+    "max_chunks": 4,
+    "next": "ask_satisfied"
+  }
+}
+```
+
+**Fields:**
+- `query_template` (required) - Query text (supports variable interpolation)
+- `max_chunks` (optional) - Maximum knowledge chunks to retrieve (default: 4)
+- `next` (optional) - Next node after response
+
+**Variable Interpolation:**
+```json
+{
+  "query_template": "Help with {{support_type}} for product {{product_name}}"
+}
+```
+
+**Use Cases:**
+- FAQ responses
+- Knowledge base search
+- Product information
+- Troubleshooting guides
+- Policy explanations
+
+**How It Works:**
+1. Interpolates variables in query template
+2. Searches knowledge base (Qdrant)
+3. Retrieves relevant chunks
+4. Generates AI response using chunks
+5. Returns response to user
+6. Advances to next node
+
+---
+
+#### WEBHOOK Node
+
+Call external API with collected data. Supports variable interpolation.
+
+**Configuration:**
+```json
+{
+  "type": "webhook",
+  "config": {
+    "url": "https://your-crm.com/api/leads",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer YOUR_API_TOKEN"
+    },
+    "body": {
+      "name": "{{customer_name}}",
+      "email": "{{customer_email}}",
+      "source": "chatbot",
+      "timestamp": "{{current_time}}"
+    },
+    "success_message": "Thanks! We've received your information.",
+    "error_message": "Sorry, something went wrong. Please try again.",
+    "next": "end"
+  }
+}
+```
+
+**Fields:**
+- `url` (required) - API endpoint URL
+- `method` (optional) - HTTP method: `POST`, `GET`, `PUT`, `PATCH` (default: POST)
+- `headers` (optional) - HTTP headers object
+- `body` (optional) - Request body (supports variable interpolation)
+- `success_message` (optional) - Message shown on successful API call
+- `error_message` (optional) - Message shown on API error
+- `timeout` (optional) - Request timeout in seconds (default: 10)
+- `next` (required) - Next node ID
+
+**Variable Interpolation:**
+
+All collected variables can be used:
+- `{{variable_name}}` - Replaced with actual value
+- `{{user_message}}` - Current user message
+- `{{current_time}}` - Current timestamp
+- `{{session_id}}` - Conversation session ID
+
+**Example - Calendly Integration:**
+```json
+{
+  "type": "webhook",
+  "config": {
+    "url": "https://api.calendly.com/scheduling_links",
+    "method": "POST",
+    "headers": {
+      "Authorization": "Bearer YOUR_CALENDLY_TOKEN"
+    },
+    "body": {
+      "email": "{{customer_email}}",
+      "name": "{{customer_name}}",
+      "event_type": "https://calendly.com/your-company/30min"
+    },
+    "success_message": "Great! Here's your booking link: [Book Now]({{response.booking_url}})",
+    "next": "end"
+  }
+}
+```
+
+**Use Cases:**
+- Send leads to CRM (Salesforce, HubSpot, Pipedrive)
+- Create tickets in helpdesk (Zendesk, Freshdesk)
+- Send notifications (Slack, Teams, Discord)
+- Book meetings (Calendly, Cal.com)
+- Log events to analytics (Mixpanel, Segment)
+- Trigger email campaigns (Mailchimp, SendGrid)
+- Update databases via API
+- Trigger automations (Zapier, Make.com)
+
+**Error Handling:**
+- Timeout after 10 seconds (configurable)
+- Retries not implemented (single attempt)
+- Shows error_message to user on failure
+- Stores error in execution record
+- Can still advance to next node or stop
+
+---
+
+#### ESCALATE Node
+
+Transfer conversation to human agent and create support ticket.
+
+**Configuration:**
+```json
+{
+  "type": "escalate",
+  "config": {
+    "message": "Let me connect you with our support team. They'll be with you shortly.",
+    "reason": "Customer requested human assistance"
+  }
+}
+```
+
+**Fields:**
+- `message` (optional) - Message shown before escalation
+- `reason` (required) - Escalation reason for agent context
+
+**Use Cases:**
+- Customer requests human
+- Complex issues beyond AI capability
+- Urgent matters
+- Complaints
+- Refund requests
+- Account security issues
+
+**What Happens:**
+1. Session status set to `escalated`
+2. Support ticket created automatically
+3. Message shown to customer
+4. Agent notified of escalation
+5. Flow execution marked as completed
+6. Agent can take over conversation
+
+---
+
+#### END Node
+
+Terminate the flow. No further nodes executed.
+
+**Configuration:**
+```json
+{
+  "type": "end",
+  "config": {
+    "message": "Thank you! Is there anything else I can help you with?"
+  }
+}
+```
+
+**Fields:**
+- `message` (optional) - Final message before ending
+
+**Use Cases:**
+- Flow completion
+- After successful webhook
+- After escalation
+- Natural conversation end
+
+**What Happens:**
+1. Optional message shown
+2. Flow execution status set to `completed`
+3. Control returns to normal AI chat
+4. User can start new conversation
+
+---
+
+### 14.14 Flow Best Practices
+
+#### 1. Keep Flows Simple
+- 5-10 nodes max for most flows
+- Clear, linear paths
+- Avoid complex branching
+- Test frequently
+
+#### 2. Use Clear Messages
+- Short, conversational messages
+- Clear button labels
+- Avoid jargon
+- Match your brand voice
+
+#### 3. Validate User Input
+- Always validate TEXT_INPUT nodes
+- Provide helpful error messages
+- Set appropriate min/max lengths
+- Use correct validation types
+
+#### 4. Handle Errors Gracefully
+- Set error_message in WEBHOOK nodes
+- Test webhook endpoints first
+- Have fallback paths
+- Don't leave users stuck
+
+#### 5. Test Before Activating
+- Use chat widget preview
+- Test all branches
+- Verify webhooks work
+- Check variable interpolation
+- Test on mobile
+
+#### 6. Monitor Performance
+- Check analytics regularly
+- Identify drop-off points
+- Measure completion rates
+- Track webhook failures
+- Iterate based on data
+
+#### 7. Use Templates Wisely
+- Start with templates
+- Customize for your brand
+- Don't over-customize
+- Keep it simple
+
+#### 8. Priority Management
+- Higher priority = runs first
+- Default priority: 100
+- Critical flows: 200+
+- General flows: 100
+- Low priority: 50 or below
+
+---
+
+### 14.15 Common Flow Patterns
+
+#### Pattern 1: Lead Capture
+
+```json
+{
+  "trigger_type": "keyword",
+  "trigger_config": {
+    "keywords": ["demo", "pricing", "sales"]
+  },
+  "nodes": {
+    "greeting": {"type": "message", ...},
+    "name": {"type": "text_input", "variable": "name", ...},
+    "email": {"type": "text_input", "variable": "email", ...},
+    "company": {"type": "text_input", "variable": "company", ...},
+    "webhook": {
+      "type": "webhook",
+      "url": "https://crm.com/api/leads",
+      "body": {
+        "name": "{{name}}",
+        "email": "{{email}}",
+        "company": "{{company}}"
+      }
+    },
+    "end": {"type": "end", ...}
+  }
+}
+```
+
+#### Pattern 2: Support Routing
+
+```json
+{
+  "trigger_type": "keyword",
+  "trigger_config": {
+    "keywords": ["help", "support", "issue"]
+  },
+  "nodes": {
+    "ask_type": {
+      "type": "question",
+      "options": [
+        {"label": "Billing", "value": "billing", "next": "billing_rag"},
+        {"label": "Technical", "value": "technical", "next": "tech_rag"},
+        {"label": "Talk to Agent", "value": "agent", "next": "escalate"}
+      ]
+    },
+    "billing_rag": {
+      "type": "rag_query",
+      "query_template": "billing help",
+      ...
+    },
+    "tech_rag": {
+      "type": "rag_query",
+      "query_template": "technical support",
+      ...
+    },
+    "escalate": {"type": "escalate", ...}
+  }
+}
+```
+
+#### Pattern 3: Feedback Collection
+
+```json
+{
+  "trigger_type": "first_message",
+  "nodes": {
+    "ask_satisfaction": {
+      "type": "question",
+      "question": "How was your experience?",
+      "options": [
+        {"label": "😊 Great", "value": "great"},
+        {"label": "😐 Okay", "value": "okay"},
+        {"label": "😞 Poor", "value": "poor"}
+      ],
+      "variable": "satisfaction"
+    },
+    "ask_details": {
+      "type": "text_input",
+      "prompt": "Can you tell us more?",
+      "variable": "feedback"
+    },
+    "webhook": {
+      "type": "webhook",
+      "url": "https://analytics.com/feedback",
+      "body": {
+        "satisfaction": "{{satisfaction}}",
+        "feedback": "{{feedback}}"
+      }
+    },
+    "end": {"type": "end", ...}
+  }
+}
+```
+
+---
+
+### 14.16 Subscription Tier Limits
+
+Flow capabilities by subscription tier:
+
+| Feature | Trial | Lite | Professional | Growth | Enterprise |
+|---------|-------|------|--------------|--------|------------|
+| **Max Flows** | 0 | 2 | 10 | 25 | Unlimited |
+| **Max Nodes per Flow** | 0 | 20 | 50 | 100 | Unlimited |
+| **Webhook Nodes** | ❌ | ❌ | ✅ (3 max) | ✅ (10 max) | ✅ Unlimited |
+| **Template Access** | ❌ | ✅ All | ✅ All | ✅ All | ✅ All |
+| **Flow Analytics** | ❌ | ✅ Basic | ✅ Advanced | ✅ Advanced | ✅ Advanced |
+| **Priority Support** | ❌ | ❌ | ❌ | ✅ | ✅ |
+
+**Enforcement:**
+- Flow creation blocked when limit reached
+- Shows upgrade prompt: "Upgrade to create more flows"
+- Webhook nodes disabled below Professional tier
+- Analytics limited on Trial tier
+
+---
+
+### 14.17 Frontend Implementation Notes
+
+#### Flow Editor UI Considerations:
+
+1. **Visual Flow Builder:**
+   - Drag-and-drop node creation
+   - Visual connections between nodes
+   - Node type palette
+   - Canvas zoom/pan
+   - Auto-layout option
+
+2. **Node Configuration Panel:**
+   - Right sidebar for selected node
+   - Form fields based on node type
+   - Variable picker dropdown
+   - Syntax highlighting for JSON
+   - Validation error display
+
+3. **Testing & Preview:**
+   - Chat widget preview panel
+   - Test with sample data
+   - Step-through debugger
+   - Variable inspection
+   - Execution trace
+
+4. **Analytics Dashboard:**
+   - Real-time execution counts
+   - Success/failure rates
+   - Drop-off funnel visualization
+   - Heatmap of node usage
+   - Export to CSV
+
+5. **Mobile Considerations:**
+   - Responsive flow editor
+   - Touch-friendly node manipulation
+   - Simplified mobile UI
+   - Test on mobile preview
+
+---
+
+### 14.18 Error Responses
+
+#### Flow Not Found
+```json
+{
+  "detail": "Flow not found"
+}
+```
+**HTTP 404**
+
+#### Permission Denied
+```json
+{
+  "detail": "Insufficient permissions to access this flow"
+}
+```
+**HTTP 403**
+
+#### Validation Error
+```json
+{
+  "detail": "Invalid flow configuration: Node 'start' references unknown node 'invalid_node'"
+}
+```
+**HTTP 400**
+
+#### Subscription Limit Reached
+```json
+{
+  "detail": "Flow limit reached (2). Upgrade to create more flows.",
+  "current_count": 2,
+  "max_flows": 2,
+  "upgrade_url": "/dashboard/subscription/upgrade"
+}
+```
+**HTTP 402** (Payment Required)
+
+#### Webhook Node Not Allowed
+```json
+{
+  "detail": "Webhook nodes require Professional tier or higher. Current tier: Lite",
+  "upgrade_url": "/dashboard/subscription/upgrade"
+}
+```
+**HTTP 402** (Payment Required)
+
+---
+
+
 2. **Automated Quotes** - Generate pricing instantly for any volume
 3. **Profit Margin Analysis** - See profitability at ₦0.56 AI cost per conversation
 4. **Tier Recommendations** - Automatic comparison with Growth tier
@@ -7168,7 +8619,7 @@ document.getElementById('volume-slider').addEventListener('input', (e) => {
 
 ---
 
-## 14. User Flows with Diagrams
+## 15. User Flows with Diagrams
 
 ### Flow 1: Company Registration
 
@@ -7328,7 +8779,7 @@ document.getElementById('volume-slider').addEventListener('input', (e) => {
 
 ---
 
-## 13. Common Patterns
+## 16. Common Patterns
 
 ### Authentication Headers
 
@@ -7385,7 +8836,7 @@ Currently, all list endpoints return full results. Pagination will be added late
 
 ---
 
-## 14. Frontend Pages Checklist
+## 17. Frontend Pages Checklist
 
 ### Platform Admin Dashboard
 
@@ -7516,7 +8967,7 @@ Currently, all list endpoints return full results. Pagination will be added late
 
 ---
 
-## 15. Next Steps
+## 18. Next Steps
 
 After frontend is complete, the widget JavaScript and chat UI will be built separately.
 
@@ -7532,7 +8983,7 @@ After frontend is complete, the widget JavaScript and chat UI will be built sepa
 
 ---
 
-## 16. Important Notes
+## 19. Important Notes
 
 1. **Two Separate Tokens:** Platform admin tokens and tenant tokens are different. Store them separately.
 
@@ -8651,5 +10102,5 @@ All health endpoints return one of these statuses:
 
 ---
 
-**Last Updated:** 2026-01-27  
-**Backend Team Contact:** For questions about platform admin features
+**Last Updated:** 2026-02-04 (Added Flow Automation System documentation)
+**Backend Team Contact:** For questions about platform admin features or flow automation

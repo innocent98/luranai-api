@@ -654,11 +654,13 @@ class UserManagementService:
 
             logger.info(f"Password regenerated for user {user.email}")
 
+            # TODO: Send email with new password
+            # For now, email_sent is False since we're not sending emails yet
+
             return UserRegeneratePasswordResponse(
                 message="Password regenerated successfully",
-                user_id=user.id,
-                email=user.email,
                 temp_password=temp_password,
+                email_sent=False,
             )
 
         except ValueError:

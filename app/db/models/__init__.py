@@ -30,6 +30,14 @@ from app.db.models.payment import PaymentTransaction
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.email_notification import EmailNotification
 from app.db.models.subscription_plan import SubscriptionPlan
+from app.db.models.flow import (
+    Flow,
+    FlowExecution,
+    FlowTemplate,
+    FlowStatus,
+    FlowTriggerType,
+    FlowExecutionStatus,
+)
 
 __all__ = [
     "Base",
@@ -79,4 +87,11 @@ __all__ = [
     "SubscriptionPlan",
     # Email notification models
     "EmailNotification",
+    # Flow models
+    "Flow",
+    "FlowExecution",
+    "FlowTemplate",
+    "FlowStatus",
+    "FlowTriggerType",
+    "FlowExecutionStatus",
 ]

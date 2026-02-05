@@ -12,6 +12,7 @@ from app.services.conversation_service import ConversationService
 from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
 from app.services.ticket_service import TicketService
+from app.services.flow_engine import FlowEngine
 from app.schemas.conversation import (
     SessionResponse,
     SessionDetailResponse,
@@ -315,6 +316,218 @@ async def send_message(
             detail="Tenant AI configuration not found"
         )
 
+    # Step 2.5: Check for Flow Execution (BEFORE storing user message)
+    flow_engine = FlowEngine(db)
+    matched_flow = flow_engine.match_flow(message_data.message, session)
+
+    if matched_flow:
+        logger.info(f"Matched flow: {matched_flow.name} (ID: {matched_flow.id})")
+
+        # Get or create flow execution
+        active_exec = flow_engine._get_active_execution(session.id)
+
+        if not active_exec:
+            # Start new flow execution
+            from app.db.models.flow import FlowExecution
+            from datetime import datetime
+
+            active_exec = FlowExecution(
+                flow_id=matched_flow.id,
+                session_id=session.id,
+                current_node_id=matched_flow.nodes.get("start_node_id", "start"),
+                status="pending",
+                collected_data={},
+                started_at=datetime.utcnow(),
+            )
+            db.add(active_exec)
+            db.commit()
+            db.refresh(active_exec)
+            logger.info(f"Created new flow execution: {active_exec.id}")
+
+        # Execute current node
+        flow_result = await flow_engine.execute_node(active_exec, message_data.message)
+
+        if flow_result.get("is_complete"):
+            # Flow finished
+            if flow_result.get("fallback_to_rag"):
+                # User input didn't match flow expectations, fall through to RAG
+                logger.info("Flow completed with fallback to RAG")
+            elif flow_result.get("should_escalate"):
+                # Flow triggered escalation - store user message first
+                user_message = conversation_service.add_message(
+                    session_id=session_id,
+                    role=MessageRole.USER,
+                    content=message_data.message
+                )
+
+                escalation_reason = flow_result.get("escalation_reason", "Flow triggered escalation")
+                conversation_service.escalate_session(session_id=session_id, reason=escalation_reason)
+
+                # Add flow response message
+                response_message = flow_result.get("message", "Connecting you to an agent...")
+                assistant_message = conversation_service.add_message(
+                    session_id=session_id,
+                    role=MessageRole.ASSISTANT,
+                    content=response_message,
+                    meta={"flow_triggered": True, "flow_id": str(matched_flow.id)}
+                )
+
+                # Create ticket
+                ticket_id = None
+                try:
+                    from app.schemas.ticket import TicketCreate
+                    from app.db.models.conversation import TicketPriority
+                    from app.db.models.user import UserRole
+                    from app.utils.email import send_ticket_escalation_email
+
+                    ticket_service = TicketService(db)
+                    conversation_history = conversation_service.get_session_messages(session_id=session_id, limit=20)
+
+                    summary = _generate_ticket_summary(
+                        conversation_history=conversation_history,
+                        escalation_reason=escalation_reason,
+                        user_query=message_data.message,
+                    )
+
+                    priority = _determine_ticket_priority(
+                        user_query=message_data.message,
+                        escalation_reason=escalation_reason,
+                    )
+
+                    ticket_data = TicketCreate(
+                        tenant_id=session.tenant_id,
+                        session_id=session_id,
+                        priority=priority,
+                        summary=summary,
+                    )
+                    ticket = ticket_service.create_ticket(ticket_data)
+                    ticket_id = ticket.id
+                    logger.info(f"Ticket created from flow: {ticket.ticket_number}")
+
+                    # Send email notifications
+                    tenant = tenant_service.get_tenant_by_id(session.tenant_id, include_relations=False)
+                    from app.db.models.user import User
+                    notification_recipients = db.query(User).filter(
+                        User.tenant_id == session.tenant_id,
+                        User.is_active == True,
+                        User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT])
+                    ).all()
+
+                    for recipient in notification_recipients:
+                        try:
+                            email_sent = await send_ticket_escalation_email(
+                                email_to=recipient.email,
+                                user_name=recipient.full_name,
+                                tenant_name=tenant.display_name,
+                                ticket_number=ticket.ticket_number,
+                                escalation_reason=escalation_reason,
+                                customer_query=message_data.message,
+                                ticket_priority=priority.value.upper(),
+                                ticket_id=str(ticket.id),
+                            )
+                            if email_sent:
+                                logger.info(f"✓ Flow escalation email sent to {recipient.email}")
+                        except Exception as email_error:
+                            logger.error(f"✗ Email error: {email_error}")
+
+                except Exception as ticket_error:
+                    logger.error(f"Failed to create ticket from flow: {ticket_error}")
+
+                return ChatResponse(
+                    session_id=session_id,
+                    message=assistant_message,
+                    should_escalate=True,
+                    escalation_reason=escalation_reason,
+                    ticket_id=ticket_id,
+                )
+            elif flow_result.get("use_rag_response"):
+                # Flow called RAG, use retrieved chunks if available
+                if flow_result.get("chunks"):
+                    # Store user message first
+                    user_message = conversation_service.add_message(
+                        session_id=session_id,
+                        role=MessageRole.USER,
+                        content=message_data.message
+                    )
+
+                    # Use chunks from flow for AI generation
+                    retrieved_chunks = flow_result["chunks"]
+                    similarity_scores = flow_result.get("scores", [])
+
+                    # Continue to AI generation with these chunks (skip vector retrieval)
+                    # This is handled below - set flag
+                    flow_rag_chunks = retrieved_chunks
+                    flow_rag_scores = similarity_scores
+                    logger.info(f"Using RAG chunks from flow: {len(retrieved_chunks)} chunks")
+                else:
+                    # END node with use_rag_response but no chunks - fall through to normal RAG
+                    logger.info("Flow completed with use_rag_response flag, continuing to normal RAG")
+            else:
+                # Flow returned message, store user message and return flow response
+                user_message = conversation_service.add_message(
+                    session_id=session_id,
+                    role=MessageRole.USER,
+                    content=message_data.message
+                )
+
+                assistant_message = conversation_service.add_message(
+                    session_id=session_id,
+                    role=MessageRole.ASSISTANT,
+                    content=flow_result["message"],
+                    meta={"flow_triggered": True, "flow_id": str(matched_flow.id), "flow_completed": True}
+                )
+
+                return ChatResponse(
+                    session_id=session_id,
+                    message=assistant_message,
+                    should_escalate=False,
+                )
+        else:
+            # Flow still running, store user message and return flow message
+            user_message = conversation_service.add_message(
+                session_id=session_id,
+                role=MessageRole.USER,
+                content=message_data.message
+            )
+
+            assistant_message = conversation_service.add_message(
+                session_id=session_id,
+                role=MessageRole.ASSISTANT,
+                content=flow_result["message"],
+                meta={
+                    "flow_triggered": True,
+                    "flow_id": str(matched_flow.id),
+                    "flow_node": active_exec.current_node_id,
+                    "buttons": flow_result.get("buttons"),
+                }
+            )
+
+            # Check if we should continue execution (for auto-executing nodes)
+            if flow_result.get("continue_execution"):
+                logger.info("Continuing flow execution to next node...")
+                # Execute next node immediately
+                continued_result = await flow_engine.execute_node(active_exec, None)
+
+                # If continued result has a message, send it
+                if continued_result.get("message"):
+                    continued_message = conversation_service.add_message(
+                        session_id=session_id,
+                        role=MessageRole.ASSISTANT,
+                        content=continued_result["message"],
+                        meta={
+                            "flow_triggered": True,
+                            "flow_id": str(matched_flow.id),
+                            "flow_node": active_exec.current_node_id,
+                        }
+                    )
+                    assistant_message = continued_message
+
+            return ChatResponse(
+                session_id=session_id,
+                message=assistant_message,
+                should_escalate=False,
+            )
+
     # Step 3: Check for pending escalation (consent-based escalation)
     session_meta = session.meta or {}
     pending_escalation = session_meta.get('pending_escalation', False)
@@ -483,14 +696,20 @@ async def send_message(
 
     try:
         # Step 4: Retrieve relevant knowledge chunks via vector search
-        logger.info("Retrieving relevant knowledge chunks...")
-        retrieved_chunks, similarity_scores = await rag_service.retrieve_relevant_chunks(
-            tenant_id=session.tenant_id,
-            query=message_data.message,
-            max_chunks=5,  # Changed from 3
-            score_threshold=rag_service.MIN_SCORE_THRESHOLD,
-        )
-        logger.info(f"Retrieved {len(retrieved_chunks)} chunks with avg similarity: {sum(similarity_scores) / len(similarity_scores):.2f}" if similarity_scores else f"Retrieved {len(retrieved_chunks)} chunks")
+        # Check if flow provided RAG chunks
+        if 'flow_rag_chunks' in locals() and flow_rag_chunks:
+            retrieved_chunks = flow_rag_chunks
+            similarity_scores = flow_rag_scores
+            logger.info(f"Using flow-provided RAG chunks: {len(retrieved_chunks)} chunks")
+        else:
+            logger.info("Retrieving relevant knowledge chunks...")
+            retrieved_chunks, similarity_scores = await rag_service.retrieve_relevant_chunks(
+                tenant_id=session.tenant_id,
+                query=message_data.message,
+                max_chunks=5,  # Changed from 3
+                score_threshold=rag_service.MIN_SCORE_THRESHOLD,
+            )
+            logger.info(f"Retrieved {len(retrieved_chunks)} chunks with avg similarity: {sum(similarity_scores) / len(similarity_scores):.2f}" if similarity_scores else f"Retrieved {len(retrieved_chunks)} chunks")
 
         # Step 5: Determine initial escalation strategy
         escalation_decision = rag_service.should_escalate(
@@ -529,9 +748,10 @@ async def send_message(
         else:
             # no_escalation - AI has knowledge, but check similarity first
 
-            # HARD GATE: Skip generation if similarity too low
+            # HARD GATE: Skip generation if similarity too low AND not conversational mode
+            # Allow conversational mode even with low/no similarity scores
 
-            if similarity_scores:
+            if similarity_scores and escalation_decision.reason not in ["conversational_mode", "partial_knowledge_mode"]:
                 avg_similarity = sum(similarity_scores) / len(similarity_scores)
                 if avg_similarity < rag_service.MIN_RELEVANT_SIMILARITY:
                     should_skip_generation = True

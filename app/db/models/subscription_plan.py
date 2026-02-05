@@ -17,7 +17,7 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "subscription_plans"
 
     # Identification
-    tier = Column(String, unique=True, nullable=False, index=True)
+    tier = Column(String, unique=True, nullable=False)
     display_name = Column(String, nullable=False)
     description = Column(String, nullable=False)
 
@@ -34,12 +34,18 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
     max_team_members = Column(Integer, nullable=True)  # None = unlimited
     max_response_tokens = Column(Integer, nullable=False)
 
+    # Flow capabilities
+    max_flows = Column(Integer, nullable=True)  # None = unlimited
+    max_nodes_per_flow = Column(Integer, nullable=True)  # None = unlimited
+    can_use_webhooks = Column(Boolean, nullable=False, default=False)
+    max_webhooks_per_flow = Column(Integer, nullable=True)  # None = unlimited
+
     # Marketing
     features = Column(JSON, nullable=False, default=list)  # List of feature descriptions
 
     # Status
-    is_active = Column(Boolean, nullable=False, default=True, index=True)
-    sort_order = Column(Integer, nullable=False, default=0, index=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    sort_order = Column(Integer, nullable=False, default=0)
 
     __table_args__ = (
         Index('ix_subscription_plans_tier', 'tier', unique=True),
@@ -65,6 +71,10 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
                 "max_conversations_per_month": self.max_conversations_per_month,
                 "max_team_members": self.max_team_members,
                 "max_response_tokens": self.max_response_tokens,
+                "max_flows": self.max_flows,
+                "max_nodes_per_flow": self.max_nodes_per_flow,
+                "can_use_webhooks": self.can_use_webhooks,
+                "max_webhooks_per_flow": self.max_webhooks_per_flow,
             },
             "features": self.features,
             "is_active": self.is_active,
@@ -87,4 +97,8 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
             "max_conversations_per_month": self.max_conversations_per_month,
             "max_team_members": self.max_team_members,
             "max_response_tokens": self.max_response_tokens,
+            "max_flows": self.max_flows,
+            "max_nodes_per_flow": self.max_nodes_per_flow,
+            "can_use_webhooks": self.can_use_webhooks,
+            "max_webhooks_per_flow": self.max_webhooks_per_flow,
         }
