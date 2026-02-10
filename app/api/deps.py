@@ -117,7 +117,7 @@ async def verify_subscription_active(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
     # Check trial expiration
-    if tenant.subscription_status == "trialing":
+    if tenant.subscription_status in {"trialing", "trial"}:
 
         now = datetime.now(UTC)
         if tenant.trial_ends_at and now > tenant.trial_ends_at:

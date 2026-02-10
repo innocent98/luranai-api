@@ -15,6 +15,7 @@ from app.api.deps import (
     verify_tenant_access,
 )
 from app.db.models.flow import Flow, FlowExecution, FlowExecutionStatus, FlowStatus, FlowTriggerType
+from app.db.models.tenant import Tenant
 from app.services.flow_service import FlowService
 from app.schemas.flow import (
     FlowCreate,
@@ -501,7 +502,6 @@ def list_flow_templates(
         List of flow templates
     """
     from app.db.models.flow import FlowTemplate
-    from app.db.models.tenant import Tenant
 
     try:
         # Build query

@@ -144,7 +144,7 @@ def get_usage_metrics(
     dependencies=[Depends(platform_analytics_rate_limit)],
 )
 def get_cohort_analysis(
-    cohort_size: str = Query("month", regex="^(week|month)$", description="Cohort size"),
+    cohort_size: str = Query("month", pattern="^(week|month)$", description="Cohort size"),
     months_back: int = Query(6, ge=1, le=24, description="Months to analyze"),
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),

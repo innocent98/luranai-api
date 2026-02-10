@@ -1,9 +1,11 @@
 """HTTP endpoint rate limiting using Redis."""
 
+import time
 from collections.abc import Awaitable, Callable
 
 from fastapi import HTTPException, Request, status
 
+from app.core.config import settings
 from app.core.logger import log
 from app.utils.rate_limiter import RedisRateLimiter
 
@@ -95,6 +97,8 @@ team_management_rate_limiter = RedisRateLimiter(
     window_seconds=60,
 )
 
+_last_rate_limiter_error_log_at = 0.0
+
 
 async def check_rate_limit(
     request: Request,
@@ -136,9 +140,21 @@ async def check_rate_limit(
     except HTTPException:
         raise
     except Exception as e:
-        log.error(f"Rate limiter error: {e}")
-        # Fail open - don't block if Redis down
-        pass
+        global _last_rate_limiter_error_log_at
+        now = time.time()
+        cooldown = max(0, settings.RATE_LIMIT_ERROR_LOG_COOLDOWN_SECONDS)
+        if now - _last_rate_limiter_error_log_at >= cooldown:
+            log.error(f"Rate limiter error: {e}")
+            _last_rate_limiter_error_log_at = now
+
+        if settings.RATE_LIMIT_FAIL_OPEN:
+            # Fail open by default for availability when Redis is unavailable.
+            return
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Rate limiting temporarily unavailable",
+        ) from e
 
 
 def create_rate_limit_dependency(

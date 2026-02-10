@@ -1,9 +1,13 @@
 """Service for scraping webpage content."""
 
+from urllib.parse import urljoin
+
 import httpx
 from bs4 import BeautifulSoup
 from fastapi import HTTPException, status
 from loguru import logger
+
+from app.utils.network_security import ensure_safe_outbound_url
 
 
 class URLScraperService:
@@ -11,6 +15,7 @@ class URLScraperService:
 
     TIMEOUT = 30  # seconds
     MAX_CONTENT_LENGTH = 10 * 1024 * 1024  # 10 MB
+    MAX_REDIRECTS = 5
 
     async def scrape_url(self, url: str) -> dict:
         """
@@ -26,8 +31,28 @@ class URLScraperService:
             HTTPException: On scraping failure
         """
         try:
+            ensure_safe_outbound_url(url)
+
             async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
-                response = await client.get(url, follow_redirects=True)
+                current_url = url
+                response = None
+
+                for _ in range(self.MAX_REDIRECTS + 1):
+                    ensure_safe_outbound_url(current_url)
+                    response = await client.get(current_url, follow_redirects=False)
+
+                    if response.status_code in {301, 302, 303, 307, 308}:
+                        location = response.headers.get("location")
+                        if not location:
+                            break
+                        current_url = urljoin(current_url, location)
+                        continue
+
+                    break
+
+                if response is None:
+                    raise ValueError("No response received from URL")
+
                 response.raise_for_status()
 
                 # Check content length
@@ -59,7 +84,7 @@ class URLScraperService:
                 return {
                     "title": title_text,
                     "content": text,
-                    "url": str(response.url),  # Final URL after redirects
+                    "url": str(response.url),
                     "content_length": len(text),
                 }
 

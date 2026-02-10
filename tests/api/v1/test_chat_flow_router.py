@@ -117,8 +117,7 @@ def test_start_router_to_flow_to_human_ticket(client: TestClient, db: Session):
     actions = start_data["message"]["meta"]["button_actions"]
     labels = [a["label"] for a in actions]
     assert "Support" in labels
-    assert "Chat with AI" in labels
-    assert "Talk to Human Agent" in labels
+    assert "Get Instant Help" in labels
 
     selected_action = next(a for a in actions if a["label"] == "Support")
     session_id = start_data["session_id"]

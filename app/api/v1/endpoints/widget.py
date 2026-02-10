@@ -351,7 +351,7 @@ def get_public_widget_config(
     tenant_id: str = Path(
         ...,
         description="Tenant UUID (not the tenant name/slug)",
-        example="a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6",
+        examples=["a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6"],
     ),
     x_api_key: str = Header(..., description="Public API key"),
     db: Session = Depends(get_db),

@@ -1,7 +1,6 @@
 """Flow engine service for executing conversational workflows."""
 
 import re
-from datetime import datetime
 from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID
@@ -15,6 +14,8 @@ from app.db.models.conversation import ConversationSession
 from app.db.models.flow import Flow, FlowExecution, FlowExecutionStatus, FlowStatus, FlowTriggerType
 from app.services.rag_service import RAGService
 from app.schemas.knowledge import KnowledgeChunkResponse
+from app.utils.datetime import utcnow_naive
+from app.utils.network_security import ensure_safe_outbound_url
 
 
 class FlowEngine:
@@ -237,7 +238,7 @@ class FlowEngine:
         # Update execution status to running if pending
         if execution.status == FlowExecutionStatus.PENDING:
             execution.status = FlowExecutionStatus.RUNNING
-            execution.started_at = datetime.utcnow()
+            execution.started_at = utcnow_naive()
             self.db.commit()
 
         # Get current node
@@ -290,7 +291,7 @@ class FlowEngine:
             logger.error(f"Error executing node {current_node_id}: {e}", exc_info=True)
             execution.status = FlowExecutionStatus.FAILED
             execution.error_message = str(e)
-            execution.completed_at = datetime.utcnow()
+            execution.completed_at = utcnow_naive()
             self.db.commit()
 
             return self._error_result(f"Flow execution failed: {str(e)}")
@@ -623,6 +624,11 @@ class FlowEngine:
         body = self._interpolate_dict(body, execution.collected_data)
 
         try:
+            ensure_safe_outbound_url(url)
+        except ValueError as e:
+            return self._error_result(f"Unsafe webhook URL: {str(e)}")
+
+        try:
             async with httpx.AsyncClient(timeout=timeout) as client:
                 if method == "GET":
                     response = await client.get(url, headers=headers)
@@ -702,7 +708,7 @@ class FlowEngine:
 
         # Mark execution as completed
         execution.status = FlowExecutionStatus.COMPLETED
-        execution.completed_at = datetime.utcnow()
+        execution.completed_at = utcnow_naive()
         execution.result_data = {"escalated": True, "reason": reason}
         self.db.commit()
 
@@ -866,7 +872,7 @@ class FlowEngine:
 
         # Mark execution as completed
         execution.status = FlowExecutionStatus.COMPLETED
-        execution.completed_at = datetime.utcnow()
+        execution.completed_at = utcnow_naive()
         execution.result_data = {
             "completed": True,
             "collected_data": execution.collected_data,

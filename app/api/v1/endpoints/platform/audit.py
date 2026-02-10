@@ -1,6 +1,6 @@
 """Platform audit log management API endpoints."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -77,7 +77,7 @@ def search_audit_logs(
     dependencies=[Depends(platform_admin_rate_limit)],
 )
 def export_audit_logs(
-    format: str = Query("csv", regex="^(csv|json)$", description="Export format"),
+    format: str = Query("csv", pattern="^(csv|json)$", description="Export format"),
     tenant_id: str | None = Query(None, description="Tenant ID filter"),
     start_date: str | None = Query(None, description="Start date (ISO format)"),
     end_date: str | None = Query(None, description="End date (ISO format)"),
@@ -107,7 +107,7 @@ def export_audit_logs(
 
         # Set appropriate content type and filename
         media_type = "text/csv" if format == "csv" else "application/json"
-        filename = f"audit_logs_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.{format}"
+        filename = f"audit_logs_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}.{format}"
 
         return Response(
             content=export_data,
@@ -171,7 +171,7 @@ def get_tenant_activity(
     dependencies=[Depends(platform_admin_rate_limit)],
 )
 def get_security_events(
-    severity: str | None = Query(None, regex="^(high|medium|low)$", description="Severity filter"),
+    severity: str | None = Query(None, pattern="^(high|medium|low)$", description="Severity filter"),
     days: int = Query(7, ge=1, le=90, description="Days to analyze"),
     limit: int = Query(100, ge=1, le=1000, description="Max results"),
     db: Session = Depends(get_db),

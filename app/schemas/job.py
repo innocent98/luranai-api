@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.models.job import JobStatus, JobType
 
@@ -58,8 +58,7 @@ class JobResponse(JobBase):
     # User tracking
     created_by: UUID | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class JobListResponse(BaseModel):
@@ -85,5 +84,4 @@ class DocumentUploadJobResponse(BaseModel):
     estimated_chunks: int | None = None
     estimated_time_seconds: int | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

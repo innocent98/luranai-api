@@ -175,6 +175,10 @@ class Settings(BaseSettings):
     # Security Headers
     ENABLE_HSTS: bool = False
 
+    # Rate limiter resiliency controls
+    RATE_LIMIT_FAIL_OPEN: bool = True
+    RATE_LIMIT_ERROR_LOG_COOLDOWN_SECONDS: int = 60
+
     model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=".env",

@@ -77,7 +77,7 @@ class PlatformSubscriptionService:
 
         # Update tenant subscription
         tenant.subscription_tier = tier
-        tenant.subscription_status = "active" if tier != "trial" else "trial"
+        tenant.subscription_status = "active" if tier != "trial" else "trialing"
         tenant.billing_cycle = billing_cycle
 
         if tier != "trial":
@@ -167,7 +167,7 @@ class PlatformSubscriptionService:
             new_end = datetime.now(UTC) + timedelta(days=days)
             # Reactivate if expired
             if tenant.subscription_status == "trial_expired":
-                tenant.subscription_status = "trial"
+                tenant.subscription_status = "trialing"
         else:
             # Extend from current end date
             new_end = previous_end + timedelta(days=days)
@@ -181,7 +181,7 @@ class PlatformSubscriptionService:
             previous_tier="trial",
             new_tier="trial",
             previous_status=tenant.subscription_status,
-            new_status="trial",
+            new_status="trialing",
             changed_by_type="platform_admin",
             changed_by_id=admin_id,
             changed_by_name=admin_name,

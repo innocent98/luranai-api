@@ -92,9 +92,9 @@ class JobService:
 
         # Set timestamps based on status changes
         if job_data.status == JobStatus.PROCESSING and not job.started_at:
-            setattr(job, "started_at", datetime.utcnow())
+            job.started_at = datetime.utcnow()
         elif job_data.status in [JobStatus.COMPLETED, JobStatus.FAILED] and not job.completed_at:
-            setattr(job, "completed_at", datetime.utcnow())
+            job.completed_at = datetime.utcnow()
 
         self.db.commit()
         self.db.refresh(job)
@@ -206,7 +206,7 @@ class JobService:
             raise ValueError(f"Cannot cancel job in {job.status.value} state")
 
         job.status = JobStatus.CANCELLED
-        setattr(job, "completed_at", datetime.utcnow())
+        job.completed_at = datetime.utcnow()
 
         self.db.commit()
         self.db.refresh(job)

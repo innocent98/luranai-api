@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SubscriptionUpgradeRequest(BaseModel):
@@ -12,8 +12,9 @@ class SubscriptionUpgradeRequest(BaseModel):
     tier: str = Field(..., description="Target tier: lite, professional, growth, enterprise")
     billing_cycle: str = Field(default="monthly", description="Billing cycle: monthly, annual")
 
-    class Config:
-        json_schema_extra = {"example": {"tier": "professional", "billing_cycle": "annual"}}
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"tier": "professional", "billing_cycle": "annual"}}
+    )
 
 
 class SubscriptionUpgradeResponse(BaseModel):
@@ -54,8 +55,8 @@ class MySubscriptionResponse(BaseModel):
     is_trial: bool = Field(..., description="Whether currently on trial")
     days_until_expiry: int | None = Field(None, description="Days until trial/subscription expires")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "tenant_id": "123e4567-e89b-12d3-a456-426614174000",
                 "tenant_name": "Acme Corp",
@@ -72,6 +73,7 @@ class MySubscriptionResponse(BaseModel):
                 "days_until_expiry": None,
             }
         }
+    )
 
 
 class SubscriptionCancelRequest(BaseModel):
@@ -83,10 +85,9 @@ class SubscriptionCancelRequest(BaseModel):
         description="If True, cancel immediately. If False, cancel at end of billing period.",
     )
 
-    class Config:
-        json_schema_extra = {
-            "example": {"reason": "Found a better alternative", "immediate": False}
-        }
+    model_config = ConfigDict(
+        json_schema_extra={"example": {"reason": "Found a better alternative", "immediate": False}}
+    )
 
 
 class SubscriptionCancelResponse(BaseModel):
@@ -107,13 +108,14 @@ class SubscriptionDowngradeRequest(BaseModel):
     tier: str = Field(..., description="Target tier (lite, professional, growth)")
     reason: str | None = Field(None, description="Reason for downgrade", max_length=500)
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "tier": "lite",
                 "reason": "Reducing costs, don't need professional features",
             }
         }
+    )
 
 
 class ValidationViolation(BaseModel):
@@ -125,8 +127,8 @@ class ValidationViolation(BaseModel):
     difference: int = Field(..., description="Amount over limit")
     action_required: str = Field(..., description="What user must do")
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "field": "knowledge_sources",
                 "current_value": 15,
@@ -135,6 +137,7 @@ class ValidationViolation(BaseModel):
                 "action_required": "Delete 5 knowledge sources before downgrading",
             }
         }
+    )
 
 
 class SubscriptionDowngradeResponse(BaseModel):
@@ -148,8 +151,8 @@ class SubscriptionDowngradeResponse(BaseModel):
     next_billing_amount_kobo: int
     warnings: list[str] = []
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "success": True,
                 "message": "Successfully downgraded to lite",
@@ -160,3 +163,4 @@ class SubscriptionDowngradeResponse(BaseModel):
                 "warnings": ["Your monthly conversation limit will decrease to 1,000"],
             }
         }
+    )

@@ -4,7 +4,7 @@ Pricing API Schemas
 Schemas for platform admin pricing management endpoints.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PricingPlanCapabilitiesUpdate(BaseModel):
@@ -36,8 +36,8 @@ class PricingPlanUpdateRequest(BaseModel):
     sort_order: int | None = Field(None, description="Display order")
     reason: str = Field(..., description="Reason for pricing change (audit trail)", min_length=1)
 
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "monthly_price_kobo": 1500000,
                 "annual_price_kobo": 15000000,
@@ -54,6 +54,7 @@ class PricingPlanUpdateRequest(BaseModel):
                 "reason": "Market adjustment based on competitor analysis",
             }
         }
+    )
 
 
 class PricingPlanCapabilitiesResponse(BaseModel):
@@ -83,8 +84,7 @@ class PricingPlanResponse(BaseModel):
     is_active: bool
     sort_order: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PricingPlanListResponse(BaseModel):

@@ -1,6 +1,4 @@
 """Conversation service for managing chat sessions and messages."""
-
-from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import desc, select
@@ -14,6 +12,7 @@ from app.schemas.conversation import (
     SessionDetailResponse,
     SessionResponse,
 )
+from app.utils.datetime import utcnow_naive
 
 
 class ConversationService:
@@ -38,7 +37,7 @@ class ConversationService:
             user_identifier=session_data.user_identifier,
             status=SessionStatus.ACTIVE,
             meta=session_data.meta or {},
-            last_message_at=datetime.utcnow(),
+            last_message_at=utcnow_naive(),
         )
 
         self.db.add(db_session)
@@ -155,7 +154,7 @@ class ConversationService:
 
         session.status = SessionStatus.ESCALATED
         session.escalation_reason = reason
-        session.escalated_at = datetime.utcnow()
+        session.escalated_at = utcnow_naive()
 
         self.db.commit()
         self.db.refresh(session)
@@ -235,7 +234,7 @@ class ConversationService:
         self.db.add(db_message)
 
         # Update session last_message_at
-        session.last_message_at = datetime.utcnow()
+        session.last_message_at = utcnow_naive()
 
         self.db.commit()
         self.db.refresh(db_message)
@@ -331,7 +330,7 @@ class ConversationService:
             raise ValueError("Session not found")
 
         session.agent_id = agent_id
-        session.agent_joined_at = datetime.utcnow()
+        session.agent_joined_at = utcnow_naive()
 
         self.db.commit()
         self.db.refresh(session)

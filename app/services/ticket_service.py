@@ -1,6 +1,5 @@
 """Ticket service for managing support tickets."""
 
-from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import desc, func, select
@@ -17,6 +16,7 @@ from app.schemas.ticket import (
     TicketResponse,
     TicketUpdate,
 )
+from app.utils.datetime import utcnow_naive
 
 
 class TicketService:
@@ -62,7 +62,7 @@ class TicketService:
             Ticket number in format TKT-YYYY-NNNN
         """
         # Get count of tickets created this year
-        current_year = datetime.utcnow().year
+        current_year = utcnow_naive().year
         year_prefix = f"TKT-{current_year}-"
 
         stmt = select(func.count(Ticket.id)).where(Ticket.ticket_number.startswith(year_prefix))
@@ -251,7 +251,7 @@ class TicketService:
         # Resolve the ticket
         ticket.status = TicketStatus.RESOLVED
         ticket.resolution_notes = resolve_data.resolution_notes
-        ticket.resolved_at = datetime.utcnow()
+        ticket.resolved_at = utcnow_naive()
 
         # Also resolve the conversation session
         if ticket.session_id:

@@ -1,6 +1,6 @@
 """Chat and conversation endpoints."""
 
-from datetime import UTC
+from datetime import timedelta
 from typing import cast
 from types import SimpleNamespace
 from uuid import UUID
@@ -38,6 +38,7 @@ from app.services.flow_engine import FlowEngine
 from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
 from app.services.ticket_service import TicketService
+from app.utils.datetime import utcnow_naive
 from app.utils.http_rate_limiter import chat_rate_limit
 
 router = APIRouter()
@@ -234,14 +235,12 @@ async def send_message(
             )
 
         # Check conversation limit before creating new session
-        from datetime import datetime, timedelta
-
         capabilities = tenant_service.get_capabilities(message_data.tenant_id)
 
         if capabilities and capabilities.max_conversations_per_month is not None:
             # Get start of current month
 
-            now = datetime.now(UTC)
+            now = utcnow_naive()
             month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
             # Count conversations this month
@@ -305,12 +304,10 @@ async def send_message(
     # Check subscription status (trial expiration, etc.)
     tenant_model = tenant_service.get_tenant(session.tenant_id)
     if tenant_model:
-        from datetime import datetime
-
         # Check trial expiration
-        if tenant_model.subscription_status == "trialing":
+        if tenant_model.subscription_status in {"trialing", "trial"}:
 
-            now = datetime.now(UTC)
+            now = utcnow_naive()
             if tenant_model.trial_ends_at and now > tenant_model.trial_ends_at:
                 # Auto-update status
                 tenant_model.subscription_status = "trial_expired"
@@ -521,8 +518,6 @@ async def send_message(
 
         if not active_exec:
             # Start new flow execution
-            from datetime import datetime
-
             from app.db.models.flow import FlowExecution
 
             active_exec = FlowExecution(
@@ -531,7 +526,7 @@ async def send_message(
                 current_node_id=matched_flow.nodes.get("start_node_id", "start"),
                 status="pending",
                 collected_data={},
-                started_at=datetime.utcnow(),
+                started_at=utcnow_naive(),
             )
             db.add(active_exec)
             db.commit()

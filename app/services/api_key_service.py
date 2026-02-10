@@ -120,9 +120,20 @@ class APIKeyService:
         else:
             return None
 
-        # Get all active keys of this type
-        stmt = select(APIKey).where(APIKey.key_type == key_type, APIKey.is_active.is_(True))
+        # Fast path: narrow lookup by display prefix generated at key creation time.
+        # This avoids O(N) bcrypt checks across all active keys of a type.
+        key_prefix = api_key[:15] + "..."
+        stmt = select(APIKey).where(
+            APIKey.key_type == key_type,
+            APIKey.is_active.is_(True),
+            APIKey.key_prefix == key_prefix,
+        )
         keys = self.db.execute(stmt).scalars().all()
+
+        # Backward compatibility fallback for any historical keys with unexpected prefix shape.
+        if not keys:
+            fallback_stmt = select(APIKey).where(APIKey.key_type == key_type, APIKey.is_active.is_(True))
+            keys = self.db.execute(fallback_stmt).scalars().all()
 
         # Verify key against each stored hash
         for key_record in keys:

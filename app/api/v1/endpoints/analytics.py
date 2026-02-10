@@ -272,7 +272,7 @@ def get_conversation_trends(
     end_date: datetime | None = Query(None, description="End date for analytics period"),
     granularity: str = Query(
         "daily",
-        regex="^(daily|weekly|monthly)$",
+        pattern="^(daily|weekly|monthly)$",
         description="Time granularity (daily, weekly, monthly)",
     ),
     db: Session = Depends(get_db),
@@ -313,7 +313,7 @@ def get_ticket_trends(
     end_date: datetime | None = Query(None, description="End date for analytics period"),
     granularity: str = Query(
         "daily",
-        regex="^(daily|weekly|monthly)$",
+        pattern="^(daily|weekly|monthly)$",
         description="Time granularity (daily, weekly, monthly)",
     ),
     db: Session = Depends(get_db),

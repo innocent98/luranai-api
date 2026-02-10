@@ -27,6 +27,7 @@ from app.schemas.analytics import (
     TrendDataPoint,
     TrendResponse,
 )
+from app.utils.datetime import utcnow_naive
 
 
 class AnalyticsService:
@@ -43,7 +44,7 @@ class AnalyticsService:
         Returns:
             Tuple of (start_date, end_date)
         """
-        end_date = datetime.utcnow()
+        end_date = utcnow_naive()
         start_date = end_date - timedelta(days=30)
         return start_date, end_date
 
