@@ -1,7 +1,7 @@
 """Analytics Pydantic schemas."""
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -151,4 +151,18 @@ class KnowledgeUsageResponse(BaseModel):
     avg_chunks_per_conversation: float
     knowledge_effectiveness_score: float = Field(
         ..., description="Ratio of resolved to escalated conversations using knowledge"
+    )
+
+
+class VisitTrackRequest(BaseModel):
+    """Request payload for tracking a dashboard visit."""
+
+    source: Literal["dashboard"] = Field(
+        default="dashboard",
+        description="Visit source for authenticated tenant users",
+    )
+    page_path: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Optional dashboard path where visit was recorded",
     )

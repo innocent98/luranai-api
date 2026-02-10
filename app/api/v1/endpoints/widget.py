@@ -1,6 +1,6 @@
 """Widget configuration and public endpoints."""
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Path, UploadFile, status
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Path, Request, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,6 +14,7 @@ from app.schemas.widget import (
     WidgetInstallCodeResponse,
 )
 from app.services.api_key_service import APIKeyService
+from app.services.visit_analytics_service import VisitAnalyticsService
 
 router = APIRouter()
 
@@ -348,12 +349,14 @@ Note: The widget loads asynchronously and won't affect your page load speed."""
     status_code=status.HTTP_200_OK,
 )
 def get_public_widget_config(
+    request: Request,
     tenant_id: str = Path(
         ...,
         description="Tenant UUID (not the tenant name/slug)",
         examples=["a1b2c3d4-5e6f-7g8h-9i0j-k1l2m3n4o5p6"],
     ),
     x_api_key: str = Header(..., description="Public API key"),
+    x_visitor_id: str | None = Header(default=None, description="Anonymous visitor identifier"),
     db: Session = Depends(get_db),
 ):
     """
@@ -400,6 +403,15 @@ def get_public_widget_config(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="API key does not belong to this tenant",
         )
+
+    # Track chat widget visit for platform analytics
+    request_host = request.client.host if request and request.client else "unknown"
+    visitor_key = (x_visitor_id or f"ip:{request_host}").strip()[:128]
+    VisitAnalyticsService(db).record_visit(
+        source="chat_widget",
+        tenant_id=tenant.id,
+        visitor_key=f"widget:{visitor_key}",
+    )
 
     # Return public configuration
     return PublicWidgetConfigResponse(

@@ -18,11 +18,13 @@ from app.schemas.analytics import (
     KnowledgeUsageResponse,
     TicketMetricsResponse,
     TrendResponse,
+    VisitTrackRequest,
 )
 from app.schemas.tenant import TenantResponse
 from app.schemas.user import UserResponse
 from app.services.analytics_service import AnalyticsService
 from app.services.tenant_service import TenantService
+from app.services.visit_analytics_service import VisitAnalyticsService
 
 router = APIRouter()
 
@@ -51,6 +53,28 @@ def check_analytics_permission(db: Session, tenant_id: UUID) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Analytics access not enabled for this tenant",
         )
+
+
+@router.post("/visit", status_code=status.HTTP_202_ACCEPTED)
+def track_dashboard_visit(
+    payload: VisitTrackRequest,
+    db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
+):
+    """
+    Record a tenant dashboard visit.
+
+    This endpoint is intentionally available to any authenticated tenant user
+    and does not require analytics capability.
+    """
+    visit_service = VisitAnalyticsService(db)
+    visit_service.record_visit(
+        source=payload.source,
+        tenant_id=current_user.tenant_id,
+        visitor_key=f"user:{current_user.id}",
+        meta={"page_path": payload.page_path} if payload.page_path else None,
+    )
+    return {"status": "recorded"}
 
 
 @router.get("/overview", response_model=AnalyticsOverviewResponse, status_code=status.HTTP_200_OK)

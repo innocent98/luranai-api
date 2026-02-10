@@ -34,6 +34,7 @@ from app.db.models.platform_admin import PlatformAdmin, PlatformAdminRole
 from app.db.models.review import FeedbackCategory, PlatformFeedback, SessionRating
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.subscription_plan import SubscriptionPlan
+from app.db.models.visit_analytics import DailyVisit
 
 # Import all models to ensure they're registered with SQLAlchemy
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
@@ -85,6 +86,8 @@ __all__ = [
     # Subscription models
     "SubscriptionHistory",
     "SubscriptionPlan",
+    # Visit analytics models
+    "DailyVisit",
     # Email notification models
     "EmailNotification",
     # Flow models

@@ -11,6 +11,7 @@ from app.db.models.conversation import ConversationSession, Ticket
 from app.db.models.knowledge import KnowledgeSource
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant
+from app.services.visit_analytics_service import VisitAnalyticsService
 
 
 class PlatformAnalyticsService:
@@ -395,6 +396,7 @@ class PlatformAnalyticsService:
             active_tenants = active_tenants_result.scalar() or 1  # Avoid division by zero
 
             avg_conversations_per_tenant = active_conversations / active_tenants
+            visit_summary = VisitAnalyticsService(self.db).get_platform_daily_summary(days=7)
 
             return {
                 "total_conversations": total_conversations,
@@ -404,6 +406,10 @@ class PlatformAnalyticsService:
                 "total_knowledge_sources": total_knowledge,
                 "avg_conversations_per_tenant": float(avg_conversations_per_tenant),
                 "active_tenants": active_tenants,
+                "daily_unique_visitors_today": visit_summary["today_unique_visitors"],
+                "daily_total_visits_today": visit_summary["today_total_visits"],
+                "daily_unique_visitors_last_7d": visit_summary["last_7d_unique_visitors"],
+                "daily_visitors_trend": visit_summary["daily_trend"],
             }
 
         except Exception as e:
