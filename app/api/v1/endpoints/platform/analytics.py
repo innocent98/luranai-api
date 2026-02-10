@@ -1,23 +1,26 @@
 """Platform analytics API endpoints for admin dashboards."""
 
 from datetime import datetime
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_platform_admin, get_db
-from app.utils.http_rate_limiter import platform_analytics_rate_limit
-from app.services.platform_analytics_service import PlatformAnalyticsService
 from app.schemas.platform_admin import PlatformAdminResponse
+from app.services.platform_analytics_service import PlatformAnalyticsService
+from app.utils.http_rate_limiter import platform_analytics_rate_limit
 
 router = APIRouter()
 
 
-@router.get("/revenue", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
+@router.get(
+    "/revenue",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_analytics_rate_limit)],
+)
 def get_revenue_metrics(
-    start_date: Optional[str] = Query(None, description="Start date (ISO format)"),
-    end_date: Optional[str] = Query(None, description="End date (ISO format)"),
+    start_date: str | None = Query(None, description="Start date (ISO format)"),
+    end_date: str | None = Query(None, description="End date (ISO format)"),
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
 ):
@@ -45,15 +48,19 @@ def get_revenue_metrics(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid date format: {str(e)}",
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch revenue metrics: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/subscriptions", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
+@router.get(
+    "/subscriptions",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_analytics_rate_limit)],
+)
 def get_subscription_metrics(
     days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
     db: Session = Depends(get_db),
@@ -75,10 +82,12 @@ def get_subscription_metrics(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch subscription metrics: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/growth", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
+@router.get(
+    "/growth", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)]
+)
 def get_growth_metrics(
     days: int = Query(30, ge=1, le=365, description="Number of days to analyze"),
     db: Session = Depends(get_db),
@@ -100,10 +109,12 @@ def get_growth_metrics(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch growth metrics: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/usage", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
+@router.get(
+    "/usage", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)]
+)
 def get_usage_metrics(
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
@@ -124,10 +135,14 @@ def get_usage_metrics(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch usage metrics: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/cohorts", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
+@router.get(
+    "/cohorts",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_analytics_rate_limit)],
+)
 def get_cohort_analysis(
     cohort_size: str = Query("month", regex="^(week|month)$", description="Cohort size"),
     months_back: int = Query(6, ge=1, le=24, description="Months to analyze"),
@@ -153,10 +168,14 @@ def get_cohort_analysis(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch cohort analysis: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/dashboard", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
+@router.get(
+    "/dashboard",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_analytics_rate_limit)],
+)
 def get_dashboard_summary(
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
@@ -177,4 +196,4 @@ def get_dashboard_summary(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch dashboard summary: {str(e)}",
-        )
+        ) from e

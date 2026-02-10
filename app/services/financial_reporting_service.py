@@ -1,16 +1,15 @@
 """Financial reporting and forecasting service for platform admins."""
 
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
-from decimal import Decimal
+from typing import Any
 
 from loguru import logger
-from sqlalchemy import select, func, and_, or_, case
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
-from app.db.models.tenant import Tenant
 from app.db.models.payment import PaymentTransaction
 from app.db.models.subscription import SubscriptionHistory
+from app.db.models.tenant import Tenant
 
 
 class FinancialReportingService:
@@ -34,9 +33,9 @@ class FinancialReportingService:
 
     def get_revenue_breakdown(
         self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> Dict[str, Any]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> dict[str, Any]:
         """
         Get detailed revenue breakdown by tier, billing cycle, and time period.
 
@@ -66,11 +65,11 @@ class FinancialReportingService:
             payments = result.scalars().all()
 
             # Calculate total revenue
-            total_revenue = sum(payment.amount for payment in payments)
+            total_revenue = float(sum(payment.amount for payment in payments))
 
             # Revenue by tier (from tenant info at payment time)
-            revenue_by_tier = {}
-            payment_counts_by_tier = {}
+            revenue_by_tier: dict[str, float] = {}
+            payment_counts_by_tier: dict[str, int] = {}
 
             for payment in payments:
                 # Get tenant info
@@ -84,12 +83,12 @@ class FinancialReportingService:
                         revenue_by_tier[tier] = 0
                         payment_counts_by_tier[tier] = 0
 
-                    revenue_by_tier[tier] += payment.amount
+                    revenue_by_tier[tier] += float(payment.amount)
                     payment_counts_by_tier[tier] += 1
 
             # Revenue by billing cycle
-            revenue_by_cycle = {}
-            payment_counts_by_cycle = {}
+            revenue_by_cycle: dict[str, float] = {}
+            payment_counts_by_cycle: dict[str, int] = {}
 
             for payment in payments:
                 tenant_query = select(Tenant).where(Tenant.id == payment.tenant_id)
@@ -102,14 +101,14 @@ class FinancialReportingService:
                         revenue_by_cycle[cycle] = 0
                         payment_counts_by_cycle[cycle] = 0
 
-                    revenue_by_cycle[cycle] += payment.amount
+                    revenue_by_cycle[cycle] += float(payment.amount)
                     payment_counts_by_cycle[cycle] += 1
 
             # Average revenue per payment
-            avg_revenue = total_revenue / len(payments) if payments else 0
+            avg_revenue = (total_revenue / len(payments)) if payments else 0.0
 
             # Daily revenue breakdown
-            daily_revenue = {}
+            daily_revenue: dict[str, float] = {}
             current_date = start_date.date()
             end = end_date.date()
 
@@ -120,7 +119,7 @@ class FinancialReportingService:
             for payment in payments:
                 date_key = payment.created_at.date().isoformat()
                 if date_key in daily_revenue:
-                    daily_revenue[date_key] += payment.amount
+                    daily_revenue[date_key] += float(payment.amount)
 
             return {
                 "period": {
@@ -146,7 +145,7 @@ class FinancialReportingService:
     def get_payment_analytics(
         self,
         days: int = 30,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get payment success/failure analytics.
 
@@ -179,53 +178,60 @@ class FinancialReportingService:
 
             total_attempts = len(payments)
             success_rate = (
-                (status_counts["success"] / total_attempts * 100)
-                if total_attempts > 0
-                else 0
+                (status_counts["success"] / total_attempts * 100) if total_attempts > 0 else 0
             )
 
             # Revenue from successful payments
-            successful_revenue = sum(
+            successful_revenue = float(
+                sum(
                 payment.amount for payment in payments if payment.status == "success"
+                )
             )
 
             # Potential lost revenue from failures
-            failed_revenue = sum(
+            failed_revenue = float(
+                sum(
                 payment.amount for payment in payments if payment.status == "failed"
+                )
             )
 
             # Payment methods breakdown (if tracked)
-            payment_methods = {}
+            payment_methods: dict[str, dict[str, float]] = {}
             for payment in payments:
-                method = getattr(payment, 'payment_method', 'card')  # Default to 'card'
+                method = getattr(payment, "payment_method", "card")  # Default to 'card'
                 if method not in payment_methods:
-                    payment_methods[method] = {"count": 0, "success": 0, "failed": 0}
+                    payment_methods[method] = {"count": 0.0, "success": 0.0, "failed": 0.0}
 
-                payment_methods[method]["count"] += 1
+                payment_methods[method]["count"] += 1.0
                 if payment.status == "success":
-                    payment_methods[method]["success"] += 1
+                    payment_methods[method]["success"] += 1.0
                 elif payment.status == "failed":
-                    payment_methods[method]["failed"] += 1
+                    payment_methods[method]["failed"] += 1.0
 
             # Calculate success rates by method
-            for method, stats in payment_methods.items():
+            for _method, stats in payment_methods.items():
                 if stats["count"] > 0:
-                    stats["success_rate"] = (stats["success"] / stats["count"] * 100)
+                    stats["success_rate"] = stats["success"] / stats["count"] * 100
 
             # Recent failed payments for investigation
-            recent_failures_query = select(PaymentTransaction).where(
-                and_(
-                    PaymentTransaction.status == "failed",
-                    PaymentTransaction.created_at >= start_date,
+            recent_failures_query = (
+                select(PaymentTransaction)
+                .where(
+                    and_(
+                        PaymentTransaction.status == "failed",
+                        PaymentTransaction.created_at >= start_date,
+                    )
                 )
-            ).order_by(PaymentTransaction.created_at.desc()).limit(10)
+                .order_by(PaymentTransaction.created_at.desc())
+                .limit(10)
+            )
 
             failures_result = self.db.execute(recent_failures_query)
             recent_failures = failures_result.scalars().all()
 
             failure_details = [
                 {
-                    "payment_reference": str(payment.payment_reference),
+                    "payment_reference": str(payment.reference),
                     "amount": float(payment.amount),
                     "tenant_id": str(payment.tenant_id),
                     "created_at": payment.created_at.isoformat(),
@@ -260,7 +266,7 @@ class FinancialReportingService:
     def get_subscription_forecast(
         self,
         months: int = 6,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Generate subscription revenue forecast based on current trends.
 
@@ -272,22 +278,26 @@ class FinancialReportingService:
         """
         try:
             # Get current active subscriptions
-            active_query = select(
-                Tenant.subscription_tier,
-                Tenant.billing_cycle,
-                func.count(Tenant.id).label("count")
-            ).where(
-                and_(
-                    Tenant.subscription_status == "active",
-                    Tenant.subscription_tier != "trial",
+            active_query = (
+                select(
+                    Tenant.subscription_tier,
+                    Tenant.billing_cycle,
+                    func.count(Tenant.id).label("count"),
                 )
-            ).group_by(Tenant.subscription_tier, Tenant.billing_cycle)
+                .where(
+                    and_(
+                        Tenant.subscription_status == "active",
+                        Tenant.subscription_tier != "trial",
+                    )
+                )
+                .group_by(Tenant.subscription_tier, Tenant.billing_cycle)
+            )
 
             result = self.db.execute(active_query)
             active_subscriptions = result.all()
 
             # Calculate current MRR
-            current_mrr = 0
+            current_mrr: float = 0.0
             for tier, cycle, count in active_subscriptions:
                 tier_lower = tier.lower()
                 if tier_lower in self.pricing:
@@ -324,29 +334,33 @@ class FinancialReportingService:
 
             # Calculate monthly growth rate
             if old_conversions > 0:
-                monthly_growth_rate = ((recent_conversions - old_conversions) / old_conversions)
+                monthly_growth_rate = (recent_conversions - old_conversions) / old_conversions
             else:
                 monthly_growth_rate = 0.05  # Default 5% growth if no historical data
 
             # Cap growth rate at reasonable limits
-            monthly_growth_rate = max(min(monthly_growth_rate, 0.20), -0.10)  # Between -10% and +20%
+            monthly_growth_rate = max(
+                min(monthly_growth_rate, 0.20), -0.10
+            )  # Between -10% and +20%
 
             # Generate forecast
-            forecast = []
-            projected_mrr = current_mrr
+            forecast: list[dict[str, float | int | str]] = []
+            projected_mrr = float(current_mrr)
 
             for month in range(1, months + 1):
-                projected_mrr *= (1 + monthly_growth_rate)
+                projected_mrr *= 1 + monthly_growth_rate
 
-                forecast.append({
-                    "month": month,
-                    "date": (datetime.utcnow() + timedelta(days=30 * month)).strftime("%Y-%m"),
-                    "projected_mrr": float(projected_mrr),
-                    "projected_arr": float(projected_mrr * 12),
-                })
+                forecast.append(
+                    {
+                        "month": month,
+                        "date": (datetime.utcnow() + timedelta(days=30 * month)).strftime("%Y-%m"),
+                        "projected_mrr": float(projected_mrr),
+                        "projected_arr": float(projected_mrr * 12),
+                    }
+                )
 
             # Calculate total projected revenue
-            total_projected = sum(f["projected_mrr"] for f in forecast)
+            total_projected = sum(float(f["projected_mrr"]) for f in forecast)
 
             return {
                 "current_mrr": float(current_mrr),
@@ -365,9 +379,9 @@ class FinancialReportingService:
 
     def get_refund_report(
         self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> Dict[str, Any]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> dict[str, Any]:
         """
         Get refund tracking and analysis.
 
@@ -401,14 +415,14 @@ class FinancialReportingService:
 
             # Estimate refunded amount (if we had refund amounts in metadata)
             # For now, we'll track count only
-            refunds_by_tier = {}
+            refunds_by_tier: dict[str, int] = {}
             for record in refund_records:
                 tenant_query = select(Tenant).where(Tenant.id == record.tenant_id)
                 tenant_result = self.db.execute(tenant_query)
                 tenant = tenant_result.scalars().first()
 
                 if tenant:
-                    tier = record.old_tier or tenant.subscription_tier
+                    tier = record.previous_tier or tenant.subscription_tier
                     tier_lower = tier.lower() if tier else "unknown"
 
                     if tier_lower not in refunds_by_tier:
@@ -428,7 +442,7 @@ class FinancialReportingService:
             recent_refunds = [
                 {
                     "tenant_id": str(record.tenant_id),
-                    "tier": record.old_tier,
+                "tier": record.previous_tier,
                     "reason": record.reason,
                     "created_at": record.created_at.isoformat(),
                 }
@@ -450,7 +464,7 @@ class FinancialReportingService:
             logger.error(f"Error getting refund report: {e}")
             raise
 
-    def get_financial_summary(self) -> Dict[str, Any]:
+    def get_financial_summary(self) -> dict[str, Any]:
         """
         Get comprehensive financial summary.
 

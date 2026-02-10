@@ -1807,6 +1807,288 @@ X-API-Key: pk_live_abc123def456ghi789
 
 ---
 
+### 6.2 Send Chat Message (Public)
+
+**Used by:** Embedded widget chat interface
+
+**Endpoint:** `POST /chat/message`
+
+**Headers:**
+```
+X-API-Key: pk_live_abc123...
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "session_id": "session-uuid-or-null",
+  "tenant_id": "tenant-uuid",
+  "user_identifier": "user@example.com",
+  "message": "How do I reset my password?"
+}
+```
+
+**Fields:**
+- `session_id` - Optional. Session UUID from previous message. If null, creates new session.
+- `tenant_id` - Required for new sessions. Your tenant UUID.
+- `user_identifier` - Required for new sessions. User's email or unique identifier.
+- `message` - Required. User's message text.
+
+**Response:**
+```json
+{
+  "session_id": "session-uuid",
+  "message": {
+    "id": "msg-uuid",
+    "role": "assistant",
+    "content": "To reset your password, click 'Forgot Password' on the login page...",
+    "meta": {
+      "flow_triggered": false
+    },
+    "created_at": "2026-02-05T10:30:00Z"
+  },
+  "should_escalate": false
+}
+```
+
+**With Flow Buttons (Interactive):**
+```json
+{
+  "session_id": "session-uuid",
+  "message": {
+    "id": "msg-uuid",
+    "role": "assistant",
+    "content": "What type of billing inquiry do you have?",
+    "meta": {
+      "flow_triggered": true,
+      "flow_id": "flow-uuid",
+      "buttons": ["View Invoice", "Payment Failed", "Update Payment", "Other"]
+    },
+    "created_at": "2026-02-05T10:30:00Z"
+  },
+  "should_escalate": false
+}
+```
+
+**Use Cases:**
+1. **Regular Chat:** User types message → AI responds with knowledge-based answer
+2. **Flow Mode:** User triggers flow keyword → AI responds with interactive buttons
+3. **Escalation:** AI determines human help needed → `should_escalate: true`
+
+---
+
+### 6.3 Create Chat Session (Public)
+
+**Used by:** Widget initialization
+
+**Endpoint:** `POST /chat/sessions`
+
+**Headers:**
+```
+X-API-Key: pk_live_abc123...
+Content-Type: application/json
+```
+
+**Request:**
+```json
+{
+  "tenant_id": "tenant-uuid",
+  "user_identifier": "user@example.com",
+  "metadata": {
+    "source": "website",
+    "page_url": "https://example.com/pricing"
+  }
+}
+```
+
+**Response:**
+```json
+{
+  "id": "session-uuid",
+  "tenant_id": "tenant-uuid",
+  "user_identifier": "user@example.com",
+  "status": "active",
+  "meta": {
+    "source": "website",
+    "page_url": "https://example.com/pricing"
+  },
+  "created_at": "2026-02-05T10:25:00Z",
+  "updated_at": "2026-02-05T10:25:00Z"
+}
+```
+
+**Use Case:**
+- Widget creates session when user opens chat for the first time
+- Session ID is stored in localStorage for subsequent messages
+
+---
+
+### 6.4 Widget Chat Implementation Guide
+
+**Recommended Flow:**
+
+#### 1. Initialize Chat Widget
+
+```typescript
+class ChatWidget {
+  async initialize() {
+    // Get or create session
+    let sessionId = localStorage.getItem('luran_session_id');
+
+    if (!sessionId) {
+      // Create new session
+      const session = await this.createSession();
+      sessionId = session.id;
+      localStorage.setItem('luran_session_id', sessionId);
+
+      // Auto-trigger welcome message (shows buttons if tenant has flows)
+      await this.sendWelcomeMessage(sessionId);
+    } else {
+      // Load existing conversation history
+      await this.loadHistory(sessionId);
+    }
+  }
+
+  async sendWelcomeMessage(sessionId: string) {
+    const response = await fetch('/api/v1/chat/message', {
+      method: 'POST',
+      headers: {
+        'X-API-Key': this.apiKey,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        session_id: sessionId,
+        message: 'start'  // Special trigger for welcome flows
+      })
+    });
+
+    const data = await response.json();
+
+    // Display only AI response (hide "start" from user)
+    this.displayMessage(data.message);
+  }
+}
+```
+
+#### 2. Display Messages with Buttons
+
+```typescript
+displayMessage(message: Message) {
+  const messageEl = document.createElement('div');
+  messageEl.className = `message ${message.role}-message`;
+  messageEl.textContent = message.content;
+
+  // Check for flow buttons
+  if (message.meta?.buttons && message.meta.buttons.length > 0) {
+    const buttonsContainer = document.createElement('div');
+    buttonsContainer.className = 'flow-buttons';
+
+    message.meta.buttons.forEach(buttonText => {
+      const button = document.createElement('button');
+      button.className = 'flow-button';
+      button.textContent = buttonText;
+      button.onclick = () => this.handleButtonClick(buttonText);
+      buttonsContainer.appendChild(button);
+    });
+
+    messageEl.appendChild(buttonsContainer);
+  }
+
+  this.chatContainer.appendChild(messageEl);
+}
+```
+
+#### 3. Handle Button Clicks
+
+```typescript
+async handleButtonClick(buttonText: string) {
+  // Send button text as user's response
+  await this.sendMessage(buttonText);
+}
+
+async sendMessage(messageText: string) {
+  const response = await fetch('/api/v1/chat/message', {
+    method: 'POST',
+    headers: {
+      'X-API-Key': this.apiKey,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      session_id: this.sessionId,
+      message: messageText
+    })
+  });
+
+  const data = await response.json();
+
+  // Display user message
+  this.displayMessage({
+    role: 'user',
+    content: messageText,
+    created_at: new Date().toISOString()
+  });
+
+  // Display AI response (may include more buttons)
+  this.displayMessage(data.message);
+
+  // Handle escalation
+  if (data.should_escalate) {
+    this.showEscalationNotice();
+  }
+}
+```
+
+#### 4. CSS for Flow Buttons
+
+```css
+.flow-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.flow-button {
+  background: white;
+  border: 1.5px solid #e0e0e0;
+  border-radius: 20px;
+  padding: 10px 20px;
+  font-size: 14px;
+  color: #333;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.flow-button:hover {
+  background: #f5f5f5;
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+}
+
+.flow-button:active {
+  transform: scale(0.98);
+}
+```
+
+#### 5. Welcome Message Behavior
+
+**With Flows Configured:**
+- User opens chat → Frontend sends "start"
+- Backend matches welcome flow
+- Response includes buttons like: ["Request a demo", "View pricing", "Get support"]
+- User sees interactive options immediately
+
+**Without Flows Configured:**
+- User opens chat → Frontend sends "start"
+- No flow matches
+- Backend returns: "Hi! Welcome to {Company}. I'm here to help! What can I assist you with today?"
+- User sees friendly welcome message
+
+**Important:** The "start" message is never shown to the user - only the AI's response is displayed.
+
+---
+
 ## 7. Knowledge Management
 
 ### What Type of Content to Upload?

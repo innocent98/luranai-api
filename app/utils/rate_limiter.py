@@ -7,7 +7,6 @@ work across multiple processes and survive application restarts.
 
 import asyncio
 import time
-from typing import Optional
 
 import redis.asyncio as aioredis
 from loguru import logger
@@ -28,7 +27,7 @@ class RedisRateLimiter:
         key_prefix: str,
         max_calls: int,
         window_seconds: int = 60,
-        redis_url: Optional[str] = None,
+        redis_url: str | None = None,
     ):
         """
         Initialize rate limiter.
@@ -43,7 +42,7 @@ class RedisRateLimiter:
         self.max_calls = max_calls
         self.window_seconds = window_seconds
         self.redis_url = redis_url or settings.REDIS_URL
-        self._redis: Optional[aioredis.Redis] = None
+        self._redis: aioredis.Redis | None = None
 
     async def _get_redis(self) -> aioredis.Redis:
         """Get or create Redis connection."""

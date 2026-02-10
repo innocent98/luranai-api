@@ -1,38 +1,43 @@
 """Subscription management endpoints."""
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_current_user, get_db
-from app.schemas.user import UserResponse
-from app.schemas.subscription import (
-    SubscriptionUpgradeRequest,
-    SubscriptionUpgradeResponse,
-    MySubscriptionResponse,
-    SubscriptionCancelRequest,
-    SubscriptionCancelResponse,
-    SubscriptionDowngradeRequest,
-    SubscriptionDowngradeResponse,
-)
-from app.schemas.platform_subscription import SubscriptionHistoryResponse
+from app.core.config import settings
 from app.schemas.payment import (
     PaymentInitializeRequest,
     PaymentInitializeResponse,
     PaymentVerificationRequest,
     PaymentVerificationResponse,
 )
-from app.schemas.platform_subscription import PricingPlanResponse
-from app.services.subscription_service import SubscriptionService
+from app.schemas.platform_subscription import PricingPlanResponse, SubscriptionHistoryResponse
+from app.schemas.subscription import (
+    MySubscriptionResponse,
+    SubscriptionCancelRequest,
+    SubscriptionCancelResponse,
+    SubscriptionDowngradeRequest,
+    SubscriptionDowngradeResponse,
+    SubscriptionUpgradeRequest,
+    SubscriptionUpgradeResponse,
+)
+from app.schemas.user import UserResponse
 from app.services.paystack_service import PaystackService
-from app.services.webhook_handler_service import WebhookHandlerService
 from app.services.platform_subscription_service import PlatformSubscriptionService
-from app.core.config import settings
+from app.services.subscription_service import SubscriptionService
+from app.services.webhook_handler_service import WebhookHandlerService
 from app.utils.http_rate_limiter import payment_rate_limit, subscription_rate_limit
 
 router = APIRouter()
 
 
-@router.post("/upgrade/initialize", response_model=PaymentInitializeResponse, dependencies=[Depends(payment_rate_limit)])
+@router.post(
+    "/upgrade/initialize",
+    response_model=PaymentInitializeResponse,
+    dependencies=[Depends(payment_rate_limit)],
+)
 async def initialize_subscription_payment(
     payment_request: PaymentInitializeRequest,
     current_user: UserResponse = Depends(get_current_tenant_admin),
@@ -107,15 +112,19 @@ async def initialize_subscription_payment(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to initialize payment: {str(e)}",
-        )
+        ) from e
 
 
-@router.post("/upgrade/verify", response_model=PaymentVerificationResponse, dependencies=[Depends(payment_rate_limit)])
+@router.post(
+    "/upgrade/verify",
+    response_model=PaymentVerificationResponse,
+    dependencies=[Depends(payment_rate_limit)],
+)
 async def verify_subscription_payment(
     verification_request: PaymentVerificationRequest,
     current_user: UserResponse = Depends(get_current_tenant_admin),
@@ -152,9 +161,7 @@ async def verify_subscription_payment(
         )
 
         # Get transaction record
-        transaction = webhook_handler.get_transaction_by_reference(
-            verification_request.reference
-        )
+        transaction = webhook_handler.get_transaction_by_reference(verification_request.reference)
 
         if not transaction:
             raise HTTPException(
@@ -186,10 +193,14 @@ async def verify_subscription_payment(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to verify payment: {str(e)}",
-        )
+        ) from e
 
 
-@router.post("/upgrade", response_model=SubscriptionUpgradeResponse, dependencies=[Depends(payment_rate_limit)])
+@router.post(
+    "/upgrade",
+    response_model=SubscriptionUpgradeResponse,
+    dependencies=[Depends(payment_rate_limit)],
+)
 async def upgrade_subscription_direct(
     upgrade_data: SubscriptionUpgradeRequest,
     current_user: UserResponse = Depends(get_current_tenant_admin),
@@ -237,10 +248,15 @@ async def upgrade_subscription_direct(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
 
-@router.get("/plans", response_model=list[PricingPlanResponse], status_code=status.HTTP_200_OK, dependencies=[Depends(subscription_rate_limit)])
+@router.get(
+    "/plans",
+    response_model=list[PricingPlanResponse],
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(subscription_rate_limit)],
+)
 async def get_pricing_plans(
     db: Session = Depends(get_db),
 ):
@@ -271,10 +287,14 @@ async def get_pricing_plans(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get pricing plans: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/my-subscription", response_model=MySubscriptionResponse, dependencies=[Depends(subscription_rate_limit)])
+@router.get(
+    "/my-subscription",
+    response_model=MySubscriptionResponse,
+    dependencies=[Depends(subscription_rate_limit)],
+)
 async def get_my_subscription(
     current_user: UserResponse = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -310,15 +330,19 @@ async def get_my_subscription(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get subscription details: {str(e)}",
-        )
+        ) from e
 
 
-@router.post("/cancel", response_model=SubscriptionCancelResponse, dependencies=[Depends(subscription_rate_limit)])
+@router.post(
+    "/cancel",
+    response_model=SubscriptionCancelResponse,
+    dependencies=[Depends(subscription_rate_limit)],
+)
 async def cancel_my_subscription(
     cancel_request: SubscriptionCancelRequest,
     current_user: UserResponse = Depends(get_current_tenant_admin),
@@ -371,15 +395,19 @@ async def cancel_my_subscription(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to cancel subscription: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/history", response_model=list[SubscriptionHistoryResponse], dependencies=[Depends(subscription_rate_limit)])
+@router.get(
+    "/history",
+    response_model=list[SubscriptionHistoryResponse],
+    dependencies=[Depends(subscription_rate_limit)],
+)
 async def get_subscription_history(
     limit: int = 20,
     current_user: UserResponse = Depends(get_current_user),
@@ -429,12 +457,12 @@ async def get_subscription_history(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get subscription history: {str(e)}",
-        )
+        ) from e
 
 
 @router.post(
@@ -488,17 +516,19 @@ async def downgrade_subscription(
         from app.db.models.tenant import Tenant
 
         tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
         if tenant.subscription_tier == "trial":
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="Cannot downgrade from trial. Please upgrade first."
+                detail="Cannot downgrade from trial. Please upgrade first.",
             )
 
         if tenant.subscription_status not in ["active"]:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail=f"Subscription {tenant.subscription_status}. Cannot downgrade inactive subscriptions."
+                detail=f"Subscription {tenant.subscription_status}. Cannot downgrade inactive subscriptions.",
             )
 
         # Perform downgrade
@@ -514,18 +544,15 @@ async def downgrade_subscription(
 
     except ValueError as e:
         # Handle validation errors
-        error_detail = str(e)
+        error_detail: str | dict[str, Any] = str(e)
         if isinstance(e.args[0], dict):
             error_detail = e.args[0]
 
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error_detail
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=error_detail) from e
 
     except Exception as e:
         logger.error(f"Error downgrading subscription: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to downgrade subscription: {str(e)}"
-        )
+            detail=f"Failed to downgrade subscription: {str(e)}",
+        ) from e

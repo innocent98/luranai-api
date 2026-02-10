@@ -1,9 +1,7 @@
 """WebSocket connection manager for real-time chat."""
 
-import json
-from typing import Dict, Set, Optional
-from uuid import UUID
 from datetime import datetime
+from uuid import UUID
 
 from fastapi import WebSocket
 from loguru import logger
@@ -22,15 +20,15 @@ class ConnectionManager:
     - Multiple agent connections (agents monitoring or responding)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # session_id -> WebSocket
-        self.customer_connections: Dict[str, WebSocket] = {}
+        self.customer_connections: dict[str, WebSocket] = {}
 
         # session_id -> Set of WebSockets (multiple agents can watch same session)
-        self.agent_connections: Dict[str, Set[WebSocket]] = {}
+        self.agent_connections: dict[str, set[WebSocket]] = {}
 
         # websocket -> (session_id, user_info) for tracking who's connected
-        self.connection_metadata: Dict[WebSocket, dict] = {}
+        self.connection_metadata: dict[WebSocket, dict] = {}
 
     async def connect_customer(
         self,
@@ -108,7 +106,7 @@ class ConnectionManager:
                 "type": "agent_joined",
                 "agent_name": agent_name,
                 "timestamp": datetime.utcnow().isoformat(),
-            }
+            },
         )
 
     def disconnect(self, websocket: WebSocket) -> None:
@@ -136,7 +134,9 @@ class ConnectionManager:
                 self.agent_connections[session_key].discard(websocket)
                 if not self.agent_connections[session_key]:
                     del self.agent_connections[session_key]
-            logger.info(f"Agent {metadata.get('agent_name')} disconnected from session {session_key}")
+            logger.info(
+                f"Agent {metadata.get('agent_name')} disconnected from session {session_key}"
+            )
 
         del self.connection_metadata[websocket]
 
@@ -175,7 +175,7 @@ class ConnectionManager:
         self,
         session_id: UUID,
         message: dict,
-        exclude_agent_id: Optional[UUID] = None,
+        exclude_agent_id: UUID | None = None,
     ) -> int:
         """
         Send a message to all agents watching a session.
@@ -217,7 +217,7 @@ class ConnectionManager:
         self,
         session_id: UUID,
         message: dict,
-        exclude_websocket: Optional[WebSocket] = None,
+        exclude_websocket: WebSocket | None = None,
     ) -> None:
         """
         Broadcast a message to everyone in a session (customer + all agents).
@@ -298,7 +298,7 @@ class ConnectionManager:
                 self.connection_metadata[ws].get("agent_name")
                 for ws in self.agent_connections.get(session_key, set())
                 if ws in self.connection_metadata
-            ]
+            ],
         }
 
 

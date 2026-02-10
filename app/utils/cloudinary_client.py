@@ -1,7 +1,6 @@
 """Cloudinary client utility for image upload and management."""
 
 import io
-from typing import Optional
 from uuid import UUID
 
 import cloudinary
@@ -15,9 +14,15 @@ from app.core.config import settings
 class CloudinaryManager:
     """Manager for Cloudinary image operations."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize Cloudinary client with credentials."""
-        if not all([settings.CLOUDINARY_CLOUD_NAME, settings.CLOUDINARY_API_KEY, settings.CLOUDINARY_API_SECRET]):
+        if not all(
+            [
+                settings.CLOUDINARY_CLOUD_NAME,
+                settings.CLOUDINARY_API_KEY,
+                settings.CLOUDINARY_API_SECRET,
+            ]
+        ):
             logger.warning("Cloudinary credentials not configured. Image upload will be disabled.")
             self.enabled = False
         else:
@@ -30,7 +35,7 @@ class CloudinaryManager:
             self.enabled = True
             logger.info(f"Cloudinary initialized: {settings.CLOUDINARY_CLOUD_NAME}")
 
-    def validate_image(self, file_content: bytes, max_size_mb: int = 5) -> tuple[bool, Optional[str]]:
+    def validate_image(self, file_content: bytes, max_size_mb: int = 5) -> tuple[bool, str | None]:
         """
         Validate image file.
 
@@ -44,7 +49,10 @@ class CloudinaryManager:
         # Check file size
         file_size_mb = len(file_content) / (1024 * 1024)
         if file_size_mb > max_size_mb:
-            return False, f"File size ({file_size_mb:.2f}MB) exceeds maximum allowed ({max_size_mb}MB)"
+            return (
+                False,
+                f"File size ({file_size_mb:.2f}MB) exceeds maximum allowed ({max_size_mb}MB)",
+            )
 
         # Validate it's a real image
         try:
@@ -54,12 +62,18 @@ class CloudinaryManager:
             # Check format
             allowed_formats = ["JPEG", "PNG", "GIF", "WEBP"]
             if image.format not in allowed_formats:
-                return False, f"Image format '{image.format}' not allowed. Allowed: {', '.join(allowed_formats)}"
+                return (
+                    False,
+                    f"Image format '{image.format}' not allowed. Allowed: {', '.join(allowed_formats)}",
+                )
 
             # Check dimensions (optional - prevent extremely large images)
             max_dimension = 4000
             if image.width > max_dimension or image.height > max_dimension:
-                return False, f"Image dimensions ({image.width}x{image.height}) exceed maximum ({max_dimension}x{max_dimension})"
+                return (
+                    False,
+                    f"Image dimensions ({image.width}x{image.height}) exceed maximum ({max_dimension}x{max_dimension})",
+                )
 
             return True, None
 
@@ -72,7 +86,7 @@ class CloudinaryManager:
         file_content: bytes,
         tenant_id: UUID,
         filename: str,
-    ) -> tuple[Optional[str], Optional[str]]:
+    ) -> tuple[str | None, str | None]:
         """
         Upload widget logo to Cloudinary.
 
@@ -120,7 +134,7 @@ class CloudinaryManager:
             logger.error(f"Cloudinary upload failed: {e}")
             return None, f"Image upload failed: {str(e)}"
 
-    def delete_widget_logo(self, tenant_id: UUID) -> tuple[bool, Optional[str]]:
+    def delete_widget_logo(self, tenant_id: UUID) -> tuple[bool, str | None]:
         """
         Delete widget logo from Cloudinary.
 

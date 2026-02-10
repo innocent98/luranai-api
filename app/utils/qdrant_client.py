@@ -1,19 +1,18 @@
 """Qdrant client utility for vector database operations."""
 
-from typing import Optional, List
 from uuid import UUID
 
+from loguru import logger
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
-    VectorParams,
-    PointStruct,
-    Filter,
     FieldCondition,
+    Filter,
     MatchValue,
+    PointStruct,
     SearchParams,
+    VectorParams,
 )
-from loguru import logger
 
 from app.core.config import settings
 
@@ -21,7 +20,7 @@ from app.core.config import settings
 class QdrantManager:
     """Manager for Qdrant vector database operations."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize Qdrant client."""
         self.client = QdrantClient(
             url=settings.QDRANT_URL,
@@ -67,8 +66,8 @@ class QdrantManager:
         self,
         tenant_id: UUID,
         is_active: bool = True,
-        source_status: Optional[str] = None,
-        visibility_level: Optional[str] = None,
+        source_status: str | None = None,
+        visibility_level: str | None = None,
     ) -> Filter:
         """
         Build comprehensive filter for vector search.
@@ -113,12 +112,12 @@ class QdrantManager:
                 )
             )
 
-        return Filter(must=conditions)
+        return Filter(must=list(conditions))
 
     def upsert_vector(
         self,
         vector_id: str,
-        embedding: List[float],
+        embedding: list[float],
         tenant_id: UUID,
         chunk_id: UUID,
         source_id: UUID,
@@ -150,7 +149,9 @@ class QdrantManager:
                 "is_active": metadata.get("is_active", True),  # Add this
                 "source_status": metadata.get("source_status", "ACTIVE"),  # Add this
                 "visibility_level": metadata.get("visibility_level", "PUBLIC"),  # Add this
-                "content_type": metadata.get("content_type", "unknown"),  # Add this (faq, policy, contact, pricing)
+                "content_type": metadata.get(
+                    "content_type", "unknown"
+                ),  # Add this (faq, policy, contact, pricing)
                 "language": metadata.get("language", "en"),  # Add this
                 **metadata,
             }
@@ -175,14 +176,14 @@ class QdrantManager:
 
     def search(
         self,
-        query_vector: List[float],
+        query_vector: list[float],
         tenant_id: UUID,
         limit: int = 5,
-        score_threshold: Optional[float] = None,
+        score_threshold: float | None = None,
         is_active: bool = True,
-        source_status: Optional[str] = "ACTIVE",
-        visibility_level: Optional[str] = "PUBLIC",
-    ) -> List[dict]:
+        source_status: str | None = "ACTIVE",
+        visibility_level: str | None = "PUBLIC",
+    ) -> list[dict]:
         """
         Search for similar vectors with enhanced metadata filtering.
 
@@ -226,16 +227,17 @@ class QdrantManager:
             # Format results
             results = []
             for hit in search_result:
+                payload = hit.payload or {}
                 results.append(
                     {
                         "id": hit.id,
                         "score": hit.score,
-                        "chunk_id": hit.payload.get("chunk_id"),
-                        "source_id": hit.payload.get("source_id"),
-                        "content": hit.payload.get("content"),
+                        "chunk_id": payload.get("chunk_id"),
+                        "source_id": payload.get("source_id"),
+                        "content": payload.get("content"),
                         "metadata": {
                             k: v
-                            for k, v in hit.payload.items()
+                            for k, v in payload.items()
                             if k not in ["tenant_id", "chunk_id", "source_id", "content"]
                         },
                     }
@@ -317,7 +319,7 @@ class QdrantManager:
             logger.warning(f"Failed to delete vectors for source {source_id}: {e}")
             return False
 
-    def count_vectors(self, tenant_id: Optional[UUID] = None) -> int:
+    def count_vectors(self, tenant_id: UUID | None = None) -> int:
         """
         Count vectors in collection, optionally filtered by tenant.
 
@@ -343,7 +345,7 @@ class QdrantManager:
             else:
                 result = self.client.count(collection_name=self.collection_name)
 
-            return result.count
+            return int(result.count)
 
         except Exception as e:
             logger.error(f"Error counting vectors: {e}")

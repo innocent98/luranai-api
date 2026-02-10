@@ -1,20 +1,16 @@
 """Platform-wide analytics service for admin dashboards."""
 
-import uuid
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
-from decimal import Decimal
+from typing import Any
 
 from loguru import logger
-from sqlalchemy import select, func, and_, or_, case, distinct
+from sqlalchemy import and_, distinct, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models.tenant import Tenant
-from app.db.models.payment import PaymentTransaction
-from app.db.models.subscription import SubscriptionHistory
 from app.db.models.conversation import ConversationSession, Ticket
 from app.db.models.knowledge import KnowledgeSource
-from app.db.models.user import User
+from app.db.models.subscription import SubscriptionHistory
+from app.db.models.tenant import Tenant
 
 
 class PlatformAnalyticsService:
@@ -31,9 +27,9 @@ class PlatformAnalyticsService:
 
     def get_revenue_metrics(
         self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> Dict[str, Any]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> dict[str, Any]:
         """
         Get revenue metrics including MRR, ARR, and growth.
 
@@ -52,16 +48,19 @@ class PlatformAnalyticsService:
 
             # Calculate MRR (Monthly Recurring Revenue)
             # Sum of monthly subscriptions + (annual subscriptions / 12)
-            active_subscriptions_query = select(
-                Tenant.subscription_tier,
-                Tenant.billing_cycle,
-                func.count(Tenant.id).label("count")
-            ).where(
-                and_(
-                    Tenant.subscription_status == "active",
-                    Tenant.subscription_tier != "trial"
+            active_subscriptions_query = (
+                select(
+                    Tenant.subscription_tier,
+                    Tenant.billing_cycle,
+                    func.count(Tenant.id).label("count"),
                 )
-            ).group_by(Tenant.subscription_tier, Tenant.billing_cycle)
+                .where(
+                    and_(
+                        Tenant.subscription_status == "active", Tenant.subscription_tier != "trial"
+                    )
+                )
+                .group_by(Tenant.subscription_tier, Tenant.billing_cycle)
+            )
 
             result = self.db.execute(active_subscriptions_query)
             subscriptions = result.all()
@@ -86,9 +85,6 @@ class PlatformAnalyticsService:
             arr = mrr * 12
 
             # Calculate previous period MRR for growth rate
-            previous_period_start = start_date - timedelta(days=30)
-            previous_period_end = start_date
-
             # Get revenue in previous period (simplified - using current active subscriptions as proxy)
             previous_mrr = mrr * 0.85  # Placeholder - should query historical data
 
@@ -99,7 +95,7 @@ class PlatformAnalyticsService:
                 mrr_growth_rate = 100 if mrr > 0 else 0
 
             # Revenue breakdown by tier
-            revenue_by_tier = {}
+            revenue_by_tier: dict[str, float] = {}
             for tier, cycle, count in subscriptions:
                 tier_lower = tier.lower()
                 if tier_lower in pricing:
@@ -134,7 +130,7 @@ class PlatformAnalyticsService:
     def get_subscription_metrics(
         self,
         days: int = 30,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get subscription health metrics including churn, conversion, and counts.
 
@@ -222,15 +218,16 @@ class PlatformAnalyticsService:
             )
 
             # Subscription tier distribution
-            tier_distribution_query = select(
-                Tenant.subscription_tier,
-                func.count(Tenant.id).label("count")
-            ).where(
-                Tenant.subscription_status == "active"
-            ).group_by(Tenant.subscription_tier)
+            tier_distribution_query = (
+                select(Tenant.subscription_tier, func.count(Tenant.id).label("count"))
+                .where(Tenant.subscription_status == "active")
+                .group_by(Tenant.subscription_tier)
+            )
 
             tier_result = self.db.execute(tier_distribution_query)
-            tier_distribution = {tier: count for tier, count in tier_result.all()}
+            tier_distribution: dict[str, int] = {
+                str(tier): int(count) for tier, count in tier_result.all()
+            }
 
             return {
                 "active_subscriptions": active_count,
@@ -251,7 +248,7 @@ class PlatformAnalyticsService:
     def get_growth_metrics(
         self,
         days: int = 30,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get growth metrics including signups, upgrades, and trends.
 
@@ -315,10 +312,12 @@ class PlatformAnalyticsService:
                 day_result = self.db.execute(day_query)
                 day_count = day_result.scalar() or 0
 
-                daily_signups.append({
-                    "date": day_start.date().isoformat(),
-                    "count": day_count,
-                })
+                daily_signups.append(
+                    {
+                        "date": day_start.date().isoformat(),
+                        "count": day_count,
+                    }
+                )
 
             daily_signups.reverse()  # Oldest to newest
 
@@ -352,7 +351,7 @@ class PlatformAnalyticsService:
             logger.error(f"Error calculating growth metrics: {e}")
             raise
 
-    def get_usage_metrics(self) -> Dict[str, Any]:
+    def get_usage_metrics(self) -> dict[str, Any]:
         """
         Get platform-wide usage metrics.
 
@@ -379,9 +378,7 @@ class PlatformAnalyticsService:
             total_tickets = tickets_result.scalar() or 0
 
             # Active tickets (unresolved)
-            active_tickets_query = select(func.count(Ticket.id)).where(
-                Ticket.status != "resolved"
-            )
+            active_tickets_query = select(func.count(Ticket.id)).where(Ticket.status != "resolved")
             active_tickets_result = self.db.execute(active_tickets_query)
             active_tickets = active_tickets_result.scalar() or 0
 
@@ -417,7 +414,7 @@ class PlatformAnalyticsService:
         self,
         cohort_size: str = "month",
         months_back: int = 6,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get cohort retention analysis.
 
@@ -433,21 +430,23 @@ class PlatformAnalyticsService:
             start_date = end_date - timedelta(days=months_back * 30)
 
             # Get all tenants grouped by signup month
-            cohorts_query = select(
-                func.date_trunc(cohort_size, Tenant.created_at).label("cohort"),
-                Tenant.id,
-                Tenant.subscription_status,
-                Tenant.created_at,
-            ).where(
-                Tenant.created_at >= start_date
-            ).order_by("cohort")
+            cohorts_query = (
+                select(
+                    func.date_trunc(cohort_size, Tenant.created_at).label("cohort"),
+                    Tenant.id,
+                    Tenant.subscription_status,
+                    Tenant.created_at,
+                )
+                .where(Tenant.created_at >= start_date)
+                .order_by("cohort")
+            )
 
             result = self.db.execute(cohorts_query)
             tenant_data = result.all()
 
             # Group by cohort
             cohorts = {}
-            for cohort_date, tenant_id, status, created_at in tenant_data:
+            for cohort_date, _tenant_id, status, _created_at in tenant_data:
                 cohort_key = cohort_date.strftime("%Y-%m" if cohort_size == "month" else "%Y-W%U")
                 if cohort_key not in cohorts:
                     cohorts[cohort_key] = {
@@ -468,14 +467,16 @@ class PlatformAnalyticsService:
                 retention_rate = (data["active"] / data["total"] * 100) if data["total"] > 0 else 0
                 churn_rate = (data["churned"] / data["total"] * 100) if data["total"] > 0 else 0
 
-                cohort_analysis.append({
-                    "cohort": cohort_key,
-                    "total_signups": data["total"],
-                    "active_count": data["active"],
-                    "churned_count": data["churned"],
-                    "retention_rate": float(retention_rate),
-                    "churn_rate": float(churn_rate),
-                })
+                cohort_analysis.append(
+                    {
+                        "cohort": cohort_key,
+                        "total_signups": data["total"],
+                        "active_count": data["active"],
+                        "churned_count": data["churned"],
+                        "retention_rate": float(retention_rate),
+                        "churn_rate": float(churn_rate),
+                    }
+                )
 
             return {
                 "cohorts": cohort_analysis,
@@ -491,7 +492,7 @@ class PlatformAnalyticsService:
             logger.error(f"Error calculating cohort analysis: {e}")
             raise
 
-    def get_dashboard_summary(self) -> Dict[str, Any]:
+    def get_dashboard_summary(self) -> dict[str, Any]:
         """
         Get a comprehensive dashboard summary with all key metrics.
 

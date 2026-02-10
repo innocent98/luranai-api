@@ -2,24 +2,25 @@
 
 import uuid
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Any, cast
 
 from loguru import logger
-from sqlalchemy import select, and_
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.models.email_notification import EmailNotification
+from app.db.models.payment import PaymentTransaction
 from app.db.models.tenant import Tenant
 from app.db.models.user import User, UserRole
-from app.db.models.payment import PaymentTransaction
 from app.services.email_service import email_service
-from app.core.config import settings
 
 
 class EmailNotificationService:
     """Service for managing automated email notifications with duplicate prevention."""
 
-    def __init__(self, db: AsyncSession):
+    def __init__(self, db: AsyncSession | Session):
         """
         Initialize email notification service.
 
@@ -29,11 +30,28 @@ class EmailNotificationService:
         self.db = db
         self.email_service = email_service
 
+    async def _execute(self, query):
+        if isinstance(self.db, AsyncSession):
+            return await self.db.execute(query)
+        return self.db.execute(query)
+
+    async def _commit(self) -> None:
+        if isinstance(self.db, AsyncSession):
+            await self.db.commit()
+        else:
+            self.db.commit()
+
+    async def _refresh(self, instance: Any) -> None:
+        if isinstance(self.db, AsyncSession):
+            await self.db.refresh(instance)
+        else:
+            self.db.refresh(instance)
+
     async def _check_if_already_sent(
         self,
         tenant_id: uuid.UUID,
         notification_type: str,
-        reference_id: Optional[uuid.UUID] = None,
+        reference_id: uuid.UUID | None = None,
         hours: int = 24,
     ) -> bool:
         """
@@ -62,7 +80,7 @@ class EmailNotificationService:
         if reference_id:
             query = query.where(EmailNotification.reference_id == reference_id)
 
-        result = await self.db.execute(query)
+        result = await self._execute(query)
         existing = result.scalars().first()
 
         return existing is not None
@@ -73,11 +91,11 @@ class EmailNotificationService:
         notification_type: str,
         recipient_email: str,
         subject: str,
-        template_data: Dict[str, Any],
-        reference_id: Optional[uuid.UUID] = None,
-        reference_type: Optional[str] = None,
+        template_data: dict[str, Any],
+        reference_id: uuid.UUID | None = None,
+        reference_type: str | None = None,
         status: str = "pending",
-        error_message: Optional[str] = None,
+        error_message: str | None = None,
     ) -> EmailNotification:
         """
         Record an email notification in the database.
@@ -110,12 +128,12 @@ class EmailNotificationService:
         )
 
         self.db.add(notification)
-        await self.db.commit()
-        await self.db.refresh(notification)
+        await self._commit()
+        await self._refresh(notification)
 
         return notification
 
-    async def _get_tenant_admin(self, tenant_id: uuid.UUID) -> Optional[User]:
+    async def _get_tenant_admin(self, tenant_id: uuid.UUID) -> User | None:
         """
         Get the tenant admin user.
 
@@ -129,12 +147,12 @@ class EmailNotificationService:
             and_(
                 User.tenant_id == tenant_id,
                 User.role == UserRole.TENANT_ADMIN,
-                User.is_active == True,
+                User.is_active.is_(True),
             )
         )
 
-        result = await self.db.execute(query)
-        return result.scalars().first()
+        result = await self._execute(query)
+        return cast(User | None, result.scalars().first())
 
     async def send_trial_expiration_reminder(
         self, tenant_id: uuid.UUID, days_remaining: int = 3
@@ -165,7 +183,7 @@ class EmailNotificationService:
 
             # Get tenant and admin
             tenant_query = select(Tenant).where(Tenant.id == tenant_id)
-            tenant_result = await self.db.execute(tenant_query)
+            tenant_result = await self._execute(tenant_query)
             tenant = tenant_result.scalars().first()
 
             if not tenant or not tenant.trial_ends_at:
@@ -265,7 +283,7 @@ class EmailNotificationService:
 
             # Get tenant, admin, and payment
             tenant_query = select(Tenant).where(Tenant.id == tenant_id)
-            tenant_result = await self.db.execute(tenant_query)
+            tenant_result = await self._execute(tenant_query)
             tenant = tenant_result.scalars().first()
 
             if not tenant:
@@ -278,7 +296,7 @@ class EmailNotificationService:
                 return False
 
             payment_query = select(PaymentTransaction).where(PaymentTransaction.id == payment_id)
-            payment_result = await self.db.execute(payment_query)
+            payment_result = await self._execute(payment_query)
             payment = payment_result.scalars().first()
 
             if not payment or payment.status != "success":
@@ -299,18 +317,21 @@ class EmailNotificationService:
                 "plan_name": tenant.subscription_tier.replace("_", " ").title(),
                 "currency": payment.currency,
                 "amount": f"{payment.amount:,.2f}",
-                "billing_cycle": tenant.billing_cycle.title() if tenant.billing_cycle else "Monthly",
+                "billing_cycle": (
+                    tenant.billing_cycle.title() if tenant.billing_cycle else "Monthly"
+                ),
                 "next_billing_date": next_billing_date.strftime("%B %d, %Y"),
-                "payment_reference": str(payment.payment_reference),
+                "payment_reference": str(payment.reference),
                 "features": {
-                    "conversations": "2,000" if tenant.subscription_tier == "professional" else "500",
+                    "conversations": (
+                        "2,000" if tenant.subscription_tier == "professional" else "500"
+                    ),
                     "team_members": "10" if tenant.subscription_tier == "professional" else "2",
-                    "knowledge_sources": "Unlimited"
-                    if tenant.subscription_tier == "professional"
-                    else "5",
+                    "knowledge_sources": (
+                        "Unlimited" if tenant.subscription_tier == "professional" else "5"
+                    ),
                     "custom_branding": tenant.subscription_tier == "professional",
-                    "priority_support": tenant.subscription_tier
-                    in ["professional", "enterprise"],
+                    "priority_support": tenant.subscription_tier in ["professional", "enterprise"],
                     "advanced_analytics": tenant.subscription_tier
                     in ["professional", "enterprise"],
                     "api_access": tenant.subscription_tier == "enterprise",
@@ -324,9 +345,7 @@ class EmailNotificationService:
 
             # Try to send email
             try:
-                template = self.email_service.jinja_env.get_template(
-                    "subscription_confirmed.html"
-                )
+                template = self.email_service.jinja_env.get_template("subscription_confirmed.html")
                 html_content = template.render(**template_data)
 
                 success = self.email_service._send_email(
@@ -371,7 +390,7 @@ class EmailNotificationService:
         tenant_id: uuid.UUID,
         payment_id: uuid.UUID,
         grace_days: int = 7,
-        failure_reason: Optional[str] = None,
+        failure_reason: str | None = None,
     ) -> bool:
         """
         Send payment failure notification email.
@@ -397,7 +416,7 @@ class EmailNotificationService:
 
             # Get tenant, admin, and payment
             tenant_query = select(Tenant).where(Tenant.id == tenant_id)
-            tenant_result = await self.db.execute(tenant_query)
+            tenant_result = await self._execute(tenant_query)
             tenant = tenant_result.scalars().first()
 
             if not tenant:
@@ -410,7 +429,7 @@ class EmailNotificationService:
                 return False
 
             payment_query = select(PaymentTransaction).where(PaymentTransaction.id == payment_id)
-            payment_result = await self.db.execute(payment_query)
+            payment_result = await self._execute(payment_query)
             payment = payment_result.scalars().first()
 
             if not payment:

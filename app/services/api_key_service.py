@@ -2,21 +2,15 @@
 
 import secrets
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
-from sqlalchemy.orm import Session
-from sqlalchemy import select
 from loguru import logger
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.security import get_password_hash, verify_password
 from app.db.models.api_key import APIKey, APIKeyType
-from app.schemas.api_key import (
-    APIKeyCreate,
-    APIKeyCreateResponse,
-    APIKeyListResponse,
-    APIKeyUpdate,
-)
+from app.schemas.api_key import APIKeyCreate, APIKeyCreateResponse, APIKeyListResponse, APIKeyUpdate
 
 
 class APIKeyService:
@@ -53,9 +47,7 @@ class APIKeyService:
 
         return full_key, key_prefix, key_hash
 
-    def create_api_key(
-        self, tenant_id: UUID, key_data: APIKeyCreate
-    ) -> APIKeyCreateResponse:
+    def create_api_key(self, tenant_id: UUID, key_data: APIKeyCreate) -> APIKeyCreateResponse:
         """
         Create a new API key for a tenant.
 
@@ -110,7 +102,7 @@ class APIKeyService:
             logger.error(f"Failed to create API key: {e}")
             raise
 
-    def verify_api_key(self, api_key: str) -> Optional[APIKey]:
+    def verify_api_key(self, api_key: str) -> APIKey | None:
         """
         Verify an API key and return the associated key record.
 
@@ -129,9 +121,7 @@ class APIKeyService:
             return None
 
         # Get all active keys of this type
-        stmt = select(APIKey).where(
-            APIKey.key_type == key_type, APIKey.is_active == True
-        )
+        stmt = select(APIKey).where(APIKey.key_type == key_type, APIKey.is_active.is_(True))
         keys = self.db.execute(stmt).scalars().all()
 
         # Verify key against each stored hash
@@ -165,7 +155,7 @@ class APIKeyService:
 
         return [APIKeyListResponse.model_validate(key) for key in keys]
 
-    def get_api_key(self, key_id: UUID, tenant_id: UUID) -> Optional[APIKey]:
+    def get_api_key(self, key_id: UUID, tenant_id: UUID) -> APIKey | None:
         """
         Get API key by ID for a tenant.
 
@@ -181,7 +171,7 @@ class APIKeyService:
 
     def update_api_key(
         self, key_id: UUID, tenant_id: UUID, update_data: APIKeyUpdate
-    ) -> Optional[APIKey]:
+    ) -> APIKey | None:
         """
         Update an API key.
 

@@ -1,15 +1,14 @@
 """Service for managing background processing jobs."""
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
-from sqlalchemy.orm import Session
-from sqlalchemy import select, and_, or_
 from loguru import logger
+from sqlalchemy import and_, or_, select
+from sqlalchemy.orm import Session
 
-from app.db.models.job import ProcessingJob, JobStatus, JobType
-from app.schemas.job import JobCreate, JobUpdate, JobResponse
+from app.db.models.job import JobStatus, JobType, ProcessingJob
+from app.schemas.job import JobCreate, JobResponse, JobUpdate
 
 
 class JobService:
@@ -48,7 +47,7 @@ class JobService:
 
         return JobResponse.model_validate(db_job)
 
-    def get_job(self, job_id: UUID) -> Optional[JobResponse]:
+    def get_job(self, job_id: UUID) -> JobResponse | None:
         """
         Get job by ID.
 
@@ -93,9 +92,9 @@ class JobService:
 
         # Set timestamps based on status changes
         if job_data.status == JobStatus.PROCESSING and not job.started_at:
-            job.started_at = datetime.utcnow()
+            setattr(job, "started_at", datetime.utcnow())
         elif job_data.status in [JobStatus.COMPLETED, JobStatus.FAILED] and not job.completed_at:
-            job.completed_at = datetime.utcnow()
+            setattr(job, "completed_at", datetime.utcnow())
 
         self.db.commit()
         self.db.refresh(job)
@@ -104,9 +103,9 @@ class JobService:
 
     def list_jobs(
         self,
-        tenant_id: Optional[UUID] = None,
-        status: Optional[JobStatus] = None,
-        job_type: Optional[JobType] = None,
+        tenant_id: UUID | None = None,
+        status: JobStatus | None = None,
+        job_type: JobType | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[JobResponse]:
@@ -149,9 +148,9 @@ class JobService:
 
     def count_jobs(
         self,
-        tenant_id: Optional[UUID] = None,
-        status: Optional[JobStatus] = None,
-        job_type: Optional[JobType] = None,
+        tenant_id: UUID | None = None,
+        status: JobStatus | None = None,
+        job_type: JobType | None = None,
     ) -> int:
         """
         Count jobs matching filters.
@@ -207,7 +206,7 @@ class JobService:
             raise ValueError(f"Cannot cancel job in {job.status.value} state")
 
         job.status = JobStatus.CANCELLED
-        job.completed_at = datetime.utcnow()
+        setattr(job, "completed_at", datetime.utcnow())
 
         self.db.commit()
         self.db.refresh(job)

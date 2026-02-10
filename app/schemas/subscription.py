@@ -1,9 +1,9 @@
 """Subscription Pydantic schemas."""
 
-from pydantic import BaseModel, Field
-from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
+
+from pydantic import BaseModel, Field
 
 
 class SubscriptionUpgradeRequest(BaseModel):
@@ -13,12 +13,7 @@ class SubscriptionUpgradeRequest(BaseModel):
     billing_cycle: str = Field(default="monthly", description="Billing cycle: monthly, annual")
 
     class Config:
-        json_schema_extra = {
-            "example": {
-                "tier": "professional",
-                "billing_cycle": "annual"
-            }
-        }
+        json_schema_extra = {"example": {"tier": "professional", "billing_cycle": "annual"}}
 
 
 class SubscriptionUpgradeResponse(BaseModel):
@@ -27,7 +22,7 @@ class SubscriptionUpgradeResponse(BaseModel):
     message: str
     tier: str
     status: str
-    billing_cycle: Optional[str] = None
+    billing_cycle: str | None = None
 
 
 class MySubscriptionResponse(BaseModel):
@@ -35,17 +30,29 @@ class MySubscriptionResponse(BaseModel):
 
     tenant_id: UUID
     tenant_name: str
-    subscription_tier: str = Field(..., description="Current tier: trial, lite, professional, growth, enterprise")
-    subscription_status: str = Field(..., description="Status: trial, active, canceled, past_due, trial_expired")
-    billing_cycle: Optional[str] = Field(None, description="Billing cycle: monthly, annual")
-    trial_ends_at: Optional[datetime] = Field(None, description="Trial end date (null if not on trial)")
-    subscription_starts_at: Optional[datetime] = Field(None, description="Subscription start date (null if on trial)")
-    subscription_ends_at: Optional[datetime] = Field(None, description="Subscription end date (null if active)")
-    next_billing_date: Optional[datetime] = Field(None, description="Next billing date (null if canceled or trial)")
+    subscription_tier: str = Field(
+        ..., description="Current tier: trial, lite, professional, growth, enterprise"
+    )
+    subscription_status: str = Field(
+        ..., description="Status: trial, active, canceled, past_due, trial_expired"
+    )
+    billing_cycle: str | None = Field(None, description="Billing cycle: monthly, annual")
+    trial_ends_at: datetime | None = Field(
+        None, description="Trial end date (null if not on trial)"
+    )
+    subscription_starts_at: datetime | None = Field(
+        None, description="Subscription start date (null if on trial)"
+    )
+    subscription_ends_at: datetime | None = Field(
+        None, description="Subscription end date (null if active)"
+    )
+    next_billing_date: datetime | None = Field(
+        None, description="Next billing date (null if canceled or trial)"
+    )
     can_upgrade: bool = Field(..., description="Whether user can upgrade (trial or lower tier)")
     can_cancel: bool = Field(..., description="Whether user can cancel (active paid subscription)")
     is_trial: bool = Field(..., description="Whether currently on trial")
-    days_until_expiry: Optional[int] = Field(None, description="Days until trial/subscription expires")
+    days_until_expiry: int | None = Field(None, description="Days until trial/subscription expires")
 
     class Config:
         json_schema_extra = {
@@ -62,7 +69,7 @@ class MySubscriptionResponse(BaseModel):
                 "can_upgrade": True,
                 "can_cancel": True,
                 "is_trial": False,
-                "days_until_expiry": None
+                "days_until_expiry": None,
             }
         }
 
@@ -70,18 +77,15 @@ class MySubscriptionResponse(BaseModel):
 class SubscriptionCancelRequest(BaseModel):
     """Schema for subscription cancellation request."""
 
-    reason: Optional[str] = Field(None, description="Reason for cancellation (optional, for feedback)")
+    reason: str | None = Field(None, description="Reason for cancellation (optional, for feedback)")
     immediate: bool = Field(
         default=False,
-        description="If True, cancel immediately. If False, cancel at end of billing period."
+        description="If True, cancel immediately. If False, cancel at end of billing period.",
     )
 
     class Config:
         json_schema_extra = {
-            "example": {
-                "reason": "Found a better alternative",
-                "immediate": False
-            }
+            "example": {"reason": "Found a better alternative", "immediate": False}
         }
 
 
@@ -90,11 +94,10 @@ class SubscriptionCancelResponse(BaseModel):
 
     message: str
     status: str = Field(..., description="New subscription status")
-    ends_at: Optional[datetime] = Field(None, description="When subscription will end")
+    ends_at: datetime | None = Field(None, description="When subscription will end")
     refund_eligible: bool = Field(..., description="Whether refund may be available")
-    can_reactivate_until: Optional[datetime] = Field(
-        None,
-        description="Deadline to reactivate before data deletion"
+    can_reactivate_until: datetime | None = Field(
+        None, description="Deadline to reactivate before data deletion"
     )
 
 
@@ -102,13 +105,13 @@ class SubscriptionDowngradeRequest(BaseModel):
     """Request to downgrade subscription."""
 
     tier: str = Field(..., description="Target tier (lite, professional, growth)")
-    reason: Optional[str] = Field(None, description="Reason for downgrade", max_length=500)
+    reason: str | None = Field(None, description="Reason for downgrade", max_length=500)
 
     class Config:
         json_schema_extra = {
             "example": {
                 "tier": "lite",
-                "reason": "Reducing costs, don't need professional features"
+                "reason": "Reducing costs, don't need professional features",
             }
         }
 
@@ -129,7 +132,7 @@ class ValidationViolation(BaseModel):
                 "current_value": 15,
                 "allowed_value": 10,
                 "difference": 5,
-                "action_required": "Delete 5 knowledge sources before downgrading"
+                "action_required": "Delete 5 knowledge sources before downgrading",
             }
         }
 
@@ -141,9 +144,9 @@ class SubscriptionDowngradeResponse(BaseModel):
     message: str
     previous_tier: str
     new_tier: str
-    next_billing_date: Optional[datetime]
+    next_billing_date: datetime | None
     next_billing_amount_kobo: int
-    warnings: List[str] = []
+    warnings: list[str] = []
 
     class Config:
         json_schema_extra = {
@@ -154,6 +157,6 @@ class SubscriptionDowngradeResponse(BaseModel):
                 "new_tier": "lite",
                 "next_billing_date": "2026-02-15T00:00:00Z",
                 "next_billing_amount_kobo": 1200000,
-                "warnings": ["Your monthly conversation limit will decrease to 1,000"]
+                "warnings": ["Your monthly conversation limit will decrease to 1,000"],
             }
         }

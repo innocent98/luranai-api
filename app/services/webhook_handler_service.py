@@ -1,7 +1,6 @@
 """Paystack webhook event handler service."""
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -9,8 +8,8 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.db.models.payment import PaymentTransaction
-from app.db.models.tenant import Tenant
 from app.db.models.subscription import SubscriptionHistory
+from app.db.models.tenant import Tenant
 from app.services.subscription_service import SubscriptionService
 
 
@@ -60,7 +59,7 @@ class WebhookHandlerService:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to process webhook: {str(e)}",
-            )
+            ) from e
 
     def _handle_charge_success(self, data: dict) -> dict:
         """
@@ -81,9 +80,11 @@ class WebhookHandlerService:
         logger.info(f"Handling successful charge: {reference}")
 
         # Find transaction record
-        transaction = self.db.query(PaymentTransaction).filter(
-            PaymentTransaction.reference == reference
-        ).first()
+        transaction = (
+            self.db.query(PaymentTransaction)
+            .filter(PaymentTransaction.reference == reference)
+            .first()
+        )
 
         if not transaction:
             logger.warning(f"Transaction not found: {reference}")
@@ -91,7 +92,7 @@ class WebhookHandlerService:
 
         # Update transaction record
         transaction.status = "success"
-        transaction.paid_at = datetime.now(timezone.utc)
+        transaction.paid_at = datetime.now(UTC)
         transaction.customer_email = data.get("customer", {}).get("email")
         transaction.customer_code = data.get("customer", {}).get("customer_code")
         transaction.channel = data.get("channel")
@@ -205,7 +206,9 @@ class WebhookHandlerService:
 
         self.db.commit()
 
-        logger.info(f"Updated transaction {transaction.id} with subscription code {subscription_code}")
+        logger.info(
+            f"Updated transaction {transaction.id} with subscription code {subscription_code}"
+        )
 
         return {
             "status": "success",
@@ -235,9 +238,11 @@ class WebhookHandlerService:
         logger.info(f"Handling subscription cancellation: {subscription_code}")
 
         # Find transaction with this subscription code
-        transaction = self.db.query(PaymentTransaction).filter(
-            PaymentTransaction.subscription_code == subscription_code
-        ).first()
+        transaction = (
+            self.db.query(PaymentTransaction)
+            .filter(PaymentTransaction.subscription_code == subscription_code)
+            .first()
+        )
 
         if not transaction:
             logger.warning(f"No transaction found for subscription: {subscription_code}")
@@ -247,7 +252,7 @@ class WebhookHandlerService:
         tenant = self.db.query(Tenant).filter(Tenant.id == transaction.tenant_id).first()
         if tenant:
             tenant.subscription_status = "canceled"
-            tenant.subscription_ends_at = datetime.now(timezone.utc)
+            tenant.subscription_ends_at = datetime.now(UTC)
             self.db.commit()
 
             logger.info(f"Cancelled subscription for tenant {tenant.id}")
@@ -280,9 +285,11 @@ class WebhookHandlerService:
         logger.info(f"Handling subscription non-renewal: {subscription_code}")
 
         # Find transaction with this subscription code
-        transaction = self.db.query(PaymentTransaction).filter(
-            PaymentTransaction.subscription_code == subscription_code
-        ).first()
+        transaction = (
+            self.db.query(PaymentTransaction)
+            .filter(PaymentTransaction.subscription_code == subscription_code)
+            .first()
+        )
 
         if not transaction:
             logger.warning(f"No transaction found for subscription: {subscription_code}")
@@ -326,21 +333,26 @@ class WebhookHandlerService:
             logger.warning("No subscription_code in invoice.create event")
             return {"status": "skipped", "message": "No subscription code"}
 
-        logger.info(f"Handling invoice creation: {invoice_code} for subscription: {subscription_code}")
+        logger.info(
+            f"Handling invoice creation: {invoice_code} for subscription: {subscription_code}"
+        )
 
         # Find transaction with this subscription code
-        transaction = self.db.query(PaymentTransaction).filter(
-            PaymentTransaction.subscription_code == subscription_code
-        ).first()
+        transaction = (
+            self.db.query(PaymentTransaction)
+            .filter(PaymentTransaction.subscription_code == subscription_code)
+            .first()
+        )
 
         if not transaction:
             logger.warning(f"No transaction found for subscription: {subscription_code}")
             return {"status": "skipped", "message": "Transaction not found"}
 
         # Log the renewal invoice - actual payment will be handled by charge.success or invoice.payment_failed
+        amount_value = amount or 0
         logger.info(
             f"Renewal invoice created for tenant {transaction.tenant_id}: "
-            f"₦{amount/100:.2f} ({transaction.tier} {transaction.billing_cycle})"
+            f"₦{amount_value/100:.2f} ({transaction.tier} {transaction.billing_cycle})"
         )
 
         return {
@@ -371,9 +383,11 @@ class WebhookHandlerService:
         logger.info(f"Handling failed payment for subscription: {subscription_code}")
 
         # Find transaction with this subscription code
-        transaction = self.db.query(PaymentTransaction).filter(
-            PaymentTransaction.subscription_code == subscription_code
-        ).first()
+        transaction = (
+            self.db.query(PaymentTransaction)
+            .filter(PaymentTransaction.subscription_code == subscription_code)
+            .first()
+        )
 
         if not transaction:
             logger.warning(f"No transaction found for subscription: {subscription_code}")
@@ -397,7 +411,7 @@ class WebhookHandlerService:
 
         return {"status": "skipped", "message": "Tenant not found"}
 
-    def get_transaction_by_reference(self, reference: str) -> Optional[PaymentTransaction]:
+    def get_transaction_by_reference(self, reference: str) -> PaymentTransaction | None:
         """
         Get payment transaction by reference.
 
@@ -407,9 +421,11 @@ class WebhookHandlerService:
         Returns:
             PaymentTransaction or None
         """
-        return self.db.query(PaymentTransaction).filter(
-            PaymentTransaction.reference == reference
-        ).first()
+        return (
+            self.db.query(PaymentTransaction)
+            .filter(PaymentTransaction.reference == reference)
+            .first()
+        )
 
     def create_transaction(
         self,
@@ -418,7 +434,7 @@ class WebhookHandlerService:
         amount: int,
         tier: str,
         billing_cycle: str,
-        customer_email: Optional[str] = None,
+        customer_email: str | None = None,
     ) -> PaymentTransaction:
         """
         Create a new payment transaction record.

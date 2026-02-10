@@ -4,14 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.services.auth_service import AuthService
 from app.schemas.user import (
+    CurrentUserResponse,
     LoginRequest,
     Token,
-    UserResponse,
     UserPasswordUpdate,
-    CurrentUserResponse,
+    UserResponse,
 )
+from app.services.auth_service import AuthService
 from app.utils.http_rate_limiter import auth_rate_limit
 
 router = APIRouter()
@@ -21,7 +21,7 @@ router = APIRouter()
     "/login",
     response_model=Token,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(auth_rate_limit)]
+    dependencies=[Depends(auth_rate_limit)],
 )
 def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     """
@@ -47,7 +47,7 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from e
 
 
 @router.get("/me", response_model=CurrentUserResponse, status_code=status.HTTP_200_OK)
@@ -95,4 +95,4 @@ def update_password(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e

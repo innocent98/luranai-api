@@ -1,34 +1,35 @@
-from typing import Generator, Optional, Literal
+from datetime import UTC, datetime, timedelta
+from typing import Literal
 from uuid import UUID
-from datetime import datetime, timedelta
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
-from sqlalchemy.orm import Session
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.db.session import get_db
-from app.services.auth_service import AuthService
-from app.services.platform_admin_auth_service import PlatformAdminAuthService
-from app.schemas.user import TokenData, UserResponse
-from app.schemas.platform_admin import PlatformAdminResponse
-from app.db.models.user import UserRole
 from app.db.models.platform_admin import PlatformAdminRole
 from app.db.models.tenant import Tenant
+from app.db.models.user import UserRole
+from app.db.session import get_db
+from app.schemas.platform_admin import PlatformAdminResponse
+from app.schemas.user import UserResponse
+from app.services.auth_service import AuthService
+from app.services.platform_admin_auth_service import PlatformAdminAuthService
 
 security = HTTPBearer()
 
 
 class AuthContext(BaseModel):
     """Context wrapper for dual authentication."""
+
     auth_type: Literal["tenant_user", "platform_admin"]
-    user: Optional[UserResponse] = None
-    admin: Optional[PlatformAdminResponse] = None
+    user: UserResponse | None = None
+    admin: PlatformAdminResponse | None = None
 
     @property
-    def tenant_id(self) -> Optional[UUID]:
+    def tenant_id(self) -> UUID | None:
         """Get tenant_id if this is a tenant user."""
         return self.user.tenant_id if self.user else None
 
@@ -70,8 +71,8 @@ async def get_current_user(
 
         return user
 
-    except JWTError:
-        raise credentials_exception
+    except JWTError as err:
+        raise credentials_exception from err
 
 
 async def get_current_active_user(
@@ -113,15 +114,12 @@ async def verify_subscription_active(
     tenant = tenant_service.get_tenant(current_user.tenant_id)
 
     if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tenant not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
     # Check trial expiration
     if tenant.subscription_status == "trialing":
-        from datetime import timezone as tz
-        now = datetime.now(tz.utc)
+
+        now = datetime.now(UTC)
         if tenant.trial_ends_at and now > tenant.trial_ends_at:
             # Auto-update status
             tenant.subscription_status = "trial_expired"
@@ -135,13 +133,13 @@ async def verify_subscription_active(
                     "trial_ended": tenant.trial_ends_at.isoformat(),
                     "upgrade_url": "/dashboard/upgrade",
                     "subscription_tier": tenant.subscription_tier,
-                }
+                },
             )
 
     # Check active subscription expiration (for end-of-period cancellations)
     if tenant.subscription_status == "active":
-        from datetime import timezone as tz
-        now = datetime.now(tz.utc)
+
+        now = datetime.now(UTC)
 
         # If subscription has an end date and it has passed, auto-expire
         if tenant.subscription_ends_at and now > tenant.subscription_ends_at:
@@ -156,7 +154,7 @@ async def verify_subscription_active(
                     "subscription_ended": tenant.subscription_ends_at.isoformat(),
                     "upgrade_url": "/dashboard/billing",
                     "subscription_tier": tenant.subscription_tier,
-                }
+                },
             )
 
     # Check subscription status
@@ -168,7 +166,7 @@ async def verify_subscription_active(
                 "message": f"Subscription {tenant.subscription_status}. Please update payment.",
                 "status": tenant.subscription_status,
                 "upgrade_url": "/dashboard/billing",
-            }
+            },
         )
 
     return tenant
@@ -184,8 +182,8 @@ async def verify_conversation_limit(
     Raises:
         HTTPException 402: Monthly limit reached
     """
-    from app.services.tenant_service import TenantService
     from app.db.models.conversation import ConversationSession
+    from app.services.tenant_service import TenantService
 
     tenant_service = TenantService(db)
     capabilities = tenant_service.get_capabilities(current_user.tenant_id)
@@ -198,15 +196,19 @@ async def verify_conversation_limit(
         return
 
     # Get start of current month
-    from datetime import timezone as tz
-    now = datetime.now(tz.utc)
+
+    now = datetime.now(UTC)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     # Count conversations this month
-    monthly_count = db.query(ConversationSession).filter(
-        ConversationSession.tenant_id == current_user.tenant_id,
-        ConversationSession.created_at >= month_start,
-    ).count()
+    monthly_count = (
+        db.query(ConversationSession)
+        .filter(
+            ConversationSession.tenant_id == current_user.tenant_id,
+            ConversationSession.created_at >= month_start,
+        )
+        .count()
+    )
 
     # Check limit
     if monthly_count >= capabilities.max_conversations_per_month:
@@ -218,7 +220,7 @@ async def verify_conversation_limit(
                 "current_count": monthly_count,
                 "limit": capabilities.max_conversations_per_month,
                 "resets_at": (month_start + timedelta(days=32)).replace(day=1).isoformat(),
-            }
+            },
         )
 
 
@@ -250,7 +252,7 @@ async def get_current_user_or_platform_admin(
             auth_service = AuthService(db)
             token_data = auth_service.verify_token_data(payload)
 
-            if token_data and hasattr(token_data, 'user_id'):
+            if token_data and hasattr(token_data, "user_id"):
                 user = auth_service.get_user_by_id(token_data.user_id)
                 if user and user.is_active:
                     return AuthContext(
@@ -263,10 +265,10 @@ async def get_current_user_or_platform_admin(
 
         # Fall back to platform admin auth
         admin_service = PlatformAdminAuthService(db)
-        token_data = admin_service.verify_token_data(payload)
+        admin_token_data = admin_service.verify_token_data(payload)
 
-        if token_data and hasattr(token_data, 'admin_id'):
-            admin = admin_service.get_admin_by_id(token_data.admin_id)
+        if admin_token_data and hasattr(admin_token_data, "admin_id"):
+            admin = admin_service.get_admin_by_id(admin_token_data.admin_id)
             if admin and admin.is_active:
                 return AuthContext(
                     auth_type="platform_admin",
@@ -276,8 +278,8 @@ async def get_current_user_or_platform_admin(
 
         raise credentials_exception
 
-    except JWTError:
-        raise credentials_exception
+    except JWTError as err:
+        raise credentials_exception from err
 
 
 def verify_tenant_access(tenant_id: UUID, current_user: UserResponse) -> bool:
@@ -345,8 +347,8 @@ async def get_current_platform_admin(
 
         return admin
 
-    except JWTError:
-        raise credentials_exception
+    except JWTError as err:
+        raise credentials_exception from err
 
 
 async def get_current_super_admin(

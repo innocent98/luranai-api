@@ -1,24 +1,28 @@
 """Platform review and feedback management API endpoints."""
 
-from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_platform_admin, get_db
-from app.utils.http_rate_limiter import platform_admin_rate_limit
-from app.services.review_service import ReviewService
 from app.schemas.platform_admin import PlatformAdminResponse
+from app.db.models.review import FeedbackCategory
+from app.services.review_service import ReviewService
+from app.utils.http_rate_limiter import platform_admin_rate_limit
 
 router = APIRouter()
 
 
-@router.get("/ratings/all", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
+@router.get(
+    "/ratings/all",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
 def get_all_session_ratings(
-    tenant_id: Optional[str] = Query(None, description="Tenant ID filter"),
-    min_score: Optional[int] = Query(None, ge=1, le=5, description="Minimum score"),
-    max_score: Optional[int] = Query(None, ge=1, le=5, description="Maximum score"),
+    tenant_id: str | None = Query(None, description="Tenant ID filter"),
+    min_score: int | None = Query(None, ge=1, le=5, description="Minimum score"),
+    max_score: int | None = Query(None, ge=1, le=5, description="Maximum score"),
     days: int = Query(30, ge=1, le=365, description="Days to analyze"),
     limit: int = Query(100, ge=1, le=1000, description="Max results"),
     offset: int = Query(0, ge=0, description="Results offset"),
@@ -52,17 +56,21 @@ def get_all_session_ratings(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid parameter: {str(e)}",
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch session ratings: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/sentiment-analysis", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
+@router.get(
+    "/sentiment-analysis",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
 def get_sentiment_analysis(
-    tenant_id: Optional[str] = Query(None, description="Tenant ID filter"),
+    tenant_id: str | None = Query(None, description="Tenant ID filter"),
     days: int = Query(30, ge=1, le=365, description="Days to analyze"),
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
@@ -90,15 +98,19 @@ def get_sentiment_analysis(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid parameter: {str(e)}",
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to analyze sentiment: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/tenant-health-scores", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
+@router.get(
+    "/tenant-health-scores",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
 def get_tenant_health_scores(
     days: int = Query(30, ge=1, le=365, description="Days to analyze"),
     limit: int = Query(50, ge=1, le=200, description="Max tenants to return"),
@@ -125,14 +137,18 @@ def get_tenant_health_scores(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to calculate tenant health scores: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/feedback/platform", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
+@router.get(
+    "/feedback/platform",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
 def get_platform_feedback_all(
-    tenant_id: Optional[str] = Query(None, description="Tenant ID filter"),
-    category: Optional[str] = Query(None, description="Feedback category filter"),
-    status: Optional[str] = Query(None, description="Status filter"),
+    tenant_id: str | None = Query(None, description="Tenant ID filter"),
+    category: str | None = Query(None, description="Feedback category filter"),
+    status_filter: str | None = Query(None, alias="status", description="Status filter"),
     days: int = Query(30, ge=1, le=365, description="Days to analyze"),
     limit: int = Query(100, ge=1, le=1000, description="Max results"),
     offset: int = Query(0, ge=0, description="Results offset"),
@@ -152,6 +168,7 @@ def get_platform_feedback_all(
 
         # Parse tenant_id if provided
         parsed_tenant_id = UUID(tenant_id) if tenant_id else None
+        category_enum = FeedbackCategory(category) if category else None
 
         # Calculate date range
         end_date = datetime.utcnow()
@@ -161,8 +178,8 @@ def get_platform_feedback_all(
         # Note: This will need tenant_id filter added to the service method
         feedback_list = review_service.list_platform_feedback(
             tenant_id=parsed_tenant_id,
-            category=category,
-            status=status,
+            category=category_enum,
+            status=status_filter,
             start_date=start_date,
             end_date=end_date,
             limit=limit,
@@ -175,9 +192,9 @@ def get_platform_feedback_all(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid parameter: {str(e)}",
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch platform feedback: {str(e)}",
-        )
+        ) from e

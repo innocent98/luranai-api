@@ -1,10 +1,13 @@
-import sys
 import json
+import sys
+from typing import Any
+
 from loguru import logger
+
 from app.core.config import settings
 
 
-def json_formatter(record):
+def json_formatter(record: dict) -> str:
     """Format log records as JSON for production."""
     log_record = {
         "timestamp": record["time"].isoformat(),
@@ -27,7 +30,7 @@ def json_formatter(record):
     return json.dumps(log_record)
 
 
-def setup_logging():
+def setup_logging() -> Any:
     """Configure logging based on environment."""
     logger.remove()
 
@@ -54,7 +57,7 @@ def setup_logging():
         # Production: JSON logs to stdout
         logger.add(
             sys.stdout,
-            format=json_formatter,
+            format=json_formatter,  # type: ignore[arg-type]
             level=log_level,
             serialize=True,
         )
@@ -62,7 +65,7 @@ def setup_logging():
         # Errors to stderr
         logger.add(
             sys.stderr,
-            format=json_formatter,
+            format=json_formatter,  # type: ignore[arg-type]
             level="ERROR",
             serialize=True,
         )

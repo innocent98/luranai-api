@@ -1,10 +1,9 @@
 """Flow analytics service for calculating flow execution metrics."""
 
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, extract, case
+from sqlalchemy import extract, func
 from sqlalchemy.orm import Session
 
 from app.db.models.flow import Flow, FlowExecution, FlowExecutionStatus
@@ -17,7 +16,7 @@ class FlowAnalyticsService:
         """Initialize flow analytics service with database session."""
         self.db = db
 
-    def get_flow_metrics(self, flow_id: UUID) -> Dict[str, Any]:
+    def get_flow_metrics(self, flow_id: UUID) -> dict[str, Any]:
         """
         Get execution metrics for a single flow.
 
@@ -63,16 +62,12 @@ class FlowAnalyticsService:
         completion_rate = (
             (completed_executions / total_executions * 100) if total_executions > 0 else 0.0
         )
-        failure_rate = (
-            (failed_executions / total_executions * 100) if total_executions > 0 else 0.0
-        )
+        failure_rate = (failed_executions / total_executions * 100) if total_executions > 0 else 0.0
 
         # Calculate average completion time for completed executions
         avg_completion_time = (
             self.db.query(
-                func.avg(
-                    extract("epoch", FlowExecution.completed_at - FlowExecution.started_at)
-                )
+                func.avg(extract("epoch", FlowExecution.completed_at - FlowExecution.started_at))
             )
             .filter(
                 FlowExecution.flow_id == flow_id,
@@ -94,7 +89,7 @@ class FlowAnalyticsService:
             "executions_by_status": executions_by_status,
         }
 
-    def get_tenant_flow_metrics(self, tenant_id: UUID) -> Dict[str, Any]:
+    def get_tenant_flow_metrics(self, tenant_id: UUID) -> dict[str, Any]:
         """
         Get aggregate flow execution metrics for a tenant.
 
@@ -144,16 +139,12 @@ class FlowAnalyticsService:
         completion_rate = (
             (completed_executions / total_executions * 100) if total_executions > 0 else 0.0
         )
-        failure_rate = (
-            (failed_executions / total_executions * 100) if total_executions > 0 else 0.0
-        )
+        failure_rate = (failed_executions / total_executions * 100) if total_executions > 0 else 0.0
 
         # Calculate average completion time across all tenant flows
         avg_completion_time = (
             self.db.query(
-                func.avg(
-                    extract("epoch", FlowExecution.completed_at - FlowExecution.started_at)
-                )
+                func.avg(extract("epoch", FlowExecution.completed_at - FlowExecution.started_at))
             )
             .join(Flow, FlowExecution.flow_id == Flow.id)
             .filter(
@@ -168,15 +159,12 @@ class FlowAnalyticsService:
 
         # Get flow counts
         total_flows = (
-            self.db.query(func.count(Flow.id))
-            .filter(Flow.tenant_id == tenant_id)
-            .scalar()
-            or 0
+            self.db.query(func.count(Flow.id)).filter(Flow.tenant_id == tenant_id).scalar() or 0
         )
 
         active_flows = (
             self.db.query(func.count(Flow.id))
-            .filter(Flow.tenant_id == tenant_id, Flow.is_active == True)
+            .filter(Flow.tenant_id == tenant_id, Flow.is_active.is_(True))
             .scalar()
             or 0
         )
@@ -193,7 +181,7 @@ class FlowAnalyticsService:
             "active_flows": active_flows,
         }
 
-    def get_flow_completion_funnel(self, flow_id: UUID) -> Dict[str, Any]:
+    def get_flow_completion_funnel(self, flow_id: UUID) -> dict[str, Any]:
         """
         Track drop-off rates by node to identify where users abandon flows.
 
@@ -208,11 +196,7 @@ class FlowAnalyticsService:
             - most_common_exit_node: Node where most users drop off
         """
         # Get all executions for this flow
-        executions = (
-            self.db.query(FlowExecution)
-            .filter(FlowExecution.flow_id == flow_id)
-            .all()
-        )
+        executions = self.db.query(FlowExecution).filter(FlowExecution.flow_id == flow_id).all()
 
         total_executions = len(executions)
 
@@ -225,7 +209,7 @@ class FlowAnalyticsService:
             }
 
         # Track drop-offs by current node for non-completed executions
-        drop_off_by_node: Dict[str, int] = {}
+        drop_off_by_node: dict[str, int] = {}
         completed_count = 0
 
         for execution in executions:
@@ -236,7 +220,9 @@ class FlowAnalyticsService:
                 node_id = execution.current_node_id
                 drop_off_by_node[node_id] = drop_off_by_node.get(node_id, 0) + 1
 
-        completion_rate = (completed_count / total_executions * 100) if total_executions > 0 else 0.0
+        completion_rate = (
+            (completed_count / total_executions * 100) if total_executions > 0 else 0.0
+        )
 
         # Find the most common exit node
         most_common_exit_node = None
@@ -250,7 +236,7 @@ class FlowAnalyticsService:
             "most_common_exit_node": most_common_exit_node,
         }
 
-    def get_execution_time_stats(self, flow_id: UUID) -> Dict[str, Any]:
+    def get_execution_time_stats(self, flow_id: UUID) -> dict[str, Any]:
         """
         Get detailed execution time statistics for a flow.
 

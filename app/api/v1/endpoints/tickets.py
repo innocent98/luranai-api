@@ -1,26 +1,31 @@
 """Ticket management endpoints."""
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_tenant_admin, get_current_user, get_db, verify_tenant_access, verify_subscription_active
-from app.core.websocket import connection_manager
-from app.services.ticket_service import TicketService
-from app.schemas.ticket import (
-    TicketManualCreate,
-    TicketUpdate,
-    TicketResponse,
-    TicketAssign,
-    TicketResolve,
-    TicketListResponse,
+from app.api.deps import (
+    get_current_tenant_admin,
+    get_current_user,
+    get_db,
+    verify_subscription_active,
+    verify_tenant_access,
 )
-from app.schemas.user import UserResponse
+from app.core.websocket import connection_manager
 from app.db.models.conversation import TicketStatus
 from app.db.models.user import UserRole
+from app.schemas.ticket import (
+    TicketAssign,
+    TicketListResponse,
+    TicketManualCreate,
+    TicketResolve,
+    TicketResponse,
+    TicketUpdate,
+)
+from app.schemas.user import UserResponse
+from app.services.ticket_service import TicketService
 
 router = APIRouter()
 
@@ -43,8 +48,8 @@ def create_ticket(
     Returns:
         Created ticket
     """
-    from app.services.conversation_service import ConversationService
     from app.schemas.ticket import TicketCreate
+    from app.services.conversation_service import ConversationService
 
     # Get session to verify tenant
     conversation_service = ConversationService(db)
@@ -72,8 +77,8 @@ def create_ticket(
 
 @router.get("", response_model=TicketListResponse, status_code=status.HTTP_200_OK)
 def list_tickets(
-    tenant_id: Optional[UUID] = Query(None, description="Filter by tenant"),
-    status_filter: Optional[TicketStatus] = Query(None, description="Filter by status"),
+    tenant_id: UUID | None = Query(None, description="Filter by tenant"),
+    status_filter: TicketStatus | None = Query(None, description="Filter by status"),
     assigned_to_me: bool = Query(False, description="Show only tickets assigned to me"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
@@ -183,7 +188,7 @@ def update_ticket(
         updated_ticket = ticket_service.update_ticket(ticket_id, ticket_data)
         return updated_ticket
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.post("/{ticket_id}/assign", response_model=TicketResponse, status_code=status.HTTP_200_OK)
@@ -219,7 +224,7 @@ def assign_ticket(
         updated_ticket = ticket_service.assign_ticket(ticket_id, assign_data)
         return updated_ticket
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.post("/{ticket_id}/resolve", response_model=TicketResponse, status_code=status.HTTP_200_OK)
@@ -274,8 +279,12 @@ async def resolve_ticket(
                     "ticket_number": resolved_ticket.ticket_number,
                     "resolution_notes": resolved_ticket.resolution_notes,
                     "resolved_by": current_user.full_name,
-                    "resolved_at": resolved_ticket.resolved_at.isoformat() if resolved_ticket.resolved_at else None,
-                }
+                    "resolved_at": (
+                        resolved_ticket.resolved_at.isoformat()
+                        if resolved_ticket.resolved_at
+                        else None
+                    ),
+                },
             )
 
             # Send to all agents watching this session
@@ -287,13 +296,17 @@ async def resolve_ticket(
                     "ticket_number": resolved_ticket.ticket_number,
                     "resolution_notes": resolved_ticket.resolution_notes,
                     "resolved_by": current_user.full_name,
-                    "resolved_at": resolved_ticket.resolved_at.isoformat() if resolved_ticket.resolved_at else None,
-                }
+                    "resolved_at": (
+                        resolved_ticket.resolved_at.isoformat()
+                        if resolved_ticket.resolved_at
+                        else None
+                    ),
+                },
             )
 
         return resolved_ticket
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.post("/{ticket_id}/close", response_model=TicketResponse, status_code=status.HTTP_200_OK)
@@ -339,7 +352,7 @@ async def close_ticket(
                     "ticket_number": closed_ticket.ticket_number,
                     "closed_by": current_user.full_name,
                     "closed_at": datetime.utcnow().isoformat(),
-                }
+                },
             )
 
             # Send to all agents watching this session
@@ -351,17 +364,17 @@ async def close_ticket(
                     "ticket_number": closed_ticket.ticket_number,
                     "closed_by": current_user.full_name,
                     "closed_at": datetime.utcnow().isoformat(),
-                }
+                },
             )
 
         return closed_ticket
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.get("/unassigned", response_model=list[TicketResponse], status_code=status.HTTP_200_OK)
 def get_unassigned_tickets(
-    tenant_id: Optional[UUID] = Query(None, description="Filter by tenant"),
+    tenant_id: UUID | None = Query(None, description="Filter by tenant"),
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_tenant_admin),
 ):

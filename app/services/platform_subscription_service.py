@@ -1,24 +1,24 @@
 """Platform admin subscription management service."""
 
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
-from typing import Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, or_, func
 
-from app.db.models.tenant import Tenant, TenantCapabilities
-from app.db.models.subscription import SubscriptionHistory
+from sqlalchemy import and_, func
+from sqlalchemy.orm import Session
+
 from app.db.models.payment import PaymentTransaction
+from app.db.models.subscription import SubscriptionHistory
+from app.db.models.tenant import Tenant, TenantCapabilities
 from app.schemas.platform_subscription import (
-    TenantSubscriptionDetailResponse,
-    SubscriptionHistoryResponse,
-    PricingPlanResponse,
     PaymentTransactionResponse,
+    PricingPlanResponse,
+    SubscriptionHistoryResponse,
     SubscriptionOverrideResponse,
+    TenantSubscriptionDetailResponse,
     TrialExtensionResponse,
 )
-from app.services.subscription_service import SubscriptionService
 from app.services.plan_service import PlanService
+from app.services.subscription_service import SubscriptionService
 
 
 class PlatformSubscriptionService:
@@ -34,7 +34,7 @@ class PlatformSubscriptionService:
         self,
         tenant_id: UUID,
         tier: str,
-        billing_cycle: Optional[str],
+        billing_cycle: str | None,
         reason: str,
         admin_id: UUID,
         admin_name: str,
@@ -81,12 +81,12 @@ class PlatformSubscriptionService:
         tenant.billing_cycle = billing_cycle
 
         if tier != "trial":
-            tenant.subscription_starts_at = datetime.now(timezone.utc)
+            tenant.subscription_starts_at = datetime.now(UTC)
             tenant.trial_ends_at = None
         else:
             # If moving back to trial, set trial end date
-            if not tenant.trial_ends_at or tenant.trial_ends_at < datetime.now(timezone.utc):
-                tenant.trial_ends_at = datetime.now(timezone.utc) + timedelta(days=14)
+            if not tenant.trial_ends_at or tenant.trial_ends_at < datetime.now(UTC):
+                tenant.trial_ends_at = datetime.now(UTC) + timedelta(days=14)
 
         # Update capabilities
         if apply_tier_capabilities:
@@ -158,13 +158,13 @@ class PlatformSubscriptionService:
         # Calculate new trial end date
         if not tenant.trial_ends_at:
             # If no trial end date, start from now
-            previous_end = datetime.now(timezone.utc)
+            previous_end = datetime.now(UTC)
         else:
             previous_end = tenant.trial_ends_at
 
         # If trial already expired, extend from now
-        if previous_end < datetime.now(timezone.utc):
-            new_end = datetime.now(timezone.utc) + timedelta(days=days)
+        if previous_end < datetime.now(UTC):
+            new_end = datetime.now(UTC) + timedelta(days=days)
             # Reactivate if expired
             if tenant.subscription_status == "trial_expired":
                 tenant.subscription_status = "trial"
@@ -226,33 +226,41 @@ class PlatformSubscriptionService:
             raise ValueError("Tenant not found")
 
         # Get capabilities and override flags
-        capabilities = self.db.query(TenantCapabilities).filter(
-            TenantCapabilities.tenant_id == tenant_id
-        ).first()
+        capabilities = (
+            self.db.query(TenantCapabilities)
+            .filter(TenantCapabilities.tenant_id == tenant_id)
+            .first()
+        )
 
         override_flags = capabilities.override_flags if capabilities else {}
         has_overrides = bool(override_flags)
         override_fields = list(override_flags.keys()) if override_flags else []
 
         # Get recent history (last 10 changes)
-        history = self.db.query(SubscriptionHistory).filter(
-            SubscriptionHistory.tenant_id == tenant_id
-        ).order_by(SubscriptionHistory.created_at.desc()).limit(10).all()
+        history = (
+            self.db.query(SubscriptionHistory)
+            .filter(SubscriptionHistory.tenant_id == tenant_id)
+            .order_by(SubscriptionHistory.created_at.desc())
+            .limit(10)
+            .all()
+        )
 
-        history_responses = [
-            SubscriptionHistoryResponse.model_validate(h) for h in history
-        ]
+        history_responses = [SubscriptionHistoryResponse.model_validate(h) for h in history]
 
         # Get payment stats
-        payment_stats = self.db.query(
-            func.count(PaymentTransaction.id).label("total_payments"),
-            func.coalesce(func.sum(PaymentTransaction.amount), 0).label("total_revenue_kobo"),
-        ).filter(
-            and_(
-                PaymentTransaction.tenant_id == tenant_id,
-                PaymentTransaction.status == "success",
+        payment_stats = (
+            self.db.query(
+                func.count(PaymentTransaction.id).label("total_payments"),
+                func.coalesce(func.sum(PaymentTransaction.amount), 0).label("total_revenue_kobo"),
             )
-        ).first()
+            .filter(
+                and_(
+                    PaymentTransaction.tenant_id == tenant_id,
+                    PaymentTransaction.status == "success",
+                )
+            )
+            .first()
+        )
 
         total_payments = payment_stats.total_payments if payment_stats else 0
         total_revenue_kobo = payment_stats.total_revenue_kobo if payment_stats else 0
@@ -275,9 +283,9 @@ class PlatformSubscriptionService:
 
     def get_tenants_by_subscription(
         self,
-        subscription_status: Optional[str] = None,
-        subscription_tier: Optional[str] = None,
-        trial_expiring_days: Optional[int] = None,
+        subscription_status: str | None = None,
+        subscription_tier: str | None = None,
+        trial_expiring_days: int | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[Tenant]:
@@ -304,7 +312,7 @@ class PlatformSubscriptionService:
 
         if trial_expiring_days is not None:
             # Find trials expiring within N days
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             expiry_threshold = now + timedelta(days=trial_expiring_days)
             query = query.filter(
                 and_(
@@ -320,8 +328,8 @@ class PlatformSubscriptionService:
 
     def get_payment_transactions(
         self,
-        tenant_id: Optional[UUID] = None,
-        status: Optional[str] = None,
+        tenant_id: UUID | None = None,
+        status: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> list[PaymentTransactionResponse]:
@@ -337,12 +345,8 @@ class PlatformSubscriptionService:
         Returns:
             List of payment transactions with tenant names
         """
-        query = self.db.query(
-            PaymentTransaction,
-            Tenant.name.label("tenant_name")
-        ).join(
-            Tenant,
-            PaymentTransaction.tenant_id == Tenant.id
+        query = self.db.query(PaymentTransaction, Tenant.name.label("tenant_name")).join(
+            Tenant, PaymentTransaction.tenant_id == Tenant.id
         )
 
         if tenant_id:
@@ -406,18 +410,18 @@ class PlatformSubscriptionService:
             )
 
             pricing_plan = PricingPlanResponse(
-                tier=plan.tier,
-                display_name=plan.display_name,
-                description=plan.description,
-                monthly_price_kobo=monthly_kobo,
-                annual_price_kobo=annual_kobo,
-                monthly_price_naira=monthly_naira,
-                annual_price_naira=annual_naira,
-                annual_savings_naira=annual_savings,
+                tier=str(plan.tier),
+                display_name=str(plan.display_name),
+                description=str(plan.description),
+                monthly_price_kobo=int(monthly_kobo),
+                annual_price_kobo=int(annual_kobo),
+                monthly_price_naira=float(monthly_naira),
+                annual_price_naira=float(annual_naira),
+                annual_savings_naira=float(annual_savings),
                 annual_discount_percentage=round(annual_discount_pct, 1),
                 capabilities=plan.get_capabilities(),
-                features=plan.features,
-                is_popular=(plan.tier == "professional"),  # Mark professional as popular
+                features=list(plan.features or []),
+                is_popular=str(plan.tier) == "professional",  # Mark professional as popular
             )
             plans.append(pricing_plan)
 
@@ -439,9 +443,11 @@ class PlatformSubscriptionService:
         """
         config = self.plan_service.get_plan_config(tier)
 
-        capabilities = self.db.query(TenantCapabilities).filter(
-            TenantCapabilities.tenant_id == tenant_id
-        ).first()
+        capabilities = (
+            self.db.query(TenantCapabilities)
+            .filter(TenantCapabilities.tenant_id == tenant_id)
+            .first()
+        )
 
         if not capabilities:
             raise ValueError("Capabilities not found")

@@ -1,6 +1,5 @@
 """Email utility for sending notifications."""
 
-from typing import Optional
 from loguru import logger
 
 from app.core.config import settings
@@ -26,14 +25,17 @@ async def send_email(
     """
     # Check if email is configured
     if not settings.SMTP_HOST or not settings.EMAILS_FROM_EMAIL:
-        logger.warning(f"Email not configured (SMTP_HOST={settings.SMTP_HOST}, FROM_EMAIL={settings.EMAILS_FROM_EMAIL}), skipping email send")
+        logger.warning(
+            f"Email not configured (SMTP_HOST={settings.SMTP_HOST}, FROM_EMAIL={settings.EMAILS_FROM_EMAIL}), skipping email send"
+        )
         return False
 
-    logger.debug(f"Attempting to send email to {email_to} via {settings.SMTP_HOST}:{settings.SMTP_PORT}")
+    logger.debug(
+        f"Attempting to send email to {email_to} via {settings.SMTP_HOST}:{settings.SMTP_PORT}"
+    )
 
     try:
         from emails import Message
-        from emails.template import JinjaTemplate
 
         # Prepare message
         if html:
@@ -51,22 +53,26 @@ async def send_email(
                 mail_from=(settings.EMAILS_FROM_NAME or "Luran", settings.EMAILS_FROM_EMAIL),
             )
 
-        logger.debug(f"Message prepared, sending via SMTP...")
+        logger.debug("Message prepared, sending via SMTP...")
+
+        # Port 465 expects implicit SSL. Port 587 typically uses STARTTLS.
+        smtp_config = {
+            "host": settings.SMTP_HOST,
+            "port": settings.SMTP_PORT,
+            "user": settings.SMTP_USER,
+            "password": settings.SMTP_PASSWORD,
+        }
+        if settings.SMTP_TLS:
+            if settings.SMTP_PORT == 465:
+                smtp_config["ssl"] = True
+            else:
+                smtp_config["tls"] = True
 
         # Send email
-        response = message.send(
-            to=email_to,
-            smtp={
-                'host': settings.SMTP_HOST,
-                'port': settings.SMTP_PORT,
-                'tls': settings.SMTP_TLS,
-                'user': settings.SMTP_USER,
-                'password': settings.SMTP_PASSWORD,
-            }
-        )
+        response = message.send(to=email_to, smtp=smtp_config)
 
         # Check response status
-        status_code = getattr(response, 'status_code', None)
+        status_code = getattr(response, "status_code", None)
 
         logger.debug(f"SMTP response: status_code={status_code}, response={response}")
 
@@ -75,16 +81,22 @@ async def send_email(
             return True
         elif status_code is None:
             # Check if response has error attribute
-            error = getattr(response, 'error', None)
+            error = getattr(response, "error", None)
             if error:
                 logger.error(f"✗ Email send failed to {email_to}: {error}")
             else:
                 # Try to get more details from response
                 response_dict = {}
-                if hasattr(response, '__dict__'):
-                    response_dict = {k: v for k, v in response.__dict__.items() if not k.startswith('_')}
-                logger.error(f"✗ Email send failed to {email_to}: No status code returned. Response: {response_dict}")
-                logger.error(f"  SMTP Config: host={settings.SMTP_HOST}, port={settings.SMTP_PORT}, tls={settings.SMTP_TLS}, user={settings.SMTP_USER}")
+                if hasattr(response, "__dict__"):
+                    response_dict = {
+                        k: v for k, v in response.__dict__.items() if not k.startswith("_")
+                    }
+                logger.error(
+                    f"✗ Email send failed to {email_to}: No status code returned. Response: {response_dict}"
+                )
+                logger.error(
+                    f"  SMTP Config: host={settings.SMTP_HOST}, port={settings.SMTP_PORT}, tls={settings.SMTP_TLS}, user={settings.SMTP_USER}"
+                )
             return False
         else:
             logger.warning(f"✗ Email send failed to {email_to} with status {status_code}")
@@ -96,6 +108,7 @@ async def send_email(
     except Exception as e:
         logger.error(f"✗ Exception while sending email to {email_to}: {type(e).__name__}: {e}")
         import traceback
+
         logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
@@ -106,8 +119,8 @@ async def send_job_completion_email(
     tenant_name: str,
     job_status: str,
     document_name: str,
-    chunks_created: Optional[int] = None,
-    error_message: Optional[str] = None,
+    chunks_created: int | None = None,
+    error_message: str | None = None,
 ) -> bool:
     """
     Send job completion notification email.

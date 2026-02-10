@@ -3,13 +3,13 @@
 import enum
 import uuid
 from datetime import datetime
-from typing import Optional
 
-from sqlalchemy import DateTime, Float, Integer, JSON, String, Text, Enum as SQLEnum, Index
+from sqlalchemy import JSON, DateTime
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import ForeignKey
 
-from app.db.base import Base, UUIDMixin, TimestampMixin
+from app.db.base import Base, TimestampMixin, UUIDMixin
 
 
 class SessionStatus(str, enum.Enum):
@@ -89,27 +89,27 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
         index=True,
         comment="Current status of the conversation",
     )
-    escalation_reason: Mapped[Optional[str]] = mapped_column(
+    escalation_reason: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
         comment="Why this conversation was escalated to humans",
     )
-    escalated_at: Mapped[Optional[datetime]] = mapped_column(
+    escalated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         comment="When the conversation was escalated",
     )
-    agent_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         comment="Support agent currently handling this conversation",
     )
-    agent_joined_at: Mapped[Optional[datetime]] = mapped_column(
+    agent_joined_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         comment="When the agent joined the conversation",
     )
-    meta: Mapped[Optional[dict]] = mapped_column(
+    meta: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
         comment="Additional context: {user_agent, ip_hash, location, etc.}",
@@ -135,7 +135,9 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
     )
 
     def __repr__(self) -> str:
-        return f"<ConversationSession(id={self.id}, tenant_id={self.tenant_id}, status={self.status})>"
+        return (
+            f"<ConversationSession(id={self.id}, tenant_id={self.tenant_id}, status={self.status})>"
+        )
 
 
 class Message(Base, UUIDMixin):
@@ -147,9 +149,7 @@ class Message(Base, UUIDMixin):
     """
 
     __tablename__ = "messages"
-    __table_args__ = (
-        Index("ix_messages_session_created", "session_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_messages_session_created", "session_id", "created_at"),)
 
     session_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("conversation_sessions.id", ondelete="CASCADE"),
@@ -167,17 +167,17 @@ class Message(Base, UUIDMixin):
         nullable=False,
         comment="Message content",
     )
-    retrieved_chunk_ids: Mapped[Optional[list]] = mapped_column(
+    retrieved_chunk_ids: Mapped[list | None] = mapped_column(
         JSON,
         nullable=True,
         comment="UUIDs of knowledge chunks used for this response",
     )
-    token_count: Mapped[Optional[int]] = mapped_column(
+    token_count: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
         comment="Number of tokens in this message",
     )
-    meta: Mapped[Optional[dict]] = mapped_column(
+    meta: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
         comment="Additional data: {model_version, processing_time, etc.}",
@@ -250,17 +250,17 @@ class Ticket(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="AI-generated summary of the issue",
     )
-    assigned_to: Mapped[Optional[uuid.UUID]] = mapped_column(
+    assigned_to: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         comment="Support agent assigned to this ticket",
     )
-    resolution_notes: Mapped[Optional[str]] = mapped_column(
+    resolution_notes: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
         comment="Notes about how the ticket was resolved",
     )
-    resolved_at: Mapped[Optional[datetime]] = mapped_column(
+    resolved_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         comment="When the ticket was resolved",

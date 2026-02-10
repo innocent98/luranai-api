@@ -1,10 +1,9 @@
 """Platform admin Pydantic schemas."""
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.db.models.platform_admin import PlatformAdminRole
 
@@ -31,9 +30,9 @@ class PlatformAdminUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    full_name: Optional[str] = Field(None, min_length=1, max_length=255)
-    role: Optional[PlatformAdminRole] = None
-    is_active: Optional[bool] = None
+    full_name: str | None = Field(None, min_length=1, max_length=255)
+    role: PlatformAdminRole | None = None
+    is_active: bool | None = None
 
 
 class PlatformAdminPasswordUpdate(BaseModel):
@@ -75,7 +74,7 @@ class PlatformAdminResponse(PlatformAdminBase):
 
     id: UUID
     is_active: bool
-    last_login_at: Optional[datetime] = None
+    last_login_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

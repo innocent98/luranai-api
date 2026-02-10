@@ -1,20 +1,19 @@
 """Widget configuration and public endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Header, Path, UploadFile, File
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Path, UploadFile, status
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_db
 from app.db.models.tenant import Tenant
-from app.db.models.api_key import APIKey
-from app.services.api_key_service import APIKeyService
+from app.schemas.user import UserResponse
 from app.schemas.widget import (
-    WidgetConfigUpdate,
-    WidgetConfigResponse,
     PublicWidgetConfigResponse,
+    WidgetConfigResponse,
+    WidgetConfigUpdate,
     WidgetInstallCodeResponse,
 )
-from app.schemas.user import UserResponse
+from app.services.api_key_service import APIKeyService
 
 router = APIRouter()
 
@@ -187,7 +186,7 @@ async def upload_widget_logo(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Failed to read file: {str(e)}",
-        )
+        ) from e
 
     # Upload to Cloudinary
     logo_url, error = cloudinary_manager.upload_widget_logo(
@@ -261,7 +260,11 @@ def delete_widget_logo(
     db.commit()
 
     return {
-        "message": "Logo deleted successfully" if success else "Logo URL removed (may have been deleted already)",
+        "message": (
+            "Logo deleted successfully"
+            if success
+            else "Logo URL removed (may have been deleted already)"
+        ),
     }
 
 

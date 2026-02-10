@@ -2,8 +2,7 @@
 
 import hashlib
 import hmac
-from datetime import datetime
-from typing import Optional
+from typing import Any, cast
 from uuid import uuid4
 
 import httpx
@@ -59,9 +58,7 @@ class PaystackService:
         amount_kobo = self.plan_service.get_pricing(tier, billing_cycle)
 
         if amount_kobo == 0 and tier == "enterprise":
-            raise ValueError(
-                f"Enterprise pricing is custom. Please contact sales."
-            )
+            raise ValueError("Enterprise pricing is custom. Please contact sales.")
 
         return amount_kobo
 
@@ -94,7 +91,7 @@ class PaystackService:
         tier: str,
         billing_cycle: str,
         tenant_id: str,
-        callback_url: Optional[str] = None,
+        callback_url: str | None = None,
     ) -> dict:
         """
         Initialize a recurring Paystack subscription.
@@ -132,7 +129,8 @@ class PaystackService:
                 "amount": amount,  # Required even with plan
                 "plan": plan_code,
                 "reference": reference,
-                "callback_url": callback_url or f"{settings.FRONTEND_URL}/dashboard/settings/subscription/callback",
+                "callback_url": callback_url
+                or f"{settings.FRONTEND_URL}/dashboard/settings/subscription/callback",
                 "metadata": {
                     "tenant_id": tenant_id,
                     "tier": tier,
@@ -153,7 +151,9 @@ class PaystackService:
                 },
             }
 
-            logger.info(f"Initializing Paystack subscription: {reference} for {email} (plan: {plan_code})")
+            logger.info(
+                f"Initializing Paystack subscription: {reference} for {email} (plan: {plan_code})"
+            )
 
             # Make API request to transaction/initialize with plan parameter
             # Paystack creates subscription automatically when plan is provided
@@ -166,7 +166,7 @@ class PaystackService:
                 )
 
                 response.raise_for_status()
-                result = response.json()
+                result: dict[str, Any] = response.json()
 
                 if not result.get("status"):
                     raise HTTPException(
@@ -191,13 +191,13 @@ class PaystackService:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Payment gateway error: {e.response.text}",
-            )
+            ) from e
         except Exception as e:
             logger.error(f"Failed to initialize subscription: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to initialize subscription: {str(e)}",
-            )
+            ) from e
 
     async def verify_transaction(self, reference: str) -> dict:
         """
@@ -223,7 +223,7 @@ class PaystackService:
                 )
 
                 response.raise_for_status()
-                result = response.json()
+                result: dict[str, Any] = response.json()
 
                 if not result.get("status"):
                     raise HTTPException(
@@ -250,13 +250,13 @@ class PaystackService:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Payment verification error: {e.response.text}",
-            )
+            ) from e
         except Exception as e:
             logger.error(f"Failed to verify transaction: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to verify transaction: {str(e)}",
-            )
+            ) from e
 
     async def create_subscription(
         self,
@@ -296,7 +296,7 @@ class PaystackService:
                 )
 
                 response.raise_for_status()
-                result = response.json()
+                result: dict[str, Any] = response.json()
 
                 if not result.get("status"):
                     raise HTTPException(
@@ -307,20 +307,20 @@ class PaystackService:
                 subscription_data = result["data"]
                 logger.info(f"Subscription created: {subscription_data['subscription_code']}")
 
-                return subscription_data
+                return cast(dict[str, Any], subscription_data)
 
         except httpx.HTTPStatusError as e:
             logger.error(f"Paystack API error: {e.response.text}")
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Subscription creation error: {e.response.text}",
-            )
+            ) from e
         except Exception as e:
             logger.error(f"Failed to create subscription: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to create subscription: {str(e)}",
-            )
+            ) from e
 
     def verify_webhook_signature(self, payload: bytes, signature: str) -> bool:
         """
@@ -383,7 +383,7 @@ class PaystackService:
                 )
 
                 response.raise_for_status()
-                result = response.json()
+                result: dict[str, Any] = response.json()
 
                 if not result.get("status"):
                     raise HTTPException(
@@ -391,24 +391,22 @@ class PaystackService:
                         detail=result.get("message", "Failed to fetch subscription"),
                     )
 
-                return result["data"]
+                return cast(dict[str, Any], result["data"])
 
         except httpx.HTTPStatusError as e:
             logger.error(f"Paystack API error: {e.response.text}")
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Failed to fetch subscription: {e.response.text}",
-            )
+            ) from e
         except Exception as e:
             logger.error(f"Failed to fetch subscription: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to fetch subscription: {str(e)}",
-            )
+            ) from e
 
-    async def cancel_subscription(
-        self, subscription_code: str, email_token: str
-    ) -> dict:
+    async def cancel_subscription(self, subscription_code: str, email_token: str) -> dict:
         """
         Cancel a subscription on Paystack.
 
@@ -436,7 +434,7 @@ class PaystackService:
                 )
 
                 response.raise_for_status()
-                result = response.json()
+                result: dict[str, Any] = response.json()
 
                 if not result.get("status"):
                     raise HTTPException(
@@ -445,17 +443,17 @@ class PaystackService:
                     )
 
                 logger.info(f"Subscription cancelled: {subscription_code}")
-                return result["data"]
+                return cast(dict[str, Any], result["data"])
 
         except httpx.HTTPStatusError as e:
             logger.error(f"Paystack API error: {e.response.text}")
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"Cancellation error: {e.response.text}",
-            )
+            ) from e
         except Exception as e:
             logger.error(f"Failed to cancel subscription: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to cancel subscription: {str(e)}",
-            )
+            ) from e

@@ -1,27 +1,25 @@
+from datetime import UTC, datetime
+from typing import Any
+
+import redis.asyncio as aioredis
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
+from qdrant_client import QdrantClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
-from typing import Dict, Any
-import redis.asyncio as aioredis
-from qdrant_client import QdrantClient
 
-from app.db.session import get_db
 from app.core.config import settings
 from app.core.logger import log
+from app.db.session import get_db
 
 router = APIRouter()
 
 
-async def check_redis() -> Dict[str, Any]:
+async def check_redis() -> dict[str, Any]:
     """Check Redis connectivity."""
     try:
         client = await aioredis.from_url(
-            settings.REDIS_URL,
-            encoding="utf-8",
-            decode_responses=True,
-            socket_connect_timeout=5
+            settings.REDIS_URL, encoding="utf-8", decode_responses=True, socket_connect_timeout=5
         )
         await client.ping()
         info = await client.info("server")
@@ -36,18 +34,13 @@ async def check_redis() -> Dict[str, Any]:
         return {"status": "unhealthy", "error": str(e)}
 
 
-def check_qdrant() -> Dict[str, Any]:
+def check_qdrant() -> dict[str, Any]:
     """Check Qdrant connectivity."""
     try:
-        client = QdrantClient(
-            url=settings.QDRANT_URL,
-            api_key=settings.QDRANT_API_KEY,
-            timeout=5
-        )
+        client = QdrantClient(url=settings.QDRANT_URL, api_key=settings.QDRANT_API_KEY, timeout=5)
         collections = client.get_collections()
         collection_exists = any(
-            c.name == settings.QDRANT_COLLECTION_NAME
-            for c in collections.collections
+            c.name == settings.QDRANT_COLLECTION_NAME for c in collections.collections
         )
 
         return {
@@ -60,14 +53,12 @@ def check_qdrant() -> Dict[str, Any]:
         return {"status": "unhealthy", "error": str(e)}
 
 
-def check_database(db: Session) -> Dict[str, Any]:
+def check_database(db: Session) -> dict[str, Any]:
     """Check database connectivity."""
     try:
         db.execute(text("SELECT 1")).scalar()
         version = db.execute(text("SELECT version()")).scalar()
-        connections = db.execute(
-            text("SELECT count(*) FROM pg_stat_activity")
-        ).scalar()
+        connections = db.execute(text("SELECT count(*) FROM pg_stat_activity")).scalar()
 
         return {
             "status": "healthy",
@@ -89,28 +80,27 @@ async def health_check(db: Session = Depends(get_db)):
     redis_status = await check_redis()
     qdrant_status = check_qdrant()
 
-    all_healthy = all([
-        db_status["status"] == "healthy",
-        redis_status["status"] == "healthy",
-        qdrant_status["status"] == "healthy",
-    ])
+    all_healthy = all(
+        [
+            db_status["status"] == "healthy",
+            redis_status["status"] == "healthy",
+            qdrant_status["status"] == "healthy",
+        ]
+    )
 
     response = {
         "status": "healthy" if all_healthy else "degraded",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "environment": settings.ENVIRONMENT,
         "version": settings.VERSION,
         "checks": {
             "database": db_status,
             "redis": redis_status,
             "qdrant": qdrant_status,
-        }
+        },
     }
 
     if not all_healthy:
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content=response
-        )
+        return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content=response)
 
     return response

@@ -1,22 +1,15 @@
 """Authentication service for user management and JWT tokens."""
 
-from datetime import datetime, timedelta
-from typing import Optional
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import verify_password, get_password_hash, create_access_token
+from app.core.security import create_access_token, get_password_hash, verify_password
 from app.db.models.user import User, UserRole
-from app.schemas.user import (
-    UserCreate,
-    UserResponse,
-    Token,
-    TokenData,
-    LoginRequest,
-)
+from app.schemas.user import LoginRequest, Token, TokenData, UserCreate, UserResponse
 
 
 class AuthService:
@@ -26,7 +19,7 @@ class AuthService:
         """Initialize auth service with database session."""
         self.db = db
 
-    def authenticate_user(self, email: str, password: str) -> Optional[User]:
+    def authenticate_user(self, email: str, password: str) -> User | None:
         """
         Authenticate a user by email and password.
 
@@ -37,7 +30,7 @@ class AuthService:
         Returns:
             User object if authentication successful, None otherwise
         """
-        stmt = select(User).where(User.email == email, User.is_active == True)
+        stmt = select(User).where(User.email == email, User.is_active.is_(True))
         user = self.db.execute(stmt).scalar_one_or_none()
 
         if not user:
@@ -77,7 +70,7 @@ class AuthService:
                 "email": user.email,
                 "role": user.role.value,
                 "tenant_id": str(user.tenant_id) if user.tenant_id else None,
-            }
+            },
         )
 
         return Token(
@@ -122,7 +115,7 @@ class AuthService:
 
         return UserResponse.model_validate(db_user)
 
-    def get_user_by_id(self, user_id: UUID) -> Optional[UserResponse]:
+    def get_user_by_id(self, user_id: UUID) -> UserResponse | None:
         """
         Get user by ID.
 
@@ -140,7 +133,7 @@ class AuthService:
 
         return UserResponse.model_validate(user)
 
-    def get_user_by_email(self, email: str) -> Optional[UserResponse]:
+    def get_user_by_email(self, email: str) -> UserResponse | None:
         """
         Get user by email.
 
@@ -158,7 +151,7 @@ class AuthService:
 
         return UserResponse.model_validate(user)
 
-    def verify_token_data(self, token_data: dict) -> Optional[TokenData]:
+    def verify_token_data(self, token_data: dict) -> TokenData | None:
         """
         Verify and extract data from JWT token payload.
 
@@ -172,11 +165,14 @@ class AuthService:
             user_id = UUID(token_data.get("sub"))
             email = token_data.get("email")
             role = UserRole(token_data.get("role"))
-            tenant_id = UUID(token_data.get("tenant_id")) if token_data.get("tenant_id") else None
+            tenant_id_raw = token_data.get("tenant_id")
+            if not email or not tenant_id_raw:
+                return None
+            tenant_id = UUID(tenant_id_raw)
 
             return TokenData(
                 user_id=user_id,
-                email=email,
+                email=str(email),
                 role=role,
                 tenant_id=tenant_id,
             )
@@ -247,7 +243,7 @@ class AuthService:
         Returns:
             List of user responses
         """
-        stmt = select(User).where(User.tenant_id == tenant_id, User.is_active == True)
+        stmt = select(User).where(User.tenant_id == tenant_id, User.is_active.is_(True))
         users = self.db.execute(stmt).scalars().all()
 
         return [UserResponse.model_validate(user) for user in users]

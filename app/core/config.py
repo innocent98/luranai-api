@@ -1,6 +1,5 @@
-from typing import List, Optional
-from pydantic import AnyHttpUrl, field_validator, EmailStr, ConfigDict
-from pydantic_settings import BaseSettings
+from pydantic import EmailStr, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -13,8 +12,8 @@ class Settings(BaseSettings):
     # Server
     SERVER_HOST: str
     SERVER_PORT: int = 8000
-    FRONTEND_URL: str # Frontend application URL for email links
-    FRONTEND_DOC_URL: str # Documentation/marketing site URL
+    FRONTEND_URL: str  # Frontend application URL for email links
+    FRONTEND_DOC_URL: str  # Documentation/marketing site URL
 
     # Security
     SECRET_KEY: str
@@ -22,7 +21,7 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
 
     # CORS
-    BACKEND_CORS_ORIGINS: List[str] = [
+    BACKEND_CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://localhost:3000",
         "http://localhost:8000",
@@ -30,10 +29,10 @@ class Settings(BaseSettings):
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
-    def assemble_cors_origins(cls, v: str | List[str]) -> List[str] | str:
+    def assemble_cors_origins(cls, v: str | list[str]) -> list[str] | str:
         if isinstance(v, str) and not v.startswith("["):
             return [i.strip() for i in v.split(",")]
-        elif isinstance(v, (list, str)):
+        elif isinstance(v, list | str):
             return v
         raise ValueError(v)
 
@@ -43,9 +42,7 @@ class Settings(BaseSettings):
         """Ensure SECRET_KEY is secure."""
         dangerous_defaults = ["your_secret_key_here", "changeme", "secret"]
         if not v or v.strip() == "" or v in dangerous_defaults:
-            raise ValueError(
-                "SECRET_KEY must be set. Generate using: openssl rand -hex 32"
-            )
+            raise ValueError("SECRET_KEY must be set. Generate using: openssl rand -hex 32")
         if len(v) < 32:
             raise ValueError("SECRET_KEY must be at least 32 characters")
         return v
@@ -59,9 +56,7 @@ class Settings(BaseSettings):
                 "OPENAI_API_KEY required. Get from: https://platform.openai.com/api-keys"
             )
         if not v.startswith("sk-"):
-            raise ValueError(
-                "OPENAI_API_KEY must start with 'sk-'. Check your API key."
-            )
+            raise ValueError("OPENAI_API_KEY must start with 'sk-'. Check your API key.")
         return v
 
     @field_validator("PAYSTACK_SECRET_KEY")
@@ -89,8 +84,17 @@ class Settings(BaseSettings):
             raise ValueError("Platform admin password must be at least 12 characters")
 
         # Reject common weak passwords
-        dangerous = ["admin", "password", "changeme", "changethis", "12345678",
-                     "admin123", "password123", "luran", "luran123"]
+        dangerous = [
+            "admin",
+            "password",
+            "changeme",
+            "changethis",
+            "12345678",
+            "admin123",
+            "password123",
+            "luran",
+            "luran123",
+        ]
         if v.lower() in dangerous:
             raise ValueError("Platform admin password is too weak. Use a strong, unique password")
 
@@ -117,7 +121,7 @@ class Settings(BaseSettings):
 
     # Qdrant Vector Database
     QDRANT_URL: str
-    QDRANT_API_KEY: Optional[str] = None
+    QDRANT_API_KEY: str | None = None
     QDRANT_COLLECTION_NAME: str
 
     # OpenAI
@@ -130,34 +134,34 @@ class Settings(BaseSettings):
     # Email (optional)
     SMTP_TLS: bool = True
     SMTP_PORT: int = 587
-    SMTP_HOST: Optional[str] = None
-    SMTP_USER: Optional[str] = None
-    SMTP_PASSWORD: Optional[str] = None
-    EMAILS_FROM_EMAIL: Optional[EmailStr] = None
-    EMAILS_FROM_NAME: Optional[str] = None
+    SMTP_HOST: str | None = None
+    SMTP_USER: str | None = None
+    SMTP_PASSWORD: str | None = None
+    EMAILS_FROM_EMAIL: EmailStr | None = None
+    EMAILS_FROM_NAME: str | None = None
 
     # Admin
     FIRST_SUPERUSER_EMAIL: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
 
     # Cloudinary (Image Upload Service)
-    CLOUDINARY_CLOUD_NAME: Optional[str] = None
-    CLOUDINARY_API_KEY: Optional[str] = None
-    CLOUDINARY_API_SECRET: Optional[str] = None
+    CLOUDINARY_CLOUD_NAME: str | None = None
+    CLOUDINARY_API_KEY: str | None = None
+    CLOUDINARY_API_SECRET: str | None = None
     CLOUDINARY_FOLDER: str = "luran/widget_logos"
 
     # Paystack Payment Gateway
     PAYSTACK_SECRET_KEY: str
-    PAYSTACK_PUBLIC_KEY: Optional[str] = None
+    PAYSTACK_PUBLIC_KEY: str | None = None
     # DEPRECATED: Paystack uses PAYSTACK_SECRET_KEY for webhook verification
     # See: https://paystack.com/docs/payments/webhooks/#verify-webhook-signature
-    PAYSTACK_WEBHOOK_SECRET: Optional[str] = None  # Not used - kept for backwards compatibility
+    PAYSTACK_WEBHOOK_SECRET: str | None = None  # Not used - kept for backwards compatibility
     PAYSTACK_BASE_URL: str = "https://api.paystack.co"
 
     # Backup Configuration (for database backups)
     ENABLE_CLOUD_BACKUP: bool = False
-    CLOUD_PROVIDER: Optional[str] = None
-    GDRIVE_FOLDER: Optional[str] = None
+    CLOUD_PROVIDER: str | None = None
+    GDRIVE_FOLDER: str | None = None
     RETENTION_DAYS: int = 30
 
     # Production Server
@@ -171,11 +175,11 @@ class Settings(BaseSettings):
     # Security Headers
     ENABLE_HSTS: bool = False
 
-    model_config = ConfigDict(
+    model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=".env",
-        extra="ignore"  # Ignore extra fields in .env (like POSTGRES_*, PGADMIN_*)
+        extra="ignore",  # Ignore extra fields in .env (like POSTGRES_*, PGADMIN_*)
     )
 
 
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]

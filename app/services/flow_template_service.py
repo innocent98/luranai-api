@@ -1,14 +1,13 @@
 """Flow template service for managing and instantiating flow templates."""
 
-from typing import List, Optional
 from uuid import UUID
 
-from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-from app.db.models.flow import Flow, FlowTemplate, FlowStatus, FlowTriggerType
+from app.db.models.flow import Flow, FlowStatus, FlowTemplate, FlowTriggerType
 from app.db.models.tenant import Tenant
-from app.schemas.flow import FlowTemplateResponse, FlowResponse
+from app.schemas.flow import FlowResponse, FlowTemplateResponse
 
 
 class FlowTemplateService:
@@ -19,7 +18,8 @@ class FlowTemplateService:
         "trial": 0,
         "lite": 1,
         "professional": 2,
-        "enterprise": 3,
+        "growth": 3,
+        "enterprise": 4,
     }
 
     def __init__(self, db: Session):
@@ -33,9 +33,9 @@ class FlowTemplateService:
 
     def get_templates(
         self,
-        category: Optional[str] = None,
+        category: str | None = None,
         is_active: bool = True,
-    ) -> List[FlowTemplateResponse]:
+    ) -> list[FlowTemplateResponse]:
         """
         Get list of flow templates with optional filtering.
 
@@ -64,7 +64,7 @@ class FlowTemplateService:
 
         return [FlowTemplateResponse.model_validate(t) for t in templates]
 
-    def get_template(self, template_id: UUID) -> Optional[FlowTemplateResponse]:
+    def get_template(self, template_id: UUID) -> FlowTemplateResponse | None:
         """
         Get a single flow template by ID.
 
@@ -87,8 +87,8 @@ class FlowTemplateService:
         template_id: UUID,
         tenant_id: UUID,
         name: str,
-        description: Optional[str] = None,
-        created_by: Optional[UUID] = None,
+        description: str | None = None,
+        created_by: UUID | None = None,
     ) -> FlowResponse:
         """
         Create a new flow instance from a template.
@@ -121,8 +121,8 @@ class FlowTemplateService:
             raise ValueError("Cannot instantiate from inactive template")
 
         # Get tenant to check subscription tier
-        stmt = select(Tenant).where(Tenant.id == tenant_id)
-        tenant = self.db.execute(stmt).scalar_one_or_none()
+        tenant_stmt = select(Tenant).where(Tenant.id == tenant_id)
+        tenant = self.db.execute(tenant_stmt).scalar_one_or_none()
 
         if not tenant:
             raise ValueError(f"Tenant with ID {tenant_id} not found")

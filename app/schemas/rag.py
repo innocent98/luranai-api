@@ -1,7 +1,5 @@
 """RAG service schemas."""
 
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
 from app.db.models.conversation import EscalationAction
@@ -11,10 +9,10 @@ class EscalationDecision(BaseModel):
     """Decision on whether to escalate conversation."""
 
     action: EscalationAction = Field(..., description="Escalation action to take")
-    reason: Optional[str] = Field(None, description="Reason for escalation decision")
+    reason: str | None = Field(None, description="Reason for escalation decision")
     skip_quality_check: bool = Field(
         default=False,
-        description="If True, skip quality evaluation (e.g., user satisfaction detected)"
+        description="If True, skip quality evaluation (e.g., user satisfaction detected)",
     )
 
 
@@ -33,4 +31,4 @@ class PromptComponents(BaseModel):
     full_prompt: str = Field(..., description="Complete assembled prompt")
     knowledge_chunks_used: int = Field(..., description="Number of knowledge chunks included")
     history_turns_used: int = Field(..., description="Number of conversation turns included")
-    prompt_tokens: Optional[int] = Field(None, description="Accurate token count for prompt")
+    prompt_tokens: int | None = Field(None, description="Accurate token count for prompt")

@@ -5,16 +5,16 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_tenant_admin, get_db
-from app.services.api_key_service import APIKeyService
+from app.api.deps import get_current_tenant_admin, get_db, verify_subscription_active
 from app.schemas.api_key import (
     APIKeyCreate,
     APIKeyCreateResponse,
     APIKeyListResponse,
-    APIKeyUpdate,
     APIKeyResponse,
+    APIKeyUpdate,
 )
 from app.schemas.user import UserResponse
+from app.services.api_key_service import APIKeyService
 
 router = APIRouter()
 
@@ -28,6 +28,7 @@ def create_api_key(
     key_data: APIKeyCreate,
     current_user: UserResponse = Depends(get_current_tenant_admin),
     db: Session = Depends(get_db),
+    _subscription_check: object = Depends(verify_subscription_active),
 ):
     """
     Create a new API key (TENANT_ADMIN only).
@@ -58,7 +59,7 @@ def create_api_key(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create API key: {str(e)}",
-        )
+        ) from e
 
 
 @router.get(

@@ -1,34 +1,51 @@
 """Chat and conversation endpoints."""
 
-from typing import Optional
+from datetime import UTC
+from typing import cast
+from types import SimpleNamespace
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from loguru import logger
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_tenant_admin, get_current_user, get_db, verify_tenant_access, verify_subscription_active
+from app.api.deps import get_current_tenant_admin, get_current_user, get_db, verify_tenant_access
+from app.db.models.conversation import (
+    ConversationSession,
+    EscalationAction,
+    MessageRole,
+    SessionStatus,
+    TicketPriority,
+)
+from app.db.models.flow import Flow, FlowStatus
+from app.db.models.tenant import TenantAIConfig
+from app.schemas.conversation import (
+    ChatResponse,
+    ConversationSessionCreate,
+    ConversationSessionUpdate,
+    MessageRequest,
+    MessageResponse,
+    SessionCreateRequest,
+    SessionDetailResponse,
+    SessionResponse,
+)
+from app.schemas.rag import ResponseQuality
+from app.schemas.tenant import TenantResponse
+from app.schemas.user import UserResponse
 from app.services.conversation_service import ConversationService
+from app.services.flow_engine import FlowEngine
 from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
 from app.services.ticket_service import TicketService
-from app.services.flow_engine import FlowEngine
-from app.schemas.conversation import (
-    SessionResponse,
-    SessionDetailResponse,
-    MessageResponse,
-    MessageRequest,
-    ChatResponse,
-    SessionCreateRequest,
-    ConversationSessionCreate,
-    ConversationSessionUpdate,
-)
-from app.schemas.user import UserResponse
-from app.db.models.conversation import SessionStatus, MessageRole, TicketPriority, EscalationAction
-from app.schemas.rag import EscalationDecision, ResponseQuality, PromptComponents
 from app.utils.http_rate_limiter import chat_rate_limit
 
 router = APIRouter()
+
+SYSTEM_START_TRIGGER = "start"
+FLOW_START_PREFIX = "__flow_start__:"
+TALK_TO_HUMAN_TOKEN = "__talk_to_human__"
+RAG_CHAT_TOKEN = "__rag_chat__"
 
 
 def _generate_ticket_summary(
@@ -54,8 +71,7 @@ def _generate_ticket_summary(
 
     # Get last few user messages to understand the issue progression
     user_messages = [
-        msg.content for msg in conversation_history[-10:]
-        if msg.role == MessageRole.USER
+        msg.content for msg in conversation_history[-10:] if msg.role == MessageRole.USER
     ]
 
     if len(user_messages) > 1:
@@ -76,7 +92,7 @@ def _generate_ticket_summary(
     # Join and truncate
     summary = " | ".join(context_parts)
     if len(summary) > max_length:
-        summary = summary[:max_length - 3] + "..."
+        summary = summary[: max_length - 3] + "..."
 
     return summary
 
@@ -100,9 +116,20 @@ def _determine_ticket_priority(
 
     # URGENT: Critical keywords or explicit escalation
     urgent_keywords = [
-        "urgent", "emergency", "critical", "asap", "immediately",
-        "down", "broken", "not working", "can't access", "cant access",
-        "losing money", "losing customers", "lawsuit", "legal"
+        "urgent",
+        "emergency",
+        "critical",
+        "asap",
+        "immediately",
+        "down",
+        "broken",
+        "not working",
+        "can't access",
+        "cant access",
+        "losing money",
+        "losing customers",
+        "lawsuit",
+        "legal",
     ]
 
     if any(keyword in query_lower for keyword in urgent_keywords):
@@ -146,10 +173,7 @@ async def create_session(
     tenant = tenant_service.get_tenant_by_id(session_data.tenant_id, include_relations=False)
 
     if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tenant not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
     # Convert SessionCreateRequest to ConversationSessionCreate
     session_create = ConversationSessionCreate(
@@ -167,7 +191,7 @@ async def create_session(
     "/message",
     response_model=ChatResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(chat_rate_limit)]
+    dependencies=[Depends(chat_rate_limit)],
 )
 async def send_message(
     message_data: MessageRequest,
@@ -200,30 +224,35 @@ async def send_message(
 
     # Step 1: Get or create session
     session_id = message_data.session_id
+    session: SessionResponse | None
     if not session_id:
         # Create new session if not provided
         if not message_data.tenant_id or not message_data.user_identifier:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="tenant_id and user_identifier are required for new sessions"
+                detail="tenant_id and user_identifier are required for new sessions",
             )
 
         # Check conversation limit before creating new session
         from datetime import datetime, timedelta
+
         capabilities = tenant_service.get_capabilities(message_data.tenant_id)
 
         if capabilities and capabilities.max_conversations_per_month is not None:
             # Get start of current month
-            from datetime import timezone as tz
-            now = datetime.now(tz.utc)
+
+            now = datetime.now(UTC)
             month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
             # Count conversations this month
-            from app.db.models.conversation import ConversationSession
-            monthly_count = db.query(ConversationSession).filter(
-                ConversationSession.tenant_id == message_data.tenant_id,
-                ConversationSession.created_at >= month_start,
-            ).count()
+            monthly_count = (
+                db.query(ConversationSession)
+                .filter(
+                    ConversationSession.tenant_id == message_data.tenant_id,
+                    ConversationSession.created_at >= month_start,
+                )
+                .count()
+            )
 
             # Check limit
             if monthly_count >= capabilities.max_conversations_per_month:
@@ -235,7 +264,7 @@ async def send_message(
                         "current_count": monthly_count,
                         "limit": capabilities.max_conversations_per_month,
                         "resets_at": (month_start + timedelta(days=32)).replace(day=1).isoformat(),
-                    }
+                    },
                 )
 
         # Convert to ConversationSessionCreate
@@ -251,27 +280,27 @@ async def send_message(
         # Verify session exists
         session = conversation_service.get_session(session_id)
         if not session:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Session not found"
-            )
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
         # Auto-reactivate ABANDONED sessions when user returns
         if session.status == SessionStatus.ABANDONED:
             logger.info(f"User returned to abandoned session {session_id}, reactivating...")
             session = conversation_service.update_session(
-                session_id,
-                ConversationSessionUpdate(status=SessionStatus.ACTIVE)
+                session_id, ConversationSessionUpdate(status=SessionStatus.ACTIVE)
             )
             logger.info(f"Session {session_id} reactivated from ABANDONED to ACTIVE")
+
+    session_model = db.execute(
+        select(ConversationSession).where(ConversationSession.id == session_id)
+    ).scalar_one_or_none()
+    if not session_model:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
     # Step 2: Get tenant and AI configuration
     tenant = tenant_service.get_tenant_by_id(session.tenant_id)
     if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tenant not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+    tenant_response = cast(TenantResponse, tenant)
 
     # Check subscription status (trial expiration, etc.)
     tenant_model = tenant_service.get_tenant(session.tenant_id)
@@ -280,8 +309,8 @@ async def send_message(
 
         # Check trial expiration
         if tenant_model.subscription_status == "trialing":
-            from datetime import timezone as tz
-            now = datetime.now(tz.utc)
+
+            now = datetime.now(UTC)
             if tenant_model.trial_ends_at and now > tenant_model.trial_ends_at:
                 # Auto-update status
                 tenant_model.subscription_status = "trial_expired"
@@ -294,7 +323,7 @@ async def send_message(
                         "message": "Your 30-day trial has expired. Please upgrade to continue using Luran.",
                         "trial_ended": tenant_model.trial_ends_at.isoformat(),
                         "upgrade_url": "/dashboard/upgrade",
-                    }
+                    },
                 )
 
         # Check subscription status
@@ -306,30 +335,195 @@ async def send_message(
                     "message": f"Subscription {tenant_model.subscription_status}. Please update payment.",
                     "status": tenant_model.subscription_status,
                     "upgrade_url": "/dashboard/billing",
-                }
+                },
             )
 
     tenant_config = tenant_service.get_ai_config(session.tenant_id)
     if not tenant_config:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Tenant AI configuration not found"
+            detail="Tenant AI configuration not found",
+        )
+    tenant_ai_config = db.execute(
+        select(TenantAIConfig).where(TenantAIConfig.tenant_id == session.tenant_id)
+    ).scalar_one_or_none()
+    if not tenant_ai_config:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Tenant AI configuration not found",
         )
 
     # Step 2.5: Check for Flow Execution (BEFORE storing user message)
     flow_engine = FlowEngine(db)
-    matched_flow = flow_engine.match_flow(message_data.message, session)
+    button_value: str | None = None
+    if isinstance(message_data.metadata, dict):
+        raw_button_value = message_data.metadata.get("button_value")
+        if isinstance(raw_button_value, str) and raw_button_value.strip():
+            button_value = raw_button_value.strip()
+
+    effective_message = button_value or message_data.message
+    effective_message_lower = effective_message.lower().strip()
+    session_meta = dict(session_model.meta or {})
+    rag_only_mode = bool(session_meta.get("rag_only_mode", False))
+
+    # Global start router: if no active execution and at least one active flow,
+    # present flow choices instead of relying on overlapping keywords.
+    forced_flow: Flow | None = None
+    active_exec = flow_engine._get_active_execution(session_model.id)
+    if not active_exec:
+        if effective_message_lower == SYSTEM_START_TRIGGER:
+            router_flows = flow_engine.list_router_flows(session_model.tenant_id)
+            if len(router_flows) >= 1:
+                actions = flow_engine.build_router_actions(router_flows)
+                labels = [action["label"] for action in actions]
+                router_message = conversation_service.add_message(
+                    session_id=session_id,
+                    role=MessageRole.ASSISTANT,
+                    content="How can we help you today? Please choose an option:",
+                    meta={
+                        "flow_router": True,
+                        "flow_triggered": True,
+                        "buttons": labels,
+                        "button_actions": actions,
+                    },
+                )
+                return ChatResponse(
+                    session_id=session_id,
+                    message=router_message,
+                    should_escalate=False,
+                    escalation_reason=None,
+                    ticket_id=None,
+                )
+        elif effective_message_lower.startswith(FLOW_START_PREFIX):
+            selected_flow_id = effective_message.split(":", 1)[-1].strip()
+            try:
+                selected_flow_uuid = UUID(selected_flow_id)
+            except ValueError:
+                selected_flow_uuid = None
+
+            if selected_flow_uuid:
+                forced_flow = db.execute(
+                    select(Flow).where(
+                        Flow.id == selected_flow_uuid,
+                        Flow.tenant_id == session_model.tenant_id,
+                        Flow.is_active.is_(True),
+                        Flow.status == FlowStatus.ACTIVE,
+                    )
+                ).scalar_one_or_none()
+                if forced_flow and rag_only_mode:
+                    session_meta["rag_only_mode"] = False
+                    session_model.meta = session_meta
+                    db.commit()
+        elif effective_message_lower == RAG_CHAT_TOKEN:
+            if not rag_only_mode:
+                session_meta["rag_only_mode"] = True
+                session_model.meta = session_meta
+                db.commit()
+            assistant_message = conversation_service.add_message(
+                session_id=session_id,
+                role=MessageRole.ASSISTANT,
+                content="You are now chatting with our support assistant. Ask me anything.",
+                meta={"flow_router": False, "rag_mode": True},
+            )
+            return ChatResponse(
+                session_id=session_id,
+                message=assistant_message,
+                should_escalate=False,
+                escalation_reason=None,
+                ticket_id=None,
+            )
+
+        elif effective_message_lower == TALK_TO_HUMAN_TOKEN:
+            escalation_reason = "User selected talk to human from start menu"
+            conversation_service.escalate_session(session_id=session_id, reason=escalation_reason)
+            ticket_id = None
+            try:
+                from app.schemas.ticket import TicketCreate
+                from app.db.models.user import User, UserRole
+                from app.utils.email import send_ticket_escalation_email
+
+                ticket_service = TicketService(db)
+                ticket = ticket_service.create_ticket(
+                    TicketCreate(
+                        tenant_id=session.tenant_id,
+                        session_id=session_id,
+                        priority=TicketPriority.HIGH,
+                        summary="User selected Talk to an Agent from flow start menu.",
+                    )
+                )
+                ticket_id = ticket.id
+
+                # Notify support/admin team via email
+                tenant_for_email = tenant_service.get_tenant_by_id(
+                    session.tenant_id, include_relations=False
+                )
+                tenant_name = tenant_for_email.display_name if tenant_for_email else "Unknown"
+                recipients = (
+                    db.query(User)
+                    .filter(
+                        User.tenant_id == session.tenant_id,
+                        User.is_active.is_(True),
+                        User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]),
+                    )
+                    .all()
+                )
+                for recipient in recipients:
+                    try:
+                        await send_ticket_escalation_email(
+                            email_to=recipient.email,
+                            user_name=recipient.full_name,
+                            tenant_name=tenant_name,
+                            ticket_number=ticket.ticket_number,
+                            escalation_reason=escalation_reason,
+                            customer_query=message_data.message,
+                            ticket_priority=TicketPriority.HIGH.value.upper(),
+                            ticket_id=str(ticket.id),
+                        )
+                    except Exception as email_error:
+                        logger.error(f"Router escalation email error for {recipient.email}: {email_error}")
+            except Exception as ticket_error:
+                logger.error(f"Failed to create router escalation ticket: {ticket_error}")
+            assistant_message = conversation_service.add_message(
+                session_id=session_id,
+                role=MessageRole.ASSISTANT,
+                content="I am connecting you with a human support agent now.",
+                meta={"flow_triggered": True, "flow_router": False},
+            )
+            return ChatResponse(
+                session_id=session_id,
+                message=assistant_message,
+                should_escalate=True,
+                escalation_reason=escalation_reason,
+                ticket_id=ticket_id,
+            )
+
+    if rag_only_mode and not forced_flow:
+        matched_flow = None
+    else:
+        matched_flow = forced_flow or flow_engine.match_flow(effective_message, session_model)
 
     if matched_flow:
         logger.info(f"Matched flow: {matched_flow.name} (ID: {matched_flow.id})")
+
+        def _extract_flow_rag(collected_data: dict) -> tuple[list, list]:
+            rag_data = collected_data.get("rag_response") if collected_data else None
+            if isinstance(rag_data, dict) and rag_data.get("chunks"):
+                chunks = [
+                    SimpleNamespace(id=chunk.get("id"), content=chunk.get("content"))
+                    for chunk in rag_data.get("chunks", [])
+                ]
+                scores = rag_data.get("scores", [])
+                return chunks, scores
+            return [], []
 
         # Get or create flow execution
         active_exec = flow_engine._get_active_execution(session.id)
 
         if not active_exec:
             # Start new flow execution
-            from app.db.models.flow import FlowExecution
             from datetime import datetime
+
+            from app.db.models.flow import FlowExecution
 
             active_exec = FlowExecution(
                 flow_id=matched_flow.id,
@@ -345,23 +539,28 @@ async def send_message(
             logger.info(f"Created new flow execution: {active_exec.id}")
 
         # Execute current node
-        flow_result = await flow_engine.execute_node(active_exec, message_data.message)
+        flow_result = await flow_engine.execute_node(active_exec, effective_message)
+        flow_response = None
+        flow_handoff_to_rag = False
 
         if flow_result.get("is_complete"):
             # Flow finished
             if flow_result.get("fallback_to_rag"):
                 # User input didn't match flow expectations, fall through to RAG
                 logger.info("Flow completed with fallback to RAG")
+                flow_handoff_to_rag = True
             elif flow_result.get("should_escalate"):
                 # Flow triggered escalation - store user message first
                 user_message = conversation_service.add_message(
-                    session_id=session_id,
-                    role=MessageRole.USER,
-                    content=message_data.message
+                    session_id=session_id, role=MessageRole.USER, content=message_data.message
                 )
 
-                escalation_reason = flow_result.get("escalation_reason", "Flow triggered escalation")
-                conversation_service.escalate_session(session_id=session_id, reason=escalation_reason)
+                flow_escalation_reason = flow_result.get(
+                    "escalation_reason", "Flow triggered escalation"
+                )
+                conversation_service.escalate_session(
+                    session_id=session_id, reason=flow_escalation_reason
+                )
 
                 # Add flow response message
                 response_message = flow_result.get("message", "Connecting you to an agent...")
@@ -369,29 +568,30 @@ async def send_message(
                     session_id=session_id,
                     role=MessageRole.ASSISTANT,
                     content=response_message,
-                    meta={"flow_triggered": True, "flow_id": str(matched_flow.id)}
+                    meta={"flow_triggered": True, "flow_id": str(matched_flow.id)},
                 )
 
                 # Create ticket
                 ticket_id = None
                 try:
-                    from app.schemas.ticket import TicketCreate
-                    from app.db.models.conversation import TicketPriority
                     from app.db.models.user import UserRole
+                    from app.schemas.ticket import TicketCreate
                     from app.utils.email import send_ticket_escalation_email
 
                     ticket_service = TicketService(db)
-                    conversation_history = conversation_service.get_session_messages(session_id=session_id, limit=20)
+                    conversation_history = conversation_service.get_session_messages(
+                        session_id=session_id, limit=20
+                    )
 
                     summary = _generate_ticket_summary(
                         conversation_history=conversation_history,
-                        escalation_reason=escalation_reason,
+                        escalation_reason=flow_escalation_reason,
                         user_query=message_data.message,
                     )
 
                     priority = _determine_ticket_priority(
                         user_query=message_data.message,
-                        escalation_reason=escalation_reason,
+                        escalation_reason=flow_escalation_reason,
                     )
 
                     ticket_data = TicketCreate(
@@ -405,22 +605,30 @@ async def send_message(
                     logger.info(f"Ticket created from flow: {ticket.ticket_number}")
 
                     # Send email notifications
-                    tenant = tenant_service.get_tenant_by_id(session.tenant_id, include_relations=False)
+                    tenant_for_email = tenant_service.get_tenant_by_id(
+                        session.tenant_id, include_relations=False
+                    )
+                    tenant_name = tenant_for_email.display_name if tenant_for_email else "Unknown"
                     from app.db.models.user import User
-                    notification_recipients = db.query(User).filter(
-                        User.tenant_id == session.tenant_id,
-                        User.is_active == True,
-                        User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT])
-                    ).all()
+
+                    notification_recipients = (
+                        db.query(User)
+                        .filter(
+                            User.tenant_id == session.tenant_id,
+                            User.is_active.is_(True),
+                            User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]),
+                        )
+                        .all()
+                    )
 
                     for recipient in notification_recipients:
                         try:
                             email_sent = await send_ticket_escalation_email(
                                 email_to=recipient.email,
                                 user_name=recipient.full_name,
-                                tenant_name=tenant.display_name,
+                                tenant_name=tenant_name,
                                 ticket_number=ticket.ticket_number,
-                                escalation_reason=escalation_reason,
+                                escalation_reason=flow_escalation_reason,
                                 customer_query=message_data.message,
                                 ticket_priority=priority.value.upper(),
                                 ticket_id=str(ticket.id),
@@ -433,11 +641,11 @@ async def send_message(
                 except Exception as ticket_error:
                     logger.error(f"Failed to create ticket from flow: {ticket_error}")
 
-                return ChatResponse(
+                flow_response = ChatResponse(
                     session_id=session_id,
                     message=assistant_message,
                     should_escalate=True,
-                    escalation_reason=escalation_reason,
+                    escalation_reason=flow_escalation_reason,
                     ticket_id=ticket_id,
                 )
             elif flow_result.get("use_rag_response"):
@@ -445,9 +653,7 @@ async def send_message(
                 if flow_result.get("chunks"):
                     # Store user message first
                     user_message = conversation_service.add_message(
-                        session_id=session_id,
-                        role=MessageRole.USER,
-                        content=message_data.message
+                        session_id=session_id, role=MessageRole.USER, content=message_data.message
                     )
 
                     # Use chunks from flow for AI generation
@@ -459,35 +665,50 @@ async def send_message(
                     flow_rag_chunks = retrieved_chunks
                     flow_rag_scores = similarity_scores
                     logger.info(f"Using RAG chunks from flow: {len(retrieved_chunks)} chunks")
+                    flow_handoff_to_rag = True
                 else:
-                    # END node with use_rag_response but no chunks - fall through to normal RAG
-                    logger.info("Flow completed with use_rag_response flag, continuing to normal RAG")
+                    # Try to use RAG chunks from collected data
+                    flow_rag_chunks, flow_rag_scores = _extract_flow_rag(active_exec.collected_data)
+                    if flow_rag_chunks:
+                        flow_handoff_to_rag = True
+                        logger.info(
+                            f"Using RAG chunks from flow execution: {len(flow_rag_chunks)} chunks"
+                        )
+                    else:
+                        # END node with use_rag_response but no chunks - fall through to normal RAG
+                        logger.info(
+                            "Flow completed with use_rag_response flag, continuing to normal RAG"
+                        )
+                        flow_handoff_to_rag = True
             else:
                 # Flow returned message, store user message and return flow response
                 user_message = conversation_service.add_message(
-                    session_id=session_id,
-                    role=MessageRole.USER,
-                    content=message_data.message
+                    session_id=session_id, role=MessageRole.USER, content=message_data.message
                 )
 
                 assistant_message = conversation_service.add_message(
                     session_id=session_id,
                     role=MessageRole.ASSISTANT,
                     content=flow_result["message"],
-                    meta={"flow_triggered": True, "flow_id": str(matched_flow.id), "flow_completed": True}
+                    meta={
+                        "flow_triggered": True,
+                        "flow_id": str(matched_flow.id),
+                        "flow_completed": True,
+                        "flow_output": flow_result.get("structured_output"),
+                    },
                 )
 
-                return ChatResponse(
+                flow_response = ChatResponse(
                     session_id=session_id,
                     message=assistant_message,
                     should_escalate=False,
+                    escalation_reason=None,
+                    ticket_id=None,
                 )
         else:
             # Flow still running, store user message and return flow message
             user_message = conversation_service.add_message(
-                session_id=session_id,
-                role=MessageRole.USER,
-                content=message_data.message
+                session_id=session_id, role=MessageRole.USER, content=message_data.message
             )
 
             assistant_message = conversation_service.add_message(
@@ -499,7 +720,9 @@ async def send_message(
                     "flow_id": str(matched_flow.id),
                     "flow_node": active_exec.current_node_id,
                     "buttons": flow_result.get("buttons"),
-                }
+                    "button_actions": flow_result.get("button_actions"),
+                    "flow_output": flow_result.get("structured_output"),
+                },
             )
 
             # Check if we should continue execution (for auto-executing nodes)
@@ -518,20 +741,164 @@ async def send_message(
                             "flow_triggered": True,
                             "flow_id": str(matched_flow.id),
                             "flow_node": active_exec.current_node_id,
-                        }
+                            "flow_output": continued_result.get("structured_output"),
+                        },
                     )
                     assistant_message = continued_message
 
-            return ChatResponse(
+                if continued_result.get("should_escalate"):
+                    continued_escalation_reason = continued_result.get(
+                        "escalation_reason", "Flow triggered escalation"
+                    )
+                    conversation_service.escalate_session(
+                        session_id=session_id, reason=continued_escalation_reason
+                    )
+
+                    response_message = continued_result.get(
+                        "message", "Connecting you to an agent..."
+                    )
+                    assistant_message = conversation_service.add_message(
+                        session_id=session_id,
+                        role=MessageRole.ASSISTANT,
+                        content=response_message,
+                        meta={"flow_triggered": True, "flow_id": str(matched_flow.id)},
+                    )
+
+                    # Create ticket
+                    ticket_id = None
+                    try:
+                        from app.db.models.user import UserRole
+                        from app.schemas.ticket import TicketCreate
+                        from app.utils.email import send_ticket_escalation_email
+
+                        ticket_service = TicketService(db)
+                        conversation_history = conversation_service.get_session_messages(
+                            session_id=session_id, limit=20
+                        )
+
+                        summary = _generate_ticket_summary(
+                            conversation_history=conversation_history,
+                            escalation_reason=continued_escalation_reason,
+                            user_query=message_data.message,
+                        )
+
+                        priority = _determine_ticket_priority(
+                            user_query=message_data.message,
+                            escalation_reason=continued_escalation_reason,
+                        )
+
+                        ticket_data = TicketCreate(
+                            tenant_id=session.tenant_id,
+                            session_id=session_id,
+                            priority=priority,
+                            summary=summary,
+                        )
+                        ticket = ticket_service.create_ticket(ticket_data)
+                        ticket_id = ticket.id
+                        logger.info(f"Ticket created from flow: {ticket.ticket_number}")
+
+                        # Send email notifications
+                        tenant_for_email = tenant_service.get_tenant_by_id(
+                            session.tenant_id, include_relations=False
+                        )
+                        tenant_name = (
+                            tenant_for_email.display_name if tenant_for_email else "Unknown"
+                        )
+                        from app.db.models.user import User
+
+                        notification_recipients = (
+                            db.query(User)
+                            .filter(
+                                User.tenant_id == session.tenant_id,
+                                User.is_active.is_(True),
+                                User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]),
+                            )
+                            .all()
+                        )
+
+                        for recipient in notification_recipients:
+                            try:
+                                email_sent = await send_ticket_escalation_email(
+                                    email_to=recipient.email,
+                                    user_name=recipient.full_name,
+                                    tenant_name=tenant_name,
+                                    ticket_number=ticket.ticket_number,
+                                    escalation_reason=continued_escalation_reason,
+                                    customer_query=message_data.message,
+                                    ticket_priority=priority.value.upper(),
+                                    ticket_id=str(ticket.id),
+                                )
+                                if email_sent:
+                                    logger.info(
+                                        f"✓ Flow escalation email sent to {recipient.email}"
+                                    )
+                            except Exception as email_error:
+                                logger.error(f"✗ Email error: {email_error}")
+
+                    except Exception as ticket_error:
+                        logger.error(f"Failed to create ticket from flow: {ticket_error}")
+
+                    return ChatResponse(
+                        session_id=session_id,
+                        message=assistant_message,
+                        should_escalate=True,
+                        escalation_reason=continued_escalation_reason,
+                        ticket_id=ticket_id,
+                    )
+
+                if continued_result.get("use_rag_response"):
+                    flow_rag_chunks, flow_rag_scores = _extract_flow_rag(active_exec.collected_data)
+                    flow_handoff_to_rag = True
+
+            flow_response = ChatResponse(
                 session_id=session_id,
                 message=assistant_message,
                 should_escalate=False,
+                escalation_reason=None,
+                ticket_id=None,
             )
+
+        if flow_response and not flow_handoff_to_rag:
+            return flow_response
+        if flow_handoff_to_rag:
+            logger.info("Flow handed off to RAG pipeline")
+    else:
+        # No flow matched - check if this is a welcome/start trigger
+        # If so, return default welcome message without storing trigger word
+        welcome_triggers = ["start", "hello", "hi", "hey", "welcome", "__init__", "__welcome__"]
+        message_lower = effective_message_lower
+
+        if message_lower in welcome_triggers:
+            logger.info(
+                f"No flow matched welcome trigger '{message_data.message}', returning default welcome"
+            )
+
+            # Return default welcome message without storing the trigger word
+            tenant_for_welcome = tenant_service.get_tenant_by_id(
+                session.tenant_id, include_relations=False
+            )
+            company_name = tenant_for_welcome.display_name if tenant_for_welcome else "our team"
+
+            default_welcome = conversation_service.add_message(
+                session_id=session_id,
+                role=MessageRole.ASSISTANT,
+                content=f"Hi! Welcome to {company_name}. I'm here to help! What can I assist you with today?",
+                meta={"auto_welcome": True, "no_flow_available": True},
+            )
+
+            return ChatResponse(
+                session_id=session_id,
+                message=default_welcome,
+                should_escalate=False,
+                escalation_reason=None,
+                ticket_id=None,
+            )
+        # If not a welcome trigger, continue to normal RAG processing
 
     # Step 3: Check for pending escalation (consent-based escalation)
     session_meta = session.meta or {}
-    pending_escalation = session_meta.get('pending_escalation', False)
-    escalation_context = session_meta.get('escalation_context', {})
+    pending_escalation = session_meta.get("pending_escalation", False)
+    escalation_context = session_meta.get("escalation_context", {})
 
     if pending_escalation:
         # User was asked if they want escalation - check their response
@@ -543,19 +910,21 @@ async def send_message(
 
             # Add user message
             user_message = conversation_service.add_message(
-                session_id=session_id,
-                role=MessageRole.USER,
-                content=message_data.message
+                session_id=session_id, role=MessageRole.USER, content=message_data.message
             )
 
             # Clear pending escalation from session
-            session_meta['pending_escalation'] = False
-            session_meta['escalation_context'] = {}
+            session_meta["pending_escalation"] = False
+            session_meta["escalation_context"] = {}
             conversation_service.update_session_meta(session_id, session_meta)
 
             # Escalate session
-            escalation_reason = escalation_context.get('reason', 'User consented to escalation')
-            conversation_service.escalate_session(session_id=session_id, reason=escalation_reason)
+            consent_escalation_reason = escalation_context.get(
+                "reason", "User consented to escalation"
+            )
+            conversation_service.escalate_session(
+                session_id=session_id, reason=consent_escalation_reason
+            )
 
             # Create ticket (using existing logic below)
             # Add assistant confirmation message
@@ -564,29 +933,30 @@ async def send_message(
                 session_id=session_id,
                 role=MessageRole.ASSISTANT,
                 content=confirmation_text,
-                meta={'escalation_confirmed': True}
+                meta={"escalation_confirmed": True},
             )
 
             # Create ticket (copy logic from below)
             ticket_id = None
             try:
-                from app.schemas.ticket import TicketCreate
-                from app.db.models.conversation import TicketPriority
                 from app.db.models.user import UserRole
+                from app.schemas.ticket import TicketCreate
                 from app.utils.email import send_ticket_escalation_email
 
                 ticket_service = TicketService(db)
-                conversation_history = conversation_service.get_session_messages(session_id=session_id, limit=20)
+                conversation_history = conversation_service.get_session_messages(
+                    session_id=session_id, limit=20
+                )
 
                 summary = _generate_ticket_summary(
                     conversation_history=conversation_history,
-                    escalation_reason=escalation_reason,
-                    user_query=escalation_context.get('original_query', message_data.message),
+                    escalation_reason=consent_escalation_reason,
+                    user_query=escalation_context.get("original_query", message_data.message),
                 )
 
                 priority = _determine_ticket_priority(
-                    user_query=escalation_context.get('original_query', message_data.message),
-                    escalation_reason=escalation_reason,
+                    user_query=escalation_context.get("original_query", message_data.message),
+                    escalation_reason=consent_escalation_reason,
                 )
 
                 ticket_data = TicketCreate(
@@ -600,23 +970,33 @@ async def send_message(
                 logger.info(f"Ticket created: {ticket.ticket_number}")
 
                 # Send email notifications
-                tenant = tenant_service.get_tenant_by_id(session.tenant_id, include_relations=False)
+                tenant_for_email = tenant_service.get_tenant_by_id(
+                    session.tenant_id, include_relations=False
+                )
+                tenant_name = tenant_for_email.display_name if tenant_for_email else "Unknown"
                 from app.db.models.user import User
-                notification_recipients = db.query(User).filter(
-                    User.tenant_id == session.tenant_id,
-                    User.is_active == True,
-                    User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT])
-                ).all()
+
+                notification_recipients = (
+                    db.query(User)
+                    .filter(
+                        User.tenant_id == session.tenant_id,
+                        User.is_active.is_(True),
+                        User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]),
+                    )
+                    .all()
+                )
 
                 for recipient in notification_recipients:
                     try:
                         email_sent = await send_ticket_escalation_email(
                             email_to=recipient.email,
                             user_name=recipient.full_name,
-                            tenant_name=tenant.display_name,
+                            tenant_name=tenant_name,
                             ticket_number=ticket.ticket_number,
-                            escalation_reason=escalation_reason,
-                            customer_query=escalation_context.get('original_query', message_data.message),
+                            escalation_reason=consent_escalation_reason,
+                            customer_query=escalation_context.get(
+                                "original_query", message_data.message
+                            ),
                             ticket_priority=priority.value.upper(),
                             ticket_id=str(ticket.id),
                         )
@@ -632,7 +1012,7 @@ async def send_message(
                 session_id=session_id,
                 message=assistant_message,
                 should_escalate=True,
-                escalation_reason=escalation_reason,
+                escalation_reason=consent_escalation_reason,
                 ticket_id=ticket_id,
             )
 
@@ -641,8 +1021,8 @@ async def send_message(
             logger.info("User declined escalation offer")
 
             # Clear pending escalation
-            session_meta['pending_escalation'] = False
-            session_meta['escalation_context'] = {}
+            session_meta["pending_escalation"] = False
+            session_meta["escalation_context"] = {}
             conversation_service.update_session_meta(session_id, session_meta)
 
             # Check if message is a simple rejection or has additional content
@@ -653,9 +1033,7 @@ async def send_message(
             if is_simple_rejection:
                 # Add user message
                 user_message = conversation_service.add_message(
-                    session_id=session_id,
-                    role=MessageRole.USER,
-                    content=message_data.message
+                    session_id=session_id, role=MessageRole.USER, content=message_data.message
                 )
 
                 # Send acknowledgment
@@ -664,7 +1042,7 @@ async def send_message(
                     session_id=session_id,
                     role=MessageRole.ASSISTANT,
                     content=ack_text,
-                    meta={'escalation_declined': True}
+                    meta={"escalation_declined": True},
                 )
 
                 return ChatResponse(
@@ -677,27 +1055,27 @@ async def send_message(
             else:
                 # Message has additional content - treat as new question
                 # Continue to normal flow below (don't return here)
-                logger.info(f"Rejection contains additional content ({len(message_words)} words), treating as new question")
+                logger.info(
+                    f"Rejection contains additional content ({len(message_words)} words), treating as new question"
+                )
         else:
             # Unclear response - treat as normal question and try to answer
             logger.info("Unclear consent response, treating as new question")
             # Clear pending escalation and continue to normal flow
-            session_meta['pending_escalation'] = False
-            session_meta['escalation_context'] = {}
+            session_meta["pending_escalation"] = False
+            session_meta["escalation_context"] = {}
             conversation_service.update_session_meta(session_id, session_meta)
 
     # Step 4: Add user message to database
     user_message = conversation_service.add_message(
-        session_id=session_id,
-        role=MessageRole.USER,
-        content=message_data.message
+        session_id=session_id, role=MessageRole.USER, content=message_data.message
     )
     logger.info(f"Added user message: {user_message.id}")
 
     try:
         # Step 4: Retrieve relevant knowledge chunks via vector search
         # Check if flow provided RAG chunks
-        if 'flow_rag_chunks' in locals() and flow_rag_chunks:
+        if "flow_rag_chunks" in locals() and flow_rag_chunks:
             retrieved_chunks = flow_rag_chunks
             similarity_scores = flow_rag_scores
             logger.info(f"Using flow-provided RAG chunks: {len(retrieved_chunks)} chunks")
@@ -709,12 +1087,16 @@ async def send_message(
                 max_chunks=5,  # Changed from 3
                 score_threshold=rag_service.MIN_SCORE_THRESHOLD,
             )
-            logger.info(f"Retrieved {len(retrieved_chunks)} chunks with avg similarity: {sum(similarity_scores) / len(similarity_scores):.2f}" if similarity_scores else f"Retrieved {len(retrieved_chunks)} chunks")
+            logger.info(
+                f"Retrieved {len(retrieved_chunks)} chunks with avg similarity: {sum(similarity_scores) / len(similarity_scores):.2f}"
+                if similarity_scores
+                else f"Retrieved {len(retrieved_chunks)} chunks"
+            )
 
         # Step 5: Determine initial escalation strategy
         escalation_decision = rag_service.should_escalate(
             user_query=message_data.message,
-            ai_config=tenant_config,
+            ai_config=tenant_ai_config,
             retrieved_chunks_count=len(retrieved_chunks),
             similarity_scores=similarity_scores,
         )
@@ -723,26 +1105,31 @@ async def send_message(
         # Step 6: Get conversation history for context (needed for ticket creation too)
         conversation_history = conversation_service.get_session_messages(
             session_id=session_id,
-            limit=20  # Last 10 turns (user + assistant) - Increased from 10 for better context
+            limit=20,  # Last 10 turns (user + assistant) - Increased from 10 for better context
         )
 
         # Step 7: Generate AI response based on escalation action
         # Initialize tracking variables
         should_skip_generation = False
         skip_reason = None
+        token_count: int | None = None
 
         if escalation_decision.action == EscalationAction.AUTO_ESCALATE:
             # User explicitly requested human - acknowledge and escalate
             ai_response_text = "Of course! Connecting you with someone from our team now."
             token_count = 0
-            quality = ResponseQuality(is_substantial=True, has_uncertainty=False, word_count=0, char_count=0)
+            quality = ResponseQuality(
+                is_substantial=True, has_uncertainty=False, word_count=0, char_count=0
+            )
             logger.info("Auto-escalating due to user request")
 
         elif escalation_decision.action == EscalationAction.OFFER_ESCALATION:
             # No knowledge available - offer escalation with empowering language
             ai_response_text = "I'd like to help you with that, but to give you the most accurate information, I'd recommend connecting with our support team. They'll have access to the specific details you need. Shall I transfer you to someone who can assist?"
             token_count = 0
-            quality = ResponseQuality(is_substantial=False, has_uncertainty=True, word_count=0, char_count=0)
+            quality = ResponseQuality(
+                is_substantial=False, has_uncertainty=True, word_count=0, char_count=0
+            )
             logger.info("No knowledge available, offering escalation")
 
         else:
@@ -751,22 +1138,24 @@ async def send_message(
             # HARD GATE: Skip generation if similarity too low AND not conversational mode
             # Allow conversational mode even with low/no similarity scores
 
-            if similarity_scores and escalation_decision.reason not in ["conversational_mode", "partial_knowledge_mode"]:
+            if similarity_scores and escalation_decision.reason not in [
+                "conversational_mode",
+                "partial_knowledge_mode",
+            ]:
                 avg_similarity = sum(similarity_scores) / len(similarity_scores)
                 if avg_similarity < rag_service.MIN_RELEVANT_SIMILARITY:
                     should_skip_generation = True
                     skip_reason = f"low_similarity_{avg_similarity:.2f}"
-                    logger.warning(f"Hard gate triggered: avg_similarity={avg_similarity:.2f} < {rag_service.MIN_RELEVANT_SIMILARITY}")
+                    logger.warning(
+                        f"Hard gate triggered: avg_similarity={avg_similarity:.2f} < {rag_service.MIN_RELEVANT_SIMILARITY}"
+                    )
 
             if should_skip_generation:
                 # Don't call AI - return empowering escalation offer
                 ai_response_text = "I'd like to help you with that, but to give you the most accurate information, I'd recommend connecting with our support team. They'll have access to the specific details you need. Shall I transfer you to someone who can assist?"
                 token_count = 0
                 quality = ResponseQuality(
-                    is_substantial=False,
-                    has_uncertainty=True,
-                    word_count=0,
-                    char_count=0
+                    is_substantial=False, has_uncertainty=True, word_count=0, char_count=0
                 )
                 escalation_decision.action = EscalationAction.OFFER_ESCALATION
                 escalation_decision.reason = f"Hard gate: {skip_reason}"
@@ -775,13 +1164,14 @@ async def send_message(
                 # Original generation logic continues
                 logger.info("Generating AI response...")
                 from app.core.config import settings
+
                 prompt_components = rag_service.assemble_prompt(
-                    ai_config=tenant_config,
+                    ai_config=tenant_ai_config,
                     user_query=message_data.message,
                     retrieved_chunks=retrieved_chunks,
                     conversation_history=conversation_history,
-                    company_name=tenant.display_name,
-                    company_description=tenant.description,
+                    company_name=tenant_response.display_name,
+                    company_description=tenant_response.description,
                     max_history_turns=10,  # Increased from 5 to 10 for better conversation continuity
                 )
                 logger.info(
@@ -789,10 +1179,12 @@ async def send_message(
                     f"{prompt_components.history_turns_used} turns"
                 )
 
-                ai_response_text, token_count, is_api_error = await rag_service.generate_ai_response(
-                    prompt=prompt_components,
-                    max_tokens=tenant_config.max_response_tokens,
-                    model_name=settings.OPENAI_LLM_MODEL,
+                ai_response_text, token_count, is_api_error = (
+                    await rag_service.generate_ai_response(
+                        prompt=prompt_components,
+                        max_tokens=tenant_ai_config.max_response_tokens,
+                        model_name=settings.OPENAI_LLM_MODEL,
+                    )
                 )
 
                 # Log detailed token usage
@@ -810,7 +1202,9 @@ async def send_message(
                 # If API error, don't evaluate quality or offer escalation
                 if is_api_error:
                     logger.error("API error occurred, returning error message without escalation")
-                    quality = ResponseQuality(is_substantial=False, has_uncertainty=True, word_count=0, char_count=0)
+                    quality = ResponseQuality(
+                        is_substantial=False, has_uncertainty=True, word_count=0, char_count=0
+                    )
                 else:
                     # Evaluate response quality - skip if satisfaction detected
                     if not escalation_decision.skip_quality_check:
@@ -830,30 +1224,51 @@ async def send_message(
                     else:
                         # Satisfaction detected - skip quality check
                         logger.info("Skipping quality check (satisfaction detected)")
-                        quality = ResponseQuality(is_substantial=True, has_uncertainty=False, word_count=len(ai_response_text.split()), char_count=len(ai_response_text))
+                        quality = ResponseQuality(
+                            is_substantial=True,
+                            has_uncertainty=False,
+                            word_count=len(ai_response_text.split()),
+                            char_count=len(ai_response_text),
+                        )
 
         # Step 8: Save assistant message
+        retrieved_chunk_ids: list[UUID] = []
+        for chunk in retrieved_chunks:
+            try:
+                retrieved_chunk_ids.append(UUID(str(chunk.id)))
+            except Exception:
+                continue
         assistant_message = conversation_service.add_message(
             session_id=session_id,
             role=MessageRole.ASSISTANT,
             content=ai_response_text,
-            retrieved_chunk_ids=[str(chunk.id) for chunk in retrieved_chunks],
+            retrieved_chunk_ids=retrieved_chunk_ids,
             token_count=token_count,
             meta={
-                'chunks_used': len(retrieved_chunks),
-                'escalation_action': escalation_decision.action.value,
-                'response_quality': {
-                    'is_substantial': quality.is_substantial,
-                    'has_uncertainty': quality.has_uncertainty,
-                    'word_count': quality.word_count,
-                    'char_count': quality.char_count,
+                "chunks_used": len(retrieved_chunks),
+                "escalation_action": escalation_decision.action.value,
+                "response_quality": {
+                    "is_substantial": quality.is_substantial,
+                    "has_uncertainty": quality.has_uncertainty,
+                    "word_count": quality.word_count,
+                    "char_count": quality.char_count,
                 },
-                'token_breakdown': {
-                    'prompt_tokens': prompt_components.prompt_tokens if hasattr(prompt_components, 'prompt_tokens') else 0,
-                    'completion_tokens': token_count - prompt_components.prompt_tokens if token_count and hasattr(prompt_components, 'prompt_tokens') and prompt_components.prompt_tokens else 0,
-                    'total_tokens': token_count,
-                }
-            }
+                "token_breakdown": {
+                    "prompt_tokens": (
+                        prompt_components.prompt_tokens
+                        if hasattr(prompt_components, "prompt_tokens")
+                        else 0
+                    ),
+                    "completion_tokens": (
+                        token_count - prompt_components.prompt_tokens
+                        if token_count
+                        and hasattr(prompt_components, "prompt_tokens")
+                        and prompt_components.prompt_tokens
+                        else 0
+                    ),
+                    "total_tokens": token_count,
+                },
+            },
         )
         logger.info(f"Saved assistant message: {assistant_message.id}")
 
@@ -874,14 +1289,15 @@ async def send_message(
         # Step 9: Handle escalation based on action
         ticket_id = None
         should_escalate = False
+        escalation_reason: str | None = None
 
         if escalation_decision.action == EscalationAction.OFFER_ESCALATION:
             # Store pending escalation in session meta (wait for user consent)
             session_meta = session.meta or {}
-            session_meta['pending_escalation'] = True
-            session_meta['escalation_context'] = {
-                'reason': escalation_decision.reason,
-                'original_query': message_data.message,
+            session_meta["pending_escalation"] = True
+            session_meta["escalation_context"] = {
+                "reason": escalation_decision.reason,
+                "original_query": message_data.message,
             }
             conversation_service.update_session_meta(session_id, session_meta)
             logger.info("Pending escalation stored, waiting for user consent")
@@ -890,16 +1306,16 @@ async def send_message(
             # User explicitly requested human or critical keyword detected - escalate immediately
             should_escalate = True
             logger.info("Auto-escalating: Creating ticket...")
+            escalation_reason = escalation_decision.reason or "Escalation requested"
             conversation_service.escalate_session(
                 session_id=session_id,
-                reason=escalation_decision.reason,
+                reason=escalation_reason,
             )
 
             # Create support ticket
             try:
-                from app.schemas.ticket import TicketCreate
-                from app.db.models.conversation import TicketPriority
                 from app.db.models.user import UserRole
+                from app.schemas.ticket import TicketCreate
                 from app.utils.email import send_ticket_escalation_email
 
                 ticket_service = TicketService(db)
@@ -907,14 +1323,14 @@ async def send_message(
                 # Generate smart summary from conversation
                 summary = _generate_ticket_summary(
                     conversation_history=conversation_history,
-                    escalation_reason=escalation_decision.reason,
+                    escalation_reason=escalation_reason,
                     user_query=message_data.message,
                 )
 
                 # Determine priority based on keywords and escalation reason
                 priority = _determine_ticket_priority(
                     user_query=message_data.message,
-                    escalation_reason=escalation_decision.reason,
+                    escalation_reason=escalation_reason,
                 )
 
                 # Create ticket
@@ -930,15 +1346,23 @@ async def send_message(
                 logger.info(f"Ticket created: {ticket.ticket_number} with {priority} priority")
 
                 # Send email notifications to tenant admins and support agents
-                tenant = tenant_service.get_tenant_by_id(session.tenant_id, include_relations=False)
+                tenant_for_email = tenant_service.get_tenant_by_id(
+                    session.tenant_id, include_relations=False
+                )
+                tenant_name = tenant_for_email.display_name if tenant_for_email else "Unknown"
 
                 # Get all tenant admins and support agents
                 from app.db.models.user import User
-                notification_recipients = db.query(User).filter(
-                    User.tenant_id == session.tenant_id,
-                    User.is_active == True,
-                    User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT])
-                ).all()
+
+                notification_recipients = (
+                    db.query(User)
+                    .filter(
+                        User.tenant_id == session.tenant_id,
+                        User.is_active.is_(True),
+                        User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]),
+                    )
+                    .all()
+                )
 
                 # Send email to each recipient
                 for recipient in notification_recipients:
@@ -946,20 +1370,26 @@ async def send_message(
                         email_sent = await send_ticket_escalation_email(
                             email_to=recipient.email,
                             user_name=recipient.full_name,
-                            tenant_name=tenant.display_name,
+                            tenant_name=tenant_name,
                             ticket_number=ticket.ticket_number,
-                            escalation_reason=escalation_decision.reason,
+                            escalation_reason=escalation_reason,
                             customer_query=message_data.message,
                             ticket_priority=priority.value.upper(),
                             ticket_id=str(ticket.id),
                         )
                         if email_sent:
-                            logger.info(f"✓ Escalation email sent successfully to {recipient.email}")
+                            logger.info(
+                                f"✓ Escalation email sent successfully to {recipient.email}"
+                            )
                         else:
-                            logger.error(f"✗ Failed to send escalation email to {recipient.email} (check email configuration and logs above)")
+                            logger.error(
+                                f"✗ Failed to send escalation email to {recipient.email} (check email configuration and logs above)"
+                            )
                     except Exception as email_error:
                         # Log but don't fail ticket creation if email fails
-                        logger.error(f"✗ Exception sending escalation email to {recipient.email}: {email_error}")
+                        logger.error(
+                            f"✗ Exception sending escalation email to {recipient.email}: {email_error}"
+                        )
 
             except Exception as ticket_error:
                 logger.error(f"Failed to create ticket or send notifications: {ticket_error}")
@@ -970,7 +1400,7 @@ async def send_message(
             session_id=session_id,
             message=assistant_message,
             should_escalate=should_escalate,
-            escalation_reason=escalation_decision.reason if should_escalate else None,
+            escalation_reason=escalation_reason if should_escalate else None,
             ticket_id=ticket_id,
         )
 
@@ -982,7 +1412,7 @@ async def send_message(
             session_id=session_id,
             role=MessageRole.ASSISTANT,
             content="I apologize, but I'm having trouble processing your request. Please try again or contact support.",
-            meta={'error': str(e)}
+            meta={"error": str(e)},
         )
 
         return ChatResponse(
@@ -990,6 +1420,7 @@ async def send_message(
             message=error_message,
             should_escalate=True,
             escalation_reason="System error during processing",
+            ticket_id=None,
         )
 
 
@@ -1033,7 +1464,7 @@ def get_session(
 )
 def list_tenant_sessions(
     tenant_id: UUID,
-    status_filter: Optional[SessionStatus] = Query(None, description="Filter by status"),
+    status_filter: SessionStatus | None = Query(None, description="Filter by status"),
     limit: int = Query(100, ge=1, le=500, description="Maximum sessions to return"),
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_tenant_admin),
@@ -1069,7 +1500,7 @@ def list_tenant_sessions(
 )
 def get_session_messages(
     session_id: UUID,
-    limit: Optional[int] = Query(None, ge=1, le=500, description="Limit number of messages"),
+    limit: int | None = Query(None, ge=1, le=500, description="Limit number of messages"),
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_tenant_admin),
 ):
@@ -1126,8 +1557,8 @@ async def agent_takeover(
     Returns:
         Updated session with agent assignment
     """
-    from app.db.models.user import UserRole
     from app.core.websocket import connection_manager
+    from app.db.models.user import UserRole
 
     conversation_service = ConversationService(db)
 
@@ -1154,19 +1585,22 @@ async def agent_takeover(
 
     # If there's an associated ticket, assign it to the agent too
     from app.db.models.conversation import Ticket
-    ticket = db.query(Ticket).filter(
-        Ticket.session_id == session_id
-    ).order_by(Ticket.created_at.desc()).first()
+
+    ticket = (
+        db.query(Ticket)
+        .filter(Ticket.session_id == session_id)
+        .order_by(Ticket.created_at.desc())
+        .first()
+    )
 
     if ticket:
-        from app.services.ticket_service import TicketService
         from app.schemas.ticket import TicketAssign
+        from app.services.ticket_service import TicketService
 
         ticket_service = TicketService(db)
         try:
             ticket_service.assign_ticket(
-                ticket_id=ticket.id,
-                assign_data=TicketAssign(assigned_to=current_user.id)
+                ticket_id=ticket.id, assign_data=TicketAssign(assigned_to=current_user.id)
             )
             logger.info(f"Assigned ticket {ticket.ticket_number} to agent {current_user.full_name}")
         except ValueError as e:
@@ -1177,7 +1611,7 @@ async def agent_takeover(
         session_id=session_id,
         role=MessageRole.SYSTEM,
         content=f"{current_user.full_name} joined the conversation",
-        meta={"event": "agent_joined", "agent_id": str(current_user.id)}
+        meta={"event": "agent_joined", "agent_id": str(current_user.id)},
     )
 
     # Broadcast to customer via WebSocket
@@ -1187,8 +1621,12 @@ async def agent_takeover(
             "type": "agent_joined",
             "agent_name": current_user.full_name,
             "agent_id": str(current_user.id),
-            "timestamp": updated_session.agent_joined_at.isoformat() if updated_session.agent_joined_at else None,
-        }
+            "timestamp": (
+                updated_session.agent_joined_at.isoformat()
+                if updated_session.agent_joined_at
+                else None
+            ),
+        },
     )
 
     logger.info(f"Agent {current_user.full_name} took over session {session_id}")
@@ -1227,8 +1665,8 @@ async def send_agent_message(
     Returns:
         Created message
     """
-    from app.db.models.user import UserRole
     from app.core.websocket import connection_manager
+    from app.db.models.user import UserRole
 
     conversation_service = ConversationService(db)
 
@@ -1250,12 +1688,14 @@ async def send_agent_message(
     # Create message
     message = conversation_service.add_message(
         session_id=session_id,
-        role=MessageRole.HUMAN_AGENT,
+        # DB enum currently stores lower-case human_agent while user/assistant/system
+        # are upper-case. Send explicit value to avoid enum-name mismatch.
+        role=MessageRole.HUMAN_AGENT.value,  # type: ignore[arg-type]
         content=message_data.message,
         meta={
             "agent_id": str(current_user.id),
             "agent_name": current_user.full_name,
-        }
+        },
     )
 
     # Broadcast to customer via WebSocket
@@ -1267,7 +1707,7 @@ async def send_agent_message(
             "content": message.content,
             "agent_name": current_user.full_name,
             "timestamp": message.created_at.isoformat(),
-        }
+        },
     )
 
     # Broadcast to other agents via WebSocket

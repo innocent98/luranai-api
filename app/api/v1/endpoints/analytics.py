@@ -1,27 +1,28 @@
 """Analytics endpoints."""
 
 from datetime import datetime
-from typing import Optional, List
+from typing import cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_current_tenant_admin, get_db, verify_tenant_access
-from app.services.analytics_service import AnalyticsService
-from app.services.tenant_service import TenantService
+from app.api.deps import get_current_tenant_admin, get_current_user, get_db
+from app.db.models.conversation import SessionStatus, TicketPriority, TicketStatus
+from app.db.models.user import UserRole
 from app.schemas.analytics import (
-    AnalyticsOverviewResponse,
-    ConversationMetricsResponse,
-    TicketMetricsResponse,
     AgentPerformanceResponse,
     AgentSummaryResponse,
-    TrendResponse,
+    AnalyticsOverviewResponse,
+    ConversationMetricsResponse,
     KnowledgeUsageResponse,
+    TicketMetricsResponse,
+    TrendResponse,
 )
+from app.schemas.tenant import TenantResponse
 from app.schemas.user import UserResponse
-from app.db.models.conversation import SessionStatus, TicketStatus, TicketPriority
-from app.db.models.user import UserRole
+from app.services.analytics_service import AnalyticsService
+from app.services.tenant_service import TenantService
 
 router = APIRouter()
 
@@ -41,9 +42,9 @@ def check_analytics_permission(db: Session, tenant_id: UUID) -> None:
     tenant = tenant_service.get_tenant_by_id(tenant_id, include_relations=True)
 
     if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    tenant = cast(TenantResponse, tenant)
 
     if not tenant.capabilities or not tenant.capabilities.can_access_analytics:
         raise HTTPException(
@@ -54,8 +55,8 @@ def check_analytics_permission(db: Session, tenant_id: UUID) -> None:
 
 @router.get("/overview", response_model=AnalyticsOverviewResponse, status_code=status.HTTP_200_OK)
 def get_analytics_overview(
-    start_date: Optional[datetime] = Query(None, description="Start date for analytics period"),
-    end_date: Optional[datetime] = Query(None, description="End date for analytics period"),
+    start_date: datetime | None = Query(None, description="Start date for analytics period"),
+    end_date: datetime | None = Query(None, description="End date for analytics period"),
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
@@ -97,9 +98,9 @@ def get_analytics_overview(
     status_code=status.HTTP_200_OK,
 )
 def get_conversation_analytics(
-    start_date: Optional[datetime] = Query(None, description="Start date for analytics period"),
-    end_date: Optional[datetime] = Query(None, description="End date for analytics period"),
-    status_filter: Optional[SessionStatus] = Query(None, description="Filter by session status"),
+    start_date: datetime | None = Query(None, description="Start date for analytics period"),
+    end_date: datetime | None = Query(None, description="End date for analytics period"),
+    status_filter: SessionStatus | None = Query(None, description="Filter by session status"),
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
@@ -136,12 +137,10 @@ def get_conversation_analytics(
 
 @router.get("/tickets", response_model=TicketMetricsResponse, status_code=status.HTTP_200_OK)
 def get_ticket_analytics(
-    start_date: Optional[datetime] = Query(None, description="Start date for analytics period"),
-    end_date: Optional[datetime] = Query(None, description="End date for analytics period"),
-    status_filter: Optional[TicketStatus] = Query(None, description="Filter by ticket status"),
-    priority_filter: Optional[TicketPriority] = Query(
-        None, description="Filter by ticket priority"
-    ),
+    start_date: datetime | None = Query(None, description="Start date for analytics period"),
+    end_date: datetime | None = Query(None, description="End date for analytics period"),
+    status_filter: TicketStatus | None = Query(None, description="Filter by ticket status"),
+    priority_filter: TicketPriority | None = Query(None, description="Filter by ticket priority"),
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
@@ -177,12 +176,10 @@ def get_ticket_analytics(
     )
 
 
-@router.get(
-    "/agents", response_model=List[AgentSummaryResponse], status_code=status.HTTP_200_OK
-)
+@router.get("/agents", response_model=list[AgentSummaryResponse], status_code=status.HTTP_200_OK)
 def get_all_agents_performance(
-    start_date: Optional[datetime] = Query(None, description="Start date for analytics period"),
-    end_date: Optional[datetime] = Query(None, description="End date for analytics period"),
+    start_date: datetime | None = Query(None, description="Start date for analytics period"),
+    end_date: datetime | None = Query(None, description="End date for analytics period"),
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_tenant_admin),
 ):
@@ -221,8 +218,8 @@ def get_all_agents_performance(
 )
 def get_agent_performance(
     agent_id: UUID,
-    start_date: Optional[datetime] = Query(None, description="Start date for analytics period"),
-    end_date: Optional[datetime] = Query(None, description="End date for analytics period"),
+    start_date: datetime | None = Query(None, description="Start date for analytics period"),
+    end_date: datetime | None = Query(None, description="End date for analytics period"),
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):
@@ -266,15 +263,13 @@ def get_agent_performance(
     try:
         return analytics_service.get_agent_performance(tenant_id, agent_id, start_date, end_date)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
-@router.get(
-    "/trends/conversations", response_model=TrendResponse, status_code=status.HTTP_200_OK
-)
+@router.get("/trends/conversations", response_model=TrendResponse, status_code=status.HTTP_200_OK)
 def get_conversation_trends(
-    start_date: Optional[datetime] = Query(None, description="Start date for analytics period"),
-    end_date: Optional[datetime] = Query(None, description="End date for analytics period"),
+    start_date: datetime | None = Query(None, description="Start date for analytics period"),
+    end_date: datetime | None = Query(None, description="End date for analytics period"),
     granularity: str = Query(
         "daily",
         regex="^(daily|weekly|monthly)$",
@@ -314,8 +309,8 @@ def get_conversation_trends(
 
 @router.get("/trends/tickets", response_model=TrendResponse, status_code=status.HTTP_200_OK)
 def get_ticket_trends(
-    start_date: Optional[datetime] = Query(None, description="Start date for analytics period"),
-    end_date: Optional[datetime] = Query(None, description="End date for analytics period"),
+    start_date: datetime | None = Query(None, description="Start date for analytics period"),
+    end_date: datetime | None = Query(None, description="End date for analytics period"),
     granularity: str = Query(
         "daily",
         regex="^(daily|weekly|monthly)$",
@@ -355,8 +350,8 @@ def get_ticket_trends(
 
 @router.get("/knowledge", response_model=KnowledgeUsageResponse, status_code=status.HTTP_200_OK)
 def get_knowledge_analytics(
-    start_date: Optional[datetime] = Query(None, description="Start date for analytics period"),
-    end_date: Optional[datetime] = Query(None, description="End date for analytics period"),
+    start_date: datetime | None = Query(None, description="Start date for analytics period"),
+    end_date: datetime | None = Query(None, description="End date for analytics period"),
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
 ):

@@ -1,0 +1,87 @@
+LURAN FILE UPLOAD AND STORAGE LIMITS (IMPLEMENTATION-ALIGNED)
+
+Last verified against code: February 10, 2026
+Primary sources: app/api/v1/endpoints/knowledge_upload.py,
+app/utils/chunking.py, app/services/knowledge_service.py, app/services/rag_service.py
+
+================================================================================
+SUPPORTED FILES
+================================================================================
+
+Supported extensions for direct upload:
+- .txt
+- .md
+- .pdf
+- .docx
+
+Upload limits:
+- Max file size: 10 MB per file
+- Empty files are rejected
+- Files with less than 10 extracted characters are rejected
+
+Text extraction behavior:
+- .txt / .md: UTF-8 first, fallback to Latin-1
+- .pdf: PyPDF2 extraction
+- .docx: python-docx extraction
+
+================================================================================
+STORAGE LIMITS
+================================================================================
+
+Storage is measured in MB and enforced per tenant capabilities.
+Current default limits by plan:
+- trial: 10 MB
+- lite: 50 MB
+- professional: 200 MB
+- growth: 500 MB
+- enterprise: unlimited
+
+Knowledge source count is also enforced separately (plan-dependent).
+
+What counts toward storage:
+- Uploaded file sources
+- URL-scraped sources
+- Active + processing sources
+
+What does not count toward this storage limit:
+- Conversation message records
+- Widget configuration
+- Team users
+
+================================================================================
+CHUNKING + RETRIEVAL
+================================================================================
+
+Chunking defaults (TextChunker):
+- chunk_size: 250 tokens
+- chunk_overlap: 50 tokens
+- min_chunk_size: 60 tokens
+
+RAG retrieval/runtime defaults:
+- retrieve up to 5 chunks from vector search
+- chunk compression target: up to ~900 chars per chunk in prompt context
+- model defaults:
+  - embedding: text-embedding-3-small
+  - LLM: gpt-4o-mini
+
+================================================================================
+WHEN LIMITS ARE EXCEEDED
+================================================================================
+
+If file size > 10 MB:
+- Request is rejected with 413
+
+If storage limit is exceeded:
+- Request is rejected with 403
+- Response includes current usage and limit values
+
+If knowledge source count limit is exceeded:
+- Request is rejected with 403
+
+================================================================================
+OPERATIONAL NOTES
+================================================================================
+
+- Uploaded documents are processed asynchronously by background jobs.
+- A source can be PROCESSING, ACTIVE, FAILED, or INACTIVE.
+- Deleting a source deactivates chunks and removes related vectors from Qdrant.

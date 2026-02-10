@@ -1,29 +1,30 @@
 """Review and rating Pydantic schemas."""
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from app.db.models.review import FeedbackCategory
 
-
 # ===== Session Rating Schemas =====
+
 
 class SessionRatingBase(BaseModel):
     """Base session rating schema."""
 
     score: int = Field(..., ge=1, le=5, description="Rating score 1-5")
-    comment: Optional[str] = Field(None, max_length=2000, description="Optional feedback comment")
-    meta: Optional[dict] = Field(None, description="Additional context")
+    comment: str | None = Field(None, max_length=2000, description="Optional feedback comment")
+    meta: dict | None = Field(None, description="Additional context")
 
 
 class SessionRatingCreate(SessionRatingBase):
     """Schema for creating a session rating (public endpoint)."""
 
     session_id: UUID = Field(..., description="Conversation session ID")
-    user_identifier: str = Field(..., min_length=1, max_length=255, description="User identifier for verification")
+    user_identifier: str = Field(
+        ..., min_length=1, max_length=255, description="User identifier for verification"
+    )
 
 
 class SessionRatingResponse(SessionRatingBase):
@@ -44,25 +45,30 @@ class SessionRatingListResponse(BaseModel):
 
     ratings: list[SessionRatingResponse]
     total: int
-    average_score: Optional[float] = Field(None, description="Average rating score")
+    average_score: float | None = Field(None, description="Average rating score")
     page: int
     page_size: int
 
 
 # ===== Platform Feedback Schemas =====
 
+
 class PlatformFeedbackBase(BaseModel):
     """Base platform feedback schema."""
 
     category: FeedbackCategory = Field(..., description="Feedback category")
-    satisfaction_score: Optional[int] = Field(None, ge=1, le=5, description="1-5 rating (for platform_satisfaction)")
+    satisfaction_score: int | None = Field(
+        None, ge=1, le=5, description="1-5 rating (for platform_satisfaction)"
+    )
     title: str = Field(..., min_length=1, max_length=500, description="Feedback title/summary")
-    description: str = Field(..., min_length=1, max_length=10000, description="Detailed feedback description")
-    meta: Optional[dict] = Field(None, description="Additional context")
+    description: str = Field(
+        ..., min_length=1, max_length=10000, description="Detailed feedback description"
+    )
+    meta: dict | None = Field(None, description="Additional context")
 
     @field_validator("satisfaction_score")
     @classmethod
-    def validate_satisfaction_score(cls, v: Optional[int], info) -> Optional[int]:
+    def validate_satisfaction_score(cls, v: int | None, info: ValidationInfo) -> int | None:
         """Ensure satisfaction_score is only set for platform_satisfaction category."""
         if v is not None and v < 1 or (v is not None and v > 5):
             raise ValueError("satisfaction_score must be between 1 and 5")
@@ -80,8 +86,8 @@ class PlatformFeedbackUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Optional[str] = Field(None, pattern="^(open|acknowledged|in_progress|resolved|closed)$")
-    meta: Optional[dict] = None
+    status: str | None = Field(None, pattern="^(open|acknowledged|in_progress|resolved|closed)$")
+    meta: dict | None = None
 
 
 class PlatformFeedbackResponse(PlatformFeedbackBase):
@@ -92,7 +98,7 @@ class PlatformFeedbackResponse(PlatformFeedbackBase):
     id: UUID
     tenant_id: UUID
     status: str
-    submitted_by: Optional[UUID] = None
+    submitted_by: UUID | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -108,24 +114,29 @@ class PlatformFeedbackListResponse(BaseModel):
 
 # ===== Public Landing Page Feedback Schemas =====
 
+
 class PublicFeedbackCreate(BaseModel):
     """Schema for creating public feedback from landing page (no authentication)."""
 
     category: FeedbackCategory = Field(..., description="Feedback category")
-    satisfaction_score: Optional[int] = Field(None, ge=1, le=5, description="1-5 rating (optional)")
+    satisfaction_score: int | None = Field(None, ge=1, le=5, description="1-5 rating (optional)")
     title: str = Field(..., min_length=1, max_length=500, description="Feedback title/summary")
-    description: str = Field(..., min_length=1, max_length=10000, description="Detailed feedback description")
+    description: str = Field(
+        ..., min_length=1, max_length=10000, description="Detailed feedback description"
+    )
 
     # Optional contact information for follow-up
-    name: Optional[str] = Field(None, max_length=255, description="Submitter name (optional)")
-    email: Optional[str] = Field(None, max_length=255, description="Contact email (optional)")
-    company: Optional[str] = Field(None, max_length=255, description="Company name (optional)")
+    name: str | None = Field(None, max_length=255, description="Submitter name (optional)")
+    email: str | None = Field(None, max_length=255, description="Contact email (optional)")
+    company: str | None = Field(None, max_length=255, description="Company name (optional)")
 
-    meta: Optional[dict] = Field(None, description="Additional context (e.g., referral source, page URL)")
+    meta: dict | None = Field(
+        None, description="Additional context (e.g., referral source, page URL)"
+    )
 
     @field_validator("satisfaction_score")
     @classmethod
-    def validate_satisfaction_score(cls, v: Optional[int]) -> Optional[int]:
+    def validate_satisfaction_score(cls, v: int | None) -> int | None:
         """Validate satisfaction score range."""
         if v is not None and (v < 1 or v > 5):
             raise ValueError("satisfaction_score must be between 1 and 5")
@@ -139,14 +150,14 @@ class PublicFeedbackResponse(BaseModel):
 
     id: UUID
     category: FeedbackCategory
-    satisfaction_score: Optional[int]
+    satisfaction_score: int | None
     title: str
     description: str
-    name: Optional[str]
-    email: Optional[str]
-    company: Optional[str]
+    name: str | None
+    email: str | None
+    company: str | None
     status: str
-    meta: Optional[dict]
+    meta: dict | None
     created_at: datetime
     updated_at: datetime
 

@@ -2,14 +2,19 @@
 
 import enum
 import uuid
-from typing import Optional
-
 from datetime import datetime
-from sqlalchemy import Boolean, Float, Integer, JSON, String, Text, Enum as SQLEnum, DateTime
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import ForeignKey
+from typing import TYPE_CHECKING, Optional
 
-from app.db.base import Base, UUIDMixin, TimestampMixin
+from sqlalchemy import JSON, Boolean, DateTime
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import Float, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.base import Base, TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from app.db.models.payment import PaymentTransaction
+    from app.db.models.processing_job import ProcessingJob
 
 
 class TenantStatus(str, enum.Enum):
@@ -41,7 +46,7 @@ class Tenant(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Human-readable name (e.g., 'Weysure Insurance')",
     )
-    description: Mapped[Optional[str]] = mapped_column(
+    description: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
         comment="Brief description of the product/tenant",
@@ -59,30 +64,30 @@ class Tenant(Base, UUIDMixin, TimestampMixin):
     )
 
     # Widget Configuration
-    widget_primary_color: Mapped[Optional[str]] = mapped_column(
+    widget_primary_color: Mapped[str | None] = mapped_column(
         String(7),
         nullable=True,
         default="#2563eb",
         comment="Primary color for widget (hex format)",
     )
-    widget_accent_color: Mapped[Optional[str]] = mapped_column(
+    widget_accent_color: Mapped[str | None] = mapped_column(
         String(7),
         nullable=True,
         default="#10b981",
         comment="Accent color for widget (hex format)",
     )
-    widget_logo_url: Mapped[Optional[str]] = mapped_column(
+    widget_logo_url: Mapped[str | None] = mapped_column(
         String(500),
         nullable=True,
         comment="URL to company logo for widget",
     )
-    widget_greeting_message: Mapped[Optional[str]] = mapped_column(
+    widget_greeting_message: Mapped[str | None] = mapped_column(
         String(500),
         nullable=True,
         default="Hi! How can we help you today?",
         comment="Greeting message shown in widget",
     )
-    widget_position: Mapped[Optional[str]] = mapped_column(
+    widget_position: Mapped[str | None] = mapped_column(
         String(20),
         nullable=True,
         default="bottom-right",
@@ -116,23 +121,23 @@ class Tenant(Base, UUIDMixin, TimestampMixin):
         index=True,
         comment="Status: trialing, active, past_due, canceled, trial_expired",
     )
-    billing_cycle: Mapped[Optional[str]] = mapped_column(
+    billing_cycle: Mapped[str | None] = mapped_column(
         String(20),
         nullable=True,
         comment="Billing cycle: monthly, annual (null for trial)",
     )
-    trial_ends_at: Mapped[Optional[datetime]] = mapped_column(
+    trial_ends_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         index=True,
         comment="When 30-day trial expires (set on signup)",
     )
-    subscription_starts_at: Mapped[Optional[datetime]] = mapped_column(
+    subscription_starts_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         comment="When paid subscription started",
     )
-    subscription_ends_at: Mapped[Optional[datetime]] = mapped_column(
+    subscription_ends_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         comment="When subscription ends (canceled or expired)",
@@ -193,12 +198,12 @@ class TenantAIConfig(Base, UUIDMixin, TimestampMixin):
     )
 
     # Topic Control
-    allowed_topics: Mapped[Optional[list]] = mapped_column(
+    allowed_topics: Mapped[list | None] = mapped_column(
         JSON,
         nullable=True,
         comment="Array of allowed topics (null = all topics allowed)",
     )
-    blocked_topics: Mapped[Optional[list]] = mapped_column(
+    blocked_topics: Mapped[list | None] = mapped_column(
         JSON,
         nullable=True,
         comment="Array of topics to avoid",
@@ -233,7 +238,7 @@ class TenantAIConfig(Base, UUIDMixin, TimestampMixin):
     )
 
     # Custom Instructions
-    custom_instructions: Mapped[Optional[str]] = mapped_column(
+    custom_instructions: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
         comment="Additional prompt instructions specific to this tenant",
@@ -293,14 +298,14 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Maximum knowledge base storage in MB",
     )
-    max_conversations_per_month: Mapped[Optional[int]] = mapped_column(
+    max_conversations_per_month: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
         comment="Monthly conversation limit (null = unlimited)",
     )
 
     # Combined Knowledge Sources (Files + URLs)
-    max_knowledge_sources: Mapped[Optional[int]] = mapped_column(
+    max_knowledge_sources: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
         comment="Total knowledge sources: files + URLs combined (null = unlimited)",
@@ -313,14 +318,19 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
     )
 
     # Team Member Limits
-    max_team_members: Mapped[Optional[int]] = mapped_column(
+    max_team_members: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
         comment="Maximum team members allowed (null = unlimited)",
     )
+    max_flows: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Maximum flows allowed (null = unlimited)",
+    )
 
     # Override Tracking
-    override_flags: Mapped[Optional[dict]] = mapped_column(
+    override_flags: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
         default=dict,

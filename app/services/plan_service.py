@@ -5,10 +5,10 @@ Centralized subscription plan management with caching.
 Provides single source of truth for pricing and capabilities.
 """
 
-from typing import Optional
 from datetime import datetime, timedelta
-from sqlalchemy.orm import Session
+
 from loguru import logger
+from sqlalchemy.orm import Session
 
 from app.db.models.subscription_plan import SubscriptionPlan
 from app.utils.enterprise_pricing import EnterprisePricingCalculator
@@ -20,7 +20,7 @@ class PlanCache:
     def __init__(self, ttl_minutes: int = 5):
         self.ttl_minutes = ttl_minutes
         self._cache: dict[str, SubscriptionPlan] = {}
-        self._cache_time: Optional[datetime] = None
+        self._cache_time: datetime | None = None
 
     def is_valid(self) -> bool:
         """Check if cache is still valid."""
@@ -28,13 +28,13 @@ class PlanCache:
             return False
         return datetime.utcnow() - self._cache_time < timedelta(minutes=self.ttl_minutes)
 
-    def get(self, tier: str) -> Optional[SubscriptionPlan]:
+    def get(self, tier: str) -> SubscriptionPlan | None:
         """Get plan from cache."""
         if not self.is_valid():
             return None
         return self._cache.get(tier)
 
-    def get_all(self) -> Optional[list[SubscriptionPlan]]:
+    def get_all(self) -> list[SubscriptionPlan] | None:
         """Get all plans from cache."""
         if not self.is_valid():
             return None
@@ -42,7 +42,7 @@ class PlanCache:
 
     def set(self, plans: list[SubscriptionPlan]) -> None:
         """Update cache with plans."""
-        self._cache = {plan.tier: plan for plan in plans}
+        self._cache = {str(plan.tier): plan for plan in plans}
         self._cache_time = datetime.utcnow()
 
     def invalidate(self) -> None:
@@ -85,7 +85,7 @@ class PlanService:
         query = self.db.query(SubscriptionPlan).order_by(SubscriptionPlan.sort_order)
 
         if active_only:
-            query = query.filter(SubscriptionPlan.is_active == True)
+            query = query.filter(SubscriptionPlan.is_active.is_(True))
 
         plans = query.all()
 
@@ -168,23 +168,23 @@ class PlanService:
         plan = self.get_plan(tier)
 
         if billing_cycle == "monthly":
-            return plan.monthly_price_kobo
+            return int(plan.monthly_price_kobo)
         elif billing_cycle == "annual":
-            return plan.annual_price_kobo
+            return int(plan.annual_price_kobo)
         else:
             raise ValueError(f"Invalid billing cycle: {billing_cycle}")
 
     def update_plan(
         self,
         tier: str,
-        monthly_price_kobo: Optional[int] = None,
-        annual_price_kobo: Optional[int] = None,
-        display_name: Optional[str] = None,
-        description: Optional[str] = None,
-        capabilities: Optional[dict] = None,
-        features: Optional[list[str]] = None,
-        is_active: Optional[bool] = None,
-        sort_order: Optional[int] = None,
+        monthly_price_kobo: int | None = None,
+        annual_price_kobo: int | None = None,
+        display_name: str | None = None,
+        description: str | None = None,
+        capabilities: dict | None = None,
+        features: list[str] | None = None,
+        is_active: bool | None = None,
+        sort_order: int | None = None,
     ) -> SubscriptionPlan:
         """
         Update subscription plan.
@@ -208,60 +208,66 @@ class PlanService:
         """
         plan = self.get_plan(tier)
 
+        def _set_plan_attr(name: str, value: object) -> None:
+            setattr(plan, name, value)
+
         # Update pricing
         if monthly_price_kobo is not None:
             if monthly_price_kobo < 0:
                 raise ValueError("Monthly price cannot be negative")
-            plan.monthly_price_kobo = monthly_price_kobo
+            _set_plan_attr("monthly_price_kobo", monthly_price_kobo)
 
         if annual_price_kobo is not None:
             if annual_price_kobo < 0:
                 raise ValueError("Annual price cannot be negative")
-            plan.annual_price_kobo = annual_price_kobo
+            _set_plan_attr("annual_price_kobo", annual_price_kobo)
 
         # Update metadata
         if display_name is not None:
-            plan.display_name = display_name
+            _set_plan_attr("display_name", display_name)
 
         if description is not None:
-            plan.description = description
+            _set_plan_attr("description", description)
 
         if features is not None:
-            plan.features = features
+            _set_plan_attr("features", features)
 
         if is_active is not None:
-            plan.is_active = is_active
+            _set_plan_attr("is_active", is_active)
 
         if sort_order is not None:
-            plan.sort_order = sort_order
+            _set_plan_attr("sort_order", sort_order)
 
         # Update capabilities
         if capabilities is not None:
             if "can_access_analytics" in capabilities:
-                plan.can_access_analytics = capabilities["can_access_analytics"]
+                _set_plan_attr("can_access_analytics", capabilities["can_access_analytics"])
 
             if "max_knowledge_sources" in capabilities:
-                plan.max_knowledge_sources = capabilities["max_knowledge_sources"]
+                _set_plan_attr("max_knowledge_sources", capabilities["max_knowledge_sources"])
 
             if "can_use_url_sources" in capabilities:
-                plan.can_use_url_sources = capabilities["can_use_url_sources"]
+                _set_plan_attr("can_use_url_sources", capabilities["can_use_url_sources"])
 
             if "max_knowledge_mb" in capabilities:
-                plan.max_knowledge_mb = capabilities["max_knowledge_mb"]
+                _set_plan_attr("max_knowledge_mb", capabilities["max_knowledge_mb"])
 
             if "max_conversations_per_month" in capabilities:
-                plan.max_conversations_per_month = capabilities["max_conversations_per_month"]
+                _set_plan_attr(
+                    "max_conversations_per_month",
+                    capabilities["max_conversations_per_month"],
+                )
 
             if "max_team_members" in capabilities:
-                plan.max_team_members = capabilities["max_team_members"]
+                _set_plan_attr("max_team_members", capabilities["max_team_members"])
 
             if "max_response_tokens" in capabilities:
                 if capabilities["max_response_tokens"] <= 0:
                     raise ValueError("max_response_tokens must be positive")
-                plan.max_response_tokens = capabilities["max_response_tokens"]
+                _set_plan_attr("max_response_tokens", capabilities["max_response_tokens"])
 
         # Save changes
-        plan.updated_at = datetime.utcnow()
+        _set_plan_attr("updated_at", datetime.utcnow())
         self.db.commit()
         self.db.refresh(plan)
 
@@ -296,7 +302,7 @@ class PlanService:
             List of tier strings
         """
         plans = self.get_all_plans(active_only=True)
-        return [plan.tier for plan in plans]
+        return [str(plan.tier) for plan in plans]
 
     def calculate_enterprise_pricing(self, conversations: int) -> dict:
         """

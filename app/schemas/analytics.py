@@ -1,10 +1,10 @@
 """Analytics Pydantic schemas."""
 
 from datetime import datetime
-from typing import Optional, Dict, List, Any
+from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AnalyticsOverviewResponse(BaseModel):
@@ -48,11 +48,11 @@ class ConversationMetricsResponse(BaseModel):
     period_end: datetime
 
     total_conversations: int
-    conversations_by_status: Dict[str, int] = Field(..., description="Count by status")
+    conversations_by_status: dict[str, int] = Field(..., description="Count by status")
     escalation_rate: float
     avg_session_duration_minutes: float
     avg_messages_per_session: float
-    top_escalation_reasons: List[Dict[str, Any]] = Field(
+    top_escalation_reasons: list[dict[str, Any]] = Field(
         default_factory=list, description="Most common escalation reasons"
     )
 
@@ -67,10 +67,10 @@ class TicketMetricsResponse(BaseModel):
     period_end: datetime
 
     total_tickets: int
-    tickets_by_status: Dict[str, int]
-    tickets_by_priority: Dict[str, int]
+    tickets_by_status: dict[str, int]
+    tickets_by_priority: dict[str, int]
     avg_resolution_time_hours: float
-    resolution_time_by_priority: Dict[str, float] = Field(
+    resolution_time_by_priority: dict[str, float] = Field(
         ..., description="Average resolution time by priority level"
     )
     unassigned_tickets: int
@@ -106,7 +106,7 @@ class AgentSummaryResponse(BaseModel):
     agent_name: str
     email: str
     current_assigned_tickets: int
-    tickets_by_status: Dict[str, int]
+    tickets_by_status: dict[str, int]
     total_tickets_resolved: int = Field(..., description="All-time resolved tickets")
 
 
@@ -117,7 +117,7 @@ class TrendDataPoint(BaseModel):
 
     timestamp: datetime
     value: float
-    meta: Optional[Dict[str, Any]] = None
+    meta: dict[str, Any] | None = None
 
 
 class TrendResponse(BaseModel):
@@ -130,7 +130,7 @@ class TrendResponse(BaseModel):
     granularity: str = Field(..., description="daily, weekly, or monthly")
     period_start: datetime
     period_end: datetime
-    data_points: List[TrendDataPoint]
+    data_points: list[TrendDataPoint]
 
 
 class KnowledgeUsageResponse(BaseModel):
@@ -145,7 +145,7 @@ class KnowledgeUsageResponse(BaseModel):
     total_knowledge_chunks: int
     chunks_used_in_conversations: int
     usage_rate: float = Field(..., description="Percentage of chunks used")
-    top_used_chunks: List[Dict[str, Any]] = Field(
+    top_used_chunks: list[dict[str, Any]] = Field(
         default_factory=list, description="Most frequently used knowledge chunks"
     )
     avg_chunks_per_conversation: float

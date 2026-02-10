@@ -2,16 +2,16 @@
 
 import os
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Any
 
-from loguru import logger
-from sqlalchemy import select, func, and_, text
-from sqlalchemy.orm import Session
 import redis
+from loguru import logger
+from sqlalchemy import and_, func, select, text
+from sqlalchemy.orm import Session
 
-from app.db.models.job import ProcessingJob, JobStatus
-from app.db.models.audit import AuditLog
 from app.core.config import settings
+from app.db.models.audit import AuditLog
+from app.db.models.job import JobStatus, ProcessingJob
 
 
 class SystemHealthService:
@@ -25,17 +25,17 @@ class SystemHealthService:
             db: Database session
         """
         self.db = db
-        self._redis_client = None
+        self._redis_client: redis.Redis | None = None
 
     @property
     def redis_client(self) -> redis.Redis:
         """Get Redis client (lazy initialization)."""
         if self._redis_client is None:
-            redis_url = os.getenv('REDIS_URL', settings.REDIS_URL)
+            redis_url = os.getenv("REDIS_URL", settings.REDIS_URL)
             self._redis_client = redis.from_url(redis_url, decode_responses=True)
         return self._redis_client
 
-    def get_job_status(self, hours: int = 24) -> Dict[str, Any]:
+    def get_job_status(self, hours: int = 24) -> dict[str, Any]:
         """
         Get background job statistics.
 
@@ -49,23 +49,31 @@ class SystemHealthService:
             cutoff_time = datetime.utcnow() - timedelta(hours=hours)
 
             # Total jobs by status
-            status_query = select(
-                ProcessingJob.status,
-                func.count(ProcessingJob.id).label("count")
-            ).where(
-                ProcessingJob.created_at >= cutoff_time
-            ).group_by(ProcessingJob.status)
+            status_query = (
+                select(ProcessingJob.status, func.count(ProcessingJob.id).label("count"))
+                .where(ProcessingJob.created_at >= cutoff_time)
+                .group_by(ProcessingJob.status)
+            )
 
             result = self.db.execute(status_query)
-            status_counts = {status: count for status, count in result.all()}
+            status_counts: dict[JobStatus, int] = {
+                status: int(count) for status, count in result.all()
+            }
 
             # Recent failures
-            failures_query = select(ProcessingJob).where(
-                and_(
-                    ProcessingJob.status == JobStatus.FAILED,
-                    ProcessingJob.created_at >= cutoff_time,
+            failures_query = (
+                select(ProcessingJob)
+                .where(
+                    and_(
+                        ProcessingJob.status == JobStatus.FAILED,
+                        ProcessingJob.created_at >= cutoff_time,
+                    )
                 )
-            ).order_by(ProcessingJob.completed_at.desc().nullslast(), ProcessingJob.created_at.desc()).limit(10)
+                .order_by(
+                    ProcessingJob.completed_at.desc().nullslast(), ProcessingJob.created_at.desc()
+                )
+                .limit(10)
+            )
 
             failures_result = self.db.execute(failures_query)
             recent_failures = failures_result.scalars().all()
@@ -83,7 +91,9 @@ class SystemHealthService:
             ]
 
             # Calculate success rate
-            total_completed = status_counts.get(JobStatus.COMPLETED, 0) + status_counts.get(JobStatus.FAILED, 0)
+            total_completed = status_counts.get(JobStatus.COMPLETED, 0) + status_counts.get(
+                JobStatus.FAILED, 0
+            )
             success_rate = (
                 (status_counts.get(JobStatus.COMPLETED, 0) / total_completed * 100)
                 if total_completed > 0
@@ -91,15 +101,14 @@ class SystemHealthService:
             )
 
             # Jobs by type
-            type_query = select(
-                ProcessingJob.job_type,
-                func.count(ProcessingJob.id).label("count")
-            ).where(
-                ProcessingJob.created_at >= cutoff_time
-            ).group_by(ProcessingJob.job_type)
+            type_query = (
+                select(ProcessingJob.job_type, func.count(ProcessingJob.id).label("count"))
+                .where(ProcessingJob.created_at >= cutoff_time)
+                .group_by(ProcessingJob.job_type)
+            )
 
             type_result = self.db.execute(type_query)
-            jobs_by_type = {job_type.value: count for job_type, count in type_result.all()}
+            jobs_by_type = {job_type.value: int(count) for job_type, count in type_result.all()}
 
             return {
                 "period_hours": hours,
@@ -113,14 +122,18 @@ class SystemHealthService:
                 "success_rate": float(success_rate),
                 "jobs_by_type": jobs_by_type,
                 "recent_failures": failure_details,
-                "health_status": "healthy" if success_rate >= 95 else "degraded" if success_rate >= 85 else "unhealthy",
+                "health_status": (
+                    "healthy"
+                    if success_rate >= 95
+                    else "degraded" if success_rate >= 85 else "unhealthy"
+                ),
             }
 
         except Exception as e:
             logger.error(f"Error getting job status: {e}")
             raise
 
-    def get_api_health(self, hours: int = 1) -> Dict[str, Any]:
+    def get_api_health(self, hours: int = 1) -> dict[str, Any]:
         """
         Get API health metrics from audit logs.
 
@@ -134,12 +147,11 @@ class SystemHealthService:
             cutoff_time = datetime.utcnow() - timedelta(hours=hours)
 
             # Count API actions by type
-            actions_query = select(
-                AuditLog.action,
-                func.count(AuditLog.id).label("count")
-            ).where(
-                AuditLog.created_at >= cutoff_time
-            ).group_by(AuditLog.action)
+            actions_query = (
+                select(AuditLog.action, func.count(AuditLog.id).label("count"))
+                .where(AuditLog.created_at >= cutoff_time)
+                .group_by(AuditLog.action)
+            )
 
             result = self.db.execute(actions_query)
             actions = result.all()
@@ -155,14 +167,16 @@ class SystemHealthService:
             requests_per_minute = total_requests / (hours * 60) if hours > 0 else 0
 
             # Top actions
-            top_actions = sorted(actions, key=lambda x: x.count, reverse=True)[:10]
-            top_actions_list = [
-                {"action": action, "count": count}
-                for action, count in top_actions
-            ]
+            action_rows = [(str(action), int(count)) for action, count in actions]
+            top_actions = sorted(action_rows, key=lambda x: x[1], reverse=True)[:10]
+            top_actions_list = [{"action": action, "count": count} for action, count in top_actions]
 
             # Estimate error rate (actions with "error" or "failed" in name)
-            error_actions = [a for a in actions if "error" in a.action.lower() or "failed" in a.action.lower()]
+            error_actions = [
+                (action, count)
+                for action, count in action_rows
+                if "error" in action.lower() or "failed" in action.lower()
+            ]
             error_count = sum(count for _, count in error_actions)
             error_rate = (error_count / total_requests * 100) if total_requests > 0 else 0
 
@@ -172,14 +186,16 @@ class SystemHealthService:
                 "requests_per_minute": float(requests_per_minute),
                 "error_rate": float(error_rate),
                 "top_actions": top_actions_list,
-                "health_status": "healthy" if error_rate < 1 else "degraded" if error_rate < 5 else "unhealthy",
+                "health_status": (
+                    "healthy" if error_rate < 1 else "degraded" if error_rate < 5 else "unhealthy"
+                ),
             }
 
         except Exception as e:
             logger.error(f"Error getting API health: {e}")
             raise
 
-    def get_database_health(self) -> Dict[str, Any]:
+    def get_database_health(self) -> dict[str, Any]:
         """
         Get database performance metrics.
 
@@ -188,18 +204,23 @@ class SystemHealthService:
         """
         try:
             # Database connection pool stats (from SQLAlchemy)
-            pool = self.db.get_bind().pool
-            pool_stats = {
-                "size": pool.size(),
-                "checked_in": pool.checkedin(),
-                "checked_out": pool.checkedout(),
-                "overflow": pool.overflow(),
-                "max_overflow": pool._max_overflow,
-            }
+            bind = self.db.get_bind()
+            pool = getattr(bind, "pool", None)
+            pool_stats = (
+                {
+                    "size": pool.size(),
+                    "checked_in": pool.checkedin(),
+                    "checked_out": pool.checkedout(),
+                    "overflow": pool.overflow(),
+                    "max_overflow": pool._max_overflow,
+                }
+                if pool
+                else {}
+            )
 
             # Calculate pool utilization
-            total_connections = pool.size() + pool.overflow()
-            in_use = pool.checkedout()
+            total_connections = (pool.size() + pool.overflow()) if pool else 0
+            in_use = pool.checkedout() if pool else 0
             utilization = (in_use / total_connections * 100) if total_connections > 0 else 0
 
             # Test database response time
@@ -209,9 +230,7 @@ class SystemHealthService:
 
             # Get database size (PostgreSQL specific)
             try:
-                size_query = text(
-                    "SELECT pg_database_size(current_database()) as size"
-                )
+                size_query = text("SELECT pg_database_size(current_database()) as size")
                 size_result = self.db.execute(size_query)
                 db_size_bytes = size_result.scalar()
                 db_size_mb = db_size_bytes / (1024 * 1024) if db_size_bytes else 0
@@ -227,7 +246,9 @@ class SystemHealthService:
                 user_count_query = select(func.count()).select_from(text("users"))
                 user_count = self.db.execute(user_count_query).scalar() or 0
 
-                conversation_count_query = select(func.count()).select_from(text("conversation_sessions"))
+                conversation_count_query = select(func.count()).select_from(
+                    text("conversation_sessions")
+                )
                 conversation_count = self.db.execute(conversation_count_query).scalar() or 0
             except Exception as e:
                 logger.warning(f"Could not get record counts: {e}")
@@ -244,9 +265,9 @@ class SystemHealthService:
                     "conversations": conversation_count,
                 },
                 "health_status": (
-                    "healthy" if utilization < 80 and response_time_ms < 100
-                    else "degraded" if utilization < 95 and response_time_ms < 500
-                    else "unhealthy"
+                    "healthy"
+                    if utilization < 80 and response_time_ms < 100
+                    else "degraded" if utilization < 95 and response_time_ms < 500 else "unhealthy"
                 ),
             }
 
@@ -254,7 +275,7 @@ class SystemHealthService:
             logger.error(f"Error getting database health: {e}")
             raise
 
-    def get_queue_status(self) -> Dict[str, Any]:
+    def get_queue_status(self) -> dict[str, Any]:
         """
         Get Redis/ARQ queue statistics.
 
@@ -262,7 +283,7 @@ class SystemHealthService:
             Dict with queue health information
         """
         try:
-            redis_client = self.redis_client
+            redis_client: Any = self.redis_client
 
             # Test Redis connection
             start_time = datetime.utcnow()
@@ -270,7 +291,7 @@ class SystemHealthService:
             ping_time_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
 
             # Get Redis info
-            redis_info = redis_client.info()
+            redis_info: dict[str, Any] = redis_client.info()
 
             # ARQ queue stats (approximate)
             # ARQ uses keys like "arq:queue" for the main queue
@@ -283,9 +304,7 @@ class SystemHealthService:
             used_memory_mb = redis_info.get("used_memory", 0) / (1024 * 1024)
             max_memory = redis_info.get("maxmemory", 0)
             memory_utilization = (
-                (redis_info.get("used_memory", 0) / max_memory * 100)
-                if max_memory > 0
-                else 0
+                (redis_info.get("used_memory", 0) / max_memory * 100) if max_memory > 0 else 0
             )
 
             # Connected clients
@@ -326,9 +345,9 @@ class SystemHealthService:
                 "failed_jobs_cached": failed_jobs,
                 "uptime_seconds": redis_info.get("uptime_in_seconds", 0),
                 "health_status": (
-                    "healthy" if queue_length < 100 and ping_time_ms < 50
-                    else "degraded" if queue_length < 500 and ping_time_ms < 200
-                    else "unhealthy"
+                    "healthy"
+                    if queue_length < 100 and ping_time_ms < 50
+                    else "degraded" if queue_length < 500 and ping_time_ms < 200 else "unhealthy"
                 ),
             }
 
@@ -341,7 +360,7 @@ class SystemHealthService:
                 "error": str(e),
             }
 
-    def get_overall_health(self) -> Dict[str, Any]:
+    def get_overall_health(self) -> dict[str, Any]:
         """
         Get comprehensive system health summary.
 

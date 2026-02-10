@@ -1,34 +1,34 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
-    health,
-    auth,
-    platform_admin_auth,
-    company_registration,
-    users,
-    api_keys,
-    widget,
-    tenant,
-    subscription,
-    knowledge,
-    chat,
-    tickets,
-    flows,
-    jobs,
-    websocket,
     analytics,
+    api_keys,
+    auth,
+    chat,
+    company_registration,
+    flows,
+    health,
+    jobs,
+    knowledge,
+    platform_admin_auth,
     reviews,
+    subscription,
+    tenant,
+    tickets,
+    users,
     webhooks,
+    websocket,
+    widget,
 )
-from app.api.v1.endpoints.platform import tenants as platform_tenants
-from app.api.v1.endpoints.platform import subscriptions as platform_subscriptions
 from app.api.v1.endpoints.platform import analytics as platform_analytics
-from app.api.v1.endpoints.platform import health as platform_health
-from app.api.v1.endpoints.platform import financials as platform_financials
 from app.api.v1.endpoints.platform import audit as platform_audit
-from app.api.v1.endpoints.platform import reviews as platform_reviews
-from app.api.v1.endpoints.platform import users as platform_users
+from app.api.v1.endpoints.platform import financials as platform_financials
+from app.api.v1.endpoints.platform import health as platform_health
 from app.api.v1.endpoints.platform import pricing as platform_pricing
+from app.api.v1.endpoints.platform import reviews as platform_reviews
+from app.api.v1.endpoints.platform import subscriptions as platform_subscriptions
+from app.api.v1.endpoints.platform import tenants as platform_tenants
+from app.api.v1.endpoints.platform import users as platform_users
 
 api_router = APIRouter()
 

@@ -6,18 +6,18 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.orm import Session
 
-from app.services.analytics_service import AnalyticsService
 from app.db.models.conversation import (
     ConversationSession,
     Message,
-    Ticket,
-    SessionStatus,
-    TicketStatus,
-    TicketPriority,
     MessageRole,
+    SessionStatus,
+    Ticket,
+    TicketPriority,
+    TicketStatus,
 )
 from app.db.models.tenant import Tenant, TenantCapabilities
 from app.db.models.user import User, UserRole
+from app.services.analytics_service import AnalyticsService
 
 
 @pytest.fixture
@@ -90,8 +90,16 @@ def test_conversations(db: Session, test_tenant: Tenant, test_agent: User):
             status=status,
             escalation_reason="Low confidence" if status == SessionStatus.ESCALATED else None,
             escalated_at=now - timedelta(hours=i) if status == SessionStatus.ESCALATED else None,
-            agent_id=test_agent.id if status in [SessionStatus.ESCALATED, SessionStatus.RESOLVED] else None,
-            agent_joined_at=now - timedelta(hours=i) if status in [SessionStatus.ESCALATED, SessionStatus.RESOLVED] else None,
+            agent_id=(
+                test_agent.id
+                if status in [SessionStatus.ESCALATED, SessionStatus.RESOLVED]
+                else None
+            ),
+            agent_joined_at=(
+                now - timedelta(hours=i)
+                if status in [SessionStatus.ESCALATED, SessionStatus.RESOLVED]
+                else None
+            ),
             created_at=now - timedelta(days=i),
             last_message_at=now - timedelta(hours=i),
         )
@@ -136,7 +144,11 @@ def test_tickets(db: Session, test_tenant: Tenant, test_agent: User, test_conver
             priority=priorities[i % len(priorities)],
             summary=f"Test ticket {i}",
             assigned_to=test_agent.id if i % 2 == 0 else None,
-            resolved_at=now - timedelta(hours=i) if statuses[i % len(statuses)] == TicketStatus.RESOLVED else None,
+            resolved_at=(
+                now - timedelta(hours=i)
+                if statuses[i % len(statuses)] == TicketStatus.RESOLVED
+                else None
+            ),
             created_at=now - timedelta(days=i),
         )
         db.add(ticket)
@@ -149,7 +161,9 @@ def test_tickets(db: Session, test_tenant: Tenant, test_agent: User, test_conver
 class TestAnalyticsService:
     """Test suite for AnalyticsService."""
 
-    def test_get_overview_metrics(self, db: Session, test_tenant: Tenant, test_conversations, test_tickets):
+    def test_get_overview_metrics(
+        self, db: Session, test_tenant: Tenant, test_conversations, test_tickets
+    ):
         """Test overview metrics calculation."""
         analytics_service = AnalyticsService(db)
 
@@ -199,14 +213,18 @@ class TestAnalyticsService:
         assert TicketPriority.HIGH.value in metrics.tickets_by_priority
         assert metrics.tickets_created == 3
 
-    def test_get_agent_performance(self, db: Session, test_tenant: Tenant, test_agent: User, test_tickets):
+    def test_get_agent_performance(
+        self, db: Session, test_tenant: Tenant, test_agent: User, test_tickets
+    ):
         """Test agent performance metrics."""
         analytics_service = AnalyticsService(db)
 
         start_date = datetime.utcnow() - timedelta(days=30)
         end_date = datetime.utcnow()
 
-        metrics = analytics_service.get_agent_performance(test_tenant.id, test_agent.id, start_date, end_date)
+        metrics = analytics_service.get_agent_performance(
+            test_tenant.id, test_agent.id, start_date, end_date
+        )
 
         assert metrics.agent_id == test_agent.id
         assert metrics.agent_name == test_agent.full_name
@@ -221,7 +239,9 @@ class TestAnalyticsService:
         start_date = datetime.utcnow() - timedelta(days=30)
         end_date = datetime.utcnow()
 
-        summaries = analytics_service.get_all_agents_performance(test_tenant.id, start_date, end_date)
+        summaries = analytics_service.get_all_agents_performance(
+            test_tenant.id, start_date, end_date
+        )
 
         assert len(summaries) >= 1
         assert any(s.agent_id == test_agent.id for s in summaries)
@@ -232,14 +252,18 @@ class TestAnalyticsService:
         assert agent_summary.current_assigned_tickets >= 0
 
     @pytest.mark.skip(reason="date_trunc not supported in SQLite (PostgreSQL-specific)")
-    def test_get_conversation_trends_daily(self, db: Session, test_tenant: Tenant, test_conversations):
+    def test_get_conversation_trends_daily(
+        self, db: Session, test_tenant: Tenant, test_conversations
+    ):
         """Test daily conversation trends."""
         analytics_service = AnalyticsService(db)
 
         start_date = datetime.utcnow() - timedelta(days=30)
         end_date = datetime.utcnow()
 
-        trends = analytics_service.get_conversation_trends(test_tenant.id, start_date, end_date, "daily")
+        trends = analytics_service.get_conversation_trends(
+            test_tenant.id, start_date, end_date, "daily"
+        )
 
         assert trends.tenant_id == test_tenant.id
         assert trends.metric_name == "conversation_count"
@@ -262,7 +286,9 @@ class TestAnalyticsService:
         assert trends.granularity == "weekly"
         assert len(trends.data_points) >= 0
 
-    def test_escalation_rate_calculation(self, db: Session, test_tenant: Tenant, test_conversations):
+    def test_escalation_rate_calculation(
+        self, db: Session, test_tenant: Tenant, test_conversations
+    ):
         """Test escalation rate calculation."""
         analytics_service = AnalyticsService(db)
 
@@ -282,7 +308,9 @@ class TestAnalyticsService:
         start_date = datetime.utcnow() - timedelta(days=30)
         end_date = datetime.utcnow()
 
-        avg_score = analytics_service._calculate_avg_confidence_score(test_tenant.id, start_date, end_date)
+        avg_score = analytics_service._calculate_avg_confidence_score(
+            test_tenant.id, start_date, end_date
+        )
 
         assert avg_score > 0
         assert avg_score <= 1.0
@@ -304,7 +332,10 @@ class TestAnalyticsService:
 
         with pytest.raises(ValueError, match="Agent not found"):
             analytics_service.get_agent_performance(
-                test_tenant.id, fake_agent_id, datetime.utcnow() - timedelta(days=30), datetime.utcnow()
+                test_tenant.id,
+                fake_agent_id,
+                datetime.utcnow() - timedelta(days=30),
+                datetime.utcnow(),
             )
 
     def test_empty_tenant_metrics(self, db: Session):
@@ -338,7 +369,9 @@ class TestAnalyticsService:
         start_date = datetime.utcnow() - timedelta(days=30)
         end_date = datetime.utcnow()
 
-        distribution = analytics_service._get_confidence_distribution(test_tenant.id, start_date, end_date)
+        distribution = analytics_service._get_confidence_distribution(
+            test_tenant.id, start_date, end_date
+        )
 
         assert isinstance(distribution, dict)
         # Should have at least one range with data
@@ -351,7 +384,9 @@ class TestAnalyticsService:
         start_date = datetime.utcnow() - timedelta(days=30)
         end_date = datetime.utcnow()
 
-        reasons = analytics_service._get_top_escalation_reasons(test_tenant.id, start_date, end_date)
+        reasons = analytics_service._get_top_escalation_reasons(
+            test_tenant.id, start_date, end_date
+        )
 
         assert isinstance(reasons, list)
         if len(reasons) > 0:

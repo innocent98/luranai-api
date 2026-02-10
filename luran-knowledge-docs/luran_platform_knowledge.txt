@@ -1,0 +1,120 @@
+LURAN PLATFORM KNOWLEDGE (IMPLEMENTATION-ALIGNED)
+
+Last verified against code: February 10, 2026
+
+================================================================================
+WHAT LURAN IS
+================================================================================
+
+Luran is a multi-tenant AI support platform for website chat.
+It combines:
+- Retrieval-Augmented Generation (RAG)
+- Flow-based guided support
+- Human escalation/ticketing
+- Dashboard tooling for knowledge, flows, and support agents
+
+================================================================================
+CORE ARCHITECTURE
+================================================================================
+
+Backend stack (from code):
+- FastAPI API server
+- PostgreSQL for relational data
+- Redis for queues/rate controls
+- Qdrant for vector search
+- OpenAI models for embeddings + LLM
+
+Default AI models:
+- Embedding: text-embedding-3-small
+- LLM: gpt-4o-mini
+
+Frontend apps:
+- luran-dashboard (admin/agent operations)
+- luran-chat (embedded customer chat iframe)
+
+================================================================================
+HOW ANSWERING WORKS
+================================================================================
+
+Chat request path:
+1) Session/user message arrives
+2) Flow engine attempts trigger/match
+3) If flow is active, flow node executes
+4) If no flow path applies, RAG pipeline answers from knowledge
+5) If confidence/logic requires, escalation path can create ticket/handoff
+
+Knowledge pipeline:
+- upload/scrape source
+- extract text
+- chunk text
+- embed chunks
+- store in Qdrant + metadata in PostgreSQL
+- retrieve top chunks at query time
+
+================================================================================
+FLOWS IN LURAN
+================================================================================
+
+Flow intent:
+- turn common support journeys into deterministic multi-step outcomes
+- reduce repetitive human workload
+- keep complex or sensitive cases for humans
+
+Supported node families in backend include:
+- message
+- question
+- text_input
+- condition
+- ai_action
+- rag_query
+- webhook
+- escalate
+- end
+
+Flow routing supports:
+- keyword trigger
+- manual/intent/event/schedule trigger types in backend model
+- start router behavior for multiple active flows
+- optional menu labels/descriptions for cleaner customer choices
+
+================================================================================
+TENANT ISOLATION + ACCESS
+================================================================================
+
+Luran enforces tenant isolation at data and API layer:
+- tenant-scoped queries
+- per-tenant API keys for widget access
+- role checks for admin operations
+
+Key types:
+- PUBLIC key (pk_live_...): widget/public endpoints
+- SECRET key (sk_live_...): server-side/admin integrations
+
+================================================================================
+LIMITS + SUBSCRIPTION ENFORCEMENT
+================================================================================
+
+Runtime limit checks include:
+- conversation quota per month
+- knowledge source count
+- knowledge storage MB
+- team member count
+- flow count / nodes per flow
+- webhook capability and webhook count
+
+Inactive subscription states block protected usage:
+- trial_expired
+- canceled
+- past_due
+
+================================================================================
+SECURITY CONTROLS PRESENT IN CODE
+================================================================================
+
+- JWT auth for dashboard APIs
+- CORS policy from BACKEND_CORS_ORIGINS
+- Security headers middleware
+- API key validation for widget public config
+- tenant key ownership checks
+
+This document only states behavior observable in this codebase.

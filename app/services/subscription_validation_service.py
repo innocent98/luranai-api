@@ -1,16 +1,15 @@
 """Subscription validation service for tier changes."""
 
-from typing import Optional, List
+from datetime import UTC
 from uuid import UUID
-from sqlalchemy.orm import Session
-from sqlalchemy import func
+
 from pydantic import BaseModel
-from loguru import logger
+from sqlalchemy.orm import Session
 
 from app.db.models.knowledge import KnowledgeSource, SourceStatus
 from app.db.models.user import User
-from app.services.plan_service import PlanService
 from app.services.knowledge_service import KnowledgeService
+from app.services.plan_service import PlanService
 
 
 class ValidationViolation(BaseModel):
@@ -27,8 +26,8 @@ class ValidationResult(BaseModel):
     """Result of tier change validation."""
 
     valid: bool
-    violations: List[ValidationViolation] = []
-    warnings: List[str] = []
+    violations: list[ValidationViolation] = []
+    warnings: list[str] = []
 
 
 class SubscriptionValidationService:
@@ -79,7 +78,7 @@ class SubscriptionValidationService:
 
     def _check_knowledge_sources(
         self, tenant_id: UUID, new_limits: dict
-    ) -> Optional[ValidationViolation]:
+    ) -> ValidationViolation | None:
         """
         Check if knowledge sources count exceeds new tier limit.
 
@@ -97,10 +96,14 @@ class SubscriptionValidationService:
             return None
 
         # Count active sources (same logic as check_knowledge_source_limit)
-        current_count = self.db.query(KnowledgeSource).filter(
-            KnowledgeSource.tenant_id == tenant_id,
-            KnowledgeSource.status == SourceStatus.ACTIVE,
-        ).count()
+        current_count = (
+            self.db.query(KnowledgeSource)
+            .filter(
+                KnowledgeSource.tenant_id == tenant_id,
+                KnowledgeSource.status == SourceStatus.ACTIVE,
+            )
+            .count()
+        )
 
         if current_count > max_sources:
             difference = current_count - max_sources
@@ -114,9 +117,7 @@ class SubscriptionValidationService:
 
         return None
 
-    def _check_storage_usage(
-        self, tenant_id: UUID, new_limits: dict
-    ) -> Optional[ValidationViolation]:
+    def _check_storage_usage(self, tenant_id: UUID, new_limits: dict) -> ValidationViolation | None:
         """
         Check if storage usage exceeds new tier limit.
 
@@ -148,9 +149,7 @@ class SubscriptionValidationService:
 
         return None
 
-    def _check_team_members(
-        self, tenant_id: UUID, new_limits: dict
-    ) -> Optional[ValidationViolation]:
+    def _check_team_members(self, tenant_id: UUID, new_limits: dict) -> ValidationViolation | None:
         """
         Check if team member count exceeds new tier limit.
 
@@ -168,10 +167,14 @@ class SubscriptionValidationService:
             return None
 
         # Count active users
-        current_count = self.db.query(User).filter(
-            User.tenant_id == tenant_id,
-            User.is_active == True,
-        ).count()
+        current_count = (
+            self.db.query(User)
+            .filter(
+                User.tenant_id == tenant_id,
+                User.is_active.is_(True),
+            )
+            .count()
+        )
 
         if current_count > max_team_members:
             difference = current_count - max_team_members
@@ -185,9 +188,7 @@ class SubscriptionValidationService:
 
         return None
 
-    def _check_url_sources(
-        self, tenant_id: UUID, new_limits: dict
-    ) -> Optional[ValidationViolation]:
+    def _check_url_sources(self, tenant_id: UUID, new_limits: dict) -> ValidationViolation | None:
         """
         Check if tenant has URL sources when new tier doesn't allow them.
 
@@ -205,11 +206,15 @@ class SubscriptionValidationService:
             return None
 
         # Count active URL sources
-        url_count = self.db.query(KnowledgeSource).filter(
-            KnowledgeSource.tenant_id == tenant_id,
-            KnowledgeSource.status == SourceStatus.ACTIVE,
-            KnowledgeSource.source_category == "url",
-        ).count()
+        url_count = (
+            self.db.query(KnowledgeSource)
+            .filter(
+                KnowledgeSource.tenant_id == tenant_id,
+                KnowledgeSource.status == SourceStatus.ACTIVE,
+                KnowledgeSource.source_category == "url",
+            )
+            .count()
+        )
 
         if url_count > 0:
             return ValidationViolation(
@@ -222,7 +227,7 @@ class SubscriptionValidationService:
 
         return None
 
-    def _check_conversations(self, tenant_id: UUID, new_limits: dict) -> Optional[str]:
+    def _check_conversations(self, tenant_id: UUID, new_limits: dict) -> str | None:
         """
         Check conversation usage against new tier limit (informational only).
 
@@ -235,7 +240,8 @@ class SubscriptionValidationService:
         Returns:
             Warning message if current usage exceeds new limit, None otherwise
         """
-        from datetime import datetime, timezone as tz
+        from datetime import datetime
+
         from app.db.models.conversation import ConversationSession
 
         max_conversations = new_limits.get("max_conversations_per_month")
@@ -245,14 +251,18 @@ class SubscriptionValidationService:
             return None
 
         # Get start of current month
-        now = datetime.now(tz.utc)
+        now = datetime.now(UTC)
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
         # Count conversations this month
-        monthly_count = self.db.query(ConversationSession).filter(
-            ConversationSession.tenant_id == tenant_id,
-            ConversationSession.created_at >= month_start,
-        ).count()
+        monthly_count = (
+            self.db.query(ConversationSession)
+            .filter(
+                ConversationSession.tenant_id == tenant_id,
+                ConversationSession.created_at >= month_start,
+            )
+            .count()
+        )
 
         if monthly_count > max_conversations:
             return (

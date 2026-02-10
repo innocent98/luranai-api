@@ -1,10 +1,9 @@
 """Service for scraping webpage content."""
 
-from typing import Optional
 import httpx
 from bs4 import BeautifulSoup
-from loguru import logger
 from fastapi import HTTPException, status
+from loguru import logger
 
 
 class URLScraperService:
@@ -32,27 +31,27 @@ class URLScraperService:
                 response.raise_for_status()
 
                 # Check content length
-                content_length = int(response.headers.get('content-length', 0))
+                content_length = int(response.headers.get("content-length", 0))
                 if content_length > self.MAX_CONTENT_LENGTH:
                     raise ValueError(f"Content too large: {content_length} bytes")
 
                 # Parse HTML
-                soup = BeautifulSoup(response.text, 'html.parser')
+                soup = BeautifulSoup(response.text, "html.parser")
 
                 # Extract title
-                title = soup.find('title')
+                title = soup.find("title")
                 title_text = title.get_text(strip=True) if title else url
 
                 # Remove script and style elements
-                for element in soup(['script', 'style', 'nav', 'footer', 'header']):
+                for element in soup(["script", "style", "nav", "footer", "header"]):
                     element.decompose()
 
                 # Get text content
-                text = soup.get_text(separator='\n', strip=True)
+                text = soup.get_text(separator="\n", strip=True)
 
                 # Clean up whitespace
                 lines = (line.strip() for line in text.splitlines())
-                text = '\n'.join(line for line in lines if line)
+                text = "\n".join(line for line in lines if line)
 
                 if len(text) < 100:
                     raise ValueError("Insufficient content extracted")
@@ -68,11 +67,10 @@ class URLScraperService:
             logger.error(f"HTTP error scraping {url}: {e}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to fetch URL: {e.response.status_code}"
-            )
+                detail=f"Failed to fetch URL: {e.response.status_code}",
+            ) from e
         except Exception as e:
             logger.error(f"Error scraping {url}: {e}")
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to scrape URL: {str(e)}"
-            )
+                status_code=status.HTTP_400_BAD_REQUEST, detail=f"Failed to scrape URL: {str(e)}"
+            ) from e

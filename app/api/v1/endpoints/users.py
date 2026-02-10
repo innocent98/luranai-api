@@ -5,15 +5,15 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_tenant_admin, get_db
-from app.services.user_management_service import UserManagementService
+from app.api.deps import get_current_tenant_admin, get_db, verify_subscription_active
 from app.schemas.user import (
     UserInviteRequest,
-    UserResponse,
     UserListResponse,
-    UserUpdate,
     UserRegeneratePasswordResponse,
+    UserResponse,
+    UserUpdate,
 )
+from app.services.user_management_service import UserManagementService
 from app.utils.http_rate_limiter import team_management_rate_limit
 
 router = APIRouter()
@@ -29,6 +29,7 @@ def invite_team_member(
     invite_data: UserInviteRequest,
     current_user: UserResponse = Depends(get_current_tenant_admin),
     db: Session = Depends(get_db),
+    _subscription_check: object = Depends(verify_subscription_active),
 ):
     """
     Invite a new team member (TENANT_ADMIN only).
@@ -60,7 +61,7 @@ def invite_team_member(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
 
 @router.get(
@@ -174,7 +175,7 @@ def update_team_member(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
 
 @router.delete(
@@ -215,7 +216,7 @@ def deactivate_team_member(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
 
 @router.post(
@@ -258,4 +259,4 @@ def regenerate_user_password(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e

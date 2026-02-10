@@ -1,0 +1,95 @@
+LURAN CHAT WIDGET INTEGRATION GUIDE (IMPLEMENTATION-ALIGNED)
+
+Last verified against code: February 10, 2026
+Primary sources: app/api/v1/endpoints/widget.py, luran-chat/app/widget/page.tsx
+
+================================================================================
+REQUIRED VALUES
+================================================================================
+
+You need:
+- tenantId: tenant UUID
+- apiKey: PUBLIC API key (starts with pk_live_)
+
+Do not expose secret keys (sk_live_) in browser code.
+
+================================================================================
+QUICK INSTALL
+================================================================================
+
+Add this before closing </body>:
+
+<script>
+  window.luranSettings = {
+    tenantId: 'YOUR_TENANT_UUID',
+    apiKey: 'YOUR_PUBLIC_API_KEY'
+  };
+</script>
+<script src="https://cdn.luranai.com/widget/v1/widget.js" async defer></script>
+
+================================================================================
+HOW IT WORKS
+================================================================================
+
+1. Loader script reads window.luranSettings.
+2. Loader calls backend public widget config endpoint:
+   GET /api/v1/widget/public/config/{tenant_id}
+   with header: X-API-Key: pk_live_...
+3. Backend validates:
+   - API key is valid
+   - key belongs to the same tenant
+4. Loader opens chat UI (iframe) with tenant context.
+
+================================================================================
+BACKEND-PROVIDED WIDGET CONFIG
+================================================================================
+
+Public config fields include:
+- company_name
+- company_description
+- primary_color
+- accent_color
+- logo_url
+- greeting_message
+- position
+- show_unread_badge
+- allow_file_upload
+
+Default fallbacks used by backend if tenant fields are empty:
+- primary_color: #2563eb
+- accent_color: #10b981
+- greeting_message: "Hi! How can we help you today?"
+- position: bottom-right
+
+================================================================================
+CUSTOMIZATION (DASHBOARD)
+================================================================================
+
+Tenant admins can update:
+- widget_primary_color
+- widget_accent_color
+- widget_logo_url
+- widget_greeting_message
+- widget_position (bottom-right, bottom-left, top-right, top-left)
+- widget_show_unread_badge
+- widget_allow_file_upload
+
+Logo upload endpoint accepts image file up to 5 MB.
+
+================================================================================
+COMMON ISSUES
+================================================================================
+
+Widget not appearing:
+- tenantId or apiKey missing/incorrect
+- script not loaded
+- CDN blocked by CSP/network
+
+401 from public config endpoint:
+- invalid or revoked API key
+
+403 from public config endpoint:
+- API key does not belong to requested tenant
+
+404 from public config endpoint:
+- tenant UUID is wrong

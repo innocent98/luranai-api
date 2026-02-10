@@ -1,11 +1,12 @@
 """Unit tests for intelligent conversational escalation logic."""
 
-import pytest
 from unittest.mock import MagicMock
 
-from app.services.rag_service import RAGService
+import pytest
+
 from app.db.models.conversation import EscalationAction
 from app.db.models.tenant import TenantAIConfig
+from app.services.rag_service import RAGService
 
 
 @pytest.fixture
@@ -26,14 +27,11 @@ def mock_ai_config():
     return TenantAIConfig(
         escalation_keywords=["urgent", "emergency", "critical"],
         grounding_requirement=True,
-        brand_voice={
-            "tone": "friendly",
-            "formality_level": "casual"
-        },
+        brand_voice={"tone": "friendly", "formality_level": "casual"},
         allowed_topics=[],
         blocked_topics=[],
         custom_instructions=None,
-        max_response_tokens=800
+        max_response_tokens=800,
     )
 
 
@@ -46,7 +44,7 @@ class TestConversationalMode:
             user_query="I need help",
             ai_config=mock_ai_config,
             retrieved_chunks_count=0,
-            similarity_scores=[]
+            similarity_scores=[],
         )
         assert decision.action == EscalationAction.NO_ESCALATION
         assert decision.reason == "conversational_mode"
@@ -57,7 +55,7 @@ class TestConversationalMode:
             user_query="Hello",
             ai_config=mock_ai_config,
             retrieved_chunks_count=0,
-            similarity_scores=[]
+            similarity_scores=[],
         )
         assert decision.action == EscalationAction.NO_ESCALATION
         assert decision.reason == "conversational_mode"
@@ -68,7 +66,7 @@ class TestConversationalMode:
             user_query="Can you help me?",
             ai_config=mock_ai_config,
             retrieved_chunks_count=0,
-            similarity_scores=[]
+            similarity_scores=[],
         )
         assert decision.action == EscalationAction.NO_ESCALATION
         assert decision.reason == "conversational_mode"
@@ -79,7 +77,7 @@ class TestConversationalMode:
             user_query="I have a question",
             ai_config=mock_ai_config,
             retrieved_chunks_count=0,
-            similarity_scores=[]
+            similarity_scores=[],
         )
         assert decision.action == EscalationAction.NO_ESCALATION
         assert decision.reason == "conversational_mode"
@@ -94,7 +92,7 @@ class TestPartialKnowledgeMode:
             user_query="Tell me about pricing",
             ai_config=mock_ai_config,
             retrieved_chunks_count=3,
-            similarity_scores=[0.35, 0.38, 0.32]  # Avg 0.35 < 0.40
+            similarity_scores=[0.35, 0.38, 0.32],  # Avg 0.35 < 0.40
         )
         assert decision.action == EscalationAction.NO_ESCALATION
         assert decision.reason == "partial_knowledge_mode"
@@ -105,7 +103,7 @@ class TestPartialKnowledgeMode:
             user_query="What are your features?",
             ai_config=mock_ai_config,
             retrieved_chunks_count=2,
-            similarity_scores=[0.39, 0.38]  # Avg 0.385 < 0.40
+            similarity_scores=[0.39, 0.38],  # Avg 0.385 < 0.40
         )
         assert decision.action == EscalationAction.NO_ESCALATION
         assert decision.reason == "partial_knowledge_mode"
@@ -128,7 +126,7 @@ class TestExplicitEscalation:
                 user_query=query,
                 ai_config=mock_ai_config,
                 retrieved_chunks_count=5,
-                similarity_scores=[0.85, 0.90, 0.88, 0.92, 0.87]
+                similarity_scores=[0.85, 0.90, 0.88, 0.92, 0.87],
             )
             assert decision.action == EscalationAction.AUTO_ESCALATE, f"Failed for query: {query}"
             assert "requested human" in decision.reason.lower(), f"Wrong reason for query: {query}"
@@ -145,7 +143,7 @@ class TestExplicitEscalation:
                 user_query=query,
                 ai_config=mock_ai_config,
                 retrieved_chunks_count=5,
-                similarity_scores=[0.85, 0.90, 0.88, 0.92, 0.87]
+                similarity_scores=[0.85, 0.90, 0.88, 0.92, 0.87],
             )
             assert decision.action == EscalationAction.AUTO_ESCALATE, f"Failed for query: {query}"
             assert "keyword detected" in decision.reason.lower(), f"Wrong reason for query: {query}"
@@ -160,7 +158,7 @@ class TestSufficientKnowledge:
             user_query="How do I reset my password?",
             ai_config=mock_ai_config,
             retrieved_chunks_count=4,
-            similarity_scores=[0.85, 0.78, 0.82, 0.80]  # Avg 0.8125 > 0.40
+            similarity_scores=[0.85, 0.78, 0.82, 0.80],  # Avg 0.8125 > 0.40
         )
         assert decision.action == EscalationAction.NO_ESCALATION
         assert decision.reason == "sufficient_knowledge"
@@ -171,7 +169,7 @@ class TestSufficientKnowledge:
             user_query="What are your pricing plans?",
             ai_config=mock_ai_config,
             retrieved_chunks_count=3,
-            similarity_scores=[0.92, 0.95, 0.91]  # Avg 0.926 > 0.40
+            similarity_scores=[0.92, 0.95, 0.91],  # Avg 0.926 > 0.40
         )
         assert decision.action == EscalationAction.NO_ESCALATION
         assert decision.reason == "sufficient_knowledge"
@@ -193,7 +191,7 @@ class TestSatisfactionDetection:
                 user_query=query,
                 ai_config=mock_ai_config,
                 retrieved_chunks_count=0,
-                similarity_scores=[]
+                similarity_scores=[],
             )
             assert decision.action == EscalationAction.NO_ESCALATION, f"Failed for query: {query}"
             assert decision.reason == "satisfaction_detected", f"Wrong reason for query: {query}"
@@ -212,7 +210,7 @@ class TestSatisfactionDetection:
                 user_query=query,
                 ai_config=mock_ai_config,
                 retrieved_chunks_count=0,
-                similarity_scores=[]
+                similarity_scores=[],
             )
             assert decision.action == EscalationAction.NO_ESCALATION, f"Failed for query: {query}"
             assert decision.reason == "satisfaction_detected", f"Wrong reason for query: {query}"
@@ -224,7 +222,7 @@ class TestSatisfactionDetection:
             user_query="Thank you so much for all your help today",  # 9 words
             ai_config=mock_ai_config,
             retrieved_chunks_count=0,
-            similarity_scores=[]
+            similarity_scores=[],
         )
         assert decision.action == EscalationAction.NO_ESCALATION
         assert decision.reason == "satisfaction_detected"
@@ -239,7 +237,7 @@ class TestEdgeCases:
             user_query="What is your refund policy?",
             ai_config=mock_ai_config,
             retrieved_chunks_count=0,
-            similarity_scores=None
+            similarity_scores=None,
         )
         assert decision.action == EscalationAction.NO_ESCALATION
         assert decision.reason == "conversational_mode"
@@ -250,7 +248,7 @@ class TestEdgeCases:
             user_query="Tell me about your features",
             ai_config=mock_ai_config,
             retrieved_chunks_count=3,
-            similarity_scores=[]
+            similarity_scores=[],
         )
         # Should not crash, should allow conversation
         assert decision.action == EscalationAction.NO_ESCALATION
@@ -261,7 +259,7 @@ class TestEdgeCases:
             user_query="What integrations do you support?",
             ai_config=mock_ai_config,
             retrieved_chunks_count=2,
-            similarity_scores=[0.40, 0.40]  # Avg exactly 0.40
+            similarity_scores=[0.40, 0.40],  # Avg exactly 0.40
         )
         # At threshold, should be sufficient_knowledge (not partial)
         assert decision.action == EscalationAction.NO_ESCALATION
@@ -273,7 +271,7 @@ class TestEdgeCases:
             user_query="How do I cancel my subscription?",
             ai_config=mock_ai_config,
             retrieved_chunks_count=1,
-            similarity_scores=[0.30]
+            similarity_scores=[0.30],
         )
         assert decision.action == EscalationAction.NO_ESCALATION
         assert decision.reason == "partial_knowledge_mode"

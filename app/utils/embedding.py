@@ -1,8 +1,7 @@
 """Embedding generation utilities using OpenAI."""
 
-from typing import List, Optional
-from openai import AsyncOpenAI
 from loguru import logger
+from openai import AsyncOpenAI
 
 from app.core.config import settings
 from app.utils.rate_limiter import openai_embedding_rate_limiter
@@ -12,12 +11,14 @@ from app.utils.token_counter import count_tokens
 class EmbeddingService:
     """Service for generating text embeddings using OpenAI."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize embedding service with OpenAI."""
         self.client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         self.model = settings.OPENAI_EMBEDDING_MODEL
 
-    async def generate_embedding(self, text: str, use_rate_limit: bool = True) -> Optional[List[float]]:
+    async def generate_embedding(
+        self, text: str, use_rate_limit: bool = True
+    ) -> list[float] | None:
         """
         Generate embedding vector for text.
 
@@ -43,7 +44,7 @@ class EmbeddingService:
             )
 
             # Extract embedding and usage
-            embedding = response.data[0].embedding
+            embedding = [float(x) for x in response.data[0].embedding]
             api_tokens = response.usage.prompt_tokens if response.usage else input_tokens
 
             logger.debug(
@@ -56,7 +57,9 @@ class EmbeddingService:
             logger.error(f"Error generating embedding: {e}")
             return None
 
-    async def generate_query_embedding(self, query: str, use_rate_limit: bool = True) -> Optional[List[float]]:
+    async def generate_query_embedding(
+        self, query: str, use_rate_limit: bool = True
+    ) -> list[float] | None:
         """
         Generate embedding vector for search query.
 
@@ -82,7 +85,7 @@ class EmbeddingService:
             )
 
             # Extract embedding and usage
-            embedding = response.data[0].embedding
+            embedding = [float(x) for x in response.data[0].embedding]
             api_tokens = response.usage.prompt_tokens if response.usage else input_tokens
 
             logger.debug(
@@ -96,8 +99,8 @@ class EmbeddingService:
             return None
 
     async def generate_batch_embeddings(
-        self, texts: List[str], task_type: str = "retrieval_document", use_rate_limit: bool = True
-    ) -> List[Optional[List[float]]]:
+        self, texts: list[str], task_type: str = "retrieval_document", use_rate_limit: bool = True
+    ) -> list[list[float] | None]:
         """
         Generate embeddings for multiple texts with rate limiting.
 
@@ -116,7 +119,9 @@ class EmbeddingService:
         embeddings = []
         total = len(texts)
 
-        logger.info(f"Starting batch embedding generation for {total} texts (rate limited: {use_rate_limit})")
+        logger.info(
+            f"Starting batch embedding generation for {total} texts (rate limited: {use_rate_limit})"
+        )
 
         for i, text in enumerate(texts):
             if task_type == "retrieval_query":

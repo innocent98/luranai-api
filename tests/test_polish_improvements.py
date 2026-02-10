@@ -9,15 +9,16 @@ Tests:
 5. Reranker uses relevance scores
 """
 
-import pytest
 from uuid import uuid4
+
+import pytest
 from sqlalchemy.orm import Session
 
-from app.services.rag_service import RAGService
-from app.services.knowledge_service import KnowledgeService
-from app.services.conversation_service import ConversationService
 from app.db.models.conversation import MessageRole
 from app.schemas.conversation import ConversationSessionCreate
+from app.services.conversation_service import ConversationService
+from app.services.knowledge_service import KnowledgeService
+from app.services.rag_service import RAGService
 
 
 class TestSimilarityThresholds:
@@ -25,8 +26,8 @@ class TestSimilarityThresholds:
 
     def test_similarity_constants_exist(self):
         """RAGService should have similarity threshold constants."""
-        assert hasattr(RAGService, 'MIN_SCORE_THRESHOLD')
-        assert hasattr(RAGService, 'MIN_RELEVANT_SIMILARITY')
+        assert hasattr(RAGService, "MIN_SCORE_THRESHOLD")
+        assert hasattr(RAGService, "MIN_RELEVANT_SIMILARITY")
         assert RAGService.MIN_SCORE_THRESHOLD == 0.35
         assert RAGService.MIN_RELEVANT_SIMILARITY == 0.40
 
@@ -40,24 +41,20 @@ class TestConfidenceScoreRemoval:
 
         # Create session
         session_data = ConversationSessionCreate(
-            tenant_id=test_tenant.id,
-            user_identifier="test_user",
-            meta={}
+            tenant_id=test_tenant.id, user_identifier="test_user", meta={}
         )
         session = conv_service.create_session(session_data)
 
         # Add message without confidence_score
         message = conv_service.add_message(
-            session_id=session.id,
-            role=MessageRole.ASSISTANT,
-            content="Test response"
+            session_id=session.id, role=MessageRole.ASSISTANT, content="Test response"
         )
 
         # Verify message was created
         assert message.id is not None
         assert message.content == "Test response"
         # Confidence score should not exist in response
-        assert not hasattr(message, 'confidence_score') or message.confidence_score is None
+        assert not hasattr(message, "confidence_score") or message.confidence_score is None
 
 
 class TestChunkVisibilityFilter:
@@ -69,12 +66,10 @@ class TestChunkVisibilityFilter:
 
         # The filter is applied at database level
         # We're testing that the query includes visibility filter
-        from app.db.models.knowledge import ChunkVisibility
 
         # This should be enforced - no exceptions raised
         chunks = knowledge_service.get_chunks_batch(
-            chunk_ids=[uuid4()],  # Non-existent, but shouldn't error
-            tenant_id=test_tenant.id
+            chunk_ids=[uuid4()], tenant_id=test_tenant.id  # Non-existent, but shouldn't error
         )
 
         # Should return empty dict (no chunks with that ID)
@@ -90,10 +85,7 @@ class TestRerankerNaming:
 
         # Test with empty chunks (edge case)
         chunks, scores = rag_service.rerank_chunks(
-            query="test",
-            chunks=[],
-            similarity_scores=[],
-            top_k=2
+            query="test", chunks=[], similarity_scores=[], top_k=2
         )
 
         # Should return empty lists
@@ -106,7 +98,7 @@ class TestMaxChunkCharsTODO:
 
     def test_token_safety_todo_exists(self):
         """RAGService should have MAX_CHUNK_CHARS constant."""
-        assert hasattr(RAGService, 'MAX_CHUNK_CHARS')
+        assert hasattr(RAGService, "MAX_CHUNK_CHARS")
         assert RAGService.MAX_CHUNK_CHARS == 900
 
 
@@ -115,7 +107,13 @@ class TestTokenCounter:
 
     def test_token_counter_accuracy(self):
         """Verify tiktoken integration works correctly."""
+        from app.utils import token_counter
         from app.utils.token_counter import count_tokens
+
+        try:
+            token_counter.get_encoding()
+        except Exception as exc:
+            pytest.skip(f"tiktoken encoding unavailable in test environment: {exc}")
 
         # Test known token counts
         assert count_tokens("Hello world") == 2
@@ -131,8 +129,9 @@ class TestTokenCounter:
 @pytest.fixture
 def test_tenant(db: Session):
     """Create a test tenant."""
-    from app.db.models.tenant import Tenant, TenantStatus
     import hashlib
+
+    from app.db.models.tenant import Tenant, TenantStatus
 
     tenant = Tenant(
         name="test_tenant_polish",

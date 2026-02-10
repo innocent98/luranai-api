@@ -2,14 +2,12 @@
 
 import uuid
 from datetime import datetime
-from typing import Optional
 
-from sqlalchemy import DateTime, String, Text, Index
-from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import ForeignKey
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy.orm import Mapped, mapped_column
 
-from app.db.base import Base, UUIDMixin, TimestampMixin
+from app.db.base import Base, TimestampMixin, UUIDMixin
 
 
 class EmailNotification(Base, UUIDMixin, TimestampMixin):
@@ -53,11 +51,11 @@ class EmailNotification(Base, UUIDMixin, TimestampMixin):
     )
 
     # Reference context
-    reference_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    reference_id: Mapped[uuid.UUID | None] = mapped_column(
         nullable=True,
         comment="Payment ID, subscription ID, etc.",
     )
-    reference_type: Mapped[Optional[str]] = mapped_column(
+    reference_type: Mapped[str | None] = mapped_column(
         String(50),
         nullable=True,
         comment="Type of reference: payment, subscription, etc.",
@@ -72,19 +70,19 @@ class EmailNotification(Base, UUIDMixin, TimestampMixin):
         index=True,
         comment="Status: pending, sent, failed, skipped",
     )
-    sent_at: Mapped[Optional[datetime]] = mapped_column(
+    sent_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         comment="When the email was successfully sent",
     )
-    error_message: Mapped[Optional[str]] = mapped_column(
+    error_message: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
         comment="Error message if sending failed",
     )
 
     # Metadata
-    template_data: Mapped[Optional[dict]] = mapped_column(
+    template_data: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
         comment="Template variables used in the email",

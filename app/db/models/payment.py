@@ -1,14 +1,18 @@
 """Payment transaction database models."""
 
 from datetime import datetime
-from typing import Optional
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.dialects.postgresql import JSON, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSON
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.db.models.tenant import Tenant
 
 
 class PaymentTransaction(Base):
@@ -70,50 +74,50 @@ class PaymentTransaction(Base):
     )
 
     # Customer details
-    customer_email: Mapped[Optional[str]] = mapped_column(
+    customer_email: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
     )
-    customer_code: Mapped[Optional[str]] = mapped_column(
+    customer_code: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
         comment="Paystack customer code",
     )
 
     # Payment details
-    channel: Mapped[Optional[str]] = mapped_column(
+    channel: Mapped[str | None] = mapped_column(
         String(50),
         nullable=True,
         comment="Payment channel: card, bank, ussd, etc.",
     )
-    paid_at: Mapped[Optional[datetime]] = mapped_column(
+    paid_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         comment="When payment was completed",
     )
 
     # Subscription tracking
-    subscription_code: Mapped[Optional[str]] = mapped_column(
+    subscription_code: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
         index=True,
         comment="Paystack subscription code (for recurring)",
     )
-    authorization_code: Mapped[Optional[str]] = mapped_column(
+    authorization_code: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
         comment="Paystack authorization code (for recurring)",
     )
 
     # Paystack raw data
-    paystack_data: Mapped[Optional[dict]] = mapped_column(
+    paystack_data: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
         comment="Raw Paystack response data",
     )
 
     # Error tracking
-    error_message: Mapped[Optional[str]] = mapped_column(
+    error_message: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
         comment="Error message if transaction failed",

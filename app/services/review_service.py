@@ -1,31 +1,26 @@
 """Review service for managing session ratings and platform feedback."""
 
 from datetime import datetime
-from typing import Optional
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy.orm import Session
-from sqlalchemy import select, desc, func, and_
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-from app.db.models.review import (
-    SessionRating,
-    PlatformFeedback,
-    PublicFeedback,
-    FeedbackCategory,
-)
 from app.db.models.conversation import ConversationSession
+from app.db.models.review import FeedbackCategory, PlatformFeedback, PublicFeedback, SessionRating
 from app.schemas.review import (
-    SessionRatingCreate,
-    SessionRatingResponse,
-    SessionRatingListResponse,
     PlatformFeedbackCreate,
-    PlatformFeedbackResponse,
     PlatformFeedbackListResponse,
+    PlatformFeedbackResponse,
     PlatformFeedbackUpdate,
     PublicFeedbackCreate,
-    PublicFeedbackResponse,
     PublicFeedbackListResponse,
+    PublicFeedbackResponse,
+    SessionRatingCreate,
+    SessionRatingListResponse,
+    SessionRatingResponse,
 )
 
 
@@ -38,9 +33,7 @@ class ReviewService:
 
     # ===== Session Rating Methods =====
 
-    def create_session_rating(
-        self, rating_data: SessionRatingCreate
-    ) -> SessionRatingResponse:
+    def create_session_rating(self, rating_data: SessionRatingCreate) -> SessionRatingResponse:
         """
         Create a new session rating.
 
@@ -55,9 +48,7 @@ class ReviewService:
             IntegrityError: If rating already exists for this session
         """
         # Verify session exists and get tenant_id
-        stmt = select(ConversationSession).where(
-            ConversationSession.id == rating_data.session_id
-        )
+        stmt = select(ConversationSession).where(ConversationSession.id == rating_data.session_id)
         session = self.db.execute(stmt).scalar_one_or_none()
 
         if not session:
@@ -81,15 +72,13 @@ class ReviewService:
             self.db.add(db_rating)
             self.db.commit()
             self.db.refresh(db_rating)
-        except IntegrityError:
+        except IntegrityError as err:
             self.db.rollback()
-            raise ValueError("Rating already exists for this session")
+            raise ValueError("Rating already exists for this session") from err
 
         return SessionRatingResponse.model_validate(db_rating)
 
-    def get_session_rating(
-        self, session_id: UUID
-    ) -> Optional[SessionRatingResponse]:
+    def get_session_rating(self, session_id: UUID) -> SessionRatingResponse | None:
         """
         Get rating for a specific session.
 
@@ -109,12 +98,12 @@ class ReviewService:
 
     def list_session_ratings(
         self,
-        tenant_id: Optional[UUID] = None,
-        session_id: Optional[UUID] = None,
-        min_score: Optional[int] = None,
-        max_score: Optional[int] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        tenant_id: UUID | None = None,
+        session_id: UUID | None = None,
+        min_score: int | None = None,
+        max_score: int | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> SessionRatingListResponse:
@@ -195,7 +184,7 @@ class ReviewService:
     # ===== Platform Feedback Methods =====
 
     def create_platform_feedback(
-        self, tenant_id: UUID, feedback_data: PlatformFeedbackCreate, user_id: Optional[UUID] = None
+        self, tenant_id: UUID, feedback_data: PlatformFeedbackCreate, user_id: UUID | None = None
     ) -> PlatformFeedbackResponse:
         """
         Create platform feedback.
@@ -225,9 +214,7 @@ class ReviewService:
 
         return PlatformFeedbackResponse.model_validate(db_feedback)
 
-    def get_platform_feedback(
-        self, feedback_id: UUID
-    ) -> Optional[PlatformFeedbackResponse]:
+    def get_platform_feedback(self, feedback_id: UUID) -> PlatformFeedbackResponse | None:
         """
         Get platform feedback by ID.
 
@@ -247,11 +234,11 @@ class ReviewService:
 
     def list_platform_feedback(
         self,
-        tenant_id: Optional[UUID] = None,
-        category: Optional[FeedbackCategory] = None,
-        status: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        tenant_id: UUID | None = None,
+        category: FeedbackCategory | None = None,
+        status: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> PlatformFeedbackListResponse:
@@ -351,9 +338,7 @@ class ReviewService:
 
     # ===== Public Landing Page Feedback Methods =====
 
-    def create_public_feedback(
-        self, feedback_data: PublicFeedbackCreate
-    ) -> PublicFeedbackResponse:
+    def create_public_feedback(self, feedback_data: PublicFeedbackCreate) -> PublicFeedbackResponse:
         """
         Create public feedback from landing page (no authentication required).
 
@@ -383,10 +368,10 @@ class ReviewService:
 
     def list_public_feedback(
         self,
-        category: Optional[FeedbackCategory] = None,
-        status: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        category: FeedbackCategory | None = None,
+        status: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> PublicFeedbackListResponse:
@@ -453,9 +438,9 @@ class ReviewService:
 
     def get_all_session_ratings(
         self,
-        tenant_id: Optional[UUID] = None,
-        min_score: Optional[int] = None,
-        max_score: Optional[int] = None,
+        tenant_id: UUID | None = None,
+        min_score: int | None = None,
+        max_score: int | None = None,
         days: int = 30,
         limit: int = 100,
         offset: int = 0,
@@ -521,7 +506,7 @@ class ReviewService:
             "statistics": {
                 "total_ratings": total,
                 "average_score": float(avg_score),
-                "score_distribution": {score: count for score, count in score_dist},
+                "score_distribution": {int(score): int(count) for score, count in score_dist},
             },
             "pagination": {
                 "limit": limit,
@@ -532,7 +517,7 @@ class ReviewService:
 
     def analyze_sentiment(
         self,
-        tenant_id: Optional[UUID] = None,
+        tenant_id: UUID | None = None,
         days: int = 30,
     ) -> dict:
         """
@@ -605,7 +590,9 @@ class ReviewService:
                 "positive": positive_count,
                 "neutral": neutral_count,
                 "negative": negative_count,
-                "positive_percentage": (positive_count / total_ratings * 100) if total_ratings > 0 else 0,
+                "positive_percentage": (
+                    (positive_count / total_ratings * 100) if total_ratings > 0 else 0
+                ),
             },
             "platform_feedback": {
                 "satisfied": satisfied_count,
@@ -613,9 +600,9 @@ class ReviewService:
             },
             "overall_sentiment_score": float(sentiment_score),
             "sentiment_category": (
-                "positive" if sentiment_score >= 70
-                else "neutral" if sentiment_score >= 40
-                else "negative"
+                "positive"
+                if sentiment_score >= 70
+                else "neutral" if sentiment_score >= 40 else "negative"
             ),
         }
 
@@ -635,18 +622,17 @@ class ReviewService:
             Dict with tenant health scores
         """
         from datetime import datetime, timedelta
+
         from app.db.models.tenant import Tenant
 
         end_date = datetime.utcnow()
         start_date = end_date - timedelta(days=days)
 
         # Get all active tenants
-        tenant_stmt = select(Tenant).where(
-            Tenant.subscription_status.in_(["active", "trialing"])
-        )
+        tenant_stmt = select(Tenant).where(Tenant.subscription_status.in_(["active", "trialing"]))
         tenants = self.db.execute(tenant_stmt).scalars().all()
 
-        tenant_scores = []
+        tenant_scores: list[dict[str, Any]] = []
 
         for tenant in tenants:
             # Get average session rating
@@ -679,34 +665,39 @@ class ReviewService:
             # Calculate health score (0-100)
             # Weight: 60% session ratings + 40% satisfaction
             if rating_count > 0 or avg_satisfaction > 0:
-                health_score = (
-                    (avg_rating / 5 * 60) +
-                    (avg_satisfaction / 5 * 40)
-                )
+                health_score = (avg_rating / 5 * 60) + (avg_satisfaction / 5 * 40)
             else:
                 health_score = 0  # No data
 
-            tenant_scores.append({
-                "tenant_id": str(tenant.id),
-                "tenant_name": tenant.name,
-                "display_name": tenant.display_name,
-                "health_score": float(health_score),
-                "health_category": (
-                    "excellent" if health_score >= 80
-                    else "good" if health_score >= 60
-                    else "fair" if health_score >= 40
-                    else "poor" if health_score > 0
-                    else "no_data"
-                ),
-                "metrics": {
-                    "average_rating": float(avg_rating),
-                    "rating_count": rating_count,
-                    "average_satisfaction": float(avg_satisfaction),
-                },
-            })
+            tenant_scores.append(
+                {
+                    "tenant_id": str(tenant.id),
+                    "tenant_name": tenant.name,
+                    "display_name": tenant.display_name,
+                    "health_score": float(health_score),
+                    "health_category": (
+                        "excellent"
+                        if health_score >= 80
+                        else (
+                            "good"
+                            if health_score >= 60
+                            else (
+                                "fair"
+                                if health_score >= 40
+                                else "poor" if health_score > 0 else "no_data"
+                            )
+                        )
+                    ),
+                    "metrics": {
+                        "average_rating": float(avg_rating),
+                        "rating_count": rating_count,
+                        "average_satisfaction": float(avg_satisfaction),
+                    },
+                }
+            )
 
         # Sort by health score (descending)
-        tenant_scores.sort(key=lambda x: x["health_score"], reverse=True)
+        tenant_scores.sort(key=lambda x: float(x.get("health_score", 0)), reverse=True)
 
         return {
             "period_days": days,

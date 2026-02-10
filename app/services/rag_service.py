@@ -1,16 +1,20 @@
 """RAG service for vector retrieval and prompt assembly."""
 
 import re
-from typing import Optional
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
-from sqlalchemy.orm import Session
 from loguru import logger
+from sqlalchemy.orm import Session
 
 from app.db.models.tenant import TenantAIConfig
-from app.schemas.knowledge import KnowledgeChunkResponse
 from app.schemas.conversation import MessageResponse
+from app.schemas.knowledge import KnowledgeChunkResponse
 from app.utils.token_counter import count_tokens
+
+if TYPE_CHECKING:
+    from app.db.models.conversation import EscalationAction
+    from app.schemas.rag import EscalationDecision, PromptComponents, ResponseQuality
 
 
 class RAGService:
@@ -87,9 +91,9 @@ class RAGService:
             return chunks, similarity_scores
 
         query_words = set(query.lower().split())
-        reranked = []
+        reranked: list[dict[str, Any]] = []
 
-        for chunk, similarity in zip(chunks, similarity_scores):
+        for chunk, similarity in zip(chunks, similarity_scores, strict=False):
             # Calculate keyword overlap
             chunk_words = set(chunk.content.lower().split())
             overlap = len(query_words & chunk_words) / len(query_words) if query_words else 0
@@ -97,26 +101,30 @@ class RAGService:
             # Combined score: 70% similarity + 30% keyword overlap
             combined_score = (0.7 * similarity) + (0.3 * overlap)
 
-            reranked.append({
-                "chunk": chunk,
-                "similarity": similarity,
-                "overlap": overlap,
-                "combined_score": combined_score,
-            })
+            reranked.append(
+                {
+                    "chunk": chunk,
+                    "similarity": similarity,
+                    "overlap": overlap,
+                    "combined_score": combined_score,
+                }
+            )
 
         # Sort by combined score
-        reranked.sort(key=lambda x: x["combined_score"], reverse=True)
+        reranked.sort(key=lambda x: float(x["combined_score"]), reverse=True)
 
         # Take top K
         top_results = reranked[:top_k]
 
         # Extract chunks and scores
-        final_chunks = [r["chunk"] for r in top_results]
-        relevance_scores = [r["combined_score"] for r in top_results]
+        final_chunks = [cast(KnowledgeChunkResponse, r["chunk"]) for r in top_results]
+        relevance_scores = [float(r["combined_score"]) for r in top_results]
 
         logger.debug(
             f"Re-ranked {len(chunks)} chunks → {len(final_chunks)} chunks. "
-            f"Top relevance score: {relevance_scores[0]:.3f}" if relevance_scores else "No chunks to re-rank"
+            f"Top relevance score: {relevance_scores[0]:.3f}"
+            if relevance_scores
+            else "No chunks to re-rank"
         )
 
         return final_chunks, relevance_scores
@@ -152,13 +160,13 @@ class RAGService:
             if chunk_tokens > 225:  # ~900 chars
                 # Truncate by characters as fallback
                 if len(chunk_content) > self.MAX_CHUNK_CHARS:
-                    return chunk_content[:self.MAX_CHUNK_CHARS] + "..."
+                    return chunk_content[: self.MAX_CHUNK_CHARS] + "..."
             return chunk_content
 
         # Improved sentence splitting using regex
         # Handles: periods, question marks, exclamation marks
         # Avoids splitting on: abbreviations, decimals, initials
-        sentence_pattern = r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?|\!)\s+'
+        sentence_pattern = r"(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?|\!)\s+"
         sentences = re.split(sentence_pattern, chunk_content.strip())
 
         # Filter out empty sentences
@@ -185,7 +193,7 @@ class RAGService:
 
         # Join back (preserve original sentence endings)
         compressed = ". ".join(top_sentences)
-        if not compressed.endswith(('.', '!', '?')):
+        if not compressed.endswith((".", "!", "?")):
             compressed += "."
 
         # Token-aware truncation
@@ -193,7 +201,7 @@ class RAGService:
         if chunk_tokens > 225:  # ~900 chars
             # Fallback to character truncation
             if len(compressed) > self.MAX_CHUNK_CHARS:
-                compressed = compressed[:self.MAX_CHUNK_CHARS] + "..."
+                compressed = compressed[: self.MAX_CHUNK_CHARS] + "..."
 
         return compressed
 
@@ -270,7 +278,7 @@ Help the customer based on what you have available. Be natural, helpful, and int
         retrieved_chunks: list[KnowledgeChunkResponse],
         conversation_history: list[MessageResponse],
         company_name: str,
-        company_description: Optional[str] = None,
+        company_description: str | None = None,
         max_history_turns: int = 10,
     ) -> "PromptComponents":
         """
@@ -312,7 +320,9 @@ Help the customer based on what you have available. Be natural, helpful, and int
             tenant_config_parts.append(f"NEVER discuss: {topics}")
 
         if ai_config.grounding_requirement:
-            tenant_config_parts.append("Strict grounding: Only answer from provided information for factual questions")
+            tenant_config_parts.append(
+                "Strict grounding: Only answer from provided information for factual questions"
+            )
 
         if ai_config.custom_instructions:
             tenant_config_parts.append(f"Additional: {ai_config.custom_instructions}")
@@ -343,7 +353,7 @@ Guidance:
         if not conversation_history:
             history_context = "(This is the first message in the conversation)"
         else:
-            recent_messages = conversation_history[-(max_history_turns * 2):]
+            recent_messages = conversation_history[-(max_history_turns * 2) :]
             history_parts = []
             for msg in recent_messages:
                 role = msg.role.value.upper()
@@ -367,8 +377,7 @@ Guidance:
         query_tokens = count_tokens(user_query)
 
         total_prompt_tokens = (
-            system_tokens + tenant_tokens + knowledge_tokens +
-            history_tokens + query_tokens
+            system_tokens + tenant_tokens + knowledge_tokens + history_tokens + query_tokens
         )
 
         logger.debug(
@@ -390,7 +399,7 @@ Guidance:
         user_query: str,
         ai_config: TenantAIConfig,
         retrieved_chunks_count: int,
-        similarity_scores: Optional[list[float]] = None,
+        similarity_scores: list[float] | None = None,
     ) -> "EscalationDecision":
         """
         Determine escalation strategy based on query patterns and knowledge availability.
@@ -406,22 +415,40 @@ Guidance:
         Returns:
             EscalationDecision with action, reason, and skip_quality_check flag
         """
-        from app.schemas.rag import EscalationDecision
         from app.db.models.conversation import EscalationAction
+        from app.schemas.rag import EscalationDecision
 
         query_lower = user_query.lower().strip()
 
         # Scenario 1: User satisfaction/closing (NO ESCALATION)
         satisfaction_patterns = [
-            "thank", "thanks", "appreciate", "grateful",
-            "that's all", "all set", "all good", "perfect", "great",
-            "got it", "understood", "makes sense",
-            "okay", "ok", "alright", "cool", "awesome", "nice",
-            "bye", "goodbye", "see you", "talk later", "have a good",
+            "thank",
+            "thanks",
+            "appreciate",
+            "grateful",
+            "that's all",
+            "all set",
+            "all good",
+            "perfect",
+            "great",
+            "got it",
+            "understood",
+            "makes sense",
+            "okay",
+            "ok",
+            "alright",
+            "cool",
+            "awesome",
+            "nice",
+            "bye",
+            "goodbye",
+            "see you",
+            "talk later",
+            "have a good",
         ]
         is_satisfaction = any(pattern in query_lower for pattern in satisfaction_patterns)
         if is_satisfaction and len(query_lower.split()) <= 10:
-            logger.info(f"Detected satisfaction/closing statement, no escalation")
+            logger.info("Detected satisfaction/closing statement, no escalation")
             return EscalationDecision(
                 action=EscalationAction.NO_ESCALATION,
                 reason="satisfaction_detected",
@@ -430,17 +457,31 @@ Guidance:
 
         # Scenario 2: User explicitly requests human agent (AUTO ESCALATE)
         human_request_patterns = [
-            "speak to agent", "speak to an agent", "speak to a agent",
-            "speak with agent", "speak with an agent", "speak with a agent",
-            "talk to agent", "talk to an agent", "talk to a agent",
-            "talk with agent", "talk with an agent", "talk with a agent",
-            "human agent", "real person", "actual person",
-            "speak to someone", "talk to someone",
-            "escalate", "transfer me", "get me someone",
-            "customer service", "support team",
+            "speak to agent",
+            "speak to an agent",
+            "speak to a agent",
+            "speak with agent",
+            "speak with an agent",
+            "speak with a agent",
+            "talk to agent",
+            "talk to an agent",
+            "talk to a agent",
+            "talk with agent",
+            "talk with an agent",
+            "talk with a agent",
+            "human agent",
+            "real person",
+            "actual person",
+            "speak to someone",
+            "talk to someone",
+            "escalate",
+            "transfer me",
+            "get me someone",
+            "customer service",
+            "support team",
         ]
         if any(pattern in query_lower for pattern in human_request_patterns):
-            logger.info(f"User explicitly requested human agent")
+            logger.info("User explicitly requested human agent")
             return EscalationDecision(
                 action=EscalationAction.AUTO_ESCALATE,
                 reason="User requested human assistance",
@@ -458,7 +499,7 @@ Guidance:
         # Scenario 4: NO knowledge - Let AI handle conversationally
         # CHANGED: Don't immediately escalate - allow AI to clarify first
         if retrieved_chunks_count == 0:
-            logger.info(f"No knowledge chunks found - allowing conversational mode")
+            logger.info("No knowledge chunks found - allowing conversational mode")
             return EscalationDecision(
                 action=EscalationAction.NO_ESCALATION,
                 reason="conversational_mode",  # Signal for prompt assembly
@@ -468,7 +509,9 @@ Guidance:
         if similarity_scores and len(similarity_scores) > 0:
             avg_similarity = sum(similarity_scores) / len(similarity_scores)
             if avg_similarity < self.MIN_RELEVANT_SIMILARITY:
-                logger.info(f"Low similarity ({avg_similarity:.2f}) - allowing partial knowledge mode")
+                logger.info(
+                    f"Low similarity ({avg_similarity:.2f}) - allowing partial knowledge mode"
+                )
                 return EscalationDecision(
                     action=EscalationAction.NO_ESCALATION,
                     reason="partial_knowledge_mode",
@@ -486,7 +529,7 @@ Guidance:
         retrieved_chunks_count: int,
         avg_similarity: float,
         escalation_action: "EscalationAction",
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """
         Deterministically compute whether AI should attempt to answer.
 
@@ -537,10 +580,18 @@ Guidance:
 
         # Check for uncertainty markers
         uncertainty_patterns = [
-            "i'm not sure", "i don't know", "not certain", "unclear",
-            "i don't have", "i'm not aware", "i can't find",
-            "i'm unable to", "no information about", "don't have information",
-            "i apologize", "unfortunately, i don't",
+            "i'm not sure",
+            "i don't know",
+            "not certain",
+            "unclear",
+            "i don't have",
+            "i'm not aware",
+            "i can't find",
+            "i'm unable to",
+            "no information about",
+            "don't have information",
+            "i apologize",
+            "unfortunately, i don't",
         ]
         has_uncertainty = any(pattern in ai_response.lower() for pattern in uncertainty_patterns)
 
@@ -561,7 +612,7 @@ Guidance:
             char_count=char_count,
         )
 
-    def detect_escalation_consent(self, user_message: str) -> Optional[str]:
+    def detect_escalation_consent(self, user_message: str) -> str | None:
         """
         Detect if user is giving consent or rejecting escalation offer.
 
@@ -577,28 +628,54 @@ Guidance:
 
         # Consent patterns
         consent_patterns = [
-            "yes", "yeah", "yep", "sure", "ok", "okay", "please",
-            "go ahead", "connect me", "transfer", "escalate",
-            "i would", "i'd like", "that would be great",
-            "yes please", "sure thing", "sounds good",
+            "yes",
+            "yeah",
+            "yep",
+            "sure",
+            "ok",
+            "okay",
+            "please",
+            "go ahead",
+            "connect me",
+            "transfer",
+            "escalate",
+            "i would",
+            "i'd like",
+            "that would be great",
+            "yes please",
+            "sure thing",
+            "sounds good",
         ]
 
         # Rejection patterns
         rejection_patterns = [
-            "no", "nope", "nah", "never mind", "nevermind",
-            "i'm good", "im good", "i'm ok", "im ok",
-            "no thanks", "no thank", "that's fine", "thats fine",
-            "all good", "all set", "don't need", "dont need",
+            "no",
+            "nope",
+            "nah",
+            "never mind",
+            "nevermind",
+            "i'm good",
+            "im good",
+            "i'm ok",
+            "im ok",
+            "no thanks",
+            "no thank",
+            "that's fine",
+            "thats fine",
+            "all good",
+            "all set",
+            "don't need",
+            "dont need",
         ]
 
         # Check for consent (must be short message, < 15 words)
         if len(message_lower.split()) <= 15:
             if any(pattern in message_lower for pattern in consent_patterns):
-                logger.info(f"Detected escalation consent")
+                logger.info("Detected escalation consent")
                 return "consent"
 
             if any(pattern in message_lower for pattern in rejection_patterns):
-                logger.info(f"Detected escalation rejection")
+                logger.info("Detected escalation rejection")
                 return "reject"
 
         # Unclear or unrelated message
@@ -611,7 +688,7 @@ Guidance:
         tenant_id: UUID,
         query: str,
         max_chunks: int = 5,
-        score_threshold: float = None,
+        score_threshold: float | None = None,
     ) -> tuple[list[KnowledgeChunkResponse], list[float]]:
         """
         Retrieve relevant knowledge chunks using vector similarity.
@@ -625,9 +702,9 @@ Guidance:
         Returns:
             Tuple of (retrieved chunks, similarity scores after re-ranking)
         """
+        from app.services.knowledge_service import KnowledgeService
         from app.utils.embedding import embedding_service
         from app.utils.qdrant_client import qdrant_manager
-        from app.services.knowledge_service import KnowledgeService
 
         # Use class constant if not provided
         if score_threshold is None:
@@ -693,8 +770,8 @@ Guidance:
         self,
         prompt: "PromptComponents",
         max_tokens: int = 800,  # Increased for comprehensive responses (was 200)
-        model_name: Optional[str] = None,
-    ) -> tuple[str, Optional[int], bool]:
+        model_name: str | None = None,
+    ) -> tuple[str, int | None, bool]:
         """
         Generate AI response using OpenAI API.
 
@@ -708,9 +785,10 @@ Guidance:
             - is_api_error=True means technical failure (503, timeout, etc.)
               Don't evaluate quality or offer escalation for API errors
         """
-        from openai import AsyncOpenAI
-        from app.core.config import settings
         from loguru import logger
+        from openai import AsyncOpenAI
+
+        from app.core.config import settings
         from app.utils.rate_limiter import openai_llm_rate_limiter
 
         # Use provided model or default from settings
@@ -729,7 +807,7 @@ Guidance:
                 model=model,
                 messages=[
                     {"role": "system", "content": "You are a helpful customer support assistant."},
-                    {"role": "user", "content": prompt.full_prompt}
+                    {"role": "user", "content": prompt.full_prompt},
                 ],
                 max_tokens=max_tokens,
                 temperature=0.4,  # Increased from 0.2 for more natural, varied responses while maintaining groundedness
@@ -747,8 +825,11 @@ Guidance:
             except Exception as token_error:
                 logger.warning(f"Failed to extract token count: {token_error}")
 
+            response_text = response_text or ""
             logger.debug(f"Generated AI response using {model} with {token_count} tokens")
-            logger.debug(f"Response text length: {len(response_text)} chars, {len(response_text.split())} words")
+            logger.debug(
+                f"Response text length: {len(response_text)} chars, {len(response_text.split())} words"
+            )
             return response_text, token_count, False  # Success, not an API error
 
         except Exception as e:
@@ -758,20 +839,41 @@ Guidance:
             # Detect specific error types
             if "503" in error_msg or "service unavailable" in error_msg:
                 logger.warning("API service temporarily unavailable (503)")
-                return "I apologize, but I'm temporarily unable to process requests. Please try again in a moment.", None, True
+                return (
+                    "I apologize, but I'm temporarily unable to process requests. Please try again in a moment.",
+                    None,
+                    True,
+                )
 
-            elif "blocked" in error_msg or "safety" in error_msg or "content" in error_msg or "content_filter" in error_msg:
+            elif (
+                "blocked" in error_msg
+                or "safety" in error_msg
+                or "content" in error_msg
+                or "content_filter" in error_msg
+            ):
                 logger.warning("Content blocked by safety filters")
-                return "I'm unable to process that request. Would you like me to connect you with someone from our team?", None, True
+                return (
+                    "I'm unable to process that request. Would you like me to connect you with someone from our team?",
+                    None,
+                    True,
+                )
 
             elif "rate limit" in error_msg or "quota" in error_msg:
                 logger.warning("Rate limit or quota exceeded")
-                return "I'm experiencing high demand right now. Please try again in a moment.", None, True
+                return (
+                    "I'm experiencing high demand right now. Please try again in a moment.",
+                    None,
+                    True,
+                )
 
             else:
                 # Generic API error
                 logger.error(f"Unknown API error: {e}")
-                return "I'm having trouble processing your request. Would you like me to connect you with someone from our team?", None, True
+                return (
+                    "I'm having trouble processing your request. Would you like me to connect you with someone from our team?",
+                    None,
+                    True,
+                )
 
     def track_retrieval_metrics(
         self,
@@ -781,8 +883,8 @@ Guidance:
         response_quality: "ResponseQuality",
         escalated: bool,
         generation_skipped: bool = False,
-        skip_reason: Optional[str] = None,
-        prompt_tokens: Optional[int] = None,
+        skip_reason: str | None = None,
+        prompt_tokens: int | None = None,
     ) -> None:
         """
         Track RAG retrieval and response metrics.
@@ -820,7 +922,9 @@ Guidance:
         )
 
         # NEW: Track retrieval hit rate
-        retrieval_hit = retrieved_chunks_count > 0 and avg_similarity >= self.MIN_RELEVANT_SIMILARITY
+        retrieval_hit = (
+            retrieved_chunks_count > 0 and avg_similarity >= self.MIN_RELEVANT_SIMILARITY
+        )
         logger.info(f"Retrieval hit: {retrieval_hit}")
 
         # NEW: Track generation skip rate (safety measure)

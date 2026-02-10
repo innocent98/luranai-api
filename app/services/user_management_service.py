@@ -1,16 +1,17 @@
 """User management service for platform admins."""
 
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Any
 from uuid import UUID
 
 from loguru import logger
-from sqlalchemy import select, func, and_, or_, desc
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
 
-from app.db.models.user import User, UserRole
-from app.db.models.tenant import Tenant
 from app.db.models.audit import AuditLog
+from app.db.models.subscription_plan import SubscriptionPlan
+from app.db.models.tenant import Tenant, TenantCapabilities
+from app.db.models.user import User, UserRole
 
 
 class UserManagementService:
@@ -27,13 +28,13 @@ class UserManagementService:
 
     def search_users(
         self,
-        email: Optional[str] = None,
-        tenant_id: Optional[UUID] = None,
-        role: Optional[UserRole] = None,
-        is_active: Optional[bool] = None,
+        email: str | None = None,
+        tenant_id: UUID | None = None,
+        role: UserRole | None = None,
+        is_active: bool | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Search users across tenants with filters.
 
@@ -53,7 +54,7 @@ class UserManagementService:
             query = select(User)
 
             # Apply filters
-            filters = []
+            filters: list[Any] = []
 
             if email:
                 filters.append(User.email.ilike(f"%{email}%"))
@@ -93,19 +94,23 @@ class UserManagementService:
                 tenant_result = self.db.execute(tenant_query)
                 tenant = tenant_result.scalars().first()
 
-                user_list.append({
-                    "id": str(user.id),
-                    "email": user.email,
-                    "full_name": user.full_name,
-                    "role": user.role.value,
-                    "is_active": user.is_active,
-                    "tenant_id": str(user.tenant_id),
-                    "tenant_name": tenant.name if tenant else "Unknown",
-                    "tenant_display_name": tenant.display_name if tenant else "Unknown",
-                    "created_at": user.created_at.isoformat(),
-                    "updated_at": user.updated_at.isoformat(),
-                    "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
-                })
+                user_list.append(
+                    {
+                        "id": str(user.id),
+                        "email": user.email,
+                        "full_name": user.full_name,
+                        "role": user.role.value,
+                        "is_active": user.is_active,
+                        "tenant_id": str(user.tenant_id),
+                        "tenant_name": tenant.name if tenant else "Unknown",
+                        "tenant_display_name": tenant.display_name if tenant else "Unknown",
+                        "created_at": user.created_at.isoformat(),
+                        "updated_at": user.updated_at.isoformat(),
+                        "last_login_at": (
+                            user.last_login_at.isoformat() if user.last_login_at else None
+                        ),
+                    }
+                )
 
             return {
                 "users": user_list,
@@ -124,7 +129,7 @@ class UserManagementService:
     def get_user_details(
         self,
         user_id: UUID,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get detailed information about a specific user.
 
@@ -183,7 +188,7 @@ class UserManagementService:
         self,
         user_id: UUID,
         days: int = 30,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get user's activity summary from audit logs.
 
@@ -209,23 +214,29 @@ class UserManagementService:
             total_actions = total_result.scalar() or 0
 
             # Get actions by type
-            actions_query = select(
-                AuditLog.action,
-                func.count(AuditLog.id).label("count")
-            ).where(
-                and_(
-                    AuditLog.user_id == user_id,
-                    AuditLog.created_at >= start_date,
+            actions_query = (
+                select(AuditLog.action, func.count(AuditLog.id).label("count"))
+                .where(
+                    and_(
+                        AuditLog.user_id == user_id,
+                        AuditLog.created_at >= start_date,
+                    )
                 )
-            ).group_by(AuditLog.action)
+                .group_by(AuditLog.action)
+            )
 
             actions_result = self.db.execute(actions_query)
-            actions_breakdown = {action: count for action, count in actions_result.all()}
+            actions_breakdown: dict[str, int] = {
+                str(action): int(count) for action, count in actions_result.all()
+            }
 
             # Get most recent actions
-            recent_query = select(AuditLog).where(
-                AuditLog.user_id == user_id
-            ).order_by(desc(AuditLog.created_at)).limit(10)
+            recent_query = (
+                select(AuditLog)
+                .where(AuditLog.user_id == user_id)
+                .order_by(desc(AuditLog.created_at))
+                .limit(10)
+            )
 
             recent_result = self.db.execute(recent_query)
             recent_actions = recent_result.scalars().all()
@@ -250,12 +261,12 @@ class UserManagementService:
             logger.error(f"Error getting user activity: {e}")
             raise
 
-    def deactivate_user(
+    def deactivate_user_platform_admin(
         self,
         user_id: UUID,
         reason: str,
         admin_id: UUID,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Deactivate a user account (platform admin only).
 
@@ -320,7 +331,7 @@ class UserManagementService:
             logger.error(f"Error deactivating user: {e}")
             raise
 
-    def get_role_distribution(self) -> Dict[str, Any]:
+    def get_role_distribution(self) -> dict[str, Any]:
         """
         Get distribution of users by role.
 
@@ -334,24 +345,19 @@ class UserManagementService:
             total_users = total_result.scalar() or 0
 
             # Get active users
-            active_query = select(func.count(User.id)).where(User.is_active == True)
+            active_query = select(func.count(User.id)).where(User.is_active.is_(True))
             active_result = self.db.execute(active_query)
             active_users = active_result.scalar() or 0
 
             # Get users by role
-            role_query = select(
-                User.role,
-                func.count(User.id).label("count")
-            ).group_by(User.role)
+            role_query = select(User.role, func.count(User.id).label("count")).group_by(User.role)
 
             role_result = self.db.execute(role_query)
             role_distribution = {role.value: count for role, count in role_result.all()}
 
             # Get users created in last 30 days
             thirty_days_ago = datetime.utcnow() - timedelta(days=30)
-            recent_query = select(func.count(User.id)).where(
-                User.created_at >= thirty_days_ago
-            )
+            recent_query = select(func.count(User.id)).where(User.created_at >= thirty_days_ago)
             recent_result = self.db.execute(recent_query)
             recent_users = recent_result.scalar() or 0
 
@@ -388,12 +394,29 @@ class UserManagementService:
             ValueError: If user already exists or invalid role
         """
         from app.core.security import get_password_hash
-        from app.utils.password import generate_temp_password
-        from app.services.email_service import email_service
         from app.db.models.user import UserRole
         from app.schemas.user import UserResponse
+        from app.services.email_service import email_service
+        from app.utils.password import generate_temp_password
 
         try:
+            # Enforce team member limit from current tenant plan (or tenant override)
+            max_team_members = self._get_max_team_members_limit(tenant_id)
+            if max_team_members is not None:
+                active_count = (
+                    self.db.execute(
+                        select(func.count())
+                        .select_from(User)
+                        .where(User.tenant_id == tenant_id, User.is_active.is_(True))
+                    ).scalar()
+                    or 0
+                )
+                if active_count >= max_team_members:
+                    raise ValueError(
+                        f"Team member limit reached. Your plan allows {max_team_members} active team members. "
+                        "Please upgrade your subscription to invite more users."
+                    )
+
             # Check if user already exists
             existing_query = select(User).where(User.email == invite_data.email)
             existing_result = self.db.execute(existing_query)
@@ -462,6 +485,37 @@ class UserManagementService:
         tenant = tenant_result.scalars().first()
         return tenant.display_name if tenant else "Unknown"
 
+    def _get_max_team_members_limit(self, tenant_id: UUID) -> int | None:
+        """Resolve effective max team members for a tenant."""
+        tenant = self.db.execute(select(Tenant).where(Tenant.id == tenant_id)).scalars().first()
+        if not tenant:
+            raise ValueError("Tenant not found")
+
+        capabilities = (
+            self.db.execute(
+                select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant_id)
+            )
+            .scalars()
+            .first()
+        )
+        if capabilities and capabilities.max_team_members is not None:
+            return capabilities.max_team_members
+
+        plan = self.db.execute(
+            select(SubscriptionPlan).where(
+                SubscriptionPlan.tier == tenant.subscription_tier,
+                SubscriptionPlan.is_active.is_(True),
+            )
+        ).scalars().first()
+        if not plan:
+            plan = self.db.execute(
+                select(SubscriptionPlan).where(SubscriptionPlan.tier == tenant.subscription_tier)
+            ).scalars().first()
+        if not plan:
+            raise ValueError(f"Subscription plan not found for tier: {tenant.subscription_tier}")
+
+        return plan.max_team_members
+
     def get_user_by_id(self, user_id: UUID, tenant_id: UUID):
         """
         Get user by ID within tenant (tenant-scoped).
@@ -479,10 +533,7 @@ class UserManagementService:
         from app.schemas.user import UserResponse
 
         try:
-            user_query = select(User).where(
-                User.id == user_id,
-                User.tenant_id == tenant_id
-            )
+            user_query = select(User).where(User.id == user_id, User.tenant_id == tenant_id)
             user_result = self.db.execute(user_query)
             user = user_result.scalars().first()
 
@@ -523,10 +574,7 @@ class UserManagementService:
         from app.schemas.user import UserResponse
 
         try:
-            user_query = select(User).where(
-                User.id == user_id,
-                User.tenant_id == tenant_id
-            )
+            user_query = select(User).where(User.id == user_id, User.tenant_id == tenant_id)
             user_result = self.db.execute(user_query)
             user = user_result.scalars().first()
 
@@ -584,10 +632,7 @@ class UserManagementService:
         from app.db.models.user import UserRole
 
         try:
-            user_query = select(User).where(
-                User.id == user_id,
-                User.tenant_id == tenant_id
-            )
+            user_query = select(User).where(User.id == user_id, User.tenant_id == tenant_id)
             user_result = self.db.execute(user_query)
             user = user_result.scalars().first()
 
@@ -629,14 +674,11 @@ class UserManagementService:
             ValueError: If user not found
         """
         from app.core.security import get_password_hash
-        from app.utils.password import generate_temp_password
         from app.schemas.user import UserRegeneratePasswordResponse
+        from app.utils.password import generate_temp_password
 
         try:
-            user_query = select(User).where(
-                User.id == user_id,
-                User.tenant_id == tenant_id
-            )
+            user_query = select(User).where(User.id == user_id, User.tenant_id == tenant_id)
             user_result = self.db.execute(user_query)
             user = user_result.scalars().first()
 

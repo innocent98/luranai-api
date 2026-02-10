@@ -4,8 +4,9 @@ Subscription Plan Model
 This module defines the SubscriptionPlan model for database-driven pricing configuration.
 """
 
-from sqlalchemy import Column, String, Integer, Boolean, JSON, Index
-from app.db.base import Base, UUIDMixin, TimestampMixin
+from sqlalchemy import JSON, Boolean, Column, Index, Integer, String
+
+from app.db.base import Base, TimestampMixin, UUIDMixin
 
 
 class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
@@ -14,6 +15,7 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
 
     Replaces hardcoded PRICING and TIER_CONFIGS constants with database-driven configuration.
     """
+
     __tablename__ = "subscription_plans"
 
     # Identification
@@ -48,8 +50,8 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
     sort_order = Column(Integer, nullable=False, default=0)
 
     __table_args__ = (
-        Index('ix_subscription_plans_tier', 'tier', unique=True),
-        Index('ix_subscription_plans_active_sort', 'is_active', 'sort_order'),
+        Index("ix_subscription_plans_tier", "tier", unique=True),
+        Index("ix_subscription_plans_active_sort", "is_active", "sort_order"),
     )
 
     def to_dict(self) -> dict:

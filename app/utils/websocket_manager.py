@@ -1,12 +1,13 @@
 """WebSocket manager for real-time job progress updates."""
 
-from typing import Dict, Set
-from uuid import UUID
 import json
-import redis.asyncio as aioredis
+from typing import Any
+from uuid import UUID
 
+import redis.asyncio as aioredis
 from fastapi import WebSocket
 from loguru import logger
+
 from app.core.config import settings
 
 
@@ -18,13 +19,13 @@ class WebSocketManager:
     real-time updates when job status/progress changes.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # job_id -> set of connected websockets
-        self.active_connections: Dict[str, Set[WebSocket]] = {}
+        self.active_connections: dict[str, set[WebSocket]] = {}
         # Redis client for pub/sub (lazy initialization)
         self._redis_client = None
 
-    async def connect(self, websocket: WebSocket, job_id: UUID):
+    async def connect(self, websocket: WebSocket, job_id: UUID) -> None:
         """
         Accept WebSocket connection and subscribe to job updates.
 
@@ -41,7 +42,7 @@ class WebSocketManager:
         self.active_connections[job_id_str].add(websocket)
         logger.info(f"WebSocket connected for job {job_id}")
 
-    def disconnect(self, websocket: WebSocket, job_id: UUID):
+    def disconnect(self, websocket: WebSocket, job_id: UUID) -> None:
         """
         Disconnect WebSocket and unsubscribe from job updates.
 
@@ -60,17 +61,15 @@ class WebSocketManager:
 
         logger.info(f"WebSocket disconnected for job {job_id}")
 
-    async def _get_redis_client(self):
+    async def _get_redis_client(self) -> Any:
         """Get or create Redis client for pub/sub."""
         if self._redis_client is None:
             self._redis_client = await aioredis.from_url(
-                settings.REDIS_URL,
-                encoding="utf-8",
-                decode_responses=True
+                settings.REDIS_URL, encoding="utf-8", decode_responses=True
             )
         return self._redis_client
 
-    async def broadcast_job_update(self, job_id: UUID, update: dict):
+    async def broadcast_job_update(self, job_id: UUID, update: dict) -> None:
         """
         Broadcast job update to all connected clients subscribed to this job.
 
@@ -168,7 +167,7 @@ class WebSocketManager:
             try:
                 await pubsub.unsubscribe(channel)
                 logger.info(f"Unsubscribed from Redis channel: {channel}")
-            except:
+            except Exception:
                 pass
 
 

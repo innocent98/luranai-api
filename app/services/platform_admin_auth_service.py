@@ -1,21 +1,20 @@
 """Authentication service for platform admin management and JWT tokens."""
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
-from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import verify_password, get_password_hash, create_access_token
+from app.core.security import create_access_token, get_password_hash, verify_password
 from app.db.models.platform_admin import PlatformAdmin, PlatformAdminRole
 from app.schemas.platform_admin import (
     PlatformAdminCreate,
+    PlatformAdminLoginRequest,
     PlatformAdminResponse,
     PlatformAdminToken,
     PlatformAdminTokenData,
-    PlatformAdminLoginRequest,
 )
 
 
@@ -26,9 +25,7 @@ class PlatformAdminAuthService:
         """Initialize platform admin auth service with database session."""
         self.db = db
 
-    def authenticate_admin(
-        self, email: str, password: str
-    ) -> Optional[PlatformAdmin]:
+    def authenticate_admin(self, email: str, password: str) -> PlatformAdmin | None:
         """
         Authenticate a platform admin by email and password.
 
@@ -40,7 +37,7 @@ class PlatformAdminAuthService:
             PlatformAdmin object if authentication successful, None otherwise
         """
         stmt = select(PlatformAdmin).where(
-            PlatformAdmin.email == email, PlatformAdmin.is_active == True
+            PlatformAdmin.email == email, PlatformAdmin.is_active.is_(True)
         )
         admin = self.db.execute(stmt).scalar_one_or_none()
 
@@ -90,9 +87,7 @@ class PlatformAdminAuthService:
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         )
 
-    def create_admin(
-        self, admin_data: PlatformAdminCreate
-    ) -> PlatformAdminResponse:
+    def create_admin(self, admin_data: PlatformAdminCreate) -> PlatformAdminResponse:
         """
         Create a new platform admin (SUPER_ADMIN only).
 
@@ -127,7 +122,7 @@ class PlatformAdminAuthService:
 
         return PlatformAdminResponse.model_validate(db_admin)
 
-    def get_admin_by_id(self, admin_id: UUID) -> Optional[PlatformAdminResponse]:
+    def get_admin_by_id(self, admin_id: UUID) -> PlatformAdminResponse | None:
         """
         Get platform admin by ID.
 
@@ -145,7 +140,7 @@ class PlatformAdminAuthService:
 
         return PlatformAdminResponse.model_validate(admin)
 
-    def get_admin_by_email(self, email: str) -> Optional[PlatformAdminResponse]:
+    def get_admin_by_email(self, email: str) -> PlatformAdminResponse | None:
         """
         Get platform admin by email.
 
@@ -163,7 +158,7 @@ class PlatformAdminAuthService:
 
         return PlatformAdminResponse.model_validate(admin)
 
-    def verify_token_data(self, token_data: dict) -> Optional[PlatformAdminTokenData]:
+    def verify_token_data(self, token_data: dict) -> PlatformAdminTokenData | None:
         """
         Verify and extract data from JWT token payload.
 
@@ -180,11 +175,13 @@ class PlatformAdminAuthService:
 
             admin_id = UUID(token_data.get("sub"))
             email = token_data.get("email")
+            if not email:
+                return None
             role = PlatformAdminRole(token_data.get("role"))
 
             return PlatformAdminTokenData(
                 admin_id=admin_id,
-                email=email,
+                email=str(email),
                 role=role,
             )
         except (ValueError, KeyError, TypeError):
@@ -253,7 +250,7 @@ class PlatformAdminAuthService:
         Returns:
             List of admin responses
         """
-        stmt = select(PlatformAdmin).where(PlatformAdmin.is_active == True)
+        stmt = select(PlatformAdmin).where(PlatformAdmin.is_active.is_(True))
         admins = self.db.execute(stmt).scalars().all()
 
         return [PlatformAdminResponse.model_validate(admin) for admin in admins]

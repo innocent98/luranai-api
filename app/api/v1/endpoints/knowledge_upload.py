@@ -1,27 +1,29 @@
 """File upload endpoint for knowledge documents."""
 
-from typing import Optional
-from uuid import UUID
 import io
 from datetime import datetime
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Body
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile, status
+from loguru import logger
 from pydantic import HttpUrl
 from sqlalchemy.orm import Session
-from loguru import logger
 
-from app.api.deps import get_current_tenant_admin, get_db, verify_tenant_access, verify_subscription_active
-from app.services.knowledge_service import KnowledgeService
-from app.services.job_service import JobService
-from app.services.url_scraper_service import URLScraperService
-from app.schemas.knowledge import KnowledgeSourceResponse
-from app.schemas.job import DocumentUploadJobResponse, JobCreate, JobUpdate
-from app.schemas.user import UserResponse
-from app.db.models.knowledge import SourceType
-from app.db.models.job import JobType, JobStatus
+from app.api.deps import (
+    get_current_tenant_admin,
+    get_db,
+    verify_subscription_active,
+    verify_tenant_access,
+)
 from app.core.config import settings
+from app.db.models.job import JobStatus, JobType
+from app.db.models.knowledge import SourceType
+from app.schemas.job import DocumentUploadJobResponse, JobCreate
+from app.schemas.user import UserResponse
+from app.services.job_service import JobService
+from app.services.knowledge_service import KnowledgeService
+from app.services.url_scraper_service import URLScraperService
 from app.utils.http_rate_limiter import upload_rate_limit
-
 
 router = APIRouter()
 
@@ -50,65 +52,67 @@ def extract_text_from_file(file: UploadFile) -> str:
     Raises:
         HTTPException: If file type not supported or extraction fails
     """
-    filename = file.filename.lower()
+    filename = (file.filename or "").lower()
 
     # Text files
-    if filename.endswith(('.txt', '.md')):
+    if filename.endswith((".txt", ".md")):
         content = file.file.read()
         try:
-            return content.decode('utf-8')
+            return content.decode("utf-8")
         except UnicodeDecodeError:
             # Try other encodings
             try:
-                return content.decode('latin-1')
+                return content.decode("latin-1")
             except Exception as e:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Could not decode text file: {str(e)}"
-                )
+                    detail=f"Could not decode text file: {str(e)}",
+                ) from e
 
     # PDF files
-    elif filename.endswith('.pdf'):
+    elif filename.endswith(".pdf"):
         try:
             import PyPDF2
+
             pdf_reader = PyPDF2.PdfReader(io.BytesIO(file.file.read()))
             text_parts = []
             for page in pdf_reader.pages:
                 text_parts.append(page.extract_text())
             return "\n\n".join(text_parts)
-        except ImportError:
+        except ImportError as err:
             raise HTTPException(
                 status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                detail="PDF support not installed. Install PyPDF2: pip install PyPDF2"
-            )
+                detail="PDF support not installed. Install PyPDF2: pip install PyPDF2",
+            ) from err
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Could not extract text from PDF: {str(e)}"
-            )
+                detail=f"Could not extract text from PDF: {str(e)}",
+            ) from e
 
     # DOCX files
-    elif filename.endswith('.docx'):
+    elif filename.endswith(".docx"):
         try:
             import docx
+
             doc = docx.Document(io.BytesIO(file.file.read()))
             text_parts = [paragraph.text for paragraph in doc.paragraphs]
             return "\n\n".join(text_parts)
-        except ImportError:
+        except ImportError as err:
             raise HTTPException(
                 status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                detail="DOCX support not installed. Install python-docx: pip install python-docx"
-            )
+                detail="DOCX support not installed. Install python-docx: pip install python-docx",
+            ) from err
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Could not extract text from DOCX: {str(e)}"
-            )
+                detail=f"Could not extract text from DOCX: {str(e)}",
+            ) from e
 
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file type. Supported: {', '.join(SUPPORTED_EXTENSIONS.keys())}"
+            detail=f"Unsupported file type. Supported: {', '.join(SUPPORTED_EXTENSIONS.keys())}",
         )
 
 
@@ -132,7 +136,7 @@ def extract_text_from_file(file: UploadFile) -> str:
     - GET /api/v1/jobs/{job_id} (REST polling)
     - WS /api/v1/ws/jobs/{job_id} (WebSocket real-time)
     """,
-    dependencies=[Depends(upload_rate_limit)]
+    dependencies=[Depends(upload_rate_limit)],
 )
 async def upload_knowledge_file(
     file: UploadFile = File(..., description="Document file to upload"),
@@ -166,10 +170,7 @@ async def upload_knowledge_file(
 
     # Validate file
     if not file.filename:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No filename provided"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No filename provided")
 
     # Check file size
     file.file.seek(0, 2)  # Seek to end
@@ -179,14 +180,11 @@ async def upload_knowledge_file(
     if file_size > MAX_FILE_SIZE:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File too large. Maximum size: {MAX_FILE_SIZE / 1024 / 1024}MB"
+            detail=f"File too large. Maximum size: {MAX_FILE_SIZE / 1024 / 1024}MB",
         )
 
     if file_size == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File is empty"
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File is empty")
 
     logger.info(f"Processing file upload: {file.filename} ({file_size} bytes)")
 
@@ -196,13 +194,18 @@ async def upload_knowledge_file(
 
     # Check storage limit
     from app.services.tenant_service import TenantService
+
     tenant_service = TenantService(db)
 
     current_mb = knowledge_service.calculate_tenant_storage_mb(tenant_id)
     file_mb = file_size / 1024 / 1024
 
     capabilities = tenant_service.get_capabilities(tenant_id)
-    if capabilities and capabilities.max_knowledge_mb is not None and current_mb + file_mb > capabilities.max_knowledge_mb:
+    if (
+        capabilities
+        and capabilities.max_knowledge_mb is not None
+        and current_mb + file_mb > capabilities.max_knowledge_mb
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
@@ -212,7 +215,7 @@ async def upload_knowledge_file(
                 "limit_mb": capabilities.max_knowledge_mb,
                 "file_mb": round(file_mb, 2),
                 "upgrade_message": "Upgrade to a higher tier for more storage.",
-            }
+            },
         )
 
     try:
@@ -223,7 +226,7 @@ async def upload_knowledge_file(
         if not document_text or len(document_text.strip()) < 10:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Could not extract meaningful text from file"
+                detail="Could not extract meaningful text from file",
             )
 
         logger.info(f"Extracted {len(document_text)} characters")
@@ -234,27 +237,29 @@ async def upload_knowledge_file(
 
         # Create job record
         job_service = JobService(db)
-        job = job_service.create_job(JobCreate(
-            tenant_id=tenant_id,
-            job_type=JobType.DOCUMENT_INGESTION,
-            total_items=None,  # Will be set after chunking
-            input_data={
-                "tenant_id": str(tenant_id),
-                "document_text": document_text,
-                "document_name": file.filename,
-                "source_type": source_type.value,
-                "source_category": "file",  # NEW
-                "file_size_bytes": file_size,  # NEW
-                "metadata": {
-                    'original_filename': file.filename,
-                    'file_size': file_size,
-                    'content_type': file.content_type,
-                    'uploaded_by': str(current_user.id),
+        job = job_service.create_job(
+            JobCreate(
+                tenant_id=tenant_id,
+                job_type=JobType.DOCUMENT_INGESTION,
+                total_items=None,  # Will be set after chunking
+                input_data={
+                    "tenant_id": str(tenant_id),
+                    "document_text": document_text,
+                    "document_name": file.filename,
+                    "source_type": source_type.value,
+                    "source_category": "file",  # NEW
+                    "file_size_bytes": file_size,  # NEW
+                    "metadata": {
+                        "original_filename": file.filename,
+                        "file_size": file_size,
+                        "content_type": file.content_type,
+                        "uploaded_by": str(current_user.id),
+                    },
+                    "uploaded_by": str(current_user.id),
                 },
-                "uploaded_by": str(current_user.id),
-            },
-            created_by=current_user.id,
-        ))
+                created_by=current_user.id,
+            )
+        )
 
         # Queue job for background processing
         from arq import create_pool
@@ -263,7 +268,7 @@ async def upload_knowledge_file(
         try:
             redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
             await redis.enqueue_job(
-                'process_document_ingestion',
+                "process_document_ingestion",
                 str(job.id),
             )
             logger.info(f"Queued job {job.id} for document: {file.filename}")
@@ -271,14 +276,15 @@ async def upload_knowledge_file(
             logger.error(f"Failed to queue job: {e}")
             # Mark job as failed
             from app.schemas.job import JobUpdate
-            job_service.update_job(job.id, JobUpdate(
-                status=JobStatus.FAILED,
-                error_message=f"Failed to queue job: {str(e)}"
-            ))
+
+            job_service.update_job(
+                job.id,
+                JobUpdate(status=JobStatus.FAILED, error_message=f"Failed to queue job: {str(e)}"),
+            )
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to queue document for processing: {str(e)}"
-            )
+                detail=f"Failed to queue document for processing: {str(e)}",
+            ) from e
 
         # Return 202 Accepted with job details
         return DocumentUploadJobResponse(
@@ -294,15 +300,14 @@ async def upload_knowledge_file(
         raise
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Document processing failed: {str(e)}"
-        )
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Document processing failed: {str(e)}"
+        ) from e
     except Exception as e:
         logger.error(f"Error processing file upload: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal error during file processing: {str(e)}"
-        )
+            detail=f"Internal error during file processing: {str(e)}",
+        ) from e
 
 
 @router.post(
@@ -323,12 +328,12 @@ async def upload_knowledge_file(
     - GET /api/v1/jobs/{job_id} (REST polling)
     - WS /api/v1/ws/jobs/{job_id} (WebSocket real-time)
     """,
-    dependencies=[Depends(upload_rate_limit)]
+    dependencies=[Depends(upload_rate_limit)],
 )
 async def upload_url_source(
     url: HttpUrl = Body(..., description="Webpage URL to scrape"),
     tenant_id: UUID = Body(..., description="Tenant ID"),
-    title: Optional[str] = Body(None, description="Custom title (uses page title if not provided)"),
+    title: str | None = Body(None, description="Custom title (uses page title if not provided)"),
     source_type: SourceType = Body(default=SourceType.OTHER, description="Type of document"),
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_tenant_admin),
@@ -369,13 +374,18 @@ async def upload_url_source(
 
     # Check storage limit
     from app.services.tenant_service import TenantService
+
     tenant_service = TenantService(db)
 
-    content_mb = len(scraped_data["content"].encode('utf-8')) / 1024 / 1024
+    content_mb = len(scraped_data["content"].encode("utf-8")) / 1024 / 1024
     current_mb = knowledge_service.calculate_tenant_storage_mb(tenant_id)
 
     capabilities = tenant_service.get_capabilities(tenant_id)
-    if capabilities and capabilities.max_knowledge_mb is not None and current_mb + content_mb > capabilities.max_knowledge_mb:
+    if (
+        capabilities
+        and capabilities.max_knowledge_mb is not None
+        and current_mb + content_mb > capabilities.max_knowledge_mb
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
@@ -384,7 +394,7 @@ async def upload_url_source(
                 "current_mb": round(current_mb, 2),
                 "limit_mb": capabilities.max_knowledge_mb,
                 "content_mb": round(content_mb, 2),
-            }
+            },
         )
 
     # Estimate chunks for progress tracking
@@ -393,29 +403,31 @@ async def upload_url_source(
 
     # Create job record
     job_service = JobService(db)
-    job = job_service.create_job(JobCreate(
-        tenant_id=tenant_id,
-        job_type=JobType.DOCUMENT_INGESTION,
-        total_items=None,  # Will be set after chunking
-        input_data={
-            "tenant_id": str(tenant_id),
-            "document_text": scraped_data["content"],
-            "document_name": title or scraped_data["title"],
-            "source_type": source_type.value,
-            "source_category": "url",
-            "source_url": scraped_data["url"],
-            "file_size_bytes": len(scraped_data["content"].encode('utf-8')),
-            "metadata": {
-                "original_url": str(url),
-                "final_url": scraped_data["url"],
-                "content_length": scraped_data["content_length"],
-                "scraped_at": datetime.utcnow().isoformat(),
+    job = job_service.create_job(
+        JobCreate(
+            tenant_id=tenant_id,
+            job_type=JobType.DOCUMENT_INGESTION,
+            total_items=None,  # Will be set after chunking
+            input_data={
+                "tenant_id": str(tenant_id),
+                "document_text": scraped_data["content"],
+                "document_name": title or scraped_data["title"],
+                "source_type": source_type.value,
+                "source_category": "url",
+                "source_url": scraped_data["url"],
+                "file_size_bytes": len(scraped_data["content"].encode("utf-8")),
+                "metadata": {
+                    "original_url": str(url),
+                    "final_url": scraped_data["url"],
+                    "content_length": scraped_data["content_length"],
+                    "scraped_at": datetime.utcnow().isoformat(),
+                    "uploaded_by": str(current_user.id),
+                },
                 "uploaded_by": str(current_user.id),
             },
-            "uploaded_by": str(current_user.id),
-        },
-        created_by=current_user.id,
-    ))
+            created_by=current_user.id,
+        )
+    )
 
     # Queue job for background processing
     try:
@@ -424,7 +436,7 @@ async def upload_url_source(
 
         redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
         await redis.enqueue_job(
-            'process_document_ingestion',
+            "process_document_ingestion",
             str(job.id),
         )
         logger.info(f"Queued job {job.id} for URL: {url}")
@@ -432,14 +444,15 @@ async def upload_url_source(
         logger.error(f"Failed to queue job: {e}")
         # Mark job as failed
         from app.schemas.job import JobUpdate
-        job_service.update_job(job.id, JobUpdate(
-            status=JobStatus.FAILED,
-            error_message=f"Failed to queue job: {str(e)}"
-        ))
+
+        job_service.update_job(
+            job.id,
+            JobUpdate(status=JobStatus.FAILED, error_message=f"Failed to queue job: {str(e)}"),
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to queue URL for processing: {str(e)}"
-        )
+            detail=f"Failed to queue URL for processing: {str(e)}",
+        ) from e
 
     # Return 202 Accepted with job details
     return DocumentUploadJobResponse(

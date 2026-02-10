@@ -1,32 +1,31 @@
 """Analytics service for calculating and retrieving analytics metrics."""
 
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Any, Tuple
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, and_, case, extract
+from sqlalchemy import extract, func
 from sqlalchemy.orm import Session
 
 from app.db.models.conversation import (
     ConversationSession,
     Message,
-    Ticket,
     SessionStatus,
-    TicketStatus,
+    Ticket,
     TicketPriority,
-    MessageRole,
+    TicketStatus,
 )
 from app.db.models.knowledge import KnowledgeChunk
 from app.db.models.user import User
 from app.schemas.analytics import (
-    AnalyticsOverviewResponse,
-    ConversationMetricsResponse,
-    TicketMetricsResponse,
     AgentPerformanceResponse,
     AgentSummaryResponse,
+    AnalyticsOverviewResponse,
+    ConversationMetricsResponse,
+    KnowledgeUsageResponse,
+    TicketMetricsResponse,
     TrendDataPoint,
     TrendResponse,
-    KnowledgeUsageResponse,
 )
 
 
@@ -37,7 +36,7 @@ class AnalyticsService:
         """Initialize analytics service with database session."""
         self.db = db
 
-    def _get_default_date_range(self) -> Tuple[datetime, datetime]:
+    def _get_default_date_range(self) -> tuple[datetime, datetime]:
         """
         Get default date range (last 30 days).
 
@@ -51,8 +50,8 @@ class AnalyticsService:
     def get_overview_metrics(
         self,
         tenant_id: UUID,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> AnalyticsOverviewResponse:
         """
         Get overview dashboard metrics for tenant.
@@ -107,9 +106,9 @@ class AnalyticsService:
     def get_conversation_metrics(
         self,
         tenant_id: UUID,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-        status: Optional[SessionStatus] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        status: SessionStatus | None = None,
     ) -> ConversationMetricsResponse:
         """
         Get detailed conversation analytics.
@@ -157,10 +156,10 @@ class AnalyticsService:
     def get_ticket_metrics(
         self,
         tenant_id: UUID,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-        status: Optional[TicketStatus] = None,
-        priority: Optional[TicketPriority] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        status: TicketStatus | None = None,
+        priority: TicketPriority | None = None,
     ) -> TicketMetricsResponse:
         """
         Get detailed ticket analytics.
@@ -184,7 +183,9 @@ class AnalyticsService:
 
         # Resolution times
         avg_resolution_time = self._calculate_avg_resolution_time(tenant_id, start_date, end_date)
-        resolution_by_priority = self._get_resolution_time_by_priority(tenant_id, start_date, end_date)
+        resolution_by_priority = self._get_resolution_time_by_priority(
+            tenant_id, start_date, end_date
+        )
 
         # Unassigned
         unassigned_count = self._get_unassigned_ticket_count(tenant_id)
@@ -214,8 +215,8 @@ class AnalyticsService:
         self,
         tenant_id: UUID,
         agent_id: UUID,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> AgentPerformanceResponse:
         """
         Get performance metrics for specific agent.
@@ -276,11 +277,7 @@ class AnalyticsService:
 
         # Average resolution time for this agent
         avg_resolution = (
-            self.db.query(
-                func.avg(
-                    extract("epoch", Ticket.resolved_at - Ticket.created_at) / 3600
-                )
-            )
+            self.db.query(func.avg(extract("epoch", Ticket.resolved_at - Ticket.created_at) / 3600))
             .filter(
                 Ticket.tenant_id == tenant_id,
                 Ticket.assigned_to == agent_id,
@@ -326,9 +323,9 @@ class AnalyticsService:
     def get_all_agents_performance(
         self,
         tenant_id: UUID,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> List[AgentSummaryResponse]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[AgentSummaryResponse]:
         """
         Get performance summary for all agents in tenant.
 
@@ -393,8 +390,8 @@ class AnalyticsService:
     def get_conversation_trends(
         self,
         tenant_id: UUID,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         granularity: str = "daily",
     ) -> TrendResponse:
         """
@@ -454,8 +451,8 @@ class AnalyticsService:
     def get_ticket_trends(
         self,
         tenant_id: UUID,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         granularity: str = "daily",
     ) -> TrendResponse:
         """
@@ -483,9 +480,7 @@ class AnalyticsService:
 
         # Get trend data
         trend_data = (
-            self.db.query(
-                trunc_func.label("period"), func.count(Ticket.id).label("count")
-            )
+            self.db.query(trunc_func.label("period"), func.count(Ticket.id).label("count"))
             .filter(
                 Ticket.tenant_id == tenant_id,
                 Ticket.created_at >= start_date,
@@ -514,8 +509,8 @@ class AnalyticsService:
     def get_knowledge_usage_stats(
         self,
         tenant_id: UUID,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> KnowledgeUsageResponse:
         """
         Get knowledge base usage and effectiveness metrics.
@@ -545,7 +540,7 @@ class AnalyticsService:
         usage_rate = 0.0 if total_chunks == 0 else (chunks_used / total_chunks) * 100
 
         # Top used chunks - placeholder
-        top_used_chunks: List[Dict[str, Any]] = []
+        top_used_chunks: list[dict[str, Any]] = []
 
         # Average chunks per conversation
         avg_chunks = 0.0  # Placeholder
@@ -569,7 +564,7 @@ class AnalyticsService:
 
     def _get_conversation_counts(
         self, tenant_id: UUID, start_date: datetime, end_date: datetime
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """Get conversation counts by status."""
         counts = (
             self.db.query(
@@ -622,7 +617,7 @@ class AnalyticsService:
 
     def _get_ticket_counts(
         self, tenant_id: UUID, start_date: datetime, end_date: datetime
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """Get ticket counts by status."""
         counts = (
             self.db.query(Ticket.status, func.count(Ticket.id).label("count"))
@@ -644,9 +639,7 @@ class AnalyticsService:
     ) -> float:
         """Calculate average resolution time in hours."""
         avg_time = (
-            self.db.query(
-                func.avg(extract("epoch", Ticket.resolved_at - Ticket.created_at) / 3600)
-            )
+            self.db.query(func.avg(extract("epoch", Ticket.resolved_at - Ticket.created_at) / 3600))
             .filter(
                 Ticket.tenant_id == tenant_id,
                 Ticket.status == TicketStatus.RESOLVED,
@@ -674,7 +667,7 @@ class AnalyticsService:
         )
         return count
 
-    def _get_agent_counts(self, tenant_id: UUID) -> Tuple[int, int]:
+    def _get_agent_counts(self, tenant_id: UUID) -> tuple[int, int]:
         """
         Get total agents and active agents (with assignments).
 
@@ -682,10 +675,7 @@ class AnalyticsService:
             Tuple of (total_agents, active_agents)
         """
         total_agents = (
-            self.db.query(func.count(User.id))
-            .filter(User.tenant_id == tenant_id)
-            .scalar()
-            or 0
+            self.db.query(func.count(User.id)).filter(User.tenant_id == tenant_id).scalar() or 0
         )
 
         active_agents = (
@@ -708,7 +698,9 @@ class AnalyticsService:
         avg_duration = (
             self.db.query(
                 func.avg(
-                    extract("epoch", ConversationSession.updated_at - ConversationSession.created_at)
+                    extract(
+                        "epoch", ConversationSession.updated_at - ConversationSession.created_at
+                    )
                     / 60
                 )
             )
@@ -758,7 +750,7 @@ class AnalyticsService:
 
     def _get_top_escalation_reasons(
         self, tenant_id: UUID, start_date: datetime, end_date: datetime, limit: int = 5
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Get most common escalation reasons."""
         reasons = (
             self.db.query(
@@ -782,7 +774,7 @@ class AnalyticsService:
 
     def _get_tickets_by_priority(
         self, tenant_id: UUID, start_date: datetime, end_date: datetime
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """Get ticket counts by priority."""
         counts = (
             self.db.query(Ticket.priority, func.count(Ticket.id).label("count"))
@@ -799,7 +791,7 @@ class AnalyticsService:
 
     def _get_resolution_time_by_priority(
         self, tenant_id: UUID, start_date: datetime, end_date: datetime
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Get average resolution time by priority level."""
         resolution_times = (
             self.db.query(

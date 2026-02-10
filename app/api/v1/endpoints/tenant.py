@@ -4,15 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_db
-from app.services.tenant_service import TenantService
 from app.schemas.tenant import (
-    TenantUpdate,
-    TenantResponse,
-    TenantAIConfigUpdate,
     TenantAIConfigResponse,
+    TenantAIConfigUpdate,
     TenantCapabilitiesResponse,
+    TenantResponse,
+    TenantUpdate,
 )
 from app.schemas.user import UserResponse
+from app.services.tenant_service import TenantService
 
 router = APIRouter()
 
@@ -39,10 +39,7 @@ def get_my_tenant(
     tenant = tenant_service.get_tenant_by_id(current_user.tenant_id)
 
     if not tenant:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Tenant not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
     return tenant
 
@@ -79,7 +76,7 @@ def update_my_tenant(
         tenant = tenant_service.update_tenant(current_user.tenant_id, tenant_data)
         return tenant
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 # AI Configuration endpoints
@@ -111,10 +108,7 @@ def get_my_ai_config(
     config = tenant_service.get_ai_config(current_user.tenant_id)
 
     if not config:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="AI config not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI config not found")
 
     return config
 
@@ -161,7 +155,7 @@ def update_my_ai_config(
         config = tenant_service.update_ai_config(current_user.tenant_id, config_data)
         return config
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 # Capabilities endpoints (read-only for tenant admins)
@@ -193,9 +187,6 @@ def get_my_capabilities(
     capabilities = tenant_service.get_capabilities(current_user.tenant_id)
 
     if not capabilities:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Capabilities not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Capabilities not found")
 
     return capabilities

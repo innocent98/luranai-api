@@ -1,10 +1,9 @@
 """Payment Pydantic schemas for Paystack integration."""
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, EmailStr, HttpUrl
+from pydantic import BaseModel, Field
 
 
 # Request Schemas
@@ -39,10 +38,10 @@ class PaymentVerificationResponse(BaseModel):
     reference: str = Field(..., description="Transaction reference")
     amount: int = Field(..., description="Amount in kobo")
     currency: str = Field(..., description="Currency code")
-    paid_at: Optional[datetime] = Field(None, description="When payment was completed")
-    channel: Optional[str] = Field(None, description="Payment channel: card, bank, etc.")
-    customer_email: Optional[str] = Field(None, description="Customer email")
-    subscription_code: Optional[str] = Field(None, description="Paystack subscription code")
+    paid_at: datetime | None = Field(None, description="When payment was completed")
+    channel: str | None = Field(None, description="Payment channel: card, bank, etc.")
+    customer_email: str | None = Field(None, description="Customer email")
+    subscription_code: str | None = Field(None, description="Paystack subscription code")
 
 
 class SubscriptionPlanResponse(BaseModel):

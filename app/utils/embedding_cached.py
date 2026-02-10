@@ -1,10 +1,10 @@
 """Cached embedding service with Redis to reduce API calls."""
 
-from typing import List, Optional
 import hashlib
 import json
-from redis import Redis
+
 from loguru import logger
+from redis import Redis
 
 from app.core.config import settings
 from app.utils.embedding import embedding_service
@@ -18,7 +18,7 @@ class CachedEmbeddingService:
     Useful for frequently asked queries or duplicate content.
     """
 
-    def __init__(self, redis_client: Optional[Redis] = None, ttl: int = 86400 * 7):
+    def __init__(self, redis_client: Redis | None = None, ttl: int = 86400 * 7) -> None:
         """
         Initialize cached embedding service.
 
@@ -39,7 +39,7 @@ class CachedEmbeddingService:
 
     async def generate_embedding_cached(
         self, text: str, task_type: str = "retrieval_document"
-    ) -> Optional[List[float]]:
+    ) -> list[float] | None:
         """
         Generate embedding with caching.
 
@@ -62,13 +62,17 @@ class CachedEmbeddingService:
         try:
             cached = self.redis.get(cache_key)
             if cached:
-                logger.debug(f"Cache HIT for embedding (saved API call)")
-                return json.loads(cached)
+                logger.debug("Cache HIT for embedding (saved API call)")
+                cached_text = cached.decode() if isinstance(cached, bytes) else str(cached)
+                loaded = json.loads(cached_text)
+                if isinstance(loaded, list):
+                    return [float(value) for value in loaded]
+                return None
         except Exception as e:
             logger.warning(f"Cache read error: {e}")
 
         # Cache miss - generate embedding
-        logger.debug(f"Cache MISS for embedding (API call)")
+        logger.debug("Cache MISS for embedding (API call)")
 
         if task_type == "retrieval_query":
             embedding = await self.embedding_service.generate_query_embedding(text)
@@ -78,19 +82,15 @@ class CachedEmbeddingService:
         # Store in cache
         if embedding and self.redis:
             try:
-                self.redis.setex(
-                    cache_key,
-                    self.ttl,
-                    json.dumps(embedding)
-                )
+                self.redis.setex(cache_key, self.ttl, json.dumps(embedding))
             except Exception as e:
                 logger.warning(f"Cache write error: {e}")
 
         return embedding
 
     async def generate_batch_embeddings_cached(
-        self, texts: List[str], task_type: str = "retrieval_document"
-    ) -> List[Optional[List[float]]]:
+        self, texts: list[str], task_type: str = "retrieval_document"
+    ) -> list[list[float] | None]:
         """
         Generate batch embeddings with caching.
 
@@ -115,6 +115,7 @@ def get_cached_embedding_service() -> CachedEmbeddingService:
     """Get cached embedding service with Redis connection."""
     try:
         from redis import Redis
+
         redis_client = Redis.from_url(settings.REDIS_URL)
         return CachedEmbeddingService(redis_client=redis_client)
     except Exception as e:

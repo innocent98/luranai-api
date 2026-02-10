@@ -425,3 +425,12 @@ else:
   - Loading states - Webhook nodes might take 1-2 seconds                                                                                                                          
                                                                                                                                                                                    
   Recommendation: Ship MVP without button support first, add buttons later if needed. 
+
+  . Upload Knowledge Base (3 min)
+
+  Upload documents covering:
+  - Subscription plans and pricing
+  - Storage/file size limits
+  - CORS configuration
+  - Widget integration guides
+  - API documentation

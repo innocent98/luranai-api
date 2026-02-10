@@ -1,10 +1,11 @@
 """HTTP endpoint rate limiting using Redis."""
 
-from typing import Optional
-from fastapi import HTTPException, Request, status
-from app.utils.rate_limiter import RedisRateLimiter
-from app.core.logger import log
+from collections.abc import Awaitable, Callable
 
+from fastapi import HTTPException, Request, status
+
+from app.core.logger import log
+from app.utils.rate_limiter import RedisRateLimiter
 
 # Rate limiters for different endpoint types
 # Regular user login - moderate protection
@@ -102,12 +103,12 @@ async def check_rate_limit(
 ) -> None:
     """Check rate limit for HTTP endpoint."""
     if identifier_key == "ip":
-        identifier = request.client.host
+        identifier = request.client.host if request.client else "unknown"
     elif identifier_key == "user":
         user = getattr(request.state, "user", None)
-        identifier = str(user.id) if user else request.client.host
+        identifier = str(user.id) if user else (request.client.host if request.client else "unknown")
     else:
-        identifier = request.client.host
+        identifier = request.client.host if request.client else "unknown"
 
     try:
         usage = await limiter.get_current_usage(identifier)
@@ -116,8 +117,7 @@ async def check_rate_limit(
             retry_after = limiter.window_seconds
 
             log.warning(
-                f"Rate limit exceeded for {identifier}: "
-                f"{usage['calls']}/{limiter.max_calls}"
+                f"Rate limit exceeded for {identifier}: " f"{usage['calls']}/{limiter.max_calls}"
             )
 
             raise HTTPException(
@@ -142,30 +142,37 @@ async def check_rate_limit(
 
 
 def create_rate_limit_dependency(
-    limiter: RedisRateLimiter,
-    identifier_key: str = "ip"
-):
+    limiter: RedisRateLimiter, identifier_key: str = "ip"
+) -> Callable[[Request], Awaitable[None]]:
     """Create FastAPI dependency for rate limiting."""
-    async def rate_limit_dependency(request: Request):
+
+    async def rate_limit_dependency(request: Request) -> None:
         await check_rate_limit(request, limiter, identifier_key)
+
     return rate_limit_dependency
 
 
 # Pre-configured dependencies
 auth_rate_limit = create_rate_limit_dependency(auth_rate_limiter, "ip")
-platform_admin_auth_rate_limit = create_rate_limit_dependency(platform_admin_auth_rate_limiter, "ip")
+platform_admin_auth_rate_limit = create_rate_limit_dependency(
+    platform_admin_auth_rate_limiter, "ip"
+)
 chat_rate_limit = create_rate_limit_dependency(chat_rate_limiter, "user")
 upload_rate_limit = create_rate_limit_dependency(upload_rate_limiter, "user")
 
 # Public endpoints (each with separate rate limiter)
 registration_rate_limit = create_rate_limit_dependency(registration_rate_limiter, "ip")
 verification_rate_limit = create_rate_limit_dependency(verification_rate_limiter, "ip")
-resend_verification_rate_limit = create_rate_limit_dependency(resend_verification_rate_limiter, "ip")
+resend_verification_rate_limit = create_rate_limit_dependency(
+    resend_verification_rate_limiter, "ip"
+)
 webhook_rate_limit = create_rate_limit_dependency(webhook_rate_limiter, "ip")
 
 # Authenticated endpoints
 payment_rate_limit = create_rate_limit_dependency(payment_rate_limiter, "user")
 subscription_rate_limit = create_rate_limit_dependency(subscription_rate_limiter, "user")
 platform_admin_rate_limit = create_rate_limit_dependency(platform_admin_rate_limiter, "user")
-platform_analytics_rate_limit = create_rate_limit_dependency(platform_analytics_rate_limiter, "user")
+platform_analytics_rate_limit = create_rate_limit_dependency(
+    platform_analytics_rate_limiter, "user"
+)
 team_management_rate_limit = create_rate_limit_dependency(team_management_rate_limiter, "user")

@@ -1,12 +1,11 @@
 """Ticket Pydantic schemas."""
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.models.conversation import TicketStatus, TicketPriority
+from app.db.models.conversation import TicketPriority, TicketStatus
 
 
 # Nested schemas
@@ -49,10 +48,10 @@ class TicketUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    status: Optional[TicketStatus] = None
-    priority: Optional[TicketPriority] = None
-    assigned_to: Optional[UUID] = None
-    resolution_notes: Optional[str] = None
+    status: TicketStatus | None = None
+    priority: TicketPriority | None = None
+    assigned_to: UUID | None = None
+    resolution_notes: str | None = None
 
 
 class TicketAssign(BaseModel):
@@ -78,10 +77,10 @@ class TicketResponse(TicketBase):
     session_id: UUID
     ticket_number: str
     status: TicketStatus
-    assigned_to: Optional[UUID] = None  # Kept for backwards compatibility
-    assigned_agent: Optional[AssignedAgent] = None  # New: full agent details
-    resolution_notes: Optional[str] = None
-    resolved_at: Optional[datetime] = None
+    assigned_to: UUID | None = None  # Kept for backwards compatibility
+    assigned_agent: AssignedAgent | None = None  # New: full agent details
+    resolution_notes: str | None = None
+    resolved_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

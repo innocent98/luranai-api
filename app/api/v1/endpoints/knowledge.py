@@ -1,27 +1,24 @@
 """Knowledge management endpoints."""
 
-from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
-from loguru import logger
 
 from app.api.deps import get_current_tenant_admin, get_db, verify_tenant_access
-from app.services.knowledge_service import KnowledgeService
+from app.api.v1.endpoints.knowledge_upload import router as upload_router
+from app.db.models.knowledge import SourceStatus
 from app.schemas.knowledge import (
-    KnowledgeSourceResponse,
-    KnowledgeSourceDetailResponse,
-    KnowledgeChunkResponse,
     DocumentUploadRequest,
+    KnowledgeChunkResponse,
+    KnowledgeSourceDetailResponse,
+    KnowledgeSourceResponse,
 )
 from app.schemas.user import UserResponse
-from app.db.models.knowledge import SourceStatus
+from app.services.knowledge_service import KnowledgeService
 
 router = APIRouter()
 
-# Import file upload router
-from app.api.v1.endpoints.knowledge_upload import router as upload_router
 router.include_router(upload_router, tags=["knowledge"])
 
 
@@ -32,7 +29,7 @@ router.include_router(upload_router, tags=["knowledge"])
 )
 def list_knowledge_sources(
     tenant_id: UUID,
-    status_filter: Optional[SourceStatus] = Query(None, description="Filter by status"),
+    status_filter: SourceStatus | None = Query(None, description="Filter by status"),
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_tenant_admin),
 ):
@@ -82,7 +79,9 @@ def get_knowledge_source(
     source = knowledge_service.get_source(source_id, include_chunks=True)
 
     if not source:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge source not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge source not found"
+        )
 
     # Verify tenant access
     verify_tenant_access(source.tenant_id, current_user)
@@ -112,7 +111,9 @@ def delete_knowledge_source(
     # Get source to verify tenant access
     source = knowledge_service.get_source(source_id)
     if not source:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge source not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge source not found"
+        )
 
     # Verify tenant access
     verify_tenant_access(source.tenant_id, current_user)
@@ -121,7 +122,7 @@ def delete_knowledge_source(
         knowledge_service.delete_source(source_id)
         return {"message": "Knowledge source deleted successfully"}
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.get(
@@ -152,7 +153,9 @@ def get_source_chunks(
     # Get source to verify tenant access
     source = knowledge_service.get_source(source_id)
     if not source:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge source not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Knowledge source not found"
+        )
 
     # Verify tenant access
     verify_tenant_access(source.tenant_id, current_user)
@@ -212,11 +215,10 @@ async def upload_document(
 
     except ValueError as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Document processing failed: {str(e)}"
-        )
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Document processing failed: {str(e)}"
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal error during document processing: {str(e)}"
-        )
+            detail=f"Internal error during document processing: {str(e)}",
+        ) from e

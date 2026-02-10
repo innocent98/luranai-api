@@ -1,11 +1,14 @@
 """Manage tenant subscriptions and tier changes."""
 
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Any
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from uuid import UUID
+
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-from app.db.models.tenant import Tenant, TenantCapabilities
+
 from app.db.models.subscription import SubscriptionHistory
+from app.db.models.tenant import Tenant, TenantCapabilities
 from app.services.plan_service import PlanService
 
 
@@ -18,10 +21,7 @@ class SubscriptionService:
         self.plan_service = PlanService(db)
 
     def upgrade_subscription(
-        self,
-        tenant_id: UUID,
-        tier: str,
-        billing_cycle: str = "monthly"
+        self, tenant_id: UUID, tier: str, billing_cycle: str = "monthly"
     ) -> Tenant:
         """
         Upgrade tenant to paid tier.
@@ -48,7 +48,7 @@ class SubscriptionService:
         tenant.subscription_tier = tier
         tenant.subscription_status = "active"
         tenant.billing_cycle = billing_cycle
-        tenant.subscription_starts_at = datetime.now(timezone.utc)
+        tenant.subscription_starts_at = datetime.now(UTC)
         tenant.trial_ends_at = None  # Clear trial
 
         # Update capabilities based on tier
@@ -69,9 +69,11 @@ class SubscriptionService:
         """
         config = self.plan_service.get_plan_config(tier)
 
-        capabilities = self.db.query(TenantCapabilities).filter(
-            TenantCapabilities.tenant_id == tenant_id
-        ).first()
+        capabilities = (
+            self.db.query(TenantCapabilities)
+            .filter(TenantCapabilities.tenant_id == tenant_id)
+            .first()
+        )
 
         if not capabilities:
             raise ValueError("Capabilities not found")
@@ -89,7 +91,7 @@ class SubscriptionService:
 
         self.db.commit()
 
-    def get_my_subscription(self, tenant_id: UUID) -> Dict[str, Any]:
+    def get_my_subscription(self, tenant_id: UUID) -> dict[str, Any]:
         """
         Get user's current subscription details.
 
@@ -106,7 +108,7 @@ class SubscriptionService:
         if not tenant:
             raise ValueError("Tenant not found")
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         is_trial = tenant.subscription_tier == "trial"
 
         # Calculate days until expiry
@@ -152,11 +154,11 @@ class SubscriptionService:
     def cancel_subscription(
         self,
         tenant_id: UUID,
-        reason: Optional[str] = None,
+        reason: str | None = None,
         immediate: bool = False,
-        user_id: Optional[UUID] = None,
-        user_email: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        user_id: UUID | None = None,
+        user_email: str | None = None,
+    ) -> dict[str, Any]:
         """
         Cancel user's subscription.
 
@@ -187,7 +189,7 @@ class SubscriptionService:
         previous_status = tenant.subscription_status
         previous_tier = tenant.subscription_tier
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         if immediate:
             # Cancel immediately
@@ -235,7 +237,9 @@ class SubscriptionService:
             reason=reason or "User requested cancellation",
             event_metadata={
                 "immediate": immediate,
-                "ends_at": tenant.subscription_ends_at.isoformat() if tenant.subscription_ends_at else None,
+                "ends_at": (
+                    tenant.subscription_ends_at.isoformat() if tenant.subscription_ends_at else None
+                ),
             },
         )
         self.db.add(history)
@@ -287,10 +291,10 @@ class SubscriptionService:
         self,
         tenant_id: UUID,
         new_tier: str,
-        reason: Optional[str] = None,
-        user_id: Optional[UUID] = None,
-        user_email: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        reason: str | None = None,
+        user_id: UUID | None = None,
+        user_email: str | None = None,
+    ) -> dict[str, Any]:
         """
         Downgrade tenant to lower tier (immediate, no refund).
 
@@ -315,11 +319,13 @@ class SubscriptionService:
         Raises:
             ValueError: If validation fails, invalid tier, or not a downgrade
         """
-        from app.services.subscription_validation_service import SubscriptionValidationService
-        from app.services.paystack_service import PaystackService
-        from app.db.models.payment import PaymentTransaction
         from uuid import uuid4
+
         from loguru import logger
+
+        from app.db.models.payment import PaymentTransaction
+        from app.services.paystack_service import PaystackService
+        from app.services.subscription_validation_service import SubscriptionValidationService
 
         # 1. Get current tenant state
         tenant = self.db.query(Tenant).filter(Tenant.id == tenant_id).first()
@@ -342,11 +348,13 @@ class SubscriptionService:
         validation_result = validation_service.validate_tier_change(tenant_id, new_tier)
 
         if not validation_result.valid:
-            raise ValueError({
-                "error": "data_exceeds_limits",
-                "violations": [v.dict() for v in validation_result.violations],
-                "message": "Your current usage exceeds the new tier's limits"
-            })
+            raise ValueError(
+                {
+                    "error": "data_exceeds_limits",
+                    "violations": [v.dict() for v in validation_result.violations],
+                    "message": "Your current usage exceeds the new tier's limits",
+                }
+            )
 
         # 5. Store previous state for audit
         previous_tier = tenant.subscription_tier
@@ -375,9 +383,20 @@ class SubscriptionService:
             if transaction and transaction.subscription_code and transaction.authorization_code:
                 # Create new subscription with new plan (replaces old one)
                 paystack_service = PaystackService(self.db)
-                new_plan_code = paystack_service.get_plan_code(new_tier, tenant.billing_cycle)
+                if not tenant.billing_cycle:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Missing billing cycle for tenant",
+                    )
+                billing_cycle = str(tenant.billing_cycle)
+                new_plan_code = paystack_service.get_plan_code(new_tier, billing_cycle)
 
                 # Create new subscription with new plan
+                if not transaction.customer_code:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Missing customer code for subscription",
+                    )
                 new_subscription = await paystack_service.create_subscription(
                     customer_code=transaction.customer_code,
                     plan_code=new_plan_code,
@@ -385,7 +404,7 @@ class SubscriptionService:
                 )
 
                 # Create new transaction record for the downgrade
-                new_amount = self.plan_service.get_pricing(new_tier, tenant.billing_cycle)
+                new_amount = self.plan_service.get_pricing(new_tier, billing_cycle)
                 new_transaction = PaymentTransaction(
                     tenant_id=tenant_id,
                     reference=f"luran_downgrade_{tenant_id}_{uuid4().hex[:8]}",
@@ -461,7 +480,8 @@ class SubscriptionService:
             "new_tier": new_tier,
             "next_billing_date": next_billing_date,
             "next_billing_amount_kobo": (
-                new_pricing.monthly_price_kobo if tenant.billing_cycle == "monthly"
+                new_pricing.monthly_price_kobo
+                if tenant.billing_cycle == "monthly"
                 else new_pricing.annual_price_kobo
             ),
             "warnings": validation_result.warnings,

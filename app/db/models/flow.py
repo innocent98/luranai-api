@@ -3,13 +3,13 @@
 import enum
 import uuid
 from datetime import datetime
-from typing import Optional
 
-from sqlalchemy import Boolean, Integer, JSON, String, Text, Enum as SQLEnum, DateTime, Index
+from sqlalchemy import JSON, Boolean, DateTime
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import ForeignKey
 
-from app.db.base import Base, UUIDMixin, TimestampMixin
+from app.db.base import Base, TimestampMixin, UUIDMixin
 
 
 class FlowStatus(str, enum.Enum):
@@ -67,7 +67,7 @@ class Flow(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Human-readable flow name",
     )
-    description: Mapped[Optional[str]] = mapped_column(
+    description: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
         comment="Detailed description of what this flow does",
@@ -87,7 +87,11 @@ class Flow(Base, UUIDMixin, TimestampMixin):
         comment="Whether this flow can be triggered",
     )
     trigger_type: Mapped[FlowTriggerType] = mapped_column(
-        SQLEnum(FlowTriggerType, name="flow_trigger_type", values_callable=lambda x: [e.value for e in x]),
+        SQLEnum(
+            FlowTriggerType,
+            name="flow_trigger_type",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
         comment="How this flow is triggered",
     )
@@ -158,7 +162,7 @@ class FlowExecution(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Conversation session this execution belongs to",
     )
-    current_node_id: Mapped[Optional[str]] = mapped_column(
+    current_node_id: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
         comment="ID of the current node being executed",
@@ -170,28 +174,32 @@ class FlowExecution(Base, UUIDMixin, TimestampMixin):
         comment="Data collected during flow execution",
     )
     status: Mapped[FlowExecutionStatus] = mapped_column(
-        SQLEnum(FlowExecutionStatus, name="flow_execution_status", values_callable=lambda x: [e.value for e in x]),
+        SQLEnum(
+            FlowExecutionStatus,
+            name="flow_execution_status",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         default=FlowExecutionStatus.PENDING,
         nullable=False,
         index=True,
         comment="Current execution status",
     )
-    result_data: Mapped[Optional[dict]] = mapped_column(
+    result_data: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
         comment="Final execution results",
     )
-    error_message: Mapped[Optional[str]] = mapped_column(
+    error_message: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
         comment="Error details if execution failed",
     )
-    started_at: Mapped[Optional[datetime]] = mapped_column(
+    started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         comment="When the execution started",
     )
-    completed_at: Mapped[Optional[datetime]] = mapped_column(
+    completed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         comment="When the execution completed or failed",
@@ -223,7 +231,7 @@ class FlowTemplate(Base, UUIDMixin, TimestampMixin):
         unique=True,
         comment="Template name",
     )
-    description: Mapped[Optional[str]] = mapped_column(
+    description: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
         comment="What this template does",

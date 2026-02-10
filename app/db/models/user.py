@@ -3,13 +3,13 @@
 import enum
 import uuid
 from datetime import datetime
-from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, String, Enum as SQLEnum, Index
+from sqlalchemy import Boolean, DateTime
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import ForeignKey
 
-from app.db.base import Base, UUIDMixin, TimestampMixin
+from app.db.base import Base, TimestampMixin, UUIDMixin
 
 
 class UserRole(str, enum.Enum):
@@ -70,7 +70,7 @@ class User(Base, UUIDMixin, TimestampMixin):
         index=True,
         comment="Whether this user account is active",
     )
-    last_login_at: Mapped[Optional[datetime]] = mapped_column(
+    last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         comment="Last successful login timestamp",

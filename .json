@@ -1,0 +1,277 @@
+{
+  "tenant_id": "9ce5d6c5-f67e-4a73-86ab-0f9ce85d701e",
+  "name": "MTN-Style Customer Support",
+  "description": "Guided telecom support flow with menu buttons, troubleshooting branches, AI help, and escalation.",
+  "status": "active",
+  "is_active": true,
+  "trigger_type": "keyword",
+  "trigger_config": {
+    "keywords": ["start", "help", "mtn", "support"],
+    "match_mode": "word"
+  },
+  "priority": 100,
+  "version": 1,
+  "created_by": "03a5c0b0-69b1-4d7b-8fdc-4f896df56fec",
+  "nodes": {
+    "start_node_id": "welcome_menu",
+    "nodes": [
+      {
+        "id": "welcome_menu",
+        "type": "question",
+        "config": {
+          "question": "Welcome to MTN Support. What do you need help with?",
+          "save_to": "main_topic",
+          "options": [
+            {
+              "label": "Data",
+              "value": "data",
+              "next_node_id": "data_menu",
+              "acknowledgment": "Sure, let's sort your data issue."
+            },
+            {
+              "label": "Airtime",
+              "value": "airtime",
+              "next_node_id": "airtime_menu",
+              "acknowledgment": "Got it, airtime support."
+            },
+            {
+              "label": "Services",
+              "value": "services",
+              "next_node_id": "services_menu",
+              "acknowledgment": "Okay, service support."
+            },
+            {
+              "label": "Talk to Human Agent",
+              "value": "human",
+              "next_node_id": "escalate_human",
+              "acknowledgment": "I will connect you to a human agent."
+            }
+          ]
+        }
+      },
+      {
+        "id": "data_menu",
+        "type": "question",
+        "config": {
+          "question": "Data support: choose an option",
+          "save_to": "data_issue",
+          "options": [
+            {
+              "label": "Buy Data Plan",
+              "value": "buy_data",
+              "next_node_id": "data_buy_info"
+            },
+            {
+              "label": "Check Data Balance",
+              "value": "check_balance",
+              "next_node_id": "data_balance_info"
+            },
+            {
+              "label": "Data Not Working",
+              "value": "data_not_working",
+              "next_node_id": "data_troubleshoot"
+            },
+            {
+              "label": "Talk to Human Agent",
+              "value": "human",
+              "next_node_id": "escalate_human"
+            }
+          ]
+        }
+      },
+      {
+        "id": "airtime_menu",
+        "type": "question",
+        "config": {
+          "question": "Airtime support: choose an option",
+          "save_to": "airtime_issue",
+          "options": [
+            {
+              "label": "Buy Airtime",
+              "value": "buy_airtime",
+              "next_node_id": "airtime_buy_info"
+            },
+            {
+              "label": "Airtime Not Credited",
+              "value": "not_credited",
+              "next_node_id": "airtime_not_credited"
+            },
+            {
+              "label": "Talk to Human Agent",
+              "value": "human",
+              "next_node_id": "escalate_human"
+            }
+          ]
+        }
+      },
+      {
+        "id": "services_menu",
+        "type": "question",
+        "config": {
+          "question": "Services support: choose an option",
+          "save_to": "services_issue",
+          "options": [
+            {
+              "label": "Roaming",
+              "value": "roaming",
+              "next_node_id": "services_ai_help"
+            },
+            {
+              "label": "VAS / Subscriptions",
+              "value": "vas",
+              "next_node_id": "services_ai_help"
+            },
+            {
+              "label": "Talk to Human Agent",
+              "value": "human",
+              "next_node_id": "escalate_human"
+            }
+          ]
+        }
+      },
+      {
+        "id": "data_buy_info",
+        "type": "message",
+        "config": {
+          "message": "You can buy data via USSD *312# or in the app. Need more help?",
+          "next_node_id": "end_or_human"
+        }
+      },
+      {
+        "id": "data_balance_info",
+        "type": "message",
+        "config": {
+          "message": "Check your data balance with *323# or app dashboard. Need more help?",
+          "next_node_id": "end_or_human"
+        }
+      },
+      {
+        "id": "airtime_buy_info",
+        "type": "message",
+        "config": {
+          "message": "Buy airtime via *310# or app top-up. Need more help?",
+          "next_node_id": "end_or_human"
+        }
+      },
+      {
+        "id": "data_troubleshoot",
+        "type": "text_input",
+        "config": {
+          "prompt": "Please describe the issue (location, error, time).",
+          "save_to": "user_problem",
+          "validation": {
+            "type": "text",
+            "value": 5,
+            "error": "Please provide a bit more detail."
+          },
+          "acknowledgment": "Thanks. Let me check this.",
+          "next_node_id": "data_ai_help"
+        }
+      },
+      {
+        "id": "data_ai_help",
+        "type": "ai_action",
+        "config": {
+          "prompt": "Customer selected Data support and reported: {{user_problem}}. Provide concise troubleshooting steps, then ask if they want human support.",
+          "save_to": "ai_output",
+          "use_rag": true,
+          "rag_key": "rag_response",
+          "auto_retrieve": true,
+          "max_tokens": 350,
+          "max_history_turns": 8,
+          "next_node_id": "end_or_human"
+        }
+      },
+      {
+        "id": "services_ai_help",
+        "type": "ai_action",
+        "config": {
+          "prompt": "Customer selected Services support: {{services_issue}}. Give practical steps and ask whether to escalate to human.",
+          "save_to": "ai_output",
+          "use_rag": true,
+          "rag_key": "rag_response",
+          "auto_retrieve": true,
+          "max_tokens": 350,
+          "max_history_turns": 8,
+          "next_node_id": "end_or_human"
+        }
+      },
+      {
+        "id": "airtime_not_credited",
+        "type": "text_input",
+        "config": {
+          "prompt": "Please share amount, payment channel, and time.",
+          "save_to": "airtime_details",
+          "validation": {
+            "type": "text",
+            "value": 5,
+            "error": "Please include transaction details."
+          },
+          "acknowledgment": "Thanks. I will escalate this for review.",
+          "next_node_id": "escalate_human"
+        }
+      },
+      {
+        "id": "end_or_human",
+        "type": "question",
+        "config": {
+          "question": "Did this solve your issue?",
+          "save_to": "resolved",
+          "options": [
+            {
+              "label": "Yes, solved",
+              "value": "yes",
+              "next_node_id": "end_node",
+              "acknowledgment": "Great, happy to help."
+            },
+            {
+              "label": "No, talk to human",
+              "value": "no",
+              "next_node_id": "escalate_human",
+              "acknowledgment": "Understood, escalating to human support."
+            }
+          ]
+        }
+      },
+      {
+        "id": "escalate_human",
+        "type": "escalate",
+        "config": {
+          "reason": "Customer requested human support or issue unresolved in guided flow.",
+          "message": "I’m connecting you with a human support agent now."
+        }
+      },
+      {
+        "id": "end_node",
+        "type": "end",
+        "config": {
+          "message": "Thanks for contacting support. If you need anything else, type help."
+        }
+      }
+    ],
+    "edges": [
+      { "from": "welcome_menu", "to": "data_menu" },
+      { "from": "welcome_menu", "to": "airtime_menu" },
+      { "from": "welcome_menu", "to": "services_menu" },
+      { "from": "welcome_menu", "to": "escalate_human" },
+      { "from": "data_menu", "to": "data_buy_info" },
+      { "from": "data_menu", "to": "data_balance_info" },
+      { "from": "data_menu", "to": "data_troubleshoot" },
+      { "from": "data_menu", "to": "escalate_human" },
+      { "from": "airtime_menu", "to": "airtime_buy_info" },
+      { "from": "airtime_menu", "to": "airtime_not_credited" },
+      { "from": "airtime_menu", "to": "escalate_human" },
+      { "from": "services_menu", "to": "services_ai_help" },
+      { "from": "services_menu", "to": "escalate_human" },
+      { "from": "data_buy_info", "to": "end_or_human" },
+      { "from": "data_balance_info", "to": "end_or_human" },
+      { "from": "airtime_buy_info", "to": "end_or_human" },
+      { "from": "data_troubleshoot", "to": "data_ai_help" },
+      { "from": "data_ai_help", "to": "end_or_human" },
+      { "from": "services_ai_help", "to": "end_or_human" },
+      { "from": "airtime_not_credited", "to": "escalate_human" },
+      { "from": "end_or_human", "to": "end_node" },
+      { "from": "end_or_human", "to": "escalate_human" }
+    ]
+  }
+}

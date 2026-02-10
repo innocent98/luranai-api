@@ -1,18 +1,20 @@
 """Flow engine service for executing conversational workflows."""
 
 import re
-import httpx
 from datetime import datetime
-from typing import Optional, Any
+from types import SimpleNamespace
+from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy.orm import Session
-from sqlalchemy import select
+import httpx
 from loguru import logger
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
-from app.db.models.flow import Flow, FlowExecution, FlowStatus, FlowExecutionStatus
 from app.db.models.conversation import ConversationSession
+from app.db.models.flow import Flow, FlowExecution, FlowExecutionStatus, FlowStatus, FlowTriggerType
 from app.services.rag_service import RAGService
+from app.schemas.knowledge import KnowledgeChunkResponse
 
 
 class FlowEngine:
@@ -28,9 +30,7 @@ class FlowEngine:
         self.db = db
         self.rag_service = RAGService(db)
 
-    def match_flow(
-        self, message: str, session: ConversationSession
-    ) -> Optional[Flow]:
+    def match_flow(self, message: str, session: ConversationSession) -> Flow | None:
         """
         Find matching flow based on triggers and message content.
 
@@ -54,7 +54,7 @@ class FlowEngine:
             select(Flow)
             .where(
                 Flow.tenant_id == session.tenant_id,
-                Flow.is_active == True,
+                Flow.is_active.is_(True),
                 Flow.status == FlowStatus.ACTIVE,
             )
             .order_by(Flow.priority.desc())
@@ -65,16 +65,71 @@ class FlowEngine:
         # Try to match each flow in priority order
         for flow in flows:
             if self._matches_trigger(flow, message, session):
-                logger.info(
-                    f"Flow matched: {flow.name} (id={flow.id}) for session {session.id}"
-                )
+                logger.info(f"Flow matched: {flow.name} (id={flow.id}) for session {session.id}")
                 return flow
 
         return None
 
-    def _matches_trigger(
-        self, flow: Flow, message: str, session: ConversationSession
-    ) -> bool:
+    def list_router_flows(self, tenant_id: UUID) -> list[Flow]:
+        """
+        List active flows that should appear in the global start router menu.
+
+        Flows can opt out with `trigger_config.exclude_from_router=true`.
+        """
+        stmt = (
+            select(Flow)
+            .where(
+                Flow.tenant_id == tenant_id,
+                Flow.is_active.is_(True),
+                Flow.status == FlowStatus.ACTIVE,
+                Flow.trigger_type.in_(
+                    [
+                        FlowTriggerType.KEYWORD,
+                        FlowTriggerType.MANUAL,
+                        FlowTriggerType.INTENT,
+                    ]
+                ),
+            )
+            .order_by(Flow.priority.desc(), Flow.created_at.asc())
+        )
+        flows = self.db.execute(stmt).scalars().all()
+
+        filtered: list[Flow] = []
+        for flow in flows:
+            config = flow.trigger_config or {}
+            if config.get("exclude_from_router") is True:
+                continue
+            filtered.append(flow)
+
+        return filtered
+
+    def build_router_actions(self, flows: list[Flow]) -> list[dict[str, str]]:
+        """
+        Build button actions for router mode.
+        """
+        actions: list[dict[str, str]] = []
+        for flow in flows:
+            config = flow.trigger_config or {}
+            label = config.get("menu_label") or flow.name
+            description = config.get("menu_description") or ""
+            actions.append(
+                {
+                    "label": str(label),
+                    "value": f"__flow_start__:{flow.id}",
+                    "description": str(description),
+                }
+            )
+
+        actions.append(
+            {
+                "label": "Get Instant Help",
+                "value": "__rag_chat__",
+                "description": "Chat with our support assistant",
+            }
+        )
+        return actions
+
+    def _matches_trigger(self, flow: Flow, message: str, session: ConversationSession) -> bool:
         """
         Check if flow trigger conditions are met.
 
@@ -95,16 +150,18 @@ class FlowEngine:
         if trigger_type == FlowTriggerType.KEYWORD:
             keywords = trigger_config.get("keywords", [])
             message_lower = message.lower()
+            match_mode = trigger_config.get("match_mode", "word").lower()
 
             for keyword in keywords:
                 keyword_lower = keyword.lower()
-                # Support both exact match and word boundary match
-                if keyword_lower in message_lower:
-                    return True
-                # Check for word boundary match (whole words only)
-                pattern = r'\b' + re.escape(keyword_lower) + r'\b'
-                if re.search(pattern, message_lower):
-                    return True
+                if match_mode == "substring":
+                    if keyword_lower in message_lower:
+                        return True
+                else:
+                    # Default to word-boundary match (whole words only)
+                    pattern = r"\b" + re.escape(keyword_lower) + r"\b"
+                    if re.search(pattern, message_lower):
+                        return True
 
             return False
 
@@ -128,9 +185,7 @@ class FlowEngine:
 
         return False
 
-    def _get_active_execution(
-        self, session_id: UUID
-    ) -> Optional[FlowExecution]:
+    def _get_active_execution(self, session_id: UUID) -> FlowExecution | None:
         """
         Get active flow execution for session.
 
@@ -144,19 +199,19 @@ class FlowEngine:
             select(FlowExecution)
             .where(
                 FlowExecution.session_id == session_id,
-                FlowExecution.status.in_([
-                    FlowExecutionStatus.PENDING,
-                    FlowExecutionStatus.RUNNING,
-                ]),
+                FlowExecution.status.in_(
+                    [
+                        FlowExecutionStatus.PENDING,
+                        FlowExecutionStatus.RUNNING,
+                    ]
+                ),
             )
             .order_by(FlowExecution.created_at.desc())
         )
 
         return self.db.execute(stmt).scalar_one_or_none()
 
-    async def execute_node(
-        self, execution: FlowExecution, user_input: Optional[str] = None
-    ) -> dict:
+    async def execute_node(self, execution: FlowExecution, user_input: str | None = None) -> dict:
         """
         Execute current node in flow execution and advance to next.
 
@@ -193,9 +248,7 @@ class FlowEngine:
         if not current_node_id:
             return self._error_result("No start node defined")
 
-        current_node = next(
-            (n for n in nodes if n.get("id") == current_node_id), None
-        )
+        current_node = next((n for n in nodes if n.get("id") == current_node_id), None)
 
         if not current_node:
             return self._error_result(f"Node {current_node_id} not found")
@@ -219,6 +272,8 @@ class FlowEngine:
                 result = await self._exec_rag_query(execution, current_node)
             elif node_type == "webhook":
                 result = await self._exec_webhook(execution, current_node)
+            elif node_type == "ai_action":
+                result = await self._exec_ai_action(execution, current_node, user_input)
             elif node_type == "escalate":
                 result = await self._exec_escalate(execution, current_node)
             elif node_type == "end":
@@ -240,9 +295,7 @@ class FlowEngine:
 
             return self._error_result(f"Flow execution failed: {str(e)}")
 
-    async def _exec_message(
-        self, execution: FlowExecution, node: dict
-    ) -> dict:
+    async def _exec_message(self, execution: FlowExecution, node: dict) -> dict:
         """
         Execute MESSAGE node: send message and auto-advance.
 
@@ -257,9 +310,7 @@ class FlowEngine:
         message_template = config.get("message", "")
 
         # Interpolate variables
-        message = self._interpolate_variables(
-            message_template, execution.collected_data
-        )
+        message = self._interpolate_variables(message_template, execution.collected_data)
 
         # Auto-advance to next node
         next_node_id = self._get_next_node(node, execution)
@@ -275,7 +326,7 @@ class FlowEngine:
         }
 
     async def _exec_question(
-        self, execution: FlowExecution, node: dict, user_input: Optional[str]
+        self, execution: FlowExecution, node: dict, user_input: str | None
     ) -> dict:
         """
         Execute QUESTION node: present buttons and match response.
@@ -328,35 +379,48 @@ class FlowEngine:
         if not matched_option:
             # Invalid response - ask again
             return {
-                "message": f"I didn't quite get that. {question}",
+                "message": question,
                 "buttons": [opt.get("label") for opt in options],
                 "is_complete": False,
                 "use_rag_response": False,
                 "should_escalate": False,
             }
 
-        # Save selected option
-        save_to = config.get("save_to", "question_response")
+        # Save selected option (support legacy `variable` key)
+        save_to = config.get("save_to") or config.get("variable") or "question_response"
         execution.collected_data[save_to] = matched_option.get("value")
         self.db.flush()
 
-        # Advance to option's target node
-        next_node_id = matched_option.get("next_node_id")
+        # Advance to option's target node (fallback to config-level next_node_id)
+        next_node_id = matched_option.get("next_node_id") or config.get("next_node_id")
         execution.current_node_id = next_node_id
         self.db.commit()
 
-        # Return acknowledgment
-        acknowledgment = matched_option.get("acknowledgment", "Got it!")
+        # If an explicit acknowledgment is provided, return it.
+        # Otherwise, auto-continue so the next prompt/buttons are shown immediately.
+        acknowledgment = matched_option.get("acknowledgment")
+        if acknowledgment:
+            return {
+                "message": acknowledgment,
+                "buttons": None,
+                "is_complete": next_node_id is None,
+                "use_rag_response": False,
+                "should_escalate": False,
+            }
+
+        if next_node_id:
+            return await self.execute_node(execution, None)
+
         return {
-            "message": acknowledgment,
+            "message": "",
             "buttons": None,
-            "is_complete": next_node_id is None,
+            "is_complete": True,
             "use_rag_response": False,
             "should_escalate": False,
         }
 
     async def _exec_text_input(
-        self, execution: FlowExecution, node: dict, user_input: Optional[str]
+        self, execution: FlowExecution, node: dict, user_input: str | None
     ) -> dict:
         """
         Execute TEXT_INPUT node: collect input with validation.
@@ -371,7 +435,8 @@ class FlowEngine:
         """
         config = node.get("config", {})
         prompt = config.get("prompt", "Please provide your input:")
-        save_to = config.get("save_to", "text_input")
+        # Support both current `save_to` and legacy `variable` key
+        save_to = config.get("save_to") or config.get("variable") or "text_input"
         validation = config.get("validation", {})
 
         # Interpolate prompt
@@ -419,7 +484,14 @@ class FlowEngine:
             if next_node:
                 next_node_type = next_node.get("type")
                 # Auto-continue for non-interactive nodes
-                if next_node_type in ["webhook", "rag_query", "condition", "message", "end", "escalate"]:
+                if next_node_type in [
+                    "webhook",
+                    "rag_query",
+                    "condition",
+                    "message",
+                    "end",
+                    "escalate",
+                ]:
                     # Send acknowledgment first, then continue execution
                     # Return with message but also continue execution flag
                     return {
@@ -440,9 +512,7 @@ class FlowEngine:
             "should_escalate": False,
         }
 
-    async def _exec_condition(
-        self, execution: FlowExecution, node: dict
-    ) -> dict:
+    async def _exec_condition(self, execution: FlowExecution, node: dict) -> dict:
         """
         Execute CONDITION node: evaluate conditions and branch.
 
@@ -476,9 +546,7 @@ class FlowEngine:
         else:
             return self._error_result("No matching condition and no default path")
 
-    async def _exec_rag_query(
-        self, execution: FlowExecution, node: dict
-    ) -> dict:
+    async def _exec_rag_query(self, execution: FlowExecution, node: dict) -> dict:
         """
         Execute RAG_QUERY node: call RAG service with interpolated query.
 
@@ -491,15 +559,14 @@ class FlowEngine:
         """
         config = node.get("config", {})
         query_template = config.get("query", "")
-        save_to = config.get("save_to", "rag_response")
+        # Support both current `save_to` and legacy `result_variable` key
+        save_to = config.get("save_to") or config.get("result_variable") or "rag_response"
 
         # Interpolate variables in query
         query = self._interpolate_variables(query_template, execution.collected_data)
 
         # Get session for tenant context
-        stmt = select(ConversationSession).where(
-            ConversationSession.id == execution.session_id
-        )
+        stmt = select(ConversationSession).where(ConversationSession.id == execution.session_id)
         session = self.db.execute(stmt).scalar_one_or_none()
 
         if not session:
@@ -517,9 +584,8 @@ class FlowEngine:
             "query": query,
             "chunks_count": len(chunks),
             "avg_similarity": sum(scores) / len(scores) if scores else 0,
-            "chunks": [
-                {"id": str(chunk.id), "content": chunk.content} for chunk in chunks
-            ],
+            "chunks": [{"id": str(chunk.id), "content": chunk.content} for chunk in chunks],
+            "scores": scores,
         }
         execution.collected_data[save_to] = rag_result
         self.db.flush()
@@ -532,9 +598,7 @@ class FlowEngine:
         # Continue execution (RAG nodes don't send messages directly)
         return await self.execute_node(execution, None)
 
-    async def _exec_webhook(
-        self, execution: FlowExecution, node: dict
-    ) -> dict:
+    async def _exec_webhook(self, execution: FlowExecution, node: dict) -> dict:
         """
         Execute WEBHOOK node: call external API with httpx.
 
@@ -572,10 +636,17 @@ class FlowEngine:
                     return self._error_result(f"Unsupported HTTP method: {method}")
 
                 # Save response
+                response_data = None
+                if response.text:
+                    try:
+                        response_data = response.json()
+                    except ValueError:
+                        response_data = response.text
+
                 webhook_result = {
                     "status_code": response.status_code,
                     "success": 200 <= response.status_code < 300,
-                    "data": response.json() if response.text else None,
+                    "data": response_data,
                 }
                 execution.collected_data[save_to] = webhook_result
                 self.db.flush()
@@ -607,9 +678,7 @@ class FlowEngine:
             else:
                 return self._error_result(f"Webhook failed: {str(e)}")
 
-    async def _exec_escalate(
-        self, execution: FlowExecution, node: dict
-    ) -> dict:
+    async def _exec_escalate(self, execution: FlowExecution, node: dict) -> dict:
         """
         Execute ESCALATE node: trigger escalation and create ticket.
 
@@ -629,9 +698,7 @@ class FlowEngine:
 
         # Interpolate variables
         reason = self._interpolate_variables(reason_template, execution.collected_data)
-        message = self._interpolate_variables(
-            message_template, execution.collected_data
-        )
+        message = self._interpolate_variables(message_template, execution.collected_data)
 
         # Mark execution as completed
         execution.status = FlowExecutionStatus.COMPLETED
@@ -648,9 +715,139 @@ class FlowEngine:
             "escalation_reason": reason,
         }
 
-    async def _exec_end(
-        self, execution: FlowExecution, node: dict
+    async def _exec_ai_action(
+        self, execution: FlowExecution, node: dict, user_input: str | None
     ) -> dict:
+        """
+        Execute AI_ACTION node: generate AI response (optionally using RAG context).
+
+        Args:
+            execution: Flow execution
+            node: Node configuration
+            user_input: Optional user input
+
+        Returns:
+            Execution result
+        """
+        from app.core.config import settings
+        from app.db.models.tenant import Tenant, TenantAIConfig
+        from app.services.conversation_service import ConversationService
+
+        config = node.get("config", {})
+        prompt_template = config.get("prompt", "") or config.get("input", "")
+        save_to = config.get("save_to", "ai_output")
+        use_rag = config.get("use_rag", True)
+        rag_key = config.get("rag_key", "rag_response")
+        auto_retrieve = config.get("auto_retrieve", False)
+        max_tokens = config.get("max_tokens", 350)
+        model_name = config.get("model_name")
+        max_history_turns = config.get("max_history_turns", 8)
+
+        # Resolve user query
+        user_query = self._interpolate_variables(prompt_template, execution.collected_data)
+        if not user_query and user_input:
+            user_query = user_input
+
+        if not user_query:
+            return self._error_result("AI action missing prompt/input")
+
+        # Load session + tenant
+        stmt = select(ConversationSession).where(ConversationSession.id == execution.session_id)
+        session = self.db.execute(stmt).scalar_one_or_none()
+        if not session:
+            return self._error_result("Session not found")
+
+        tenant = self.db.execute(
+            select(Tenant).where(Tenant.id == session.tenant_id)
+        ).scalar_one_or_none()
+        if not tenant:
+            return self._error_result("Tenant not found")
+
+        ai_config = self.db.execute(
+            select(TenantAIConfig).where(TenantAIConfig.tenant_id == session.tenant_id)
+        ).scalar_one_or_none()
+        if not ai_config:
+            return self._error_result("Tenant AI configuration not found")
+
+        # Build retrieved chunks
+        retrieved_chunks: list[KnowledgeChunkResponse] = []
+        scores: list[float] = []
+        if use_rag:
+            rag_data = execution.collected_data.get(rag_key)
+            if isinstance(rag_data, dict) and rag_data.get("chunks"):
+                retrieved_chunks = cast(
+                    list[KnowledgeChunkResponse],
+                    [
+                        SimpleNamespace(id=chunk.get("id"), content=chunk.get("content"))
+                        for chunk in rag_data.get("chunks", [])
+                    ],
+                )
+                scores = cast(list[float], rag_data.get("scores", []))
+            elif auto_retrieve:
+                chunks, scores = await self.rag_service.retrieve_relevant_chunks(
+                    tenant_id=session.tenant_id,
+                    query=user_query,
+                    max_chunks=self.rag_service.MAX_CHUNKS_RETRIEVE,
+                )
+                retrieved_chunks = chunks
+                execution.collected_data[rag_key] = {
+                    "query": user_query,
+                    "chunks_count": len(chunks),
+                    "avg_similarity": sum(scores) / len(scores) if scores else 0,
+                    "chunks": [{"id": str(chunk.id), "content": chunk.content} for chunk in chunks],
+                    "scores": scores,
+                }
+
+        # Conversation history
+        conversation_service = ConversationService(self.db)
+        conversation_history = conversation_service.get_session_messages(
+            session_id=execution.session_id,
+            limit=max_history_turns * 2,
+        )
+
+        prompt_components = self.rag_service.assemble_prompt(
+            ai_config=ai_config,
+            user_query=user_query,
+            retrieved_chunks=retrieved_chunks,
+            conversation_history=conversation_history,
+            company_name=tenant.display_name,
+            company_description=tenant.description,
+            max_history_turns=max_history_turns,
+        )
+
+        response_text, token_count, is_api_error = await self.rag_service.generate_ai_response(
+            prompt=prompt_components,
+            max_tokens=max_tokens,
+            model_name=model_name or settings.OPENAI_LLM_MODEL,
+        )
+
+        structured_output = {
+            "success": not is_api_error,
+            "response": response_text,
+            "token_count": token_count,
+            "prompt_tokens": getattr(prompt_components, "prompt_tokens", 0),
+            "model": model_name or settings.OPENAI_LLM_MODEL,
+            "chunks_used": len(retrieved_chunks),
+            "scores": scores,
+        }
+        execution.collected_data[save_to] = structured_output
+        self.db.flush()
+
+        # Advance to next node
+        next_node_id = self._get_next_node(node, execution)
+        execution.current_node_id = next_node_id
+        self.db.commit()
+
+        return {
+            "message": response_text,
+            "buttons": None,
+            "is_complete": next_node_id is None,
+            "use_rag_response": False,
+            "should_escalate": False,
+            "structured_output": structured_output,
+        }
+
+    async def _exec_end(self, execution: FlowExecution, node: dict) -> dict:
         """
         Execute END node: complete flow.
 
@@ -665,9 +862,7 @@ class FlowEngine:
         message_template = config.get("message", "Thank you!")
 
         # Interpolate variables
-        message = self._interpolate_variables(
-            message_template, execution.collected_data
-        )
+        message = self._interpolate_variables(message_template, execution.collected_data)
 
         # Mark execution as completed
         execution.status = FlowExecutionStatus.COMPLETED
@@ -686,7 +881,7 @@ class FlowEngine:
             "should_escalate": False,
         }
 
-    def _get_next_node(self, current_node: dict, execution: FlowExecution) -> Optional[str]:
+    def _get_next_node(self, current_node: dict, execution: FlowExecution) -> str | None:
         """
         Get next node ID from current node.
 
@@ -698,7 +893,10 @@ class FlowEngine:
             Next node ID or None if no next node
         """
         config = current_node.get("config", {})
-        return config.get("next_node_id")
+        next_node = config.get("next_node_id")
+        if next_node is None:
+            return None
+        return str(next_node)
 
     def _evaluate_condition(self, condition: dict, data: dict) -> bool:
         """
@@ -714,6 +912,7 @@ class FlowEngine:
         variable = condition.get("variable")
         operator = condition.get("operator")
         value = condition.get("value")
+        value_str = str(value) if value is not None else ""
 
         # Get variable value from collected data
         var_value = data.get(variable)
@@ -723,16 +922,20 @@ class FlowEngine:
         elif operator == "not_equals":
             return var_value != value
         elif operator == "contains":
-            return value in str(var_value) if var_value else False
+            return value_str in str(var_value) if var_value is not None else False
         elif operator == "not_contains":
-            return value not in str(var_value) if var_value else True
+            return value_str not in str(var_value) if var_value is not None else True
         elif operator == "greater_than":
             try:
+                if var_value is None or value is None:
+                    return False
                 return float(var_value) > float(value)
             except (ValueError, TypeError):
                 return False
         elif operator == "less_than":
             try:
+                if var_value is None or value is None:
+                    return False
                 return float(var_value) < float(value)
             except (ValueError, TypeError):
                 return False
@@ -756,27 +959,48 @@ class FlowEngine:
             Dict with 'valid' bool and optional 'error' message
         """
         validation_type = validation.get("type")
+        custom_error = validation.get("error")
+
+        # Legacy schema support: {"required": true, "min_length": 2, ...}
+        if validation.get("required") is True and (not input_value or input_value.strip() == ""):
+            return {"valid": False, "error": custom_error or "This field is required."}
+
+        if isinstance(validation.get("min_length"), int):
+            min_len = validation.get("min_length")
+            if len(input_value) < min_len:
+                return {
+                    "valid": False,
+                    "error": custom_error or f"Input must be at least {min_len} characters.",
+                }
+
+        if isinstance(validation.get("max_length"), int):
+            max_len = validation.get("max_length")
+            if len(input_value) > max_len:
+                return {
+                    "valid": False,
+                    "error": custom_error or f"Input must be at most {max_len} characters.",
+                }
 
         if validation_type == "required":
             if not input_value or input_value.strip() == "":
-                return {"valid": False, "error": "This field is required."}
+                return {"valid": False, "error": custom_error or "This field is required."}
 
         elif validation_type == "email":
-            email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+            email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
             if not re.match(email_pattern, input_value):
-                return {"valid": False, "error": "Please enter a valid email address."}
+                return {"valid": False, "error": custom_error or "Please enter a valid email address."}
 
         elif validation_type == "phone":
             # Basic phone validation (10+ digits)
-            phone_digits = re.sub(r'\D', '', input_value)
+            phone_digits = re.sub(r"\D", "", input_value)
             if len(phone_digits) < 10:
-                return {"valid": False, "error": "Please enter a valid phone number."}
+                return {"valid": False, "error": custom_error or "Please enter a valid phone number."}
 
         elif validation_type == "number":
             try:
                 float(input_value)
             except ValueError:
-                return {"valid": False, "error": "Please enter a valid number."}
+                return {"valid": False, "error": custom_error or "Please enter a valid number."}
 
         elif validation_type == "min_length":
             min_len = validation.get("value", 0)
@@ -797,7 +1021,7 @@ class FlowEngine:
         elif validation_type == "regex":
             pattern = validation.get("pattern", "")
             if not re.match(pattern, input_value):
-                error_msg = validation.get("error", "Input format is invalid.")
+                error_msg = custom_error or "Input format is invalid."
                 return {"valid": False, "error": error_msg}
 
         return {"valid": True}
@@ -819,13 +1043,13 @@ class FlowEngine:
             return ""
 
         # Find all {{variable}} patterns
-        pattern = r'\{\{([^}]+)\}\}'
+        pattern = r"\{\{([^}]+)\}\}"
 
         def replacer(match):
             var_name = match.group(1).strip()
             # Support nested access with dot notation
             value = variables
-            for key in var_name.split('.'):
+            for key in var_name.split("."):
                 if isinstance(value, dict):
                     value = value.get(key, f"{{{{{var_name}}}}}")
                 else:
@@ -845,7 +1069,7 @@ class FlowEngine:
         Returns:
             Interpolated dictionary
         """
-        result = {}
+        result: dict[str, Any] = {}
         for key, value in data.items():
             if isinstance(value, str):
                 result[key] = self._interpolate_variables(value, variables)

@@ -2,11 +2,9 @@
 
 import uuid
 from datetime import datetime
-from typing import Optional
 
-from sqlalchemy import DateTime, Float, JSON, String, Index
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column
-from sqlalchemy import ForeignKey
 
 from app.db.base import Base, UUIDMixin
 
@@ -27,13 +25,13 @@ class AuditLog(Base, UUIDMixin):
         Index("ix_audit_logs_resource", "resource_type", "resource_id"),
     )
 
-    tenant_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
         comment="Tenant this action relates to (null for platform-level actions)",
     )
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
@@ -49,21 +47,21 @@ class AuditLog(Base, UUIDMixin):
         nullable=False,
         comment="Type of resource affected (e.g., 'tenant', 'knowledge_source')",
     )
-    resource_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    resource_id: Mapped[uuid.UUID | None] = mapped_column(
         nullable=True,
         comment="ID of the affected resource",
     )
-    changes: Mapped[Optional[dict]] = mapped_column(
+    changes: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
         comment="Before/after values for the change",
     )
-    ip_address: Mapped[Optional[str]] = mapped_column(
+    ip_address: Mapped[str | None] = mapped_column(
         String(45),
         nullable=True,
         comment="IP address of the request (IPv4 or IPv6)",
     )
-    user_agent: Mapped[Optional[str]] = mapped_column(
+    user_agent: Mapped[str | None] = mapped_column(
         String(500),
         nullable=True,
         comment="User agent string from the request",
@@ -90,7 +88,9 @@ class AnalyticsMetric(Base, UUIDMixin):
 
     __tablename__ = "analytics_metrics"
     __table_args__ = (
-        Index("ix_analytics_metrics_tenant_type_period", "tenant_id", "metric_type", "period_start"),
+        Index(
+            "ix_analytics_metrics_tenant_type_period", "tenant_id", "metric_type", "period_start"
+        ),
         Index("ix_analytics_metrics_period", "period_start", "period_end"),
     )
 
@@ -111,7 +111,7 @@ class AnalyticsMetric(Base, UUIDMixin):
         nullable=False,
         comment="Computed metric value",
     )
-    meta: Mapped[Optional[dict]] = mapped_column(
+    meta: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
         comment="Additional dimensions or breakdown",

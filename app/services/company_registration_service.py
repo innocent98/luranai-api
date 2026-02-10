@@ -1,13 +1,13 @@
 """Company registration service for self-service signup."""
 
-from datetime import datetime, timedelta, timezone
-from uuid import UUID
-from sqlalchemy.orm import Session
-from sqlalchemy import select
+from datetime import UTC, datetime, timedelta
+
 from loguru import logger
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.security import get_password_hash
-from app.db.models.tenant import Tenant, TenantStatus, TenantAIConfig, TenantCapabilities
+from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
 from app.db.models.user import User, UserRole
 from app.schemas.auth import (
     CompanyRegistrationRequest,
@@ -52,14 +52,14 @@ class CompanyRegistrationService:
         tenant_name = registration_data.company_name.lower().replace(" ", "_")
 
         # Check if tenant name already exists
-        stmt = select(Tenant).where(Tenant.name == tenant_name)
-        existing_tenant = self.db.execute(stmt).scalar_one_or_none()
+        tenant_stmt = select(Tenant).where(Tenant.name == tenant_name)
+        existing_tenant = self.db.execute(tenant_stmt).scalar_one_or_none()
         if existing_tenant:
             raise ValueError(f"Company with name '{registration_data.company_name}' already exists")
 
         # Check if admin email already exists
-        stmt = select(User).where(User.email == registration_data.admin_email)
-        existing_user = self.db.execute(stmt).scalar_one_or_none()
+        user_stmt = select(User).where(User.email == registration_data.admin_email)
+        existing_user = self.db.execute(user_stmt).scalar_one_or_none()
         if existing_user:
             raise ValueError(f"User with email {registration_data.admin_email} already exists")
 
@@ -68,18 +68,16 @@ class CompanyRegistrationService:
             temp_password = generate_temp_password()
 
             # Calculate trial end date (30 days from now)
-            trial_ends_at = datetime.now(timezone.utc) + timedelta(days=30)
+            trial_ends_at = datetime.now(UTC) + timedelta(days=30)
 
             # Generate API key for tenant
             import secrets
+
             api_key = secrets.token_urlsafe(32)
             api_key_hash = get_password_hash(api_key)
 
             # Create tenant
-            display_name = (
-                registration_data.company_display_name
-                or registration_data.company_name
-            )
+            display_name = registration_data.company_display_name or registration_data.company_name
             tenant = Tenant(
                 name=tenant_name,
                 display_name=display_name,
@@ -110,10 +108,11 @@ class CompanyRegistrationService:
                 can_access_analytics=False,  # No analytics in trial
                 can_upload_knowledge=True,
                 max_knowledge_mb=10,  # 10 MB for trial
-                max_conversations_per_month=100,  # 100 conversations/month for trial
+                max_conversations_per_month=200,  # 200 conversations/month for trial
                 max_knowledge_sources=2,  # Only 2 sources for trial
                 can_use_url_sources=False,  # Files only, no URLs in trial
                 max_team_members=1,  # Only 1 user (admin) for trial
+                max_flows=0,  # No flows on trial by default
             )
             self.db.add(capabilities)
 
@@ -262,8 +261,8 @@ class CompanyRegistrationService:
             ValueError: If user not found or already verified
         """
         # Get user
-        stmt = select(User).where(User.email == email)
-        user = self.db.execute(stmt).scalar_one_or_none()
+        user_stmt = select(User).where(User.email == email)
+        user = self.db.execute(user_stmt).scalar_one_or_none()
 
         if not user:
             raise ValueError("User not found")
@@ -272,8 +271,8 @@ class CompanyRegistrationService:
             raise ValueError("Email already verified")
 
         # Get tenant
-        stmt = select(Tenant).where(Tenant.id == user.tenant_id)
-        tenant = self.db.execute(stmt).scalar_one_or_none()
+        tenant_stmt = select(Tenant).where(Tenant.id == user.tenant_id)
+        tenant = self.db.execute(tenant_stmt).scalar_one_or_none()
 
         if not tenant:
             raise ValueError("Tenant not found")

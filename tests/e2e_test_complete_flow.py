@@ -17,10 +17,11 @@ Run with: python tests/e2e_test_complete_flow.py
 import asyncio
 import json
 import time
-from typing import Dict, Any, Optional
-import websockets
-import requests
 from datetime import datetime
+from typing import Any
+
+import requests
+import websockets
 
 # Configuration
 BASE_URL = "http://localhost:8000"
@@ -30,26 +31,27 @@ API_V1 = f"{BASE_URL}/api/v1"
 
 class Color:
     """ANSI color codes for terminal output."""
-    HEADER = '\033[95m'
-    BLUE = '\033[94m'
-    CYAN = '\033[96m'
-    GREEN = '\033[92m'
-    YELLOW = '\033[93m'
-    RED = '\033[91m'
-    END = '\033[0m'
-    BOLD = '\033[1m'
+
+    HEADER = "\033[95m"
+    BLUE = "\033[94m"
+    CYAN = "\033[96m"
+    GREEN = "\033[92m"
+    YELLOW = "\033[93m"
+    RED = "\033[91m"
+    END = "\033[0m"
+    BOLD = "\033[1m"
 
 
 class E2ETest:
     """End-to-End test runner for Luran live chat system."""
 
     def __init__(self):
-        self.tenant_id: Optional[str] = None
-        self.admin_token: Optional[str] = None
-        self.agent_token: Optional[str] = None
-        self.session_id: Optional[str] = None
-        self.ticket_id: Optional[str] = None
-        self.agent_id: Optional[str] = None
+        self.tenant_id: str | None = None
+        self.admin_token: str | None = None
+        self.agent_token: str | None = None
+        self.session_id: str | None = None
+        self.ticket_id: str | None = None
+        self.agent_id: str | None = None
         self.user_identifier = f"test-customer-{int(time.time())}@example.com"
         self.company_email = f"test-company-{int(time.time())}@example.com"
         self.agent_email = f"test-agent-{int(time.time())}@example.com"
@@ -77,10 +79,10 @@ class E2ETest:
         self,
         method: str,
         endpoint: str,
-        data: Optional[Dict] = None,
-        token: Optional[str] = None,
-        expect_error: bool = False
-    ) -> Dict[str, Any]:
+        data: dict | None = None,
+        token: str | None = None,
+        expect_error: bool = False,
+    ) -> dict[str, Any]:
         """Make HTTP request and handle response."""
         url = f"{API_V1}{endpoint}"
         headers = {"Content-Type": "application/json"}
@@ -142,7 +144,7 @@ class E2ETest:
         self.admin_token = response["access_token"]
 
         self.log_success(f"Company registered: {self.tenant_id}")
-        self.log_success(f"Admin token obtained")
+        self.log_success("Admin token obtained")
 
     # ========================================================================
     # STEP 2: Create Support Agent
@@ -263,9 +265,7 @@ class E2ETest:
 
         self.log("Agent taking over conversation...")
         response = self.make_request(
-            "POST",
-            f"/chat/sessions/{self.session_id}/takeover",
-            token=self.agent_token
+            "POST", f"/chat/sessions/{self.session_id}/takeover", token=self.agent_token
         )
 
         self.log_success(f"Agent assigned: {response.get('agent_id')}")
@@ -292,7 +292,9 @@ class E2ETest:
         self.log_step(7, "WebSocket Real-Time Messaging")
 
         # Customer WebSocket
-        customer_ws_url = f"{WS_URL}/api/v1/ws/chat/{self.session_id}?user_identifier={self.user_identifier}"
+        customer_ws_url = (
+            f"{WS_URL}/api/v1/ws/chat/{self.session_id}?user_identifier={self.user_identifier}"
+        )
 
         # Agent WebSocket
         agent_ws_url = f"{WS_URL}/api/v1/ws/agent/{self.session_id}?token={self.agent_token}"
@@ -312,18 +314,24 @@ class E2ETest:
                         message = await asyncio.wait_for(customer_ws.recv(), timeout=5.0)
                         data = json.loads(message)
                         if data.get("type") == "agent_joined":
-                            self.log_success(f"Customer received: agent_joined ({data.get('agent_name')})")
+                            self.log_success(
+                                f"Customer received: agent_joined ({data.get('agent_name')})"
+                            )
                         else:
                             self.log(f"Received: {data.get('type')}")
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         self.log("No agent_joined notification (OK if already sent)")
 
                     # Customer sends message
                     self.log("Customer sending message...")
-                    await customer_ws.send(json.dumps({
-                        "type": "message",
-                        "content": "Thanks for taking over! Can you help me?"
-                    }))
+                    await customer_ws.send(
+                        json.dumps(
+                            {
+                                "type": "message",
+                                "content": "Thanks for taking over! Can you help me?",
+                            }
+                        )
+                    )
                     self.log_success("Customer message sent")
 
                     # Agent should receive it
@@ -338,10 +346,11 @@ class E2ETest:
 
                     # Agent sends response
                     self.log("Agent sending response...")
-                    await agent_ws.send(json.dumps({
-                        "type": "message",
-                        "content": "Of course! I'm here to help you."
-                    }))
+                    await agent_ws.send(
+                        json.dumps(
+                            {"type": "message", "content": "Of course! I'm here to help you."}
+                        )
+                    )
                     self.log_success("Agent message sent")
 
                     # Customer should receive it
@@ -356,10 +365,7 @@ class E2ETest:
 
                     # Test typing indicator
                     self.log("Testing typing indicator...")
-                    await agent_ws.send(json.dumps({
-                        "type": "typing",
-                        "is_typing": True
-                    }))
+                    await agent_ws.send(json.dumps({"type": "typing", "is_typing": True}))
 
                     message = await asyncio.wait_for(customer_ws.recv(), timeout=5.0)
                     data = json.loads(message)
@@ -393,10 +399,7 @@ class E2ETest:
 
         self.log("Sending agent message via HTTP...")
         response = self.make_request(
-            "POST",
-            f"/chat/sessions/{self.session_id}/agent-message",
-            data,
-            token=self.agent_token
+            "POST", f"/chat/sessions/{self.session_id}/agent-message", data, token=self.agent_token
         )
 
         self.log_success(f"Message sent: {response['id']}")
@@ -411,16 +414,11 @@ class E2ETest:
         """Test 9: Agent resolves the ticket."""
         self.log_step(9, "Resolve Ticket")
 
-        data = {
-            "resolution_notes": "Issue resolved. Customer was assisted successfully."
-        }
+        data = {"resolution_notes": "Issue resolved. Customer was assisted successfully."}
 
         self.log("Resolving ticket...")
         response = self.make_request(
-            "POST",
-            f"/tickets/{self.ticket_id}/resolve",
-            data,
-            token=self.agent_token
+            "POST", f"/tickets/{self.ticket_id}/resolve", data, token=self.agent_token
         )
 
         self.log_success(f"Ticket resolved: {response['ticket_number']}")
@@ -440,9 +438,7 @@ class E2ETest:
 
         self.log("Closing ticket...")
         response = self.make_request(
-            "POST",
-            f"/tickets/{self.ticket_id}/close",
-            token=self.admin_token
+            "POST", f"/tickets/{self.ticket_id}/close", token=self.admin_token
         )
 
         self.log_success(f"Ticket closed: {response['ticket_number']}")
@@ -460,9 +456,7 @@ class E2ETest:
 
         self.log("Fetching session with all messages...")
         response = self.make_request(
-            "GET",
-            f"/chat/sessions/{self.session_id}",
-            token=self.admin_token
+            "GET", f"/chat/sessions/{self.session_id}", token=self.admin_token
         )
 
         messages = response.get("messages", [])
@@ -498,7 +492,9 @@ class E2ETest:
     async def run_all_tests(self):
         """Run all end-to-end tests in sequence."""
         print(f"\n{Color.HEADER}{Color.BOLD}{'='*80}{Color.END}")
-        print(f"{Color.HEADER}{Color.BOLD}Luran Live Chat System - End-to-End Test Suite{Color.END}")
+        print(
+            f"{Color.HEADER}{Color.BOLD}Luran Live Chat System - End-to-End Test Suite{Color.END}"
+        )
         print(f"{Color.HEADER}{Color.BOLD}{'='*80}{Color.END}\n")
 
         try:

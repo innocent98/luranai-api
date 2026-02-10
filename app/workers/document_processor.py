@@ -1,20 +1,23 @@
 """Background worker for processing document ingestion jobs."""
 
-import asyncio
 import os
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
+from typing import Any, cast
 from uuid import UUID
 
 from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.models.job import JobStatus, ProcessingJob
+from app.db.models.knowledge import SourceStatus, SourceType
 from app.db.session import SessionLocal
-from app.db.models.job import JobStatus, JobType, ProcessingJob
-from app.db.models.knowledge import SourceType, SourceStatus
 from app.services.knowledge_service import KnowledgeService
 from app.utils.embedding import embedding_service
+
+
+def _set_attr(obj: object, name: str, value: object) -> None:
+    setattr(obj, name, value)
 
 
 async def broadcast_job_status(job_id: UUID, update: dict):
@@ -27,6 +30,7 @@ async def broadcast_job_status(job_id: UUID, update: dict):
     """
     try:
         from app.utils.websocket_manager import websocket_manager
+
         await websocket_manager.broadcast_job_update(job_id, update)
     except Exception as e:
         logger.warning(f"Failed to broadcast job update: {e}")
@@ -57,6 +61,7 @@ async def process_document_ingestion(
     """
     db: Session = SessionLocal()
     job_uuid = UUID(job_id)
+    job: ProcessingJob | None = None
 
     try:
         # Get job from database
@@ -67,30 +72,35 @@ async def process_document_ingestion(
             return {"success": False, "error": "Job not found"}
 
         # Mark job as processing
-        job.status = JobStatus.PROCESSING
-        job.started_at = datetime.now(timezone.utc)
+        _set_attr(job, "status", JobStatus.PROCESSING)
+        _set_attr(job, "started_at", datetime.now(UTC))
         db.commit()
 
         # Broadcast status update via WebSocket
-        await broadcast_job_status(job_uuid, {
-            "job_id": job_id,
-            "status": "processing",
-            "message": "Starting document processing...",
-        })
+        await broadcast_job_status(
+            job_uuid,
+            {
+                "job_id": job_id,
+                "status": "processing",
+                "message": "Starting document processing...",
+            },
+        )
 
         logger.info(f"Starting document ingestion job {job_id}")
 
         # Extract input data
-        input_data = job.input_data
-        tenant_id = UUID(input_data["tenant_id"])
-        document_text = input_data["document_text"]
-        document_name = input_data["document_name"]
-        source_type = SourceType(input_data["source_type"])  # Convert string to enum
-        document_metadata = input_data.get("metadata", {})
-        uploaded_by = UUID(input_data["uploaded_by"]) if input_data.get("uploaded_by") else None
-        source_category = input_data.get("source_category", "file")
-        source_url = input_data.get("source_url")
-        file_size_bytes = input_data.get("file_size_bytes")
+        input_data = cast(dict[str, Any], job.input_data or {})
+        tenant_id = UUID(str(input_data["tenant_id"]))
+        document_text = str(input_data["document_text"])
+        document_name = str(input_data["document_name"])
+        source_type = SourceType(str(input_data["source_type"]))  # Convert string to enum
+        document_metadata = cast(dict[str, Any], input_data.get("metadata", {}))
+        uploaded_by = (
+            UUID(str(input_data["uploaded_by"])) if input_data.get("uploaded_by") else None
+        )
+        source_category = str(input_data.get("source_category", "file"))
+        source_url = cast(str | None, input_data.get("source_url"))
+        file_size_bytes = cast(int | None, input_data.get("file_size_bytes"))
 
         # Initialize knowledge service
         knowledge_service = KnowledgeService(db)
@@ -113,28 +123,37 @@ async def process_document_ingestion(
         # Update job with total chunks
         # Query chunks directly as DB objects (not Pydantic models) so we can update them
         from app.db.models.knowledge import KnowledgeChunk
-        chunks = db.query(KnowledgeChunk).filter(
-            KnowledgeChunk.source_id == source.id,
-            KnowledgeChunk.is_active == True
-        ).order_by(KnowledgeChunk.chunk_index).all()
 
-        job.total_items = len(chunks)
+        chunks = (
+            db.query(KnowledgeChunk)
+            .filter(KnowledgeChunk.source_id == source.id, KnowledgeChunk.is_active.is_(True))
+            .order_by(KnowledgeChunk.chunk_index)
+            .all()
+        )
+
+        _set_attr(job, "total_items", len(chunks))
         db.commit()
 
         # Broadcast chunking complete
-        await broadcast_job_status(job_uuid, {
-            "job_id": job_id,
-            "status": "processing",
-            "total_items": len(chunks),
-            "processed_items": 0,
-            "progress_percent": 0,
-            "message": f"Document chunked into {len(chunks)} parts. Starting embedding generation...",
-        })
+        await broadcast_job_status(
+            job_uuid,
+            {
+                "job_id": job_id,
+                "status": "processing",
+                "total_items": len(chunks),
+                "processed_items": 0,
+                "progress_percent": 0,
+                "message": f"Document chunked into {len(chunks)} parts. Starting embedding generation...",
+            },
+        )
 
-        logger.info(f"Created {len(chunks)} chunks. Starting embedding generation with rate limiting...")
+        logger.info(
+            f"Created {len(chunks)} chunks. Starting embedding generation with rate limiting..."
+        )
 
         # Ensure Qdrant collection exists before processing
         from app.utils.qdrant_client import qdrant_manager
+
         if not qdrant_manager.ensure_collection():
             raise RuntimeError("Failed to ensure Qdrant collection exists")
 
@@ -166,7 +185,7 @@ async def process_document_ingestion(
                     )
 
                     # Update chunk with vector_id
-                    chunk.vector_id = vector_id
+                    _set_attr(chunk, "vector_id", vector_id)
                     successful_chunks.append(chunk.id)
 
                     logger.debug(f"✓ Embedded chunk {i+1}/{len(chunks)}")
@@ -175,67 +194,88 @@ async def process_document_ingestion(
                     logger.warning(f"✗ Failed to embed chunk {i+1}/{len(chunks)}")
 
                 # Update job progress
-                job.processed_items = i + 1
+                _set_attr(job, "processed_items", i + 1)
                 db.commit()
 
                 # Broadcast progress update (every chunk)
                 progress_percent = int((i + 1) / len(chunks) * 100)
-                await broadcast_job_status(job_uuid, {
-                    "job_id": job_id,
-                    "status": "processing",
-                    "processed_items": i + 1,
-                    "total_items": len(chunks),
-                    "progress_percent": progress_percent,
-                    "message": f"Processing chunk {i+1}/{len(chunks)}...",
-                })
+                await broadcast_job_status(
+                    job_uuid,
+                    {
+                        "job_id": job_id,
+                        "status": "processing",
+                        "processed_items": i + 1,
+                        "total_items": len(chunks),
+                        "progress_percent": progress_percent,
+                        "message": f"Processing chunk {i+1}/{len(chunks)}...",
+                    },
+                )
 
             except Exception as e:
                 failed_chunks.append(chunk.id)
                 logger.error(f"Error processing chunk {i+1}: {e}")
 
                 # Continue with next chunk (don't fail entire job)
-                job.processed_items = i + 1
-                job.failed_items = len(failed_chunks)
+                _set_attr(job, "processed_items", i + 1)
+                _set_attr(job, "failed_items", len(failed_chunks))
                 db.commit()
 
         # Step 3: Finalize source status
         # Re-query source as DB object (the 'source' variable is a Pydantic model)
         from app.db.models.knowledge import KnowledgeSource
+
         db_source = db.query(KnowledgeSource).filter(KnowledgeSource.id == source.id).first()
+        if not db_source:
+            raise RuntimeError(f"Source {source.id} not found for job {job_id}")
 
         if len(successful_chunks) > 0:
-            db_source.status = SourceStatus.ACTIVE
+            _set_attr(db_source, "status", SourceStatus.ACTIVE)
             # Recompute chunk_count from actual chunks to prevent drift
             knowledge_service.recompute_chunk_count(source.id)
-            job.status = JobStatus.COMPLETED
-            job.result_data = {
+            _set_attr(job, "status", JobStatus.COMPLETED)
+            _set_attr(
+                job,
+                "result_data",
+                {
                 "source_id": str(source.id),
                 "source_name": source.name,
                 "chunks_created": len(successful_chunks),
                 "chunks_failed": len(failed_chunks),
-            }
-            logger.success(f"✓ Job {job_id} completed: {len(successful_chunks)}/{len(chunks)} chunks processed")
+                },
+            )
+            logger.success(
+                f"✓ Job {job_id} completed: {len(successful_chunks)}/{len(chunks)} chunks processed"
+            )
         else:
-            db_source.status = SourceStatus.FAILED
-            job.status = JobStatus.FAILED
-            job.error_message = "All chunks failed to embed"
+            _set_attr(db_source, "status", SourceStatus.FAILED)
+            _set_attr(job, "status", JobStatus.FAILED)
+            _set_attr(job, "error_message", "All chunks failed to embed")
             logger.error(f"✗ Job {job_id} failed: No chunks successfully embedded")
 
-        job.completed_at = datetime.now(timezone.utc)
-        job.failed_items = len(failed_chunks)
+        _set_attr(job, "completed_at", datetime.now(UTC))
+        _set_attr(job, "failed_items", len(failed_chunks))
         db.commit()
 
         # Broadcast final status via WebSocket
-        await broadcast_job_status(job_uuid, {
-            "job_id": job_id,
-            "status": job.status.value,
-            "progress_percent": 100 if job.status == JobStatus.COMPLETED else job.progress_percent,
-            "processed_items": len(successful_chunks),
-            "total_items": len(chunks),
-            "result_data": job.result_data,
-            "error_message": job.error_message,
-            "message": "Processing complete!" if job.status == JobStatus.COMPLETED else "Processing failed",
-        })
+        await broadcast_job_status(
+            job_uuid,
+            {
+                "job_id": job_id,
+                "status": job.status.value,
+                "progress_percent": (
+                    100 if job.status == JobStatus.COMPLETED else job.progress_percent
+                ),
+                "processed_items": len(successful_chunks),
+                "total_items": len(chunks),
+                "result_data": job.result_data,
+                "error_message": job.error_message,
+                "message": (
+                    "Processing complete!"
+                    if job.status == JobStatus.COMPLETED
+                    else "Processing failed"
+                ),
+            },
+        )
 
         # Send email notification (if configured)
         await send_job_completion_email(job, db)
@@ -252,18 +292,21 @@ async def process_document_ingestion(
 
         # Mark job as failed
         if job:
-            job.status = JobStatus.FAILED
-            job.error_message = str(e)
-            job.completed_at = datetime.now(timezone.utc)
+            _set_attr(job, "status", JobStatus.FAILED)
+            _set_attr(job, "error_message", str(e))
+            _set_attr(job, "completed_at", datetime.now(UTC))
             db.commit()
 
             # Broadcast error via WebSocket
-            await broadcast_job_status(job_uuid, {
-                "job_id": job_id,
-                "status": "failed",
-                "error_message": str(e),
-                "message": "Job failed due to an error",
-            })
+            await broadcast_job_status(
+                job_uuid,
+                {
+                    "job_id": job_id,
+                    "status": "failed",
+                    "error_message": str(e),
+                    "message": "Job failed due to an error",
+                },
+            )
 
         return {"success": False, "error": str(e)}
 
@@ -299,14 +342,19 @@ async def send_job_completion_email(job: ProcessingJob, db: Session):
 
         # Get tenant name
         from app.db.models.tenant import Tenant
+
         tenant = db.query(Tenant).filter(Tenant.id == job.tenant_id).first()
         tenant_name = tenant.display_name if tenant else "Unknown"
 
         # Compose email
-        subject = "✓ Document Processing Complete" if job.status == JobStatus.COMPLETED else "✗ Document Processing Failed"
+        subject = (
+            "✓ Document Processing Complete"
+            if job.status == JobStatus.COMPLETED
+            else "✗ Document Processing Failed"
+        )
 
         if job.status == JobStatus.COMPLETED:
-            result = job.result_data or {}
+            result = cast(dict[str, Any], job.result_data or {})
             body = f"""
 Hello {user.full_name},
 
@@ -371,7 +419,9 @@ async def check_trial_expiration_3days(ctx: dict) -> dict:
         Result dict with count of emails sent
     """
     from datetime import timedelta
-    from sqlalchemy import select, and_
+
+    from sqlalchemy import and_, select
+
     from app.db.models.tenant import Tenant
     from app.services.email_notification_service import EmailNotificationService
 
@@ -382,7 +432,7 @@ async def check_trial_expiration_3days(ctx: dict) -> dict:
 
     try:
         # Find tenants with trials expiring in 3 days
-        target_date = datetime.now(timezone.utc) + timedelta(days=3)
+        target_date = datetime.now(UTC) + timedelta(days=3)
         date_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
         date_end = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
 
@@ -394,7 +444,7 @@ async def check_trial_expiration_3days(ctx: dict) -> dict:
             )
         )
 
-        result = await db.execute(query)
+        result = db.execute(query)
         expiring_tenants = result.scalars().all()
 
         logger.info(f"Found {len(expiring_tenants)} tenants with trials expiring in 3 days")
@@ -405,8 +455,7 @@ async def check_trial_expiration_3days(ctx: dict) -> dict:
         for tenant in expiring_tenants:
             try:
                 success = await email_service.send_trial_expiration_reminder(
-                    tenant_id=tenant.id,
-                    days_remaining=3
+                    tenant_id=tenant.id, days_remaining=3
                 )
                 if success:
                     emails_sent += 1
@@ -416,7 +465,9 @@ async def check_trial_expiration_3days(ctx: dict) -> dict:
             except Exception as e:
                 logger.error(f"Error sending reminder to tenant {tenant.name}: {e}")
 
-        logger.info(f"Trial expiration check complete. Sent {emails_sent}/{len(expiring_tenants)} emails")
+        logger.info(
+            f"Trial expiration check complete. Sent {emails_sent}/{len(expiring_tenants)} emails"
+        )
 
         return {
             "status": "success",
@@ -448,7 +499,9 @@ async def send_subscription_confirmations(ctx: dict) -> dict:
         Result dict with count of emails sent
     """
     from datetime import timedelta
-    from sqlalchemy import select, and_
+
+    from sqlalchemy import and_, select
+
     from app.db.models.payment import PaymentTransaction
     from app.services.email_notification_service import EmailNotificationService
 
@@ -459,7 +512,7 @@ async def send_subscription_confirmations(ctx: dict) -> dict:
 
     try:
         # Find successful payments in the last 10 minutes
-        cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=10)
+        cutoff_time = datetime.now(UTC) - timedelta(minutes=10)
 
         query = select(PaymentTransaction).where(
             and_(
@@ -479,8 +532,7 @@ async def send_subscription_confirmations(ctx: dict) -> dict:
         for payment in recent_payments:
             try:
                 success = await email_service.send_subscription_confirmation(
-                    tenant_id=payment.tenant_id,
-                    payment_id=payment.id
+                    tenant_id=payment.tenant_id, payment_id=payment.id
                 )
                 if success:
                     emails_sent += 1
@@ -488,7 +540,9 @@ async def send_subscription_confirmations(ctx: dict) -> dict:
             except Exception as e:
                 logger.error(f"Error sending confirmation for payment {payment.id}: {e}")
 
-        logger.info(f"Subscription confirmation job complete. Sent {emails_sent}/{len(recent_payments)} emails")
+        logger.info(
+            f"Subscription confirmation job complete. Sent {emails_sent}/{len(recent_payments)} emails"
+        )
 
         return {
             "status": "success",
@@ -520,7 +574,9 @@ async def send_payment_failure_emails(ctx: dict) -> dict:
         Result dict with count of emails sent
     """
     from datetime import timedelta
-    from sqlalchemy import select, and_
+
+    from sqlalchemy import and_, select
+
     from app.db.models.payment import PaymentTransaction
     from app.services.email_notification_service import EmailNotificationService
 
@@ -531,7 +587,7 @@ async def send_payment_failure_emails(ctx: dict) -> dict:
 
     try:
         # Find failed payments in the last 2 hours
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=2)
+        cutoff_time = datetime.now(UTC) - timedelta(hours=2)
 
         query = select(PaymentTransaction).where(
             and_(
@@ -540,7 +596,7 @@ async def send_payment_failure_emails(ctx: dict) -> dict:
             )
         )
 
-        result = await db.execute(query)
+        result = db.execute(query)
         failed_payments = result.scalars().all()
 
         logger.info(f"Found {len(failed_payments)} failed payments in last 2 hours")
@@ -554,7 +610,7 @@ async def send_payment_failure_emails(ctx: dict) -> dict:
                     tenant_id=payment.tenant_id,
                     payment_id=payment.id,
                     grace_days=7,
-                    failure_reason=None  # Could extract from payment metadata
+                    failure_reason=None,  # Could extract from payment metadata
                 )
                 if success:
                     emails_sent += 1
@@ -562,7 +618,9 @@ async def send_payment_failure_emails(ctx: dict) -> dict:
             except Exception as e:
                 logger.error(f"Error sending failure notification for payment {payment.id}: {e}")
 
-        logger.info(f"Payment failure job complete. Sent {emails_sent}/{len(failed_payments)} emails")
+        logger.info(
+            f"Payment failure job complete. Sent {emails_sent}/{len(failed_payments)} emails"
+        )
 
         return {
             "status": "success",
@@ -594,9 +652,11 @@ async def aggregate_daily_metrics(ctx: dict) -> dict:
         Result dict with aggregation status
     """
     from datetime import timedelta
-    from sqlalchemy import select, func
-    from app.db.models.tenant import Tenant
+
+    from sqlalchemy import func, select
+
     from app.db.models.audit import AnalyticsMetric
+    from app.db.models.tenant import Tenant
 
     logger.info("Running daily metrics aggregation")
 
@@ -605,20 +665,19 @@ async def aggregate_daily_metrics(ctx: dict) -> dict:
 
     try:
         # Calculate yesterday's date range
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
         yesterday = today - timedelta(days=1)
-        period_start = datetime.combine(yesterday, datetime.min.time()).replace(tzinfo=timezone.utc)
-        period_end = datetime.combine(yesterday, datetime.max.time()).replace(tzinfo=timezone.utc)
+        period_start = datetime.combine(yesterday, datetime.min.time()).replace(tzinfo=UTC)
+        period_end = datetime.combine(yesterday, datetime.max.time()).replace(tzinfo=UTC)
 
         # Aggregate tenant count by subscription tier
-        tier_query = select(
-            Tenant.subscription_tier,
-            func.count(Tenant.id).label("count")
-        ).where(
-            Tenant.subscription_status == "active"
-        ).group_by(Tenant.subscription_tier)
+        tier_query = (
+            select(Tenant.subscription_tier, func.count(Tenant.id).label("count"))
+            .where(Tenant.subscription_status == "active")
+            .group_by(Tenant.subscription_tier)
+        )
 
-        tier_result = await db.execute(tier_query)
+        tier_result = db.execute(tier_query)
         tier_counts = tier_result.all()
 
         # Store tier metrics
@@ -629,7 +688,7 @@ async def aggregate_daily_metrics(ctx: dict) -> dict:
                 metric_value=float(count),
                 period_start=period_start,
                 period_end=period_end,
-                meta={"tier": tier}
+                meta={"tier": tier},
             )
             db.add(metric)
             metrics_created += 1
@@ -638,7 +697,7 @@ async def aggregate_daily_metrics(ctx: dict) -> dict:
         total_active_query = select(func.count(Tenant.id)).where(
             Tenant.subscription_status == "active"
         )
-        total_active_result = await db.execute(total_active_query)
+        total_active_result = db.execute(total_active_query)
         total_active = total_active_result.scalar()
 
         metric = AnalyticsMetric(
@@ -647,7 +706,7 @@ async def aggregate_daily_metrics(ctx: dict) -> dict:
             metric_value=float(total_active or 0),
             period_start=period_start,
             period_end=period_end,
-            meta={}
+            meta={},
         )
         db.add(metric)
         metrics_created += 1
@@ -656,7 +715,7 @@ async def aggregate_daily_metrics(ctx: dict) -> dict:
         total_trial_query = select(func.count(Tenant.id)).where(
             Tenant.subscription_status == "trialing"
         )
-        total_trial_result = await db.execute(total_trial_query)
+        total_trial_result = db.execute(total_trial_query)
         total_trial = total_trial_result.scalar()
 
         metric = AnalyticsMetric(
@@ -665,14 +724,16 @@ async def aggregate_daily_metrics(ctx: dict) -> dict:
             metric_value=float(total_trial or 0),
             period_start=period_start,
             period_end=period_end,
-            meta={}
+            meta={},
         )
         db.add(metric)
         metrics_created += 1
 
-        await db.commit()
+        db.commit()
 
-        logger.info(f"Daily metrics aggregation complete. Created {metrics_created} metrics for {yesterday}")
+        logger.info(
+            f"Daily metrics aggregation complete. Created {metrics_created} metrics for {yesterday}"
+        )
 
         return {
             "status": "success",
@@ -683,7 +744,7 @@ async def aggregate_daily_metrics(ctx: dict) -> dict:
 
     except Exception as e:
         logger.error(f"Error in daily metrics aggregation: {e}")
-        await db.rollback()
+        db.rollback()
         return {
             "status": "error",
             "error": str(e),
@@ -697,8 +758,9 @@ async def aggregate_daily_metrics(ctx: dict) -> dict:
 def get_redis_settings():
     """Get Redis settings from environment at runtime."""
     from arq.connections import RedisSettings as ARQRedisSettings
+
     # Get from environment (respects Docker overrides)
-    redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     logger.info(f"Worker connecting to Redis: {redis_url}")
     return ARQRedisSettings.from_dsn(redis_url)
 
@@ -707,7 +769,7 @@ class WorkerSettings:
     """ARQ worker configuration."""
 
     # Import scheduled tasks
-    from app.workers.conversation_auto_resolver import (
+    from app.workers.conversation_auto_resolver import (  # type: ignore[misc]
         auto_abandon_inactive_conversations,
         auto_resolve_stale_tickets,
     )
@@ -733,7 +795,7 @@ class WorkerSettings:
     retry_jobs = True
 
     # Scheduled tasks (cron jobs)
-    from arq.cron import cron
+    from arq.cron import cron  # type: ignore[misc]
 
     cron_jobs = [
         # Auto-abandon inactive conversations - every 5 minutes

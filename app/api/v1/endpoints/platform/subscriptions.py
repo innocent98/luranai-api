@@ -1,22 +1,21 @@
 """Platform admin subscription management endpoints."""
 
-from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_super_admin, get_db
-from app.services.platform_subscription_service import PlatformSubscriptionService
+from app.schemas.platform_admin import PlatformAdminResponse
 from app.schemas.platform_subscription import (
-    TenantSubscriptionOverrideRequest,
-    TrialExtensionRequest,
-    TenantSubscriptionDetailResponse,
     PaymentTransactionResponse,
     SubscriptionOverrideResponse,
+    TenantSubscriptionDetailResponse,
+    TenantSubscriptionOverrideRequest,
+    TrialExtensionRequest,
     TrialExtensionResponse,
 )
-from app.schemas.platform_admin import PlatformAdminResponse
+from app.services.platform_subscription_service import PlatformSubscriptionService
 from app.utils.http_rate_limiter import platform_admin_rate_limit
 
 router = APIRouter()
@@ -71,12 +70,12 @@ def override_tenant_subscription(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to override subscription: {str(e)}",
-        )
+        ) from e
 
 
 @router.post(
@@ -127,12 +126,12 @@ def extend_trial_period(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to extend trial: {str(e)}",
-        )
+        ) from e
 
 
 @router.get(
@@ -173,12 +172,12 @@ def get_tenant_subscription_details(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get subscription details: {str(e)}",
-        )
+        ) from e
 
 
 @router.get(
@@ -188,8 +187,8 @@ def get_tenant_subscription_details(
     dependencies=[Depends(platform_admin_rate_limit)],
 )
 def list_payment_transactions(
-    tenant_id: Optional[UUID] = Query(None, description="Filter by tenant"),
-    status_filter: Optional[str] = Query(None, description="Filter by payment status"),
+    tenant_id: UUID | None = Query(None, description="Filter by tenant"),
+    status_filter: str | None = Query(None, description="Filter by payment status"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum results"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
     db: Session = Depends(get_db),
@@ -231,4 +230,4 @@ def list_payment_transactions(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list transactions: {str(e)}",
-        )
+        ) from e

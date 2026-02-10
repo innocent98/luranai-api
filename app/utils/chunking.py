@@ -1,7 +1,7 @@
 """Text chunking utilities for document processing."""
 
-from typing import List, Dict, Any
 import re
+from typing import Any
 
 
 class TextChunker:
@@ -40,9 +40,10 @@ class TextChunker:
             Accurate token count
         """
         from app.utils.token_counter import count_tokens
+
         return count_tokens(text, model="gpt-4o-mini")
 
-    def _split_by_sentences(self, text: str) -> List[str]:
+    def _split_by_sentences(self, text: str) -> list[str]:
         """
         Split text into sentences.
 
@@ -53,7 +54,7 @@ class TextChunker:
             List of sentences
         """
         # Split by common sentence endings, but preserve them
-        sentence_pattern = r'(?<=[.!?])\s+(?=[A-Z])'
+        sentence_pattern = r"(?<=[.!?])\s+(?=[A-Z])"
         sentences = re.split(sentence_pattern, text)
 
         # Filter out empty strings
@@ -62,8 +63,8 @@ class TextChunker:
     def chunk_text(
         self,
         text: str,
-        metadata: Dict[str, Any] = None,
-    ) -> List[Dict[str, Any]]:
+        metadata: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Split text into overlapping chunks with metadata.
 
@@ -83,8 +84,8 @@ class TextChunker:
         if not sentences:
             return []
 
-        chunks = []
-        current_chunk = []
+        chunks: list[dict[str, Any]] = []
+        current_chunk: list[str] = []
         current_token_count = 0
         chunk_index = 0
 
@@ -95,20 +96,22 @@ class TextChunker:
             if sentence_tokens > self.chunk_size:
                 # Flush current chunk if it has content
                 if current_chunk:
-                    chunk_content = ' '.join(current_chunk)
-                    chunks.append({
-                        'content': chunk_content,
-                        'chunk_index': chunk_index,
-                        'token_count': current_token_count,
-                        'metadata': metadata or {},
-                    })
+                    chunk_content = " ".join(current_chunk)
+                    chunks.append(
+                        {
+                            "content": chunk_content,
+                            "chunk_index": chunk_index,
+                            "token_count": current_token_count,
+                            "metadata": metadata or {},
+                        }
+                    )
                     chunk_index += 1
                     current_chunk = []
                     current_token_count = 0
 
                 # Split long sentence by words
                 words = sentence.split()
-                word_chunk = []
+                word_chunk: list[str] = []
                 word_token_count = 0
 
                 for word in words:
@@ -116,19 +119,21 @@ class TextChunker:
 
                     if word_token_count + word_tokens > self.chunk_size:
                         if word_chunk:
-                            chunk_content = ' '.join(word_chunk)
-                            chunks.append({
-                                'content': chunk_content,
-                                'chunk_index': chunk_index,
-                                'token_count': word_token_count,
-                                'metadata': {**(metadata or {}), 'split_type': 'long_sentence'},
-                            })
+                            chunk_content = " ".join(word_chunk)
+                            chunks.append(
+                                {
+                                    "content": chunk_content,
+                                    "chunk_index": chunk_index,
+                                    "token_count": word_token_count,
+                                    "metadata": {**(metadata or {}), "split_type": "long_sentence"},
+                                }
+                            )
                             chunk_index += 1
 
                             # Keep overlap
-                            overlap_words = word_chunk[-self.chunk_overlap:]
+                            overlap_words = word_chunk[-self.chunk_overlap :]
                             word_chunk = overlap_words + [word]
-                            word_token_count = self._estimate_token_count(' '.join(word_chunk))
+                            word_token_count = self._estimate_token_count(" ".join(word_chunk))
                         else:
                             word_chunk = [word]
                             word_token_count = word_tokens
@@ -138,13 +143,15 @@ class TextChunker:
 
                 # Add remaining words as chunk
                 if word_chunk:
-                    chunk_content = ' '.join(word_chunk)
-                    chunks.append({
-                        'content': chunk_content,
-                        'chunk_index': chunk_index,
-                        'token_count': word_token_count,
-                        'metadata': {**(metadata or {}), 'split_type': 'long_sentence'},
-                    })
+                    chunk_content = " ".join(word_chunk)
+                    chunks.append(
+                        {
+                            "content": chunk_content,
+                            "chunk_index": chunk_index,
+                            "token_count": word_token_count,
+                            "metadata": {**(metadata or {}), "split_type": "long_sentence"},
+                        }
+                    )
                     chunk_index += 1
 
                 continue
@@ -153,17 +160,19 @@ class TextChunker:
             if current_token_count + sentence_tokens > self.chunk_size:
                 # Save current chunk
                 if current_chunk:
-                    chunk_content = ' '.join(current_chunk)
-                    chunks.append({
-                        'content': chunk_content,
-                        'chunk_index': chunk_index,
-                        'token_count': current_token_count,
-                        'metadata': metadata or {},
-                    })
+                    chunk_content = " ".join(current_chunk)
+                    chunks.append(
+                        {
+                            "content": chunk_content,
+                            "chunk_index": chunk_index,
+                            "token_count": current_token_count,
+                            "metadata": metadata or {},
+                        }
+                    )
                     chunk_index += 1
 
                     # Create overlap by keeping last few sentences
-                    overlap_sentences = []
+                    overlap_sentences: list[str] = []
                     overlap_tokens = 0
 
                     for prev_sentence in reversed(current_chunk):
@@ -185,13 +194,15 @@ class TextChunker:
 
         # Add final chunk if it meets minimum size
         if current_chunk and current_token_count >= self.min_chunk_size:
-            chunk_content = ' '.join(current_chunk)
-            chunks.append({
-                'content': chunk_content,
-                'chunk_index': chunk_index,
-                'token_count': current_token_count,
-                'metadata': metadata or {},
-            })
+            chunk_content = " ".join(current_chunk)
+            chunks.append(
+                {
+                    "content": chunk_content,
+                    "chunk_index": chunk_index,
+                    "token_count": current_token_count,
+                    "metadata": metadata or {},
+                }
+            )
 
         return chunks
 
@@ -199,8 +210,8 @@ class TextChunker:
         self,
         text: str,
         section_separator: str = "\n\n",
-        metadata: Dict[str, Any] = None,
-    ) -> List[Dict[str, Any]]:
+        metadata: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Chunk text by sections (paragraphs) with overlap.
 
@@ -213,7 +224,7 @@ class TextChunker:
             List of chunk dictionaries
         """
         sections = text.split(section_separator)
-        all_chunks = []
+        all_chunks: list[dict[str, Any]] = []
 
         for section_idx, section in enumerate(sections):
             if not section.strip():
@@ -221,7 +232,7 @@ class TextChunker:
 
             section_meta = {
                 **(metadata or {}),
-                'section_index': section_idx,
+                "section_index": section_idx,
             }
 
             section_chunks = self.chunk_text(section, metadata=section_meta)
@@ -229,7 +240,7 @@ class TextChunker:
 
         # Re-index chunks
         for idx, chunk in enumerate(all_chunks):
-            chunk['chunk_index'] = idx
+            chunk["chunk_index"] = idx
 
         return all_chunks
 

@@ -1,9 +1,10 @@
 """Schemas for platform admin subscription management."""
 
-from pydantic import BaseModel, Field
-from typing import Optional, Literal
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
+
+from pydantic import BaseModel, Field
 
 
 # Request Schemas
@@ -11,39 +12,32 @@ class TenantSubscriptionOverrideRequest(BaseModel):
     """Request to manually override a tenant's subscription by platform admin."""
 
     tier: Literal["trial", "lite", "professional", "enterprise"] = Field(
-        ...,
-        description="New subscription tier to assign"
+        ..., description="New subscription tier to assign"
     )
-    billing_cycle: Optional[Literal["monthly", "annual"]] = Field(
-        None,
-        description="Billing cycle (null for trial tier)"
+    billing_cycle: Literal["monthly", "annual"] | None = Field(
+        None, description="Billing cycle (null for trial tier)"
     )
     reason: str = Field(
         ...,
         min_length=10,
         max_length=500,
-        description="Reason for manual override (required for audit trail)"
+        description="Reason for manual override (required for audit trail)",
     )
     apply_tier_capabilities: bool = Field(
         default=True,
-        description="Reset capabilities to tier defaults (false preserves manual overrides)"
+        description="Reset capabilities to tier defaults (false preserves manual overrides)",
     )
 
 
 class TrialExtensionRequest(BaseModel):
     """Request to extend a trial period."""
 
-    days: int = Field(
-        ...,
-        ge=1,
-        le=90,
-        description="Number of days to extend trial period (1-90)"
-    )
+    days: int = Field(..., ge=1, le=90, description="Number of days to extend trial period (1-90)")
     reason: str = Field(
         ...,
         min_length=10,
         max_length=500,
-        description="Reason for trial extension (required for audit trail)"
+        description="Reason for trial extension (required for audit trail)",
     )
 
 
@@ -54,13 +48,13 @@ class SubscriptionHistoryResponse(BaseModel):
     id: UUID
     tenant_id: UUID
     action: str
-    previous_tier: Optional[str] = None
-    new_tier: Optional[str] = None
-    previous_status: Optional[str] = None
-    new_status: Optional[str] = None
+    previous_tier: str | None = None
+    new_tier: str | None = None
+    previous_status: str | None = None
+    new_status: str | None = None
     changed_by_type: str
-    changed_by_name: Optional[str] = None
-    reason: Optional[str] = None
+    changed_by_name: str | None = None
+    reason: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -76,9 +70,9 @@ class TenantSubscriptionDetailResponse(BaseModel):
     # Current subscription
     subscription_tier: str
     subscription_status: str
-    billing_cycle: Optional[str] = None
-    trial_ends_at: Optional[datetime] = None
-    subscription_starts_at: Optional[datetime] = None
+    billing_cycle: str | None = None
+    trial_ends_at: datetime | None = None
+    subscription_starts_at: datetime | None = None
 
     # Override tracking
     has_overrides: bool
@@ -119,8 +113,8 @@ class PaymentTransactionResponse(BaseModel):
     status: str
     tier: str
     billing_cycle: str
-    customer_email: Optional[str] = None
-    paid_at: Optional[datetime] = None
+    customer_email: str | None = None
+    paid_at: datetime | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}

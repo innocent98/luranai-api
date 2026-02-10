@@ -1,23 +1,26 @@
 """Platform financial reporting API endpoints."""
 
 from datetime import datetime
-from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_platform_admin, get_db
-from app.utils.http_rate_limiter import platform_analytics_rate_limit
-from app.services.financial_reporting_service import FinancialReportingService
 from app.schemas.platform_admin import PlatformAdminResponse
+from app.services.financial_reporting_service import FinancialReportingService
+from app.utils.http_rate_limiter import platform_analytics_rate_limit
 
 router = APIRouter()
 
 
-@router.get("/revenue-breakdown", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
+@router.get(
+    "/revenue-breakdown",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_analytics_rate_limit)],
+)
 def get_revenue_breakdown(
-    start_date: Optional[str] = Query(None, description="Start date (ISO format)"),
-    end_date: Optional[str] = Query(None, description="End date (ISO format)"),
+    start_date: str | None = Query(None, description="Start date (ISO format)"),
+    end_date: str | None = Query(None, description="End date (ISO format)"),
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
 ):
@@ -45,15 +48,19 @@ def get_revenue_breakdown(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid date format: {str(e)}",
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch revenue breakdown: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/payment-analytics", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
+@router.get(
+    "/payment-analytics",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_analytics_rate_limit)],
+)
 def get_payment_analytics(
     days: int = Query(30, ge=1, le=365, description="Days to analyze"),
     db: Session = Depends(get_db),
@@ -75,10 +82,14 @@ def get_payment_analytics(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch payment analytics: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/forecast", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
+@router.get(
+    "/forecast",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_analytics_rate_limit)],
+)
 def get_subscription_forecast(
     months: int = Query(6, ge=1, le=24, description="Months to forecast"),
     db: Session = Depends(get_db),
@@ -100,13 +111,17 @@ def get_subscription_forecast(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate forecast: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/refunds", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
+@router.get(
+    "/refunds",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_analytics_rate_limit)],
+)
 def get_refund_report(
-    start_date: Optional[str] = Query(None, description="Start date (ISO format)"),
-    end_date: Optional[str] = Query(None, description="End date (ISO format)"),
+    start_date: str | None = Query(None, description="Start date (ISO format)"),
+    end_date: str | None = Query(None, description="End date (ISO format)"),
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
 ):
@@ -134,15 +149,19 @@ def get_refund_report(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid date format: {str(e)}",
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch refund report: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/summary", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_analytics_rate_limit)])
+@router.get(
+    "/summary",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_analytics_rate_limit)],
+)
 def get_financial_summary(
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
@@ -163,4 +182,4 @@ def get_financial_summary(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch financial summary: {str(e)}",
-        )
+        ) from e

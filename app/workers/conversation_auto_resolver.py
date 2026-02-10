@@ -1,22 +1,17 @@
 """Background worker for auto-resolving and abandoning conversations."""
 
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Any
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from app.db.session import SessionLocal
-from app.db.models.conversation import (
-    ConversationSession,
-    SessionStatus,
-    Ticket,
-    TicketStatus,
-)
+from app.db.models.conversation import ConversationSession, SessionStatus, Ticket, TicketStatus
 from app.db.models.user import User, UserRole
+from app.db.session import SessionLocal
 
 
-async def auto_abandon_inactive_conversations(ctx: dict) -> Dict[str, Any]:
+async def auto_abandon_inactive_conversations(ctx: dict) -> dict[str, Any]:
     """
     Mark inactive ACTIVE conversations as ABANDONED.
 
@@ -36,7 +31,7 @@ async def auto_abandon_inactive_conversations(ctx: dict) -> Dict[str, Any]:
 
     try:
         # Calculate cutoff time (30 minutes ago)
-        cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=30)
+        cutoff_time = datetime.now(UTC) - timedelta(minutes=30)
 
         # Find stale active conversations
         stale_conversations = (
@@ -79,7 +74,7 @@ async def auto_abandon_inactive_conversations(ctx: dict) -> Dict[str, Any]:
         db.close()
 
 
-async def auto_resolve_stale_tickets(ctx: dict) -> Dict[str, Any]:
+async def auto_resolve_stale_tickets(ctx: dict) -> dict[str, Any]:
     """
     Auto-resolve tickets with no activity for 7+ days.
 
@@ -99,7 +94,7 @@ async def auto_resolve_stale_tickets(ctx: dict) -> Dict[str, Any]:
 
     try:
         # Calculate cutoff (7 days ago)
-        cutoff_time = datetime.now(timezone.utc) - timedelta(days=7)
+        cutoff_time = datetime.now(UTC) - timedelta(days=7)
 
         # Find stale tickets
         stale_tickets = (
@@ -119,7 +114,7 @@ async def auto_resolve_stale_tickets(ctx: dict) -> Dict[str, Any]:
                 "Auto-resolved due to inactivity (7+ days with no updates). "
                 "This ticket was automatically closed by the system."
             )
-            ticket.resolved_at = datetime.now(timezone.utc)
+            ticket.resolved_at = datetime.now(UTC)
 
             # Resolve conversation session
             if ticket.session_id:
@@ -142,16 +137,12 @@ async def auto_resolve_stale_tickets(ctx: dict) -> Dict[str, Any]:
             try:
                 await send_auto_resolve_notification(ticket, db)
             except Exception as e:
-                logger.error(
-                    f"Failed to send notification for ticket {ticket.ticket_number}: {e}"
-                )
+                logger.error(f"Failed to send notification for ticket {ticket.ticket_number}: {e}")
                 # Continue with other tickets even if notification fails
 
         db.commit()
 
-        logger.success(
-            f"Auto-resolve task completed: {resolved_count} tickets auto-resolved"
-        )
+        logger.success(f"Auto-resolve task completed: {resolved_count} tickets auto-resolved")
 
         return {
             "success": True,
@@ -191,22 +182,18 @@ async def send_auto_resolve_notification(ticket: Ticket, db: Session) -> None:
             .filter(
                 User.tenant_id == ticket.tenant_id,
                 User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]),
-                User.is_active == True,
+                User.is_active.is_(True),
             )
             .all()
         )
 
         if not admins:
-            logger.warning(
-                f"No admins found for tenant {ticket.tenant_id}, skipping notification"
-            )
+            logger.warning(f"No admins found for tenant {ticket.tenant_id}, skipping notification")
             return
 
         # Get tenant info
         tenant_service = TenantService(db)
-        tenant = tenant_service.get_tenant_by_id(
-            ticket.tenant_id, include_relations=False
-        )
+        tenant = tenant_service.get_tenant_by_id(ticket.tenant_id, include_relations=False)
         tenant_name = tenant.display_name if tenant else "Unknown"
 
         # Send email to each admin
@@ -229,7 +216,7 @@ A ticket has been automatically resolved due to inactivity.
 • Priority: {ticket.priority.value.upper()}
 • Created: {ticket.created_at.strftime('%Y-%m-%d %H:%M UTC')}
 • Last Updated: {ticket.updated_at.strftime('%Y-%m-%d %H:%M UTC')}
-• Auto-Resolved: {ticket.resolved_at.strftime('%Y-%m-%d %H:%M UTC')}
+• Auto-Resolved: {ticket.resolved_at.strftime('%Y-%m-%d %H:%M UTC') if ticket.resolved_at else 'N/A'}
 
 📝 Reason:
 This ticket was automatically resolved because there has been no activity

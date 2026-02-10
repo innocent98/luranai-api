@@ -1,22 +1,17 @@
 """WebSocket endpoints for real-time chat."""
 
-import json
-from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query, HTTPException, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from jose import JWTError, jwt
 from loguru import logger
-from jose import jwt, JWTError
 
-from app.core.websocket import connection_manager
 from app.core.config import settings
-from app.db.session import SessionLocal
-from app.services.conversation_service import ConversationService
-from app.services.auth_service import AuthService
+from app.core.websocket import connection_manager
 from app.db.models.conversation import MessageRole
 from app.db.models.user import UserRole
-
+from app.db.session import SessionLocal
+from app.services.conversation_service import ConversationService
 
 router = APIRouter()
 
@@ -101,7 +96,7 @@ async def customer_websocket(
                         "content": content,
                         "user_identifier": user_identifier,
                         "timestamp": message_timestamp,
-                    }
+                    },
                 )
 
                 logger.info(f"Customer message in session {session_id}: {content[:50]}")
@@ -158,6 +153,7 @@ async def agent_websocket(
         db = SessionLocal()
         try:
             from app.db.models.user import User
+
             agent = db.query(User).filter(User.id == agent_id).first()
 
             if not agent or not agent.is_active:
@@ -225,12 +221,13 @@ async def agent_websocket(
                     conversation_service = ConversationService(db)
                     message = conversation_service.add_message(
                         session_id=session_id,
-                        role=MessageRole.HUMAN_AGENT,
+                        # DB enum currently stores this role as lower-case literal.
+                        role=MessageRole.HUMAN_AGENT.value,  # type: ignore[arg-type]
                         content=content,
                         meta={
                             "agent_id": str(agent_id),
                             "agent_name": agent_full_name,
-                        }
+                        },
                     )
                     db.commit()  # Ensure message is committed
 
@@ -249,7 +246,7 @@ async def agent_websocket(
                         "content": content,
                         "agent_name": agent_full_name,
                         "timestamp": message_timestamp,
-                    }
+                    },
                 )
 
                 # Notify other agents watching this session
@@ -288,7 +285,7 @@ async def agent_websocket(
                 "type": "agent_left",
                 "agent_name": agent_full_name,
                 "timestamp": None,
-            }
+            },
         )
 
     except Exception as e:

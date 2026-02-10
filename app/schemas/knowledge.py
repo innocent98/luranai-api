@@ -1,12 +1,11 @@
 """Knowledge management Pydantic schemas."""
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.models.knowledge import SourceType, SourceStatus, ChunkVisibility
+from app.db.models.knowledge import ChunkVisibility, SourceStatus, SourceType
 
 
 # Base schemas
@@ -15,7 +14,7 @@ class KnowledgeSourceBase(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=500, description="Source name or filename")
     source_type: SourceType = Field(..., description="Type of knowledge source")
-    meta: Optional[dict] = Field(None, description="Additional metadata")
+    meta: dict | None = Field(None, description="Additional metadata")
 
 
 class KnowledgeChunkBase(BaseModel):
@@ -34,12 +33,12 @@ class KnowledgeSourceCreate(KnowledgeSourceBase):
     """Schema for creating a knowledge source."""
 
     tenant_id: UUID = Field(..., description="Tenant that owns this source")
-    file_url: Optional[str] = Field(None, max_length=1000, description="Storage location URL")
+    file_url: str | None = Field(None, max_length=1000, description="Storage location URL")
     content_hash: str = Field(..., min_length=32, max_length=64, description="Content hash")
-    uploaded_by: Optional[UUID] = Field(None, description="User who uploaded this source")
+    uploaded_by: UUID | None = Field(None, description="User who uploaded this source")
     source_category: str = Field(default="file", description="Source category: file, url")
-    source_url: Optional[str] = Field(None, max_length=2048, description="Original URL")
-    file_size_bytes: Optional[int] = Field(None, ge=0, description="File size in bytes")
+    source_url: str | None = Field(None, max_length=2048, description="Original URL")
+    file_size_bytes: int | None = Field(None, ge=0, description="File size in bytes")
 
 
 class DocumentUploadRequest(BaseModel):
@@ -49,7 +48,7 @@ class DocumentUploadRequest(BaseModel):
     document_name: str = Field(..., min_length=1, max_length=500, description="Document filename")
     document_text: str = Field(..., min_length=10, description="Full document text content")
     source_type: SourceType = Field(default=SourceType.HELP_DOC, description="Type of document")
-    metadata: Optional[dict] = Field(None, description="Additional document metadata")
+    metadata: dict | None = Field(None, description="Additional document metadata")
 
 
 class KnowledgeChunkCreate(KnowledgeChunkBase):
@@ -58,7 +57,9 @@ class KnowledgeChunkCreate(KnowledgeChunkBase):
     tenant_id: UUID
     source_id: UUID
     chunk_index: int = Field(..., ge=0, description="Position in original document")
-    vector_id: Optional[str] = Field(None, min_length=1, max_length=100, description="Qdrant vector ID (set after embedding)")
+    vector_id: str | None = Field(
+        None, min_length=1, max_length=100, description="Qdrant vector ID (set after embedding)"
+    )
     version: int = Field(default=1, ge=1, description="Version number")
 
 
@@ -68,7 +69,7 @@ class KnowledgeUploadRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=500)
     source_type: SourceType
     content: str = Field(..., min_length=1, description="Document content to be chunked")
-    meta: Optional[dict] = Field(None, description="Additional metadata")
+    meta: dict | None = Field(None, description="Additional metadata")
 
 
 # Update schemas
@@ -77,9 +78,9 @@ class KnowledgeSourceUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: Optional[str] = Field(None, min_length=1, max_length=500)
-    status: Optional[SourceStatus] = None
-    meta: Optional[dict] = None
+    name: str | None = Field(None, min_length=1, max_length=500)
+    status: SourceStatus | None = None
+    meta: dict | None = None
 
 
 # Response schemas
@@ -92,7 +93,7 @@ class KnowledgeChunkResponse(KnowledgeChunkBase):
     tenant_id: UUID
     source_id: UUID
     chunk_index: int
-    vector_id: Optional[str]  # Can be None before embedding generation
+    vector_id: str | None  # Can be None before embedding generation
     version: int
     is_active: bool
     created_at: datetime
@@ -106,15 +107,15 @@ class KnowledgeSourceResponse(KnowledgeSourceBase):
 
     id: UUID
     tenant_id: UUID
-    file_url: Optional[str]
+    file_url: str | None
     content_hash: str
     version: int
     status: SourceStatus
     chunk_count: int
-    uploaded_by: Optional[UUID]
+    uploaded_by: UUID | None
     source_category: str
-    source_url: Optional[str]
-    file_size_bytes: Optional[int]
+    source_url: str | None
+    file_size_bytes: int | None
     created_at: datetime
     updated_at: datetime
 

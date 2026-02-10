@@ -7,18 +7,18 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.core.security import create_access_token, get_password_hash
 from app.db.models.conversation import (
     ConversationSession,
     Message,
-    Ticket,
-    SessionStatus,
-    TicketStatus,
-    TicketPriority,
     MessageRole,
+    SessionStatus,
+    Ticket,
+    TicketPriority,
+    TicketStatus,
 )
-from app.db.models.tenant import Tenant, TenantCapabilities, TenantAIConfig
+from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities
 from app.db.models.user import User, UserRole
-from app.core.security import get_password_hash, create_access_token
 
 
 @pytest.fixture
@@ -130,7 +130,7 @@ def admin_auth_headers(db: Session, test_admin_user: User):
             "email": test_admin_user.email,
             "role": test_admin_user.role.value,
             "tenant_id": str(test_admin_user.tenant_id),
-        }
+        },
     )
     return {"Authorization": f"Bearer {token}"}
 
@@ -144,7 +144,7 @@ def agent_auth_headers(db: Session, test_agent_user: User):
             "email": test_agent_user.email,
             "role": test_agent_user.role.value,
             "tenant_id": str(test_agent_user.tenant_id),
-        }
+        },
     )
     return {"Authorization": f"Bearer {token}"}
 
@@ -266,7 +266,7 @@ class TestAnalyticsEndpoints:
                 "email": user.email,
                 "role": user.role.value,
                 "tenant_id": str(user.tenant_id),
-            }
+            },
         )
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -326,7 +326,11 @@ class TestAnalyticsEndpoints:
         assert response.status_code == 200
 
     def test_get_all_agents_performance_admin_only(
-        self, client: TestClient, admin_auth_headers: dict, agent_auth_headers: dict, sample_analytics_data
+        self,
+        client: TestClient,
+        admin_auth_headers: dict,
+        agent_auth_headers: dict,
+        sample_analytics_data,
     ):
         """Test that only admins can access all agents performance."""
         # Admin should succeed
@@ -354,7 +358,11 @@ class TestAnalyticsEndpoints:
             assert "current_assigned_tickets" in data[0]
 
     def test_get_agent_performance_own_metrics(
-        self, client: TestClient, agent_auth_headers: dict, test_agent_user: User, sample_analytics_data
+        self,
+        client: TestClient,
+        agent_auth_headers: dict,
+        test_agent_user: User,
+        sample_analytics_data,
     ):
         """Test that agents can view their own performance metrics."""
         response = client.get(
@@ -381,7 +389,11 @@ class TestAnalyticsEndpoints:
         assert response.status_code == 403
 
     def test_get_agent_performance_admin_can_view_any(
-        self, client: TestClient, admin_auth_headers: dict, test_agent_user: User, sample_analytics_data
+        self,
+        client: TestClient,
+        admin_auth_headers: dict,
+        test_agent_user: User,
+        sample_analytics_data,
     ):
         """Test that admins can view any agent's metrics."""
         response = client.get(
@@ -543,7 +555,7 @@ class TestAnalyticsEndpoints:
                 "email": empty_user.email,
                 "role": empty_user.role.value,
                 "tenant_id": str(empty_user.tenant_id),
-            }
+            },
         )
         headers = {"Authorization": f"Bearer {token}"}
 

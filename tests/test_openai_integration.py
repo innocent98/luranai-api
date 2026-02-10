@@ -5,13 +5,14 @@ Tests embedding generation, LLM response generation, rate limiting,
 and overall system integration with OpenAI APIs.
 """
 
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import AsyncMock, Mock, patch
 
-from app.utils.embedding import embedding_service
-from app.services.rag_service import RAGService
-from app.utils.rate_limiter import openai_embedding_rate_limiter, openai_llm_rate_limiter
+import pytest
+
 from app.core.config import settings
+from app.services.rag_service import RAGService
+from app.utils.embedding import embedding_service
+from app.utils.rate_limiter import openai_embedding_rate_limiter, openai_llm_rate_limiter
 
 
 class TestOpenAIEmbeddings:
@@ -24,12 +25,19 @@ class TestOpenAIEmbeddings:
         mock_response = Mock()
         mock_response.data = [Mock(embedding=[0.1] * 1536)]
 
-        with patch.object(embedding_service.client.embeddings, "create", return_value=mock_response):
-            embedding = await embedding_service.generate_embedding("test query", use_rate_limit=False)
+        with (
+            patch.object(embedding_service.client.embeddings, "create", return_value=mock_response),
+            patch("app.utils.embedding.count_tokens", return_value=3),
+        ):
+            embedding = await embedding_service.generate_embedding(
+                "test query", use_rate_limit=False
+            )
 
             assert embedding is not None, "Embedding should not be None"
             assert len(embedding) == 1536, f"Expected 1536 dimensions, got {len(embedding)}"
-            assert all(isinstance(x, (int, float)) for x in embedding), "All values should be numeric"
+            assert all(
+                isinstance(x, int | float) for x in embedding
+            ), "All values should be numeric"
 
     @pytest.mark.asyncio
     async def test_embedding_generation(self):
@@ -37,10 +45,12 @@ class TestOpenAIEmbeddings:
         mock_response = Mock()
         mock_response.data = [Mock(embedding=[0.1] * 1536)]
 
-        with patch.object(embedding_service.client.embeddings, "create", return_value=mock_response):
+        with (
+            patch.object(embedding_service.client.embeddings, "create", return_value=mock_response),
+            patch("app.utils.embedding.count_tokens", return_value=3),
+        ):
             embedding = await embedding_service.generate_embedding(
-                "What are your pricing tiers?",
-                use_rate_limit=False
+                "What are your pricing tiers?", use_rate_limit=False
             )
 
             assert embedding is not None
@@ -52,10 +62,12 @@ class TestOpenAIEmbeddings:
         mock_response = Mock()
         mock_response.data = [Mock(embedding=[0.2] * 1536)]
 
-        with patch.object(embedding_service.client.embeddings, "create", return_value=mock_response):
+        with (
+            patch.object(embedding_service.client.embeddings, "create", return_value=mock_response),
+            patch("app.utils.embedding.count_tokens", return_value=3),
+        ):
             embedding = await embedding_service.generate_query_embedding(
-                "How do I reset my password?",
-                use_rate_limit=False
+                "How do I reset my password?", use_rate_limit=False
             )
 
             assert embedding is not None
@@ -64,19 +76,17 @@ class TestOpenAIEmbeddings:
     @pytest.mark.asyncio
     async def test_batch_embeddings(self):
         """Test batch embedding generation."""
-        texts = [
-            "What are your features?",
-            "How much does it cost?",
-            "How do I sign up?"
-        ]
+        texts = ["What are your features?", "How much does it cost?", "How do I sign up?"]
 
         mock_response = Mock()
         mock_response.data = [Mock(embedding=[0.1] * 1536)]
 
-        with patch.object(embedding_service.client.embeddings, "create", return_value=mock_response):
+        with (
+            patch.object(embedding_service.client.embeddings, "create", return_value=mock_response),
+            patch("app.utils.embedding.count_tokens", return_value=3),
+        ):
             embeddings = await embedding_service.generate_batch_embeddings(
-                texts,
-                use_rate_limit=False
+                texts, use_rate_limit=False
             )
 
             assert len(embeddings) == 3
@@ -86,15 +96,13 @@ class TestOpenAIEmbeddings:
     @pytest.mark.asyncio
     async def test_embedding_error_handling(self):
         """Test embedding generation error handling."""
-        with patch.object(
-            embedding_service.client.embeddings,
-            "create",
-            side_effect=Exception("API Error")
+        with (
+            patch.object(
+                embedding_service.client.embeddings, "create", side_effect=Exception("API Error")
+            ),
+            patch("app.utils.embedding.count_tokens", return_value=3),
         ):
-            embedding = await embedding_service.generate_embedding(
-                "test",
-                use_rate_limit=False
-            )
+            embedding = await embedding_service.generate_embedding("test", use_rate_limit=False)
 
             assert embedding is None, "Should return None on error"
 
@@ -113,7 +121,9 @@ class TestOpenAILLM:
 
         # Mock OpenAI response
         mock_response = Mock()
-        mock_response.choices = [Mock(message=Mock(content="We have three pricing tiers: Basic, Pro, and Enterprise."))]
+        mock_response.choices = [
+            Mock(message=Mock(content="We have three pricing tiers: Basic, Pro, and Enterprise."))
+        ]
         mock_response.usage = Mock(total_tokens=50)
 
         with patch("openai.AsyncOpenAI") as mock_openai_class:
@@ -121,10 +131,11 @@ class TestOpenAILLM:
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
             mock_openai_class.return_value = mock_client
 
-            with patch("app.utils.rate_limiter.openai_llm_rate_limiter.acquire", new_callable=AsyncMock):
+            with patch(
+                "app.utils.rate_limiter.openai_llm_rate_limiter.acquire", new_callable=AsyncMock
+            ):
                 response_text, token_count, is_api_error = await rag_service.generate_ai_response(
-                    mock_prompt,
-                    max_tokens=800
+                    mock_prompt, max_tokens=800
                 )
 
                 assert response_text is not None
@@ -143,18 +154,16 @@ class TestOpenAILLM:
         # Mock response with specific token counts
         mock_response = Mock()
         mock_response.choices = [Mock(message=Mock(content="Test response"))]
-        mock_response.usage = Mock(
-            total_tokens=100,
-            prompt_tokens=50,
-            completion_tokens=50
-        )
+        mock_response.usage = Mock(total_tokens=100, prompt_tokens=50, completion_tokens=50)
 
         with patch("openai.AsyncOpenAI") as mock_openai_class:
             mock_client = AsyncMock()
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
             mock_openai_class.return_value = mock_client
 
-            with patch("app.utils.rate_limiter.openai_llm_rate_limiter.acquire", new_callable=AsyncMock):
+            with patch(
+                "app.utils.rate_limiter.openai_llm_rate_limiter.acquire", new_callable=AsyncMock
+            ):
                 _, token_count, _ = await rag_service.generate_ai_response(mock_prompt)
 
                 assert token_count == 100
@@ -169,14 +178,23 @@ class TestOpenAILLM:
 
         with patch("openai.AsyncOpenAI") as mock_openai_class:
             mock_client = AsyncMock()
-            mock_client.chat.completions.create = AsyncMock(side_effect=Exception("Service unavailable"))
+            mock_client.chat.completions.create = AsyncMock(
+                side_effect=Exception("Service unavailable")
+            )
             mock_openai_class.return_value = mock_client
 
-            with patch("app.utils.rate_limiter.openai_llm_rate_limiter.acquire", new_callable=AsyncMock):
-                response_text, token_count, is_api_error = await rag_service.generate_ai_response(mock_prompt)
+            with patch(
+                "app.utils.rate_limiter.openai_llm_rate_limiter.acquire", new_callable=AsyncMock
+            ):
+                response_text, token_count, is_api_error = await rag_service.generate_ai_response(
+                    mock_prompt
+                )
 
                 assert is_api_error is True
-                assert "trouble processing" in response_text.lower() or "unable" in response_text.lower()
+                assert (
+                    "trouble processing" in response_text.lower()
+                    or "unable" in response_text.lower()
+                )
 
     @pytest.mark.asyncio
     async def test_llm_rate_limit_error(self, db):
@@ -193,11 +211,17 @@ class TestOpenAILLM:
             )
             mock_openai_class.return_value = mock_client
 
-            with patch("app.utils.rate_limiter.openai_llm_rate_limiter.acquire", new_callable=AsyncMock):
-                response_text, token_count, is_api_error = await rag_service.generate_ai_response(mock_prompt)
+            with patch(
+                "app.utils.rate_limiter.openai_llm_rate_limiter.acquire", new_callable=AsyncMock
+            ):
+                response_text, token_count, is_api_error = await rag_service.generate_ai_response(
+                    mock_prompt
+                )
 
                 assert is_api_error is True
-                assert "high demand" in response_text.lower() or "rate limit" in response_text.lower()
+                assert (
+                    "high demand" in response_text.lower() or "rate limit" in response_text.lower()
+                )
 
 
 class TestRateLimiters:
@@ -281,8 +305,7 @@ class TestEndToEnd:
         mock_prompt.full_prompt = f"Answer this question: {query}"
 
         response_text, token_count, is_api_error = await rag_service.generate_ai_response(
-            mock_prompt,
-            max_tokens=200
+            mock_prompt, max_tokens=200
         )
 
         assert response_text is not None

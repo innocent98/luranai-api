@@ -5,27 +5,28 @@ Platform admin endpoints for managing subscription plan pricing and capabilities
 """
 
 from typing import Annotated
-from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from loguru import logger
 
-from app.api.deps import get_db, get_current_super_admin
-from app.utils.http_rate_limiter import platform_admin_rate_limit
+from fastapi import APIRouter, Depends, HTTPException, status
+from loguru import logger
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_current_super_admin, get_db
 from app.db.models.platform_admin import PlatformAdmin
 from app.schemas.pricing import (
-    PricingPlanUpdateRequest,
-    PricingPlanResponse,
-    PricingPlanListResponse,
-    PricingPlanCapabilitiesResponse,
-    PricingCalculatorRequest,
     EnterprisePricingResponse,
     EnterprisePricingTiersResponse,
+    PricingCalculatorRequest,
+    PricingPlanCapabilitiesResponse,
+    PricingPlanListResponse,
+    PricingPlanResponse,
+    PricingPlanUpdateRequest,
     TierComparison,
+    VolumePricingTier,
 )
-from app.services.plan_service import PlanService
 from app.services.enhanced_audit_service import EnhancedAuditService
+from app.services.plan_service import PlanService
 from app.utils.enterprise_pricing import EnterprisePricingCalculator
+from app.utils.http_rate_limiter import platform_admin_rate_limit
 
 router = APIRouter()
 
@@ -35,7 +36,7 @@ router = APIRouter()
     response_model=PricingPlanListResponse,
     summary="List all subscription plans",
     description="Get all subscription plans with pricing and capabilities (platform admin only)",
-    dependencies=[Depends(platform_admin_rate_limit)]
+    dependencies=[Depends(platform_admin_rate_limit)],
 )
 async def list_pricing_plans(
     db: Annotated[Session, Depends(get_db)],
@@ -91,7 +92,7 @@ async def list_pricing_plans(
     response_model=PricingPlanResponse,
     summary="Update subscription plan",
     description="Update pricing, capabilities, or metadata for a subscription plan (platform admin only)",
-    dependencies=[Depends(platform_admin_rate_limit)]
+    dependencies=[Depends(platform_admin_rate_limit)],
 )
 async def update_pricing_plan(
     tier: str,
@@ -196,13 +197,13 @@ async def update_pricing_plan(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
     except Exception as e:
         logger.error(f"Error updating pricing plan {tier}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update pricing plan: {str(e)}",
-        )
+        ) from e
 
 
 @router.get(
@@ -210,7 +211,7 @@ async def update_pricing_plan(
     response_model=EnterprisePricingTiersResponse,
     summary="Get Enterprise Volume Pricing Tiers",
     description="Get all Enterprise volume-based pricing tiers (platform admin only)",
-    dependencies=[Depends(platform_admin_rate_limit)]
+    dependencies=[Depends(platform_admin_rate_limit)],
 )
 async def get_enterprise_pricing_tiers(
     admin: Annotated[PlatformAdmin, Depends(get_current_super_admin)],
@@ -229,16 +230,17 @@ async def get_enterprise_pricing_tiers(
     - 300,001+: ₦2.20/conversation (capped)
     """
     tiers = EnterprisePricingCalculator.get_pricing_tiers()
+    tier_models = [VolumePricingTier.model_validate(tier) for tier in tiers]
 
     logger.info(f"Platform admin {admin.email} retrieved Enterprise pricing tiers")
 
     return EnterprisePricingTiersResponse(
-        tiers=tiers,
+        tiers=tier_models,
         note=(
             "Enterprise pricing is volume-based with tiered rates. "
             "Higher volumes get progressively lower per-conversation rates, "
             "capped at ₦2.20/conversation for 300K+ conversations."
-        )
+        ),
     )
 
 
@@ -247,7 +249,7 @@ async def get_enterprise_pricing_tiers(
     response_model=EnterprisePricingResponse,
     summary="Calculate Enterprise Pricing",
     description="Calculate monthly cost for Enterprise tier based on conversation volume (platform admin only)",
-    dependencies=[Depends(platform_admin_rate_limit)]
+    dependencies=[Depends(platform_admin_rate_limit)],
 )
 async def calculate_enterprise_pricing(
     request: PricingCalculatorRequest,
@@ -270,18 +272,18 @@ async def calculate_enterprise_pricing(
     """
     result = EnterprisePricingCalculator.calculate_monthly_cost(request.conversations)
 
-    if 'error' in result:
+    if "error" in result:
         logger.warning(
             f"Platform admin {admin.email} attempted Enterprise calculation for {request.conversations} conversations (below minimum)"
         )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail={
-                'error': result['error'],
-                'message': result['message'],
-                'recommended_tier': result.get('recommended_tier'),
-                'growth_tier_cost_naira': result.get('growth_tier_cost_naira'),
-            }
+                "error": result["error"],
+                "message": result["message"],
+                "recommended_tier": result.get("recommended_tier"),
+                "growth_tier_cost_naira": result.get("growth_tier_cost_naira"),
+            },
         )
 
     logger.info(
@@ -296,7 +298,7 @@ async def calculate_enterprise_pricing(
     response_model=TierComparison,
     summary="Compare Growth vs Enterprise Pricing",
     description="Compare Growth tier pricing vs Enterprise volume-based pricing (platform admin only)",
-    dependencies=[Depends(platform_admin_rate_limit)]
+    dependencies=[Depends(platform_admin_rate_limit)],
 )
 async def compare_growth_vs_enterprise(
     request: PricingCalculatorRequest,

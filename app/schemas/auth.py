@@ -1,9 +1,8 @@
 """Authentication and registration Pydantic schemas."""
 
-from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 # Company registration schemas (self-service)
@@ -19,7 +18,7 @@ class CompanyRegistrationRequest(BaseModel):
         max_length=255,
         description="Company name (becomes tenant name)",
     )
-    company_display_name: Optional[str] = Field(
+    company_display_name: str | None = Field(
         None,
         min_length=2,
         max_length=255,

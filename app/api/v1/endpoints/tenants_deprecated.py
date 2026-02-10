@@ -1,32 +1,36 @@
 """Tenant management endpoints."""
 
-from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_super_admin, get_current_tenant_admin, get_db, verify_tenant_access
-from app.services.tenant_service import TenantService
+from app.api.deps import (
+    get_current_super_admin,
+    get_current_tenant_admin,
+    get_db,
+    verify_tenant_access,
+)
+from app.db.models.tenant import TenantStatus
+from app.schemas.platform_admin import PlatformAdminResponse
 from app.schemas.tenant import (
-    TenantUpdate,
-    TenantResponse,
-    TenantListResponse,
-    TenantAIConfigUpdate,
     TenantAIConfigResponse,
-    TenantCapabilitiesUpdate,
+    TenantAIConfigUpdate,
     TenantCapabilitiesResponse,
+    TenantCapabilitiesUpdate,
+    TenantListResponse,
+    TenantResponse,
+    TenantUpdate,
 )
 from app.schemas.user import UserResponse
-from app.schemas.platform_admin import PlatformAdminResponse
-from app.db.models.tenant import TenantStatus
+from app.services.tenant_service import TenantService
 
 router = APIRouter()
 
 
 @router.get("", response_model=list[TenantListResponse], status_code=status.HTTP_200_OK)
 def list_tenants(
-    status_filter: Optional[TenantStatus] = Query(None, description="Filter by status"),
+    status_filter: TenantStatus | None = Query(None, description="Filter by status"),
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
 ):
@@ -103,7 +107,7 @@ def update_tenant(
         tenant = tenant_service.update_tenant(tenant_id, tenant_data)
         return tenant
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.delete("/{tenant_id}", status_code=status.HTTP_200_OK)
@@ -129,7 +133,7 @@ def delete_tenant(
         tenant_service.delete_tenant(tenant_id)
         return {"message": "Tenant deactivated successfully"}
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 # AI Configuration endpoints
@@ -200,7 +204,7 @@ def update_ai_config(
         config = tenant_service.update_ai_config(tenant_id, config_data)
         return config
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 # Capabilities endpoints
@@ -268,4 +272,4 @@ def update_capabilities(
         capabilities = tenant_service.update_capabilities(tenant_id, capabilities_data)
         return capabilities
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

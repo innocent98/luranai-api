@@ -1,0 +1,113 @@
+LURAN GETTING STARTED WALKTHROUGH (IMPLEMENTATION-ALIGNED)
+
+Last verified against code: February 10, 2026
+
+================================================================================
+SETUP CHECKLIST
+================================================================================
+
+1) Create account and verify email
+2) Upload knowledge sources
+3) Configure widget branding
+4) Generate public API key
+5) Install widget snippet on website
+6) Test chat, flow routing, and escalation
+
+================================================================================
+STEP 1: ACCOUNT + TRIAL
+================================================================================
+
+Self-service registration creates:
+- a tenant
+- a tenant admin user
+- default trial subscription
+
+Current trial behavior in code:
+- trial_ends_at default: now + 30 days (company registration flow)
+
+After signup:
+- verify email
+- login to dashboard
+
+================================================================================
+STEP 2: UPLOAD KNOWLEDGE
+================================================================================
+
+Supported file uploads:
+- .txt, .md, .pdf, .docx
+- max size: 10 MB/file
+
+Upload is processed asynchronously:
+- source created
+- text chunked
+- embeddings generated
+- vectors stored
+- status moves to ACTIVE on success
+
+Tip:
+- start with core FAQs/policies first, then expand.
+
+================================================================================
+STEP 3: FLOWS (OPTIONAL BUT RECOMMENDED)
+================================================================================
+
+Use flows for guided support paths (for example MTN-style menu flows):
+- question -> option -> next node
+- condition / ai_action / webhook / escalate / end
+
+Current best practice:
+- use clear flow names and trigger configuration
+- set menu_label/menu_description for router display
+- set exclude_from_router=true for internal flows
+
+If no flow matches, chat falls back to AI/RAG response path.
+
+================================================================================
+STEP 4: WIDGET CONFIG
+================================================================================
+
+In dashboard widget settings, set:
+- primary/accent colors
+- greeting message
+- position
+- logo
+- unread badge toggle
+- file upload toggle
+
+================================================================================
+STEP 5: INSTALL SNIPPET
+================================================================================
+
+Add before </body>:
+
+<script>
+  window.luranSettings = {
+    tenantId: 'YOUR_TENANT_UUID',
+    apiKey: 'YOUR_PUBLIC_API_KEY'
+  };
+</script>
+<script src="https://cdn.luranai.com/widget/v1/widget.js" async defer></script>
+
+Use PUBLIC key only (pk_live_...).
+
+================================================================================
+STEP 6: VERIFY END-TO-END
+================================================================================
+
+Test these paths:
+- Welcome/greeting shown
+- Router options shown when multiple active flows exist
+- Flow branch selection works
+- AI fallback works for non-flow queries
+- Talk-to-human escalation creates ticket
+- Agent can reply from dashboard and message reaches chat UI
+
+================================================================================
+COMMON BLOCKERS
+================================================================================
+
+- Invalid tenantId/apiKey in widget script
+- CORS origin missing for environment
+- No active knowledge sources
+- Plan limits reached (flows, sources, storage, conversations)
+- Subscription inactive (trial_expired/canceled/past_due)

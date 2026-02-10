@@ -1,25 +1,18 @@
 """Conversation service for managing chat sessions and messages."""
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
-from sqlalchemy import select, desc
 
-from app.db.models.conversation import (
-    ConversationSession,
-    Message,
-    SessionStatus,
-    MessageRole,
-)
+from app.db.models.conversation import ConversationSession, Message, MessageRole, SessionStatus
 from app.schemas.conversation import (
     ConversationSessionCreate,
     ConversationSessionUpdate,
-    SessionResponse,
-    SessionDetailResponse,
-    MessageCreate,
     MessageResponse,
+    SessionDetailResponse,
+    SessionResponse,
 )
 
 
@@ -54,7 +47,9 @@ class ConversationService:
 
         return SessionResponse.model_validate(db_session)
 
-    def get_session(self, session_id: UUID, include_messages: bool = False) -> Optional[SessionResponse]:
+    def get_session(
+        self, session_id: UUID, include_messages: bool = False
+    ) -> SessionResponse | None:
         """
         Get conversation session by ID.
 
@@ -78,7 +73,7 @@ class ConversationService:
 
     def get_active_session_for_user(
         self, tenant_id: UUID, user_identifier: str
-    ) -> Optional[SessionResponse]:
+    ) -> SessionResponse | None:
         """
         Get the most recent active session for a user.
 
@@ -106,7 +101,9 @@ class ConversationService:
 
         return SessionResponse.model_validate(session)
 
-    def update_session(self, session_id: UUID, session_data: ConversationSessionUpdate) -> SessionResponse:
+    def update_session(
+        self, session_id: UUID, session_data: ConversationSessionUpdate
+    ) -> SessionResponse:
         """
         Update conversation session.
 
@@ -197,9 +194,9 @@ class ConversationService:
         session_id: UUID,
         role: MessageRole,
         content: str,
-        retrieved_chunk_ids: Optional[list[UUID]] = None,
-        token_count: Optional[int] = None,
-        meta: Optional[dict] = None,
+        retrieved_chunk_ids: list[UUID] | None = None,
+        token_count: int | None = None,
+        meta: dict | None = None,
     ) -> MessageResponse:
         """
         Add a message to a conversation session.
@@ -246,7 +243,7 @@ class ConversationService:
         return MessageResponse.model_validate(db_message)
 
     def get_session_messages(
-        self, session_id: UUID, limit: Optional[int] = None
+        self, session_id: UUID, limit: int | None = None
     ) -> list[MessageResponse]:
         """
         Get messages for a session.
@@ -270,7 +267,7 @@ class ConversationService:
             )
             messages = list(reversed(self.db.execute(stmt).scalars().all()))
         else:
-            messages = self.db.execute(stmt).scalars().all()
+            messages = list(self.db.execute(stmt).scalars().all())
 
         return [MessageResponse.model_validate(msg) for msg in messages]
 
@@ -289,7 +286,7 @@ class ConversationService:
         return self.get_session_messages(session_id, limit=max_turns * 2)
 
     def get_tenant_sessions(
-        self, tenant_id: UUID, status: Optional[SessionStatus] = None, limit: int = 100
+        self, tenant_id: UUID, status: SessionStatus | None = None, limit: int = 100
     ) -> list[SessionResponse]:
         """
         Get sessions for a tenant.

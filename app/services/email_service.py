@@ -6,7 +6,6 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
-from typing import Optional
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from loguru import logger
@@ -17,7 +16,7 @@ from app.core.config import settings
 class EmailService:
     """Service for sending transactional emails with HTML templates."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize email service with Jinja2 template engine."""
         # Setup Jinja2 for email templates
         template_dir = Path(__file__).parent.parent / "templates" / "emails"
@@ -33,7 +32,7 @@ class EmailService:
         to_email: str,
         subject: str,
         html_content: str,
-        text_content: Optional[str] = None,
+        text_content: str | None = None,
     ) -> bool:
         """
         Send an email using SMTP.
@@ -65,7 +64,7 @@ class EmailService:
                 # Use SSL (implicit TLS)
                 context = ssl.create_default_context()
                 with smtplib.SMTP_SSL(
-                    settings.SMTP_HOST,
+                    settings.SMTP_HOST or "",
                     settings.SMTP_PORT,
                     context=context,
                 ) as server:
@@ -74,7 +73,7 @@ class EmailService:
                     server.send_message(msg)
             else:
                 # Use STARTTLS (port 587)
-                with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+                with smtplib.SMTP(settings.SMTP_HOST or "", settings.SMTP_PORT) as server:
                     if settings.SMTP_TLS:
                         context = ssl.create_default_context()
                         server.starttls(context=context)
@@ -95,7 +94,7 @@ class EmailService:
         admin_email: str,
         admin_name: str,
         temp_password: str,
-        verification_token: Optional[str] = None,
+        verification_token: str | None = None,
     ) -> bool:
         """
         Send welcome email to new company admin.

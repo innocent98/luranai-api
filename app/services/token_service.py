@@ -1,7 +1,6 @@
 """Token service for managing verification and reset tokens."""
 
 import secrets
-from typing import Optional
 from uuid import UUID
 
 import redis
@@ -13,7 +12,7 @@ from app.core.config import settings
 class TokenService:
     """Service for managing temporary tokens in Redis."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize Redis connection."""
         self.redis_client = redis.from_url(
             settings.REDIS_URL,
@@ -61,7 +60,7 @@ class TokenService:
             logger.error(f"Failed to create email verification token: {e}")
             raise
 
-    def verify_email_token(self, token: str) -> Optional[dict]:
+    def verify_email_token(self, token: str) -> dict | None:
         """
         Verify an email verification token.
 
@@ -76,7 +75,7 @@ class TokenService:
         try:
             data = self.redis_client.hgetall(key)
             if not data:
-                logger.warning(f"Invalid or expired email verification token")
+                logger.warning("Invalid or expired email verification token")
                 return None
 
             # Delete token after verification (one-time use)
@@ -125,7 +124,7 @@ class TokenService:
             logger.error(f"Failed to create password reset token: {e}")
             raise
 
-    def verify_password_reset_token(self, token: str) -> Optional[dict]:
+    def verify_password_reset_token(self, token: str) -> dict | None:
         """
         Verify a password reset token.
 
@@ -140,7 +139,7 @@ class TokenService:
         try:
             data = self.redis_client.hgetall(key)
             if not data:
-                logger.warning(f"Invalid or expired password reset token")
+                logger.warning("Invalid or expired password reset token")
                 return None
 
             # Delete token after verification (one-time use)
@@ -189,7 +188,7 @@ class TokenService:
             logger.error(f"Failed to create platform admin reset token: {e}")
             raise
 
-    def verify_platform_admin_reset_token(self, token: str) -> Optional[dict]:
+    def verify_platform_admin_reset_token(self, token: str) -> dict | None:
         """
         Verify a platform admin password reset token.
 
@@ -204,7 +203,7 @@ class TokenService:
         try:
             data = self.redis_client.hgetall(key)
             if not data:
-                logger.warning(f"Invalid or expired platform admin reset token")
+                logger.warning("Invalid or expired platform admin reset token")
                 return None
 
             # Delete token after verification (one-time use)
@@ -228,8 +227,8 @@ class TokenService:
         try:
             # Find all keys related to this user
             patterns = [
-                f"email_verification:*",
-                f"password_reset:*",
+                "email_verification:*",
+                "password_reset:*",
             ]
 
             for pattern in patterns:

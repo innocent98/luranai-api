@@ -1,43 +1,43 @@
 """Database models package."""
 
 from app.db.base import Base
-
-# Import all models to ensure they're registered with SQLAlchemy
-from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
-from app.db.models.knowledge import (
-    KnowledgeSource,
-    KnowledgeChunk,
-    SourceType,
-    SourceStatus,
-    ChunkVisibility,
-)
+from app.db.models.api_key import APIKey, APIKeyType
+from app.db.models.audit import AnalyticsMetric, AuditLog
 from app.db.models.conversation import (
     ConversationSession,
     Message,
-    Ticket,
-    SessionStatus,
     MessageRole,
-    TicketStatus,
+    SessionStatus,
+    Ticket,
     TicketPriority,
+    TicketStatus,
 )
-from app.db.models.user import User, UserRole
-from app.db.models.platform_admin import PlatformAdmin, PlatformAdminRole
-from app.db.models.api_key import APIKey, APIKeyType
-from app.db.models.audit import AuditLog, AnalyticsMetric
-from app.db.models.job import ProcessingJob, JobStatus, JobType
-from app.db.models.review import SessionRating, PlatformFeedback, FeedbackCategory
-from app.db.models.payment import PaymentTransaction
-from app.db.models.subscription import SubscriptionHistory
 from app.db.models.email_notification import EmailNotification
-from app.db.models.subscription_plan import SubscriptionPlan
 from app.db.models.flow import (
     Flow,
     FlowExecution,
-    FlowTemplate,
-    FlowStatus,
-    FlowTriggerType,
     FlowExecutionStatus,
+    FlowStatus,
+    FlowTemplate,
+    FlowTriggerType,
 )
+from app.db.models.job import JobStatus, JobType, ProcessingJob
+from app.db.models.knowledge import (
+    ChunkVisibility,
+    KnowledgeChunk,
+    KnowledgeSource,
+    SourceStatus,
+    SourceType,
+)
+from app.db.models.payment import PaymentTransaction
+from app.db.models.platform_admin import PlatformAdmin, PlatformAdminRole
+from app.db.models.review import FeedbackCategory, PlatformFeedback, SessionRating
+from app.db.models.subscription import SubscriptionHistory
+from app.db.models.subscription_plan import SubscriptionPlan
+
+# Import all models to ensure they're registered with SQLAlchemy
+from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
+from app.db.models.user import User, UserRole
 
 __all__ = [
     "Base",

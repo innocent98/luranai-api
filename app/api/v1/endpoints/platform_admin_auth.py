@@ -3,25 +3,18 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import (
-    get_current_platform_admin,
-    get_current_super_admin,
-    get_db,
+from app.api.deps import get_current_platform_admin, get_current_super_admin, get_db
+from app.schemas.platform_admin import (
+    CurrentPlatformAdminResponse,
+    PlatformAdminCreate,
+    PlatformAdminListResponse,
+    PlatformAdminLoginRequest,
+    PlatformAdminPasswordUpdate,
+    PlatformAdminResponse,
+    PlatformAdminToken,
 )
 from app.services.platform_admin_auth_service import PlatformAdminAuthService
-from app.schemas.platform_admin import (
-    PlatformAdminLoginRequest,
-    PlatformAdminToken,
-    PlatformAdminCreate,
-    PlatformAdminResponse,
-    PlatformAdminPasswordUpdate,
-    CurrentPlatformAdminResponse,
-    PlatformAdminListResponse,
-)
-from app.utils.http_rate_limiter import (
-    platform_admin_auth_rate_limit,
-    platform_admin_rate_limit,
-)
+from app.utils.http_rate_limiter import platform_admin_auth_rate_limit, platform_admin_rate_limit
 
 router = APIRouter()
 
@@ -30,7 +23,7 @@ router = APIRouter()
     "/login",
     response_model=PlatformAdminToken,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(platform_admin_auth_rate_limit)]
+    dependencies=[Depends(platform_admin_auth_rate_limit)],
 )
 def login(login_data: PlatformAdminLoginRequest, db: Session = Depends(get_db)):
     """
@@ -56,7 +49,7 @@ def login(login_data: PlatformAdminLoginRequest, db: Session = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from e
 
 
 @router.get("/me", response_model=CurrentPlatformAdminResponse, status_code=status.HTTP_200_OK)
@@ -75,7 +68,11 @@ def get_current_admin_info(
     return current_admin
 
 
-@router.put("/me/password", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
+@router.put(
+    "/me/password",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
 def update_password(
     password_data: PlatformAdminPasswordUpdate,
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
@@ -108,7 +105,7 @@ def update_password(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
 
 # Admin management endpoints (SUPER_ADMIN only)
@@ -145,7 +142,7 @@ def create_platform_admin(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
 
 @router.get(

@@ -1,19 +1,18 @@
 """Enhanced audit service for platform-wide audit log management."""
 
 import csv
-import json
 import io
+import json
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Any
 from uuid import UUID
 
 from loguru import logger
-from sqlalchemy import select, func, and_, or_, desc
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
 
 from app.db.models.audit import AuditLog
 from app.db.models.tenant import Tenant
-from app.db.models.user import User
 
 
 class EnhancedAuditService:
@@ -28,17 +27,77 @@ class EnhancedAuditService:
         """
         self.db = db
 
+    def log_action(
+        self,
+        action_type: str,
+        performed_by_type: str,
+        performed_by_id: UUID | None,
+        performed_by_name: str | None,
+        target_type: str,
+        target_id: UUID | None,
+        description: str | None = None,
+        severity: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        tenant_id: UUID | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+    ) -> AuditLog:
+        """
+        Record a platform audit log entry.
+
+        Args:
+            action_type: Action identifier
+            performed_by_type: Actor type (tenant_user, tenant_admin, platform_admin, system)
+            performed_by_id: Actor ID (if applicable)
+            performed_by_name: Actor display name/email
+            target_type: Resource type
+            target_id: Resource ID
+            description: Human-readable description
+            severity: Optional severity indicator
+            metadata: Extra details/changes
+            tenant_id: Tenant ID if applicable
+            ip_address: IP address of actor
+            user_agent: User agent string
+        """
+        actor_user_id = (
+            performed_by_id if performed_by_type in {"user", "tenant_user", "tenant_admin"} else None
+        )
+
+        changes = {
+            "description": description,
+            "severity": severity,
+            "performed_by_type": performed_by_type,
+            "performed_by_id": str(performed_by_id) if performed_by_id else None,
+            "performed_by_name": performed_by_name,
+            "metadata": metadata or {},
+        }
+
+        audit_log = AuditLog(
+            tenant_id=tenant_id,
+            user_id=actor_user_id,
+            action=action_type,
+            resource_type=target_type,
+            resource_id=target_id,
+            changes=changes,
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+        self.db.add(audit_log)
+        self.db.commit()
+        self.db.refresh(audit_log)
+        return audit_log
+
     def search_audit_logs(
         self,
-        tenant_id: Optional[UUID] = None,
-        user_id: Optional[UUID] = None,
-        action: Optional[str] = None,
-        resource_type: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        tenant_id: UUID | None = None,
+        user_id: UUID | None = None,
+        action: str | None = None,
+        resource_type: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Search audit logs with filters.
 
@@ -133,9 +192,9 @@ class EnhancedAuditService:
     def export_audit_logs(
         self,
         format: str = "csv",
-        tenant_id: Optional[UUID] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        tenant_id: UUID | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
     ) -> str:
         """
         Export audit logs to CSV or JSON format.
@@ -176,7 +235,7 @@ class EnhancedAuditService:
             logger.error(f"Error exporting audit logs: {e}")
             raise
 
-    def _export_to_csv(self, logs: List[Dict[str, Any]]) -> str:
+    def _export_to_csv(self, logs: list[dict[str, Any]]) -> str:
         """Export logs to CSV format."""
         if not logs:
             return "No data to export"
@@ -207,7 +266,7 @@ class EnhancedAuditService:
 
         return output.getvalue()
 
-    def _export_to_json(self, logs: List[Dict[str, Any]]) -> str:
+    def _export_to_json(self, logs: list[dict[str, Any]]) -> str:
         """Export logs to JSON format."""
         return json.dumps(
             {
@@ -222,7 +281,7 @@ class EnhancedAuditService:
         self,
         tenant_id: UUID,
         days: int = 30,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get activity summary for a specific tenant.
 
@@ -256,18 +315,21 @@ class EnhancedAuditService:
             total_actions = total_result.scalar() or 0
 
             # Actions by type
-            actions_query = select(
-                AuditLog.action,
-                func.count(AuditLog.id).label("count")
-            ).where(
-                and_(
-                    AuditLog.tenant_id == tenant_id,
-                    AuditLog.created_at >= start_date,
+            actions_query = (
+                select(AuditLog.action, func.count(AuditLog.id).label("count"))
+                .where(
+                    and_(
+                        AuditLog.tenant_id == tenant_id,
+                        AuditLog.created_at >= start_date,
+                    )
                 )
-            ).group_by(AuditLog.action)
+                .group_by(AuditLog.action)
+            )
 
             actions_result = self.db.execute(actions_query)
-            actions_breakdown = {action: count for action, count in actions_result.all()}
+            actions_breakdown: dict[str, int] = {
+                str(action): int(count) for action, count in actions_result.all()
+            }
 
             # Active users count
             users_query = select(func.count(func.distinct(AuditLog.user_id))).where(
@@ -320,10 +382,10 @@ class EnhancedAuditService:
 
     def get_security_events(
         self,
-        severity: Optional[str] = None,
+        severity: str | None = None,
         days: int = 7,
         limit: int = 100,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get security-related events from audit logs.
 
@@ -353,12 +415,17 @@ class EnhancedAuditService:
             ]
 
             # Build query
-            query = select(AuditLog).where(
-                and_(
-                    AuditLog.created_at >= start_date,
-                    AuditLog.action.in_(security_actions),
+            query = (
+                select(AuditLog)
+                .where(
+                    and_(
+                        AuditLog.created_at >= start_date,
+                        AuditLog.action.in_(security_actions),
+                    )
                 )
-            ).order_by(desc(AuditLog.created_at)).limit(limit)
+                .order_by(desc(AuditLog.created_at))
+                .limit(limit)
+            )
 
             result = self.db.execute(query)
             events = result.scalars().all()
@@ -390,22 +457,26 @@ class EnhancedAuditService:
                 if severity and event_severity != severity:
                     continue
 
-                event_list.append({
-                    "id": str(event.id),
-                    "severity": event_severity,
-                    "action": event.action,
-                    "tenant_id": str(event.tenant_id) if event.tenant_id else None,
-                    "user_id": str(event.user_id) if event.user_id else None,
-                    "resource_type": event.resource_type,
-                    "changes": event.changes,
-                    "ip_address": event.ip_address,
-                    "created_at": event.created_at.isoformat(),
-                })
+                event_list.append(
+                    {
+                        "id": str(event.id),
+                        "severity": event_severity,
+                        "action": event.action,
+                        "tenant_id": str(event.tenant_id) if event.tenant_id else None,
+                        "user_id": str(event.user_id) if event.user_id else None,
+                        "resource_type": event.resource_type,
+                        "changes": event.changes,
+                        "ip_address": event.ip_address,
+                        "created_at": event.created_at.isoformat(),
+                    }
+                )
 
             # Count by severity
-            severity_counts = {"high": 0, "medium": 0, "low": 0}
+            severity_counts: dict[str, int] = {"high": 0, "medium": 0, "low": 0}
             for evt in event_list:
-                severity_counts[evt["severity"]] += 1
+                severity = str(evt.get("severity", "low"))
+                if severity in severity_counts:
+                    severity_counts[severity] += 1
 
             return {
                 "period_days": days,

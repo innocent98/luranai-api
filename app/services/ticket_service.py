@@ -1,21 +1,21 @@
 """Ticket service for managing support tickets."""
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
-from sqlalchemy import select, desc, func
 
-from app.db.models.conversation import Ticket, TicketStatus, TicketPriority
+from app.db.models.conversation import Ticket, TicketStatus
+from app.db.models.tenant import TenantCapabilities
 from app.db.models.user import User
 from app.schemas.ticket import (
-    TicketCreate,
-    TicketUpdate,
-    TicketResponse,
-    TicketAssign,
-    TicketResolve,
     AssignedAgent,
+    TicketAssign,
+    TicketCreate,
+    TicketResolve,
+    TicketResponse,
+    TicketUpdate,
 )
 
 
@@ -65,9 +65,7 @@ class TicketService:
         current_year = datetime.utcnow().year
         year_prefix = f"TKT-{current_year}-"
 
-        stmt = select(func.count(Ticket.id)).where(
-            Ticket.ticket_number.startswith(year_prefix)
-        )
+        stmt = select(func.count(Ticket.id)).where(Ticket.ticket_number.startswith(year_prefix))
         count = self.db.execute(stmt).scalar()
 
         # Generate next number
@@ -84,6 +82,16 @@ class TicketService:
         Returns:
             Created ticket response
         """
+        # Enforce tenant ticket capability
+        capabilities = self.db.execute(
+            select(TenantCapabilities).where(TenantCapabilities.tenant_id == ticket_data.tenant_id)
+        ).scalar_one_or_none()
+        if capabilities and not capabilities.can_create_tickets:
+            raise ValueError(
+                "Ticket creation is disabled for your tenant capabilities. "
+                "Enable ticket escalation or contact support."
+            )
+
         # Generate ticket number
         ticket_number = self._generate_ticket_number()
 
@@ -102,7 +110,7 @@ class TicketService:
 
         return self._to_ticket_response(db_ticket)
 
-    def get_ticket(self, ticket_id: UUID) -> Optional[TicketResponse]:
+    def get_ticket(self, ticket_id: UUID) -> TicketResponse | None:
         """
         Get ticket by ID.
 
@@ -120,7 +128,7 @@ class TicketService:
 
         return self._to_ticket_response(ticket)
 
-    def get_ticket_by_number(self, ticket_number: str) -> Optional[TicketResponse]:
+    def get_ticket_by_number(self, ticket_number: str) -> TicketResponse | None:
         """
         Get ticket by ticket number.
 
@@ -138,7 +146,7 @@ class TicketService:
 
         return self._to_ticket_response(ticket)
 
-    def get_ticket_by_session(self, session_id: UUID) -> Optional[TicketResponse]:
+    def get_ticket_by_session(self, session_id: UUID) -> TicketResponse | None:
         """
         Get ticket for a conversation session.
 
@@ -149,9 +157,7 @@ class TicketService:
             Most recent ticket for session if found, None otherwise
         """
         stmt = (
-            select(Ticket)
-            .where(Ticket.session_id == session_id)
-            .order_by(desc(Ticket.created_at))
+            select(Ticket).where(Ticket.session_id == session_id).order_by(desc(Ticket.created_at))
         )
 
         ticket = self.db.execute(stmt).scalar_one_or_none()
@@ -250,9 +256,12 @@ class TicketService:
         # Also resolve the conversation session
         if ticket.session_id:
             from app.db.models.conversation import ConversationSession, SessionStatus
-            session = self.db.query(ConversationSession).filter(
-                ConversationSession.id == ticket.session_id
-            ).first()
+
+            session = (
+                self.db.query(ConversationSession)
+                .filter(ConversationSession.id == ticket.session_id)
+                .first()
+            )
 
             if session:
                 session.status = SessionStatus.RESOLVED
@@ -291,8 +300,8 @@ class TicketService:
     def get_tenant_tickets(
         self,
         tenant_id: UUID,
-        status: Optional[TicketStatus] = None,
-        assigned_to: Optional[UUID] = None,
+        status: TicketStatus | None = None,
+        assigned_to: UUID | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> tuple[list[TicketResponse], int]:
@@ -320,7 +329,7 @@ class TicketService:
 
         # Get total count
         count_stmt = select(func.count()).select_from(stmt.subquery())
-        total = self.db.execute(count_stmt).scalar()
+        total = self.db.execute(count_stmt).scalar() or 0
 
         # Apply ordering, limit, and offset
         stmt = stmt.order_by(desc(Ticket.created_at)).limit(limit).offset(offset)
@@ -330,7 +339,7 @@ class TicketService:
         return [self._to_ticket_response(t) for t in tickets], total
 
     def get_user_assigned_tickets(
-        self, user_id: UUID, status: Optional[TicketStatus] = None
+        self, user_id: UUID, status: TicketStatus | None = None
     ) -> list[TicketResponse]:
         """
         Get tickets assigned to a specific user.

@@ -1,12 +1,13 @@
 """Accurate token counting using tiktoken."""
 
-import tiktoken
-from typing import List, Dict
 from functools import lru_cache
+
+import tiktoken
+from tiktoken.core import Encoding
 
 
 @lru_cache(maxsize=1)
-def get_encoding(model: str = "gpt-4o-mini"):
+def get_encoding(model: str = "gpt-4o-mini") -> Encoding:
     """Get tiktoken encoding (cached)."""
     return tiktoken.encoding_for_model(model)
 
@@ -17,7 +18,7 @@ def count_tokens(text: str, model: str = "gpt-4o-mini") -> int:
     return len(encoding.encode(text))
 
 
-def count_messages_tokens(messages: List[Dict[str, str]], model: str = "gpt-4o-mini") -> int:
+def count_messages_tokens(messages: list[dict[str, str]], model: str = "gpt-4o-mini") -> int:
     """Count tokens for chat messages (includes message formatting overhead)."""
     encoding = get_encoding(model)
     tokens = 0

@@ -1,33 +1,45 @@
 """Platform admin tenant management endpoints."""
 
-from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_super_admin, get_db
-from app.utils.http_rate_limiter import platform_admin_rate_limit
-from app.services.tenant_service import TenantService
-from app.services.platform_subscription_service import PlatformSubscriptionService
-from app.schemas.tenant import (
-    TenantResponse,
-    TenantListResponse,
-    TenantCapabilitiesUpdate,
-    TenantCapabilitiesResponse,
-)
-from app.schemas.platform_admin import PlatformAdminResponse
 from app.db.models.tenant import TenantStatus
+from app.schemas.platform_admin import PlatformAdminResponse
+from app.schemas.tenant import (
+    TenantCapabilitiesResponse,
+    TenantCapabilitiesUpdate,
+    TenantListResponse,
+    TenantResponse,
+)
+from app.services.platform_subscription_service import PlatformSubscriptionService
+from app.services.tenant_service import TenantService
+from app.utils.http_rate_limiter import platform_admin_rate_limit
 
 router = APIRouter()
 
 
-@router.get("", response_model=list[TenantListResponse], status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
+@router.get(
+    "",
+    response_model=list[TenantListResponse],
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
 def list_all_tenants(
-    status_filter: Optional[TenantStatus] = Query(None, description="Filter by tenant status (ACTIVE, INACTIVE, SUSPENDED)"),
-    subscription_status: Optional[str] = Query(None, description="Filter by subscription status (trial, active, trial_expired, etc.)"),
-    subscription_tier: Optional[str] = Query(None, description="Filter by subscription tier (trial, lite, professional, enterprise)"),
-    trial_expiring_days: Optional[int] = Query(None, ge=0, le=90, description="Find trials expiring within N days (0-90)"),
+    status_filter: TenantStatus | None = Query(
+        None, description="Filter by tenant status (ACTIVE, INACTIVE, SUSPENDED)"
+    ),
+    subscription_status: str | None = Query(
+        None, description="Filter by subscription status (trial, active, trial_expired, etc.)"
+    ),
+    subscription_tier: str | None = Query(
+        None, description="Filter by subscription tier (trial, lite, professional, enterprise)"
+    ),
+    trial_expiring_days: int | None = Query(
+        None, ge=0, le=90, description="Find trials expiring within N days (0-90)"
+    ),
     limit: int = Query(100, ge=1, le=1000, description="Maximum results"),
     offset: int = Query(0, ge=0, description="Pagination offset"),
     db: Session = Depends(get_db),
@@ -83,11 +95,16 @@ def list_all_tenants(
     else:
         # Use existing tenant service for simple status filtering
         tenant_service = TenantService(db)
-        tenants = tenant_service.get_all_tenants(status=status_filter)
-        return tenants
+        tenant_models = tenant_service.get_all_tenants(status=status_filter)
+        return [TenantListResponse.model_validate(t) for t in tenant_models]
 
 
-@router.get("/{tenant_id}", response_model=TenantResponse, status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
+@router.get(
+    "/{tenant_id}",
+    response_model=TenantResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
 def get_tenant_by_id(
     tenant_id: UUID,
     db: Session = Depends(get_db),
@@ -116,7 +133,11 @@ def get_tenant_by_id(
     return tenant
 
 
-@router.delete("/{tenant_id}", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
+@router.delete(
+    "/{tenant_id}",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
 def deactivate_tenant(
     tenant_id: UUID,
     db: Session = Depends(get_db),
@@ -147,14 +168,14 @@ def deactivate_tenant(
         tenant_service.delete_tenant(tenant_id)
         return {"message": "Tenant deactivated successfully"}
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
 
 @router.put(
     "/{tenant_id}/capabilities",
     response_model=TenantCapabilitiesResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(platform_admin_rate_limit)]
+    dependencies=[Depends(platform_admin_rate_limit)],
 )
 def update_tenant_capabilities(
     tenant_id: UUID,
@@ -195,4 +216,4 @@ def update_tenant_capabilities(
         capabilities = tenant_service.update_capabilities(tenant_id, capabilities_data)
         return capabilities
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e

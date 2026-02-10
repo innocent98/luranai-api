@@ -2,13 +2,19 @@
 
 import enum
 import uuid
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import Integer, JSON, String, Text, Enum as SQLEnum, Index, UniqueConstraint
+from sqlalchemy import JSON
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import ForeignKey
 
-from app.db.base import Base, UUIDMixin, TimestampMixin
+from app.db.base import Base, TimestampMixin, UUIDMixin
+
+if TYPE_CHECKING:
+    from app.db.models.conversation import ConversationSession
+    from app.db.models.tenant import Tenant
+    from app.db.models.user import User
 
 
 class FeedbackCategory(str, enum.Enum):
@@ -61,7 +67,7 @@ class SessionRating(Base, UUIDMixin, TimestampMixin):
         comment="Rating score 1-5 (1=Poor, 2=Fair, 3=Good, 4=Very Good, 5=Excellent)",
     )
 
-    comment: Mapped[Optional[str]] = mapped_column(
+    comment: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
         comment="Optional feedback comment from customer",
@@ -73,7 +79,7 @@ class SessionRating(Base, UUIDMixin, TimestampMixin):
         comment="User who submitted rating (for verification)",
     )
 
-    meta: Mapped[Optional[dict]] = mapped_column(
+    meta: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
         comment="Additional context: {ai_helpful, issues_faced, etc.}",
@@ -109,13 +115,17 @@ class PlatformFeedback(Base, UUIDMixin, TimestampMixin):
     )
 
     category: Mapped[FeedbackCategory] = mapped_column(
-        SQLEnum(FeedbackCategory, name="feedback_category", values_callable=lambda x: [e.value for e in x]),
+        SQLEnum(
+            FeedbackCategory,
+            name="feedback_category",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
         index=True,
         comment="Type of feedback",
     )
 
-    satisfaction_score: Mapped[Optional[int]] = mapped_column(
+    satisfaction_score: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
         comment="1-5 rating (only for platform_satisfaction category)",
@@ -140,13 +150,13 @@ class PlatformFeedback(Base, UUIDMixin, TimestampMixin):
         comment="Status: open, acknowledged, in_progress, resolved, closed",
     )
 
-    submitted_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+    submitted_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         comment="User who submitted feedback",
     )
 
-    meta: Mapped[Optional[dict]] = mapped_column(
+    meta: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
         comment="Additional context: {priority, affected_features, etc.}",
@@ -180,13 +190,17 @@ class PublicFeedback(Base, UUIDMixin, TimestampMixin):
     )
 
     category: Mapped[FeedbackCategory] = mapped_column(
-        SQLEnum(FeedbackCategory, name="feedback_category", values_callable=lambda x: [e.value for e in x]),
+        SQLEnum(
+            FeedbackCategory,
+            name="feedback_category",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
         index=True,
         comment="Type of feedback",
     )
 
-    satisfaction_score: Mapped[Optional[int]] = mapped_column(
+    satisfaction_score: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
         comment="1-5 rating (optional)",
@@ -205,19 +219,19 @@ class PublicFeedback(Base, UUIDMixin, TimestampMixin):
     )
 
     # Optional contact information
-    name: Mapped[Optional[str]] = mapped_column(
+    name: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
         comment="Submitter name (optional)",
     )
 
-    email: Mapped[Optional[str]] = mapped_column(
+    email: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
         comment="Contact email for follow-up (optional)",
     )
 
-    company: Mapped[Optional[str]] = mapped_column(
+    company: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
         comment="Company/organization name (optional)",
@@ -230,7 +244,7 @@ class PublicFeedback(Base, UUIDMixin, TimestampMixin):
         comment="Status: open, acknowledged, in_progress, resolved, closed",
     )
 
-    meta: Mapped[Optional[dict]] = mapped_column(
+    meta: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
         comment="Additional context: {referral_source, page_url, user_agent, etc.}",

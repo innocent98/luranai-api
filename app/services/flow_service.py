@@ -1,18 +1,14 @@
 """Flow service for managing conversational workflows."""
 
-from typing import Optional, Tuple, List
 from uuid import UUID
 
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
-from sqlalchemy import select, desc, func
 
-from app.db.models.flow import Flow, FlowStatus, FlowTriggerType
-from app.db.models.tenant import TenantCapabilities
-from app.schemas.flow import (
-    FlowCreate,
-    FlowUpdate,
-    FlowResponse,
-)
+from app.db.models.flow import Flow, FlowStatus
+from app.db.models.subscription_plan import SubscriptionPlan
+from app.db.models.tenant import Tenant, TenantCapabilities
+from app.schemas.flow import FlowCreate, FlowResponse, FlowUpdate
 
 
 class FlowService:
@@ -38,13 +34,17 @@ class FlowService:
         # Check tier limits
         self._check_tier_limits(flow_data.tenant_id)
 
+        normalized_nodes = (
+            self._normalize_nodes_payload(flow_data.nodes) if flow_data.nodes else flow_data.nodes
+        )
+
         # Validate node structure
-        if flow_data.nodes:
-            self._validate_nodes(flow_data.nodes)
+        if normalized_nodes:
+            self._validate_nodes(normalized_nodes)
 
         # Check for webhook nodes if webhooks not allowed
-        if flow_data.nodes:
-            self._validate_webhook_usage(flow_data.tenant_id, flow_data.nodes)
+        if normalized_nodes:
+            self._validate_webhook_usage(flow_data.tenant_id, normalized_nodes)
 
         # Create flow
         db_flow = Flow(
@@ -55,7 +55,7 @@ class FlowService:
             is_active=flow_data.is_active,
             trigger_type=flow_data.trigger_type,
             trigger_config=flow_data.trigger_config or {},
-            nodes=flow_data.nodes or {},
+            nodes=normalized_nodes or {},
             priority=flow_data.priority,
             version=flow_data.version,
             created_by=flow_data.created_by,
@@ -67,7 +67,7 @@ class FlowService:
 
         return FlowResponse.model_validate(db_flow)
 
-    def get_flow(self, flow_id: UUID) -> Optional[FlowResponse]:
+    def get_flow(self, flow_id: UUID) -> FlowResponse | None:
         """
         Get flow by ID.
 
@@ -88,10 +88,10 @@ class FlowService:
     def get_tenant_flows(
         self,
         tenant_id: UUID,
-        status: Optional[FlowStatus] = None,
+        status: FlowStatus | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> Tuple[List[FlowResponse], int]:
+    ) -> tuple[list[FlowResponse], int]:
         """
         Get flows for a tenant with filtering and pagination.
 
@@ -112,7 +112,7 @@ class FlowService:
 
         # Get total count
         count_stmt = select(func.count()).select_from(stmt.subquery())
-        total = self.db.execute(count_stmt).scalar()
+        total = self.db.execute(count_stmt).scalar() or 0
 
         # Apply ordering, limit, and offset
         stmt = stmt.order_by(desc(Flow.priority), desc(Flow.created_at)).limit(limit).offset(offset)
@@ -145,6 +145,7 @@ class FlowService:
         update_data = flow_data.model_dump(exclude_unset=True)
 
         if "nodes" in update_data and update_data["nodes"]:
+            update_data["nodes"] = self._normalize_nodes_payload(update_data["nodes"])
             self._validate_nodes(update_data["nodes"])
             # Check webhook usage when updating nodes
             self._validate_webhook_usage(flow.tenant_id, update_data["nodes"])
@@ -295,13 +296,15 @@ class FlowService:
             if not isinstance(edge, dict):
                 raise ValueError("Each edge must be a dictionary")
 
-            source = edge.get("source")
-            target = edge.get("target")
+            # Support both ReactFlow-style edges ("source"/"target")
+            # and legacy builder edges ("from"/"to").
+            source = edge.get("source") or edge.get("from")
+            target = edge.get("target") or edge.get("to")
 
             if not source:
-                raise ValueError("Each edge must have a 'source' field")
+                raise ValueError("Each edge must have a 'source' (or legacy 'from') field")
             if not target:
-                raise ValueError("Each edge must have a 'target' field")
+                raise ValueError("Each edge must have a 'target' (or legacy 'to') field")
 
             if source not in node_ids:
                 raise ValueError(f"Edge source '{source}' not found in nodes")
@@ -346,6 +349,92 @@ class FlowService:
                         f"Condition node {node.get('id')} references non-existent default_node_id: {default_node_id}"
                     )
 
+        # Validate next_node_id exists for non-terminal nodes (prevents loop bugs)
+        terminal_node_types = {"end", "escalate"}
+
+        for node in node_list:
+            node_id = node.get("id")
+            node_type = node.get("type")
+            config = node.get("config", {})
+
+            # Skip terminal nodes (they don't need next_node_id)
+            if node_type in terminal_node_types:
+                continue
+
+            # Validate QUESTION nodes
+            if node_type == "question":
+                options = config.get("options", [])
+
+                # Check if question has config-level next_node_id
+                has_config_next = "next_node_id" in config
+
+                # Check if ALL options have next_node_id
+                all_options_have_next = all("next_node_id" in option for option in options)
+
+                # Question must have EITHER:
+                # 1. Config-level next_node_id (all options go to same node), OR
+                # 2. All options have their own next_node_id
+                if not has_config_next and not all_options_have_next:
+                    raise ValueError(
+                        f"QUESTION node '{node_id}' must have either:\n"
+                        f"  - 'next_node_id' in config (all options go to same node), OR\n"
+                        f"  - 'next_node_id' in EVERY option (conditional branching)\n"
+                        f"Without this, the flow will loop indefinitely on this node."
+                    )
+
+            # Validate CONDITION nodes
+            elif node_type == "condition":
+                # Condition nodes must have default_node_id
+                if "default_node_id" not in config:
+                    raise ValueError(
+                        f"CONDITION node '{node_id}' must have 'default_node_id' in config"
+                    )
+
+                # All conditions must have next_node_id
+                conditions = config.get("conditions", [])
+                for idx, condition in enumerate(conditions):
+                    if "next_node_id" not in condition:
+                        raise ValueError(
+                            f"CONDITION node '{node_id}' condition #{idx} must have 'next_node_id'"
+                        )
+
+            # Validate linear flow nodes (MESSAGE, TEXT_INPUT, RAG_QUERY, WEBHOOK, etc.)
+            else:
+                if "next_node_id" not in config:
+                    raise ValueError(
+                        f"{node_type.upper()} node '{node_id}' must have 'next_node_id' in config.\n"
+                        f"Without this, the flow will loop indefinitely on this node.\n"
+                        f"Tip: Set 'next_node_id' to the ID of the next node in the flow."
+                    )
+
+    def _normalize_nodes_payload(self, nodes: dict) -> dict:
+        """Normalize flow nodes payload to canonical edge shape (source/target)."""
+        if not isinstance(nodes, dict):
+            return nodes
+
+        normalized = dict(nodes)
+        edges = nodes.get("edges", [])
+        if isinstance(edges, list):
+            normalized_edges = []
+            for edge in edges:
+                if not isinstance(edge, dict):
+                    normalized_edges.append(edge)
+                    continue
+
+                source = edge.get("source") or edge.get("from")
+                target = edge.get("target") or edge.get("to")
+                edge_copy = dict(edge)
+                if source is not None:
+                    edge_copy["source"] = source
+                if target is not None:
+                    edge_copy["target"] = target
+                edge_copy.pop("from", None)
+                edge_copy.pop("to", None)
+                normalized_edges.append(edge_copy)
+            normalized["edges"] = normalized_edges
+
+        return normalized
+
     def _check_tier_limits(self, tenant_id: UUID) -> None:
         """
         Check if tenant can create more flows based on subscription tier.
@@ -356,24 +445,20 @@ class FlowService:
         Raises:
             ValueError: If tenant has reached flow limits
         """
-        # Get tenant capabilities
-        stmt = select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant_id)
-        capabilities = self.db.execute(stmt).scalar_one_or_none()
-
-        if not capabilities:
-            raise ValueError("Tenant capabilities not found")
-
-        # Check if capabilities has max_flows attribute (for future-proofing)
-        # If the attribute exists, check the limit
-        max_flows = getattr(capabilities, "max_flows", None)
+        limits = self._get_flow_limits(tenant_id)
+        max_flows = limits.get("max_flows")
 
         if max_flows is not None:
             # Count existing active flows
-            stmt = select(func.count()).select_from(Flow).where(
-                Flow.tenant_id == tenant_id,
-                Flow.status != FlowStatus.ARCHIVED,
+            count_stmt = (
+                select(func.count())
+                .select_from(Flow)
+                .where(
+                    Flow.tenant_id == tenant_id,
+                    Flow.status != FlowStatus.ARCHIVED,
+                )
             )
-            flow_count = self.db.execute(stmt).scalar()
+            flow_count = self.db.execute(count_stmt).scalar()
 
             if flow_count >= max_flows:
                 raise ValueError(
@@ -399,15 +484,8 @@ class FlowService:
         if not has_webhook:
             return
 
-        # Get tenant capabilities
-        stmt = select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant_id)
-        capabilities = self.db.execute(stmt).scalar_one_or_none()
-
-        if not capabilities:
-            raise ValueError("Tenant capabilities not found")
-
-        # Check if capabilities has can_use_webhooks attribute (for future-proofing)
-        can_use_webhooks = getattr(capabilities, "can_use_webhooks", True)  # Default to True for backward compatibility
+        limits = self._get_flow_limits(tenant_id)
+        can_use_webhooks = limits.get("can_use_webhooks", True)
 
         if not can_use_webhooks:
             raise ValueError(
@@ -416,7 +494,7 @@ class FlowService:
             )
 
         # Check max_nodes_per_flow if it exists
-        max_nodes = getattr(capabilities, "max_nodes_per_flow", None)
+        max_nodes = limits.get("max_nodes_per_flow")
         if max_nodes is not None:
             node_count = len(node_list)
             if node_count > max_nodes:
@@ -424,3 +502,50 @@ class FlowService:
                     f"Flow exceeds maximum nodes limit. Your plan allows {max_nodes} nodes per flow, "
                     f"but this flow has {node_count} nodes."
                 )
+
+    def _get_flow_limits(self, tenant_id: UUID) -> dict:
+        """
+        Resolve flow-related limits from subscription plan, with capability override support.
+
+        Returns:
+            Dict containing max_flows, max_nodes_per_flow, can_use_webhooks
+        """
+        tenant = self.db.execute(select(Tenant).where(Tenant.id == tenant_id)).scalar_one_or_none()
+        if not tenant:
+            raise ValueError("Tenant not found")
+
+        plan = self.db.execute(
+            select(SubscriptionPlan).where(
+                SubscriptionPlan.tier == tenant.subscription_tier,
+                SubscriptionPlan.is_active.is_(True),
+            )
+        ).scalar_one_or_none()
+        if not plan:
+            plan = self.db.execute(
+                select(SubscriptionPlan).where(SubscriptionPlan.tier == tenant.subscription_tier)
+            ).scalar_one_or_none()
+        if not plan:
+            raise ValueError(f"Subscription plan not found for tier: {tenant.subscription_tier}")
+
+        limits = {
+            "max_flows": plan.max_flows,
+            "max_nodes_per_flow": plan.max_nodes_per_flow,
+            "can_use_webhooks": plan.can_use_webhooks,
+        }
+
+        # Optional override path for deployments where these fields exist on capabilities.
+        capabilities = self.db.execute(
+            select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant_id)
+        ).scalar_one_or_none()
+        if capabilities:
+            override_max_flows = getattr(capabilities, "max_flows", None)
+            override_max_nodes = getattr(capabilities, "max_nodes_per_flow", None)
+            override_webhooks = getattr(capabilities, "can_use_webhooks", None)
+            if override_max_flows is not None:
+                limits["max_flows"] = override_max_flows
+            if override_max_nodes is not None:
+                limits["max_nodes_per_flow"] = override_max_nodes
+            if override_webhooks is not None:
+                limits["can_use_webhooks"] = override_webhooks
+
+        return limits

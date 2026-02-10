@@ -1,32 +1,34 @@
 """Platform user management API endpoints."""
 
-from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_platform_admin, get_db
-from app.utils.http_rate_limiter import platform_admin_rate_limit
-from app.services.user_management_service import UserManagementService
-from app.schemas.platform_admin import PlatformAdminResponse
 from app.db.models.user import UserRole
+from app.schemas.platform_admin import PlatformAdminResponse
+from app.services.user_management_service import UserManagementService
+from app.utils.http_rate_limiter import platform_admin_rate_limit
 
 router = APIRouter()
 
 
 class UserDeactivationRequest(BaseModel):
     """Request model for user deactivation."""
+
     reason: str
 
 
-@router.get("/search", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
+@router.get(
+    "/search", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)]
+)
 def search_users(
-    email: Optional[str] = Query(None, description="Email filter (partial match)"),
-    tenant_id: Optional[str] = Query(None, description="Tenant ID filter"),
-    role: Optional[str] = Query(None, description="Role filter"),
-    is_active: Optional[bool] = Query(None, description="Active status filter"),
+    email: str | None = Query(None, description="Email filter (partial match)"),
+    tenant_id: str | None = Query(None, description="Tenant ID filter"),
+    role: str | None = Query(None, description="Role filter"),
+    is_active: bool | None = Query(None, description="Active status filter"),
     limit: int = Query(100, ge=1, le=1000, description="Max results"),
     offset: int = Query(0, ge=0, description="Results offset"),
     db: Session = Depends(get_db),
@@ -62,15 +64,17 @@ def search_users(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid parameter: {str(e)}",
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to search users: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/{user_id}", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
+@router.get(
+    "/{user_id}", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)]
+)
 def get_user_details(
     user_id: UUID,
     db: Session = Depends(get_db),
@@ -92,15 +96,19 @@ def get_user_details(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(e),
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch user details: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/{user_id}/activity", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
+@router.get(
+    "/{user_id}/activity",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
 def get_user_activity(
     user_id: UUID,
     days: int = Query(30, ge=1, le=365, description="Days to analyze"),
@@ -126,10 +134,14 @@ def get_user_activity(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch user activity: {str(e)}",
-        )
+        ) from e
 
 
-@router.post("/{user_id}/deactivate", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
+@router.post(
+    "/{user_id}/deactivate",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
 def deactivate_user(
     user_id: UUID,
     request: UserDeactivationRequest,
@@ -144,7 +156,7 @@ def deactivate_user(
     """
     try:
         user_service = UserManagementService(db)
-        result = user_service.deactivate_user(
+        result = user_service.deactivate_user_platform_admin(
             user_id=user_id,
             reason=request.reason,
             admin_id=current_admin.id,
@@ -156,15 +168,19 @@ def deactivate_user(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to deactivate user: {str(e)}",
-        )
+        ) from e
 
 
-@router.get("/analytics/role-distribution", status_code=status.HTTP_200_OK, dependencies=[Depends(platform_admin_rate_limit)])
+@router.get(
+    "/analytics/role-distribution",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
 def get_role_distribution(
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
@@ -185,4 +201,4 @@ def get_role_distribution(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch role distribution: {str(e)}",
-        )
+        ) from e

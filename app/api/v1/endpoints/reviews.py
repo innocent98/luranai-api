@@ -1,35 +1,34 @@
 """Review and rating endpoints."""
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from loguru import logger
+from sqlalchemy.orm import Session
 
 from app.api.deps import (
+    AuthContext,
+    get_current_platform_admin,
     get_current_user,
     get_current_user_or_platform_admin,
-    get_current_platform_admin,
     get_db,
-    AuthContext,
 )
-from app.services.review_service import ReviewService
+from app.db.models.review import FeedbackCategory
+from app.schemas.platform_admin import PlatformAdminResponse
 from app.schemas.review import (
-    SessionRatingCreate,
-    SessionRatingResponse,
-    SessionRatingListResponse,
     PlatformFeedbackCreate,
-    PlatformFeedbackResponse,
     PlatformFeedbackListResponse,
+    PlatformFeedbackResponse,
     PublicFeedbackCreate,
-    PublicFeedbackResponse,
     PublicFeedbackListResponse,
+    PublicFeedbackResponse,
+    SessionRatingCreate,
+    SessionRatingListResponse,
+    SessionRatingResponse,
 )
 from app.schemas.user import UserResponse
-from app.schemas.platform_admin import PlatformAdminResponse
-from app.db.models.review import FeedbackCategory
+from app.services.review_service import ReviewService
 
 router = APIRouter()
 
@@ -83,17 +82,17 @@ async def create_session_rating(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=error_msg,
-            )
+            ) from e
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=error_msg,
-        )
+        ) from e
     except Exception as e:
         logger.error(f"Error creating session rating: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create session rating",
-        )
+        ) from e
 
 
 @router.get(
@@ -103,11 +102,11 @@ async def create_session_rating(
     description="View customer ratings (tenant users see own ratings, platform admins see all)",
 )
 async def list_session_ratings(
-    session_id: Optional[UUID] = Query(None, description="Filter by session ID"),
-    min_score: Optional[int] = Query(None, ge=1, le=5, description="Minimum rating score"),
-    max_score: Optional[int] = Query(None, ge=1, le=5, description="Maximum rating score"),
-    start_date: Optional[datetime] = Query(None, description="Filter from date (ISO 8601)"),
-    end_date: Optional[datetime] = Query(None, description="Filter to date (ISO 8601)"),
+    session_id: UUID | None = Query(None, description="Filter by session ID"),
+    min_score: int | None = Query(None, ge=1, le=5, description="Minimum rating score"),
+    max_score: int | None = Query(None, ge=1, le=5, description="Maximum rating score"),
+    start_date: datetime | None = Query(None, description="Filter from date (ISO 8601)"),
+    end_date: datetime | None = Query(None, description="Filter to date (ISO 8601)"),
     limit: int = Query(50, ge=1, le=100, description="Max results per page"),
     offset: int = Query(0, ge=0, description="Results offset for pagination"),
     auth: AuthContext = Depends(get_current_user_or_platform_admin),
@@ -163,7 +162,7 @@ async def list_session_ratings(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve session ratings",
-        )
+        ) from e
 
 
 # ===== Platform Feedback Endpoints =====
@@ -220,13 +219,13 @@ async def create_platform_feedback(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
     except Exception as e:
         logger.error(f"Error creating platform feedback: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create platform feedback",
-        )
+        ) from e
 
 
 @router.get(
@@ -236,15 +235,15 @@ async def create_platform_feedback(
     description="View platform feedback (platform admins only, system-wide view)",
 )
 async def list_platform_feedback(
-    category: Optional[FeedbackCategory] = Query(None, description="Filter by category"),
-    status_filter: Optional[str] = Query(
+    category: FeedbackCategory | None = Query(None, description="Filter by category"),
+    status_filter: str | None = Query(
         None,
         alias="status",
         pattern="^(open|acknowledged|in_progress|resolved|closed)$",
         description="Filter by status",
     ),
-    start_date: Optional[datetime] = Query(None, description="Filter from date (ISO 8601)"),
-    end_date: Optional[datetime] = Query(None, description="Filter to date (ISO 8601)"),
+    start_date: datetime | None = Query(None, description="Filter from date (ISO 8601)"),
+    end_date: datetime | None = Query(None, description="Filter to date (ISO 8601)"),
     limit: int = Query(50, ge=1, le=100, description="Max results per page"),
     offset: int = Query(0, ge=0, description="Results offset for pagination"),
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
@@ -293,7 +292,7 @@ async def list_platform_feedback(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve platform feedback",
-        )
+        ) from e
 
 
 # ===== Public Landing Page Feedback Endpoints =====
@@ -349,13 +348,13 @@ async def create_public_feedback(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
     except Exception as e:
         logger.error(f"Error creating public feedback: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create public feedback",
-        )
+        ) from e
 
 
 @router.get(
@@ -365,15 +364,15 @@ async def create_public_feedback(
     description="View public landing page feedback (platform admins only)",
 )
 async def list_public_feedback(
-    category: Optional[FeedbackCategory] = Query(None, description="Filter by category"),
-    status_filter: Optional[str] = Query(
+    category: FeedbackCategory | None = Query(None, description="Filter by category"),
+    status_filter: str | None = Query(
         None,
         alias="status",
         pattern="^(open|acknowledged|in_progress|resolved|closed)$",
         description="Filter by status",
     ),
-    start_date: Optional[datetime] = Query(None, description="Filter from date (ISO 8601)"),
-    end_date: Optional[datetime] = Query(None, description="Filter to date (ISO 8601)"),
+    start_date: datetime | None = Query(None, description="Filter from date (ISO 8601)"),
+    end_date: datetime | None = Query(None, description="Filter to date (ISO 8601)"),
     limit: int = Query(50, ge=1, le=100, description="Max results per page"),
     offset: int = Query(0, ge=0, description="Results offset for pagination"),
     current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
@@ -418,4 +417,4 @@ async def list_public_feedback(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve public feedback",
-        )
+        ) from e

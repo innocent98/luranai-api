@@ -1,25 +1,22 @@
 """Tenant service for managing tenants, AI configs, and capabilities."""
 
-from typing import Optional
-from uuid import UUID
 import secrets
+from uuid import UUID
 
-from sqlalchemy.orm import Session
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.security import get_password_hash
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
 from app.schemas.tenant import (
-    TenantCreate,
-    TenantUpdate,
-    TenantResponse,
-    TenantListResponse,
-    TenantAIConfigCreate,
-    TenantAIConfigUpdate,
     TenantAIConfigResponse,
-    TenantCapabilitiesCreate,
-    TenantCapabilitiesUpdate,
+    TenantAIConfigUpdate,
     TenantCapabilitiesResponse,
+    TenantCapabilitiesUpdate,
+    TenantCreate,
+    TenantListResponse,
+    TenantResponse,
+    TenantUpdate,
 )
 
 
@@ -86,10 +83,11 @@ class TenantService:
             can_access_analytics=False,  # No analytics in trial
             can_upload_knowledge=True,
             max_knowledge_mb=10,  # 10 MB for trial
-            max_conversations_per_month=100,  # 100 conversations/month for trial
+            max_conversations_per_month=200,  # 200 conversations/month for trial
             max_knowledge_sources=2,  # Only 2 sources for trial
             can_use_url_sources=False,  # Files only, no URLs in trial
             max_team_members=1,  # Only 1 user (admin) for trial
+            max_flows=0,  # No flows on trial by default
         )
         self.db.add(capabilities)
 
@@ -101,7 +99,7 @@ class TenantService:
         response.api_key = api_key  # Add the plain API key to response
         return response
 
-    def get_tenant(self, tenant_id: UUID) -> Optional[Tenant]:
+    def get_tenant(self, tenant_id: UUID) -> Tenant | None:
         """
         Get raw tenant model by ID.
 
@@ -114,7 +112,9 @@ class TenantService:
         stmt = select(Tenant).where(Tenant.id == tenant_id)
         return self.db.execute(stmt).scalar_one_or_none()
 
-    def get_tenant_by_id(self, tenant_id: UUID, include_relations: bool = True) -> Optional[TenantResponse]:
+    def get_tenant_by_id(
+        self, tenant_id: UUID, include_relations: bool = True
+    ) -> TenantResponse | TenantListResponse | None:
         """
         Get tenant by ID.
 
@@ -136,7 +136,7 @@ class TenantService:
         else:
             return TenantListResponse.model_validate(tenant)
 
-    def get_tenant_by_name(self, name: str) -> Optional[TenantResponse]:
+    def get_tenant_by_name(self, name: str) -> TenantResponse | None:
         """
         Get tenant by name.
 
@@ -154,7 +154,7 @@ class TenantService:
 
         return TenantResponse.model_validate(tenant)
 
-    def get_all_tenants(self, status: Optional[TenantStatus] = None) -> list[TenantListResponse]:
+    def get_all_tenants(self, status: TenantStatus | None = None) -> list[TenantListResponse]:
         """
         Get all tenants, optionally filtered by status.
 
@@ -230,7 +230,7 @@ class TenantService:
 
     # AI Config methods
 
-    def get_ai_config(self, tenant_id: UUID) -> Optional[TenantAIConfigResponse]:
+    def get_ai_config(self, tenant_id: UUID) -> TenantAIConfigResponse | None:
         """
         Get AI configuration for a tenant.
 
@@ -248,7 +248,9 @@ class TenantService:
 
         return TenantAIConfigResponse.model_validate(config)
 
-    def update_ai_config(self, tenant_id: UUID, config_data: TenantAIConfigUpdate) -> TenantAIConfigResponse:
+    def update_ai_config(
+        self, tenant_id: UUID, config_data: TenantAIConfigUpdate
+    ) -> TenantAIConfigResponse:
         """
         Update AI configuration for a tenant.
 
@@ -280,7 +282,7 @@ class TenantService:
 
     # Capabilities methods
 
-    def get_capabilities(self, tenant_id: UUID) -> Optional[TenantCapabilitiesResponse]:
+    def get_capabilities(self, tenant_id: UUID) -> TenantCapabilitiesResponse | None:
         """
         Get capabilities for a tenant.
 
@@ -330,7 +332,7 @@ class TenantService:
 
         return TenantCapabilitiesResponse.model_validate(capabilities)
 
-    def verify_api_key(self, name: str, api_key: str) -> Optional[UUID]:
+    def verify_api_key(self, name: str, api_key: str) -> UUID | None:
         """
         Verify tenant API key and return tenant ID if valid.
 

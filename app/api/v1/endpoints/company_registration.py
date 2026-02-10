@@ -4,17 +4,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.services.company_registration_service import CompanyRegistrationService
 from app.schemas.auth import (
     CompanyRegistrationRequest,
     CompanyRegistrationResponse,
     EmailVerificationRequest,
     EmailVerificationResponse,
 )
+from app.services.company_registration_service import CompanyRegistrationService
 from app.utils.http_rate_limiter import (
     registration_rate_limit,
-    verification_rate_limit,
     resend_verification_rate_limit,
+    verification_rate_limit,
 )
 
 router = APIRouter()
@@ -55,7 +55,7 @@ def register_company(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
 
 @router.post(
@@ -92,7 +92,7 @@ def verify_email(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e
 
 
 @router.post(
@@ -132,4 +132,4 @@ def resend_verification_email(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
-        )
+        ) from e

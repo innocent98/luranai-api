@@ -2,13 +2,13 @@
 
 import enum
 import uuid
-from typing import Optional
 
-from sqlalchemy import Boolean, Integer, JSON, String, Text, Enum as SQLEnum, Index, UniqueConstraint
+from sqlalchemy import JSON, Boolean
+from sqlalchemy import Enum as SQLEnum
+from sqlalchemy import ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy import ForeignKey
 
-from app.db.base import Base, UUIDMixin, TimestampMixin
+from app.db.base import Base, TimestampMixin, UUIDMixin
 
 
 class SourceType(str, enum.Enum):
@@ -51,10 +51,7 @@ class KnowledgeSource(Base, UUIDMixin, TimestampMixin):
         Index("ix_knowledge_sources_tenant_status", "tenant_id", "status"),
         # Prevent race conditions - only one version per (tenant, content_hash, version) tuple
         UniqueConstraint(
-            "tenant_id",
-            "content_hash",
-            "version",
-            name="uq_knowledge_source_tenant_hash_version"
+            "tenant_id", "content_hash", "version", name="uq_knowledge_source_tenant_hash_version"
         ),
     )
 
@@ -84,18 +81,18 @@ class KnowledgeSource(Base, UUIDMixin, TimestampMixin):
         index=True,
         comment="Source category: file, url",
     )
-    source_url: Mapped[Optional[str]] = mapped_column(
+    source_url: Mapped[str | None] = mapped_column(
         String(2048),
         nullable=True,
         comment="Original URL for url-type sources",
     )
-    file_size_bytes: Mapped[Optional[int]] = mapped_column(
+    file_size_bytes: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
         comment="File/content size in bytes (for storage tracking)",
     )
 
-    file_url: Mapped[Optional[str]] = mapped_column(
+    file_url: Mapped[str | None] = mapped_column(
         String(1000),
         nullable=True,
         comment="Storage location (S3, GCS, etc.) if applicable",
@@ -125,12 +122,12 @@ class KnowledgeSource(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Number of chunks created from this source",
     )
-    meta: Mapped[Optional[dict]] = mapped_column(
+    meta: Mapped[dict | None] = mapped_column(
         JSON,
         nullable=True,
         comment="Additional metadata: {language, author, tags, etc.}",
     )
-    uploaded_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
         nullable=True,
         comment="User ID who uploaded this source",
     )

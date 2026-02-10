@@ -1,16 +1,11 @@
 """Flow and workflow automation Pydantic schemas."""
 
 from datetime import datetime
-from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.db.models.flow import (
-    FlowStatus,
-    FlowTriggerType,
-    FlowExecutionStatus,
-)
+from app.db.models.flow import FlowExecutionStatus, FlowStatus, FlowTriggerType
 
 
 # Base schemas
@@ -18,7 +13,7 @@ class FlowBase(BaseModel):
     """Base flow schema."""
 
     name: str = Field(..., min_length=1, max_length=255, description="Human-readable flow name")
-    description: Optional[str] = Field(None, description="Detailed description of what this flow does")
+    description: str | None = Field(None, description="Detailed description of what this flow does")
     trigger_type: FlowTriggerType = Field(..., description="How this flow is triggered")
     trigger_config: dict = Field(
         default_factory=dict,
@@ -34,16 +29,25 @@ class FlowBase(BaseModel):
 class FlowExecutionBase(BaseModel):
     """Base flow execution schema."""
 
-    current_node_id: Optional[str] = Field(None, max_length=100, description="ID of the current node being executed")
-    collected_data: dict = Field(default_factory=dict, description="Data collected during flow execution")
+    current_node_id: str | None = Field(
+        None, max_length=100, description="ID of the current node being executed"
+    )
+    collected_data: dict = Field(
+        default_factory=dict, description="Data collected during flow execution"
+    )
 
 
 class FlowTemplateBase(BaseModel):
     """Base flow template schema."""
 
     name: str = Field(..., min_length=1, max_length=255, description="Template name")
-    description: Optional[str] = Field(None, description="What this template does")
-    category: str = Field(..., min_length=1, max_length=100, description="Template category: support, sales, onboarding, etc.")
+    description: str | None = Field(None, description="What this template does")
+    category: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Template category: support, sales, onboarding, etc.",
+    )
     template_nodes: dict = Field(
         default_factory=dict,
         description="Template flow structure: {nodes: [], edges: [], start_node_id}",
@@ -62,7 +66,7 @@ class FlowCreate(FlowBase):
     status: FlowStatus = Field(default=FlowStatus.DRAFT, description="Initial flow status")
     is_active: bool = Field(default=True, description="Whether this flow can be triggered")
     version: int = Field(default=1, ge=1, description="Flow version number")
-    created_by: Optional[UUID] = Field(None, description="User who created this flow")
+    created_by: UUID | None = Field(None, description="User who created this flow")
 
 
 class FlowExecutionCreate(BaseModel):
@@ -70,9 +74,15 @@ class FlowExecutionCreate(BaseModel):
 
     flow_id: UUID = Field(..., description="Flow being executed")
     session_id: UUID = Field(..., description="Conversation session this execution belongs to")
-    current_node_id: Optional[str] = Field(None, max_length=100, description="ID of the current node being executed")
-    collected_data: dict = Field(default_factory=dict, description="Data collected during flow execution")
-    status: FlowExecutionStatus = Field(default=FlowExecutionStatus.PENDING, description="Initial execution status")
+    current_node_id: str | None = Field(
+        None, max_length=100, description="ID of the current node being executed"
+    )
+    collected_data: dict = Field(
+        default_factory=dict, description="Data collected during flow execution"
+    )
+    status: FlowExecutionStatus = Field(
+        default=FlowExecutionStatus.PENDING, description="Initial execution status"
+    )
 
 
 class FlowTemplateCreate(FlowTemplateBase):
@@ -92,15 +102,15 @@ class FlowUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = None
-    status: Optional[FlowStatus] = None
-    is_active: Optional[bool] = None
-    trigger_type: Optional[FlowTriggerType] = None
-    trigger_config: Optional[dict] = None
-    nodes: Optional[dict] = None
-    priority: Optional[int] = None
-    version: Optional[int] = Field(None, ge=1)
+    name: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    status: FlowStatus | None = None
+    is_active: bool | None = None
+    trigger_type: FlowTriggerType | None = None
+    trigger_config: dict | None = None
+    nodes: dict | None = None
+    priority: int | None = None
+    version: int | None = Field(None, ge=1)
 
 
 class FlowExecutionUpdate(BaseModel):
@@ -108,13 +118,13 @@ class FlowExecutionUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    current_node_id: Optional[str] = Field(None, max_length=100)
-    collected_data: Optional[dict] = None
-    status: Optional[FlowExecutionStatus] = None
-    result_data: Optional[dict] = None
-    error_message: Optional[str] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    current_node_id: str | None = Field(None, max_length=100)
+    collected_data: dict | None = None
+    status: FlowExecutionStatus | None = None
+    result_data: dict | None = None
+    error_message: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
 
 
 class FlowTemplateUpdate(BaseModel):
@@ -122,13 +132,13 @@ class FlowTemplateUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: Optional[str] = Field(None, min_length=1, max_length=255)
-    description: Optional[str] = None
-    category: Optional[str] = Field(None, min_length=1, max_length=100)
-    template_nodes: Optional[dict] = None
-    trigger_config: Optional[dict] = None
-    min_tier: Optional[str] = Field(None, max_length=50)
-    is_active: Optional[bool] = None
+    name: str | None = Field(None, min_length=1, max_length=255)
+    description: str | None = None
+    category: str | None = Field(None, min_length=1, max_length=100)
+    template_nodes: dict | None = None
+    trigger_config: dict | None = None
+    min_tier: str | None = Field(None, max_length=50)
+    is_active: bool | None = None
 
 
 # Response schemas
@@ -142,7 +152,7 @@ class FlowResponse(FlowBase):
     status: FlowStatus
     is_active: bool
     version: int
-    created_by: Optional[UUID] = None
+    created_by: UUID | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -151,7 +161,7 @@ class FlowDetailResponse(FlowResponse):
     """Schema for flow with execution history."""
 
     execution_count: int = Field(default=0, description="Total number of executions")
-    last_executed_at: Optional[datetime] = Field(None, description="When this flow was last executed")
+    last_executed_at: datetime | None = Field(None, description="When this flow was last executed")
 
 
 class FlowExecutionResponse(BaseModel):
@@ -162,13 +172,13 @@ class FlowExecutionResponse(BaseModel):
     id: UUID
     flow_id: UUID
     session_id: UUID
-    current_node_id: Optional[str] = None
+    current_node_id: str | None = None
     collected_data: dict
     status: FlowExecutionStatus
-    result_data: Optional[dict] = None
-    error_message: Optional[str] = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    result_data: dict | None = None
+    error_message: str | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -177,7 +187,7 @@ class FlowExecutionDetailResponse(FlowExecutionResponse):
     """Schema for flow execution with flow details."""
 
     flow_name: str = Field(..., description="Name of the executed flow")
-    flow_description: Optional[str] = Field(None, description="Description of the executed flow")
+    flow_description: str | None = Field(None, description="Description of the executed flow")
 
 
 class FlowTemplateResponse(FlowTemplateBase):
@@ -226,10 +236,10 @@ class FlowInstantiateRequest(BaseModel):
     template_id: UUID = Field(..., description="Flow template to instantiate")
     tenant_id: UUID = Field(..., description="Tenant that will own the new flow")
     name: str = Field(..., min_length=1, max_length=255, description="Name for the new flow")
-    description: Optional[str] = Field(None, description="Custom description for the new flow")
-    customize_trigger: Optional[dict] = Field(None, description="Custom trigger configuration")
-    customize_nodes: Optional[dict] = Field(None, description="Custom node configuration")
-    created_by: Optional[UUID] = Field(None, description="User creating the flow")
+    description: str | None = Field(None, description="Custom description for the new flow")
+    customize_trigger: dict | None = Field(None, description="Custom trigger configuration")
+    customize_nodes: dict | None = Field(None, description="Custom node configuration")
+    created_by: UUID | None = Field(None, description="User creating the flow")
 
 
 class FlowExecuteRequest(BaseModel):

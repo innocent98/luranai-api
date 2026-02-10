@@ -1,0 +1,120 @@
+LURAN SUBSCRIPTION PLANS AND PRICING (IMPLEMENTATION-ALIGNED)
+
+Last verified against code: February 10, 2026
+Primary sources: scripts/seed_data.py, app/services/company_registration_service.py,
+app/services/flow_service.py, app/api/deps.py
+
+================================================================================
+OVERVIEW
+================================================================================
+
+Luran currently uses 5 tiers:
+- trial
+- lite
+- professional
+- growth
+- enterprise
+
+Currency in seed data is kobo (NGN x 100).
+
+Important implementation notes:
+- Self-service signup creates a trial tenant with trial_ends_at = now + 30 days.
+- Platform-admin override to trial currently sets +14 days when trial is reset.
+- Capability enforcement is done at runtime using tenant capabilities.
+
+================================================================================
+PLAN MATRIX (CURRENT DEFAULTS)
+================================================================================
+
+TRIAL
+- Price: NGN 0 monthly / NGN 0 annual
+- Conversations/month: 200 (plan default)
+- Max response tokens: 800
+- Knowledge sources: 2
+- Storage: 10 MB
+- URL sources: No
+- Team members: 1
+- Flows: 0
+- Nodes/flow: 0
+- Webhooks: No
+- Webhooks/flow: 0
+- Analytics: No
+
+LITE
+- Price: NGN 9,000 monthly / NGN 90,000 annual
+- Conversations/month: 2,000
+- Max response tokens: 1,000
+- Knowledge sources: 15
+- Storage: 50 MB
+- URL sources: Yes
+- Team members: 3
+- Flows: 2
+- Nodes/flow: 20
+- Webhooks: No
+- Webhooks/flow: 0
+- Analytics: Yes
+
+PROFESSIONAL
+- Price: NGN 40,000 monthly / NGN 400,000 annual
+- Conversations/month: 10,000
+- Max response tokens: 1,500
+- Knowledge sources: 50
+- Storage: 200 MB
+- URL sources: Yes
+- Team members: 10
+- Flows: 10
+- Nodes/flow: 50
+- Webhooks: Yes
+- Webhooks/flow: 3
+- Analytics: Yes
+
+GROWTH
+- Price: NGN 80,000 monthly / NGN 800,000 annual
+- Conversations/month: 25,000
+- Max response tokens: 1,500
+- Knowledge sources: 50
+- Storage: 500 MB
+- URL sources: Yes
+- Team members: 20
+- Flows: 25
+- Nodes/flow: 100
+- Webhooks: Yes
+- Webhooks/flow: 10
+- Analytics: Yes
+
+ENTERPRISE
+- Price: Custom / Contact sales
+- Conversations/month: Unlimited
+- Max response tokens: 2,000
+- Knowledge sources: Unlimited
+- Storage: Unlimited
+- URL sources: Yes
+- Team members: Unlimited
+- Flows: Unlimited
+- Nodes/flow: Unlimited
+- Webhooks: Yes
+- Webhooks/flow: Unlimited
+- Analytics: Yes
+
+================================================================================
+ENFORCEMENT BEHAVIOR
+================================================================================
+
+- Flow create limits are enforced in flow_service.check_flow_limits().
+- Node-per-flow and webhook permissions are validated before save/execute.
+- Knowledge source count and storage are enforced at upload/scrape time.
+- Conversation limits are checked monthly in verify_conversation_limit().
+- Inactive subscription states (trial_expired, canceled, past_due) are blocked
+  by verify_subscription_active() on protected routes.
+
+================================================================================
+CANCELLATION / EXPIRY
+================================================================================
+
+- Trial expiry: tenant moves to trial_expired and protected features are blocked.
+- Active subscription past subscription_ends_at: marked canceled and blocked.
+- Immediate cancel: status set to canceled now.
+- End-of-period cancel: remains active until subscription_ends_at.
+
+This file is intentionally implementation-first. If plan policy changes, update both
+seed data and this doc together.

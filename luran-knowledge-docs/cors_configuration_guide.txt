@@ -1,0 +1,71 @@
+LURAN CORS CONFIGURATION GUIDE (IMPLEMENTATION-ALIGNED)
+
+Last verified against code: February 10, 2026
+Primary sources: app/main.py, app/core/config.py
+
+================================================================================
+HOW CORS IS CONFIGURED
+================================================================================
+
+CORS is configured through environment variable:
+- BACKEND_CORS_ORIGINS
+
+Accepted formats:
+1) Comma-separated string
+   BACKEND_CORS_ORIGINS=https://example.com,https://www.example.com
+2) JSON array string
+   BACKEND_CORS_ORIGINS=["https://example.com","https://www.example.com"]
+
+Defaults in config include localhost origins for development.
+
+================================================================================
+RUNTIME POLICY
+================================================================================
+
+Production mode:
+- allow_methods: GET, POST, PUT, DELETE, PATCH
+- allow_headers: Content-Type, Authorization, X-API-Key
+
+Non-production mode:
+- allow_methods: *
+- allow_headers: *
+
+Always enabled:
+- allow_credentials: true
+- max_age: 600
+
+================================================================================
+SECURITY HEADERS ADDED BY MIDDLEWARE
+================================================================================
+
+Always:
+- X-Frame-Options: DENY
+- X-Content-Type-Options: nosniff
+- X-XSS-Protection: 1; mode=block
+- Referrer-Policy: strict-origin-when-cross-origin
+- Permissions-Policy: geolocation=(), microphone=(), camera=()
+
+Production only:
+- Content-Security-Policy
+
+Production + ENABLE_HSTS=true:
+- Strict-Transport-Security: max-age=31536000; includeSubDomains
+
+================================================================================
+TROUBLESHOOTING
+================================================================================
+
+CORS blocked:
+- Ensure exact origin match (scheme + host + optional port)
+- Add both www and non-www if needed
+- Add each subdomain explicitly
+
+Credential errors:
+- Frontend must send requests from an allowed origin
+- Do not use wildcard origin with credentials
+
+Preflight failures:
+- Restrict custom headers/methods to allowed values in production
+
+After changing CORS env values:
+- restart backend service

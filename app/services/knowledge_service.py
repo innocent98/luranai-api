@@ -1,29 +1,29 @@
 """Knowledge service for managing documents and knowledge chunks."""
 
 import hashlib
-from typing import Optional, Dict, Any
-from uuid import UUID, uuid4
+from typing import Any
+from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
-from sqlalchemy import select, and_, func
-from sqlalchemy.exc import IntegrityError
 from loguru import logger
+from sqlalchemy import and_, func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from app.db.models.knowledge import (
-    KnowledgeSource,
-    KnowledgeChunk,
-    SourceType,
-    SourceStatus,
     ChunkVisibility,
+    KnowledgeChunk,
+    KnowledgeSource,
+    SourceStatus,
+    SourceType,
 )
 from app.schemas.knowledge import (
-    KnowledgeSourceCreate,
-    KnowledgeSourceUpdate,
-    KnowledgeSourceResponse,
-    KnowledgeSourceDetailResponse,
     KnowledgeChunkCreate,
     KnowledgeChunkResponse,
+    KnowledgeSourceCreate,
+    KnowledgeSourceDetailResponse,
+    KnowledgeSourceResponse,
+    KnowledgeSourceUpdate,
 )
 
 
@@ -67,13 +67,17 @@ class KnowledgeService:
         for attempt in range(max_retries):
             try:
                 # Step 1: Query for existing duplicate with row lock
-                stmt = select(KnowledgeSource).where(
-                    and_(
-                        KnowledgeSource.tenant_id == source_data.tenant_id,
-                        KnowledgeSource.content_hash == source_data.content_hash,
-                        KnowledgeSource.status != SourceStatus.INACTIVE,
+                stmt = (
+                    select(KnowledgeSource)
+                    .where(
+                        and_(
+                            KnowledgeSource.tenant_id == source_data.tenant_id,
+                            KnowledgeSource.content_hash == source_data.content_hash,
+                            KnowledgeSource.status != SourceStatus.INACTIVE,
+                        )
                     )
-                ).with_for_update()
+                    .with_for_update()
+                )
 
                 existing = self.db.execute(stmt).scalar_one_or_none()
 
@@ -119,8 +123,11 @@ class KnowledgeService:
                     raise ValueError(
                         f"Failed to create source after {max_retries} attempts due to version conflicts"
                     ) from e
+        raise ValueError("Failed to create source after max retries")
 
-    def get_source(self, source_id: UUID, include_chunks: bool = False) -> Optional[KnowledgeSourceResponse]:
+    def get_source(
+        self, source_id: UUID, include_chunks: bool = False
+    ) -> KnowledgeSourceResponse | None:
         """
         Get knowledge source by ID.
 
@@ -131,8 +138,8 @@ class KnowledgeService:
         Returns:
             Source response if found, None otherwise
         """
-        stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
-        source = self.db.execute(stmt).scalar_one_or_none()
+        source_stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
+        source = self.db.execute(source_stmt).scalar_one_or_none()
 
         if not source:
             return None
@@ -142,7 +149,9 @@ class KnowledgeService:
         else:
             return KnowledgeSourceResponse.model_validate(source)
 
-    def update_source(self, source_id: UUID, source_data: KnowledgeSourceUpdate) -> KnowledgeSourceResponse:
+    def update_source(
+        self, source_id: UUID, source_data: KnowledgeSourceUpdate
+    ) -> KnowledgeSourceResponse:
         """
         Update knowledge source.
 
@@ -156,8 +165,8 @@ class KnowledgeService:
         Raises:
             ValueError: If source not found
         """
-        stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
-        source = self.db.execute(stmt).scalar_one_or_none()
+        source_stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
+        source = self.db.execute(source_stmt).scalar_one_or_none()
 
         if not source:
             raise ValueError("Knowledge source not found")
@@ -188,8 +197,8 @@ class KnowledgeService:
         # Recompute chunk count to ensure accuracy before activation
         self.recompute_chunk_count(source_id)
 
-        stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
-        source = self.db.execute(stmt).scalar_one_or_none()
+        source_stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
+        source = self.db.execute(source_stmt).scalar_one_or_none()
 
         if not source:
             raise ValueError("Knowledge source not found")
@@ -227,7 +236,9 @@ class KnowledgeService:
 
         return KnowledgeSourceResponse.model_validate(source)
 
-    def deactivate_old_versions(self, tenant_id: UUID, content_hash: str, current_version: int) -> None:
+    def deactivate_old_versions(
+        self, tenant_id: UUID, content_hash: str, current_version: int
+    ) -> None:
         """
         Deactivate old versions of a knowledge source.
 
@@ -253,7 +264,7 @@ class KnowledgeService:
         # Deactivate associated chunks
         for source in old_sources:
             stmt_chunks = select(KnowledgeChunk).where(
-                and_(KnowledgeChunk.source_id == source.id, KnowledgeChunk.is_active == True)
+                and_(KnowledgeChunk.source_id == source.id, KnowledgeChunk.is_active.is_(True))
             )
             chunks = self.db.execute(stmt_chunks).scalars().all()
 
@@ -306,13 +317,10 @@ class KnowledgeService:
         from sqlalchemy import func
 
         # Count active chunks for this source
-        stmt = select(func.count()).where(
-            and_(
-                KnowledgeChunk.source_id == source_id,
-                KnowledgeChunk.is_active == True
-            )
+        count_stmt = select(func.count()).where(
+            and_(KnowledgeChunk.source_id == source_id, KnowledgeChunk.is_active.is_(True))
         )
-        actual_count = self.db.execute(stmt).scalar() or 0
+        actual_count = self.db.execute(count_stmt).scalar() or 0
 
         # Update source
         stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
@@ -325,7 +333,7 @@ class KnowledgeService:
 
         return actual_count
 
-    def get_chunk(self, chunk_id: UUID) -> Optional[KnowledgeChunkResponse]:
+    def get_chunk(self, chunk_id: UUID) -> KnowledgeChunkResponse | None:
         """
         Get knowledge chunk by ID.
 
@@ -344,9 +352,7 @@ class KnowledgeService:
         return KnowledgeChunkResponse.model_validate(chunk)
 
     def get_chunks_batch(
-        self,
-        chunk_ids: list[UUID],
-        tenant_id: Optional[UUID] = None
+        self, chunk_ids: list[UUID], tenant_id: UUID | None = None
     ) -> dict[UUID, KnowledgeChunkResponse]:
         """
         Retrieve multiple chunks in a single query (fixes N+1 pattern).
@@ -364,8 +370,10 @@ class KnowledgeService:
         stmt = (
             select(KnowledgeChunk)
             .where(KnowledgeChunk.id.in_(chunk_ids))
-            .where(KnowledgeChunk.is_active == True)
-            .where(KnowledgeChunk.visibility == ChunkVisibility.PUBLIC)  # Security: prevent internal/restricted doc leaks
+            .where(KnowledgeChunk.is_active.is_(True))
+            .where(
+                KnowledgeChunk.visibility == ChunkVisibility.PUBLIC
+            )  # Security: prevent internal/restricted doc leaks
         )
 
         if tenant_id:
@@ -392,7 +400,7 @@ class KnowledgeService:
         stmt = select(KnowledgeChunk).where(KnowledgeChunk.source_id == source_id)
 
         if active_only:
-            stmt = stmt.where(KnowledgeChunk.is_active == True)
+            stmt = stmt.where(KnowledgeChunk.is_active.is_(True))
 
         stmt = stmt.order_by(KnowledgeChunk.chunk_index)
 
@@ -401,7 +409,7 @@ class KnowledgeService:
         return [KnowledgeChunkResponse.model_validate(c) for c in chunks]
 
     def get_tenant_sources(
-        self, tenant_id: UUID, status: Optional[SourceStatus] = None
+        self, tenant_id: UUID, status: SourceStatus | None = None
     ) -> list[KnowledgeSourceResponse]:
         """
         Get all knowledge sources for a tenant.
@@ -446,15 +454,14 @@ class KnowledgeService:
 
         if not capabilities:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Tenant capabilities not found"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Tenant capabilities not found"
             )
 
         # Check if uploads enabled
         if not capabilities.can_upload_knowledge:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Knowledge uploads disabled for your subscription"
+                detail="Knowledge uploads disabled for your subscription",
             )
 
         # Check URL source permission
@@ -465,14 +472,18 @@ class KnowledgeService:
                     "error": "url_sources_disabled",
                     "message": "URL sources not enabled for trial tier. Upgrade to Lite for webpage scraping.",
                     "upgrade_url": "/dashboard/upgrade",
-                }
+                },
             )
 
         # Count existing sources (files + URLs combined)
-        total_sources = self.db.query(KnowledgeSource).filter(
-            KnowledgeSource.tenant_id == tenant_id,
-            KnowledgeSource.status == SourceStatus.ACTIVE,
-        ).count()
+        total_sources = (
+            self.db.query(KnowledgeSource)
+            .filter(
+                KnowledgeSource.tenant_id == tenant_id,
+                KnowledgeSource.status == SourceStatus.ACTIVE,
+            )
+            .count()
+        )
 
         # Check combined limit
         if capabilities.max_knowledge_sources is not None:
@@ -485,7 +496,7 @@ class KnowledgeService:
                         "current_count": total_sources,
                         "limit": capabilities.max_knowledge_sources,
                         "upgrade_message": "Upgrade to Professional for 30 sources or Enterprise for unlimited.",
-                    }
+                    },
                 )
 
     def calculate_tenant_storage_mb(self, tenant_id: UUID) -> float:
@@ -501,10 +512,15 @@ class KnowledgeService:
         Returns:
             Storage in MB
         """
-        total_bytes = self.db.query(func.sum(KnowledgeSource.file_size_bytes)).filter(
-            KnowledgeSource.tenant_id == tenant_id,
-            KnowledgeSource.status.in_([SourceStatus.ACTIVE, SourceStatus.PROCESSING]),
-        ).scalar() or 0
+        total_bytes = (
+            self.db.query(func.sum(KnowledgeSource.file_size_bytes))
+            .filter(
+                KnowledgeSource.tenant_id == tenant_id,
+                KnowledgeSource.status.in_([SourceStatus.ACTIVE, SourceStatus.PROCESSING]),
+            )
+            .scalar()
+            or 0
+        )
 
         return total_bytes / 1024 / 1024  # Convert to MB
 
@@ -519,7 +535,7 @@ class KnowledgeService:
             List of active chunk responses
         """
         stmt = select(KnowledgeChunk).where(
-            and_(KnowledgeChunk.tenant_id == tenant_id, KnowledgeChunk.is_active == True)
+            and_(KnowledgeChunk.tenant_id == tenant_id, KnowledgeChunk.is_active.is_(True))
         )
 
         chunks = self.db.execute(stmt).scalars().all()
@@ -560,6 +576,7 @@ class KnowledgeService:
         # Delete vectors from Qdrant
         try:
             from app.utils.qdrant_client import qdrant_manager
+
             qdrant_manager.delete_by_source_id(source_id)
         except Exception as e:
             logger.warning(f"Failed to delete vectors from Qdrant: {e}")
@@ -572,11 +589,11 @@ class KnowledgeService:
         document_text: str,
         document_name: str,
         source_type: SourceType = SourceType.HELP_DOC,
-        document_metadata: Optional[Dict[str, Any]] = None,
-        uploaded_by: Optional[UUID] = None,
+        document_metadata: dict[str, Any] | None = None,
+        uploaded_by: UUID | None = None,
         source_category: str = "file",
-        source_url: Optional[str] = None,
-        file_size_bytes: Optional[int] = None,
+        source_url: str | None = None,
+        file_size_bytes: int | None = None,
     ) -> KnowledgeSourceResponse:
         """
         Create source and chunks WITHOUT embeddings.
@@ -619,6 +636,7 @@ class KnowledgeService:
                 tenant_id=tenant_id,
                 name=document_name,
                 source_type=source_type,
+                file_url=None,
                 content_hash=content_hash,
                 meta=document_metadata or {},
                 uploaded_by=uploaded_by,
@@ -634,10 +652,10 @@ class KnowledgeService:
             chunks_data = text_chunker.chunk_text(
                 text=document_text,
                 metadata={
-                    'source_name': document_name,
-                    'source_type': source_type.value,
+                    "source_name": document_name,
+                    "source_type": source_type.value,
                     **(document_metadata or {}),
-                }
+                },
             )
             logger.info(f"Created {len(chunks_data)} chunks")
 
@@ -651,12 +669,12 @@ class KnowledgeService:
                 chunk_create = KnowledgeChunkCreate(
                     tenant_id=tenant_id,
                     source_id=source.id,
-                    content=chunk_data['content'],
+                    content=chunk_data["content"],
                     chunk_index=i,
                     vector_id=None,  # Will be set by background worker
-                    meta=chunk_data.get('metadata', {}),
+                    meta=chunk_data.get("metadata", {}),
                     visibility=ChunkVisibility.PUBLIC,
-                    language='en',
+                    language="en",
                     version=source.version,
                 )
                 self.create_chunk(chunk_create)
@@ -677,11 +695,11 @@ class KnowledgeService:
         document_text: str,
         document_name: str,
         source_type: SourceType = SourceType.HELP_DOC,
-        document_metadata: Optional[Dict[str, Any]] = None,
-        uploaded_by: Optional[UUID] = None,
+        document_metadata: dict[str, Any] | None = None,
+        uploaded_by: UUID | None = None,
         source_category: str = "file",
-        source_url: Optional[str] = None,
-        file_size_bytes: Optional[int] = None,
+        source_url: str | None = None,
+        file_size_bytes: int | None = None,
     ) -> KnowledgeSourceResponse:
         """
         Process a document: chunk, embed, and store in PostgreSQL + Qdrant.
@@ -722,6 +740,7 @@ class KnowledgeService:
                 tenant_id=tenant_id,
                 name=document_name,
                 source_type=source_type,
+                file_url=None,
                 content_hash=content_hash,
                 meta=document_metadata or {},
                 uploaded_by=uploaded_by,
@@ -737,10 +756,10 @@ class KnowledgeService:
             chunks_data = text_chunker.chunk_text(
                 text=document_text,
                 metadata={
-                    'source_name': document_name,
-                    'source_type': source_type.value,
+                    "source_name": document_name,
+                    "source_type": source_type.value,
                     **(document_metadata or {}),
-                }
+                },
             )
             logger.info(f"Created {len(chunks_data)} chunks")
 
@@ -751,10 +770,9 @@ class KnowledgeService:
 
             # Step 4: Generate embeddings for all chunks
             logger.info("Generating embeddings...")
-            chunk_texts = [chunk['content'] for chunk in chunks_data]
+            chunk_texts = [chunk["content"] for chunk in chunks_data]
             embeddings = await embedding_service.generate_batch_embeddings(
-                texts=chunk_texts,
-                task_type="retrieval_document"
+                texts=chunk_texts, task_type="retrieval_document"
             )
 
             # Check for failed embeddings
@@ -766,7 +784,7 @@ class KnowledgeService:
             logger.info("Storing chunks in database and vector store...")
             created_chunks = []
 
-            for i, (chunk_data, embedding) in enumerate(zip(chunks_data, embeddings)):
+            for i, (chunk_data, embedding) in enumerate(zip(chunks_data, embeddings, strict=False)):
                 if embedding is None:
                     logger.warning(f"Skipping chunk {i} due to failed embedding")
                     continue
@@ -778,15 +796,15 @@ class KnowledgeService:
                 chunk_create = KnowledgeChunkCreate(
                     tenant_id=tenant_id,
                     source_id=source.id,
-                    content=chunk_data['content'],
+                    content=chunk_data["content"],
                     chunk_index=i,
                     vector_id=vector_id,
                     meta={
-                        'token_count': chunk_data.get('token_count'),
-                        **chunk_data.get('metadata', {}),
+                        "token_count": chunk_data.get("token_count"),
+                        **chunk_data.get("metadata", {}),
                     },
                     visibility=ChunkVisibility.PUBLIC,
-                    language='en',
+                    language="en",
                     version=source.version,
                 )
                 created_chunk = self.create_chunk(chunk_create)
@@ -799,13 +817,13 @@ class KnowledgeService:
                     tenant_id=tenant_id,
                     chunk_id=created_chunk.id,
                     source_id=source.id,
-                    content=chunk_data['content'],
+                    content=chunk_data["content"],
                     metadata={
-                        'chunk_index': i,
-                        'source_name': document_name,
-                        'source_type': source_type.value,
-                        'version': source.version,
-                    }
+                        "chunk_index": i,
+                        "source_name": document_name,
+                        "source_type": source_type.value,
+                        "version": source.version,
+                    },
                 )
 
             logger.info(f"Successfully stored {len(created_chunks)} chunks")
@@ -821,13 +839,15 @@ class KnowledgeService:
 
             # Refresh source to get updated chunk count
             refreshed_source = self.get_source(source.id)
+            if refreshed_source is None:
+                raise ValueError("Failed to refresh source after processing")
             return refreshed_source
 
         except Exception as e:
             logger.error(f"Error processing document '{document_name}': {e}")
             # Mark source as failed if it was created
             try:
-                if 'source' in locals() and source:
+                if "source" in locals() and source:
                     self.mark_source_failed(source.id)
             except Exception:
                 pass

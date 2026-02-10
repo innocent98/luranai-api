@@ -1,11 +1,11 @@
 """Platform system health monitoring API endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_platform_admin, get_db
-from app.services.system_health_service import SystemHealthService
 from app.schemas.platform_admin import PlatformAdminResponse
+from app.services.system_health_service import SystemHealthService
 
 router = APIRouter()
 
@@ -32,7 +32,7 @@ def get_job_health(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch job health: {str(e)}",
-        )
+        ) from e
 
 
 @router.get("/api", status_code=status.HTTP_200_OK)
@@ -57,7 +57,7 @@ def get_api_health(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch API health: {str(e)}",
-        )
+        ) from e
 
 
 @router.get("/database", status_code=status.HTTP_200_OK)
@@ -81,7 +81,7 @@ def get_database_health(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch database health: {str(e)}",
-        )
+        ) from e
 
 
 @router.get("/queue", status_code=status.HTTP_200_OK)
@@ -105,7 +105,7 @@ def get_queue_health(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch queue health: {str(e)}",
-        )
+        ) from e
 
 
 @router.get("/overall", status_code=status.HTTP_200_OK)
@@ -129,4 +129,4 @@ def get_overall_health(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch overall health: {str(e)}",
-        )
+        ) from e

@@ -1,11 +1,12 @@
+import time
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
-import time
 
+from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.logger import log
-from app.api.v1.api import api_router
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
@@ -57,9 +58,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
         # HSTS (only if HTTPS configured)
         if settings.ENVIRONMENT == "production" and settings.ENABLE_HSTS:
-            response.headers["Strict-Transport-Security"] = (
-                "max-age=31536000; includeSubDomains"
-            )
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
         return response
 
@@ -104,7 +103,7 @@ def root():
     return {
         "message": f"Welcome to {settings.PROJECT_NAME} API",
         "version": settings.VERSION,
-        "docs": f"{settings.API_V1_STR}/docs"
+        "docs": f"{settings.API_V1_STR}/docs",
     }
 
 
@@ -116,11 +115,12 @@ def health_check():
 def start():
     """Entry point for poetry script."""
     import uvicorn
+
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
         port=settings.SERVER_PORT,
-        reload=True if settings.ENVIRONMENT == "development" else False
+        reload=True if settings.ENVIRONMENT == "development" else False,
     )
 
 
