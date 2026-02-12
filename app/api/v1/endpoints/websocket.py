@@ -1,5 +1,6 @@
 """WebSocket endpoints for real-time chat."""
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -8,12 +9,26 @@ from loguru import logger
 
 from app.core.config import settings
 from app.core.websocket import connection_manager
-from app.db.models.conversation import MessageRole
+from app.db.models.conversation import ConversationSession, MessageRole
+from app.db.models.tenant import Tenant
 from app.db.models.user import UserRole
 from app.db.session import SessionLocal
 from app.services.conversation_service import ConversationService
 
 router = APIRouter()
+
+
+def _is_subscription_inactive(tenant: Tenant | None) -> bool:
+    """Return True when tenant subscription should block chat/support activity."""
+    if not tenant:
+        return True
+
+    if tenant.subscription_status in {"trialing", "trial"}:
+        now = datetime.now(UTC)
+        if tenant.trial_ends_at and now > tenant.trial_ends_at:
+            return True
+
+    return tenant.subscription_status in {"trial_expired", "canceled", "past_due"}
 
 
 @router.websocket("/chat/{session_id}")
@@ -48,6 +63,11 @@ async def customer_websocket(
         if session.user_identifier != user_identifier:
             await websocket.close(code=4003, reason="Unauthorized")
             return
+
+        tenant = db.query(Tenant).filter(Tenant.id == session.tenant_id).first()
+        if _is_subscription_inactive(tenant):
+            await websocket.close(code=4003, reason="Subscription inactive")
+            return
     finally:
         db.close()  # Release connection immediately after verification
 
@@ -73,6 +93,20 @@ async def customer_websocket(
                 # Get DB connection only for saving message
                 db = SessionLocal()
                 try:
+                    active_session = (
+                        db.query(ConversationSession)
+                        .filter(ConversationSession.id == session_id)
+                        .first()
+                    )
+                    tenant = (
+                        db.query(Tenant).filter(Tenant.id == active_session.tenant_id).first()
+                        if active_session
+                        else None
+                    )
+                    if _is_subscription_inactive(tenant):
+                        await websocket.close(code=4003, reason="Subscription inactive")
+                        return
+
                     conversation_service = ConversationService(db)
                     message = conversation_service.add_message(
                         session_id=session_id,
@@ -192,6 +226,11 @@ async def agent_websocket(
         if session.tenant_id != tenant_id:
             await websocket.close(code=4003, reason="Access denied")
             return
+
+        tenant = db.query(Tenant).filter(Tenant.id == session.tenant_id).first()
+        if _is_subscription_inactive(tenant):
+            await websocket.close(code=4003, reason="Subscription inactive")
+            return
     finally:
         db.close()  # Release connection immediately after verification
 
@@ -218,6 +257,20 @@ async def agent_websocket(
                 # Get DB connection only for saving message
                 db = SessionLocal()
                 try:
+                    active_session = (
+                        db.query(ConversationSession)
+                        .filter(ConversationSession.id == session_id)
+                        .first()
+                    )
+                    tenant = (
+                        db.query(Tenant).filter(Tenant.id == active_session.tenant_id).first()
+                        if active_session
+                        else None
+                    )
+                    if _is_subscription_inactive(tenant):
+                        await websocket.close(code=4003, reason="Subscription inactive")
+                        return
+
                     conversation_service = ConversationService(db)
                     message = conversation_service.add_message(
                         session_id=session_id,

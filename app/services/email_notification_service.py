@@ -1,17 +1,21 @@
 """Email notification service for automated tenant notifications."""
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 from loguru import logger
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.db.models.conversation import ConversationSession, Ticket
 from app.db.models.email_notification import EmailNotification
+from app.db.models.knowledge import KnowledgeSource
 from app.db.models.payment import PaymentTransaction
+from app.db.models.subscription_plan import SubscriptionPlan
 from app.db.models.tenant import Tenant
 from app.db.models.user import User, UserRole
 from app.services.email_service import email_service
@@ -29,6 +33,7 @@ class EmailNotificationService:
         """
         self.db = db
         self.email_service = email_service
+        self._lagos_tz = ZoneInfo("Africa/Lagos")
 
     async def _execute(self, query):
         if isinstance(self.db, AsyncSession):
@@ -154,6 +159,112 @@ class EmailNotificationService:
         result = await self._execute(query)
         return cast(User | None, result.scalars().first())
 
+    async def _get_plan_price_display(self, tier: str) -> str:
+        """Get monthly price display for a subscription tier."""
+        query = select(SubscriptionPlan).where(
+            and_(
+                SubscriptionPlan.tier == tier,
+                SubscriptionPlan.is_active.is_(True),
+            )
+        )
+        result = await self._execute(query)
+        plan = result.scalars().first()
+        if not plan:
+            return "N/A"
+        return f"₦{int(plan.monthly_price_kobo / 100):,}"
+
+    async def _get_plan_renewal_amount_display(self, tier: str, billing_cycle: str | None) -> str:
+        """Get renewal amount display from current subscription plan pricing."""
+        query = select(SubscriptionPlan).where(
+            and_(
+                SubscriptionPlan.tier == tier,
+                SubscriptionPlan.is_active.is_(True),
+            )
+        )
+        result = await self._execute(query)
+        plan = result.scalars().first()
+        if not plan:
+            return "N/A"
+
+        cycle = (billing_cycle or "monthly").lower()
+        amount_kobo = plan.annual_price_kobo if cycle == "annual" else plan.monthly_price_kobo
+        if not amount_kobo:
+            return "Contact Sales"
+        return f"₦{int(amount_kobo / 100):,}"
+
+    async def _get_monthly_usage_summary(self, tenant_id: uuid.UUID) -> dict[str, int]:
+        """Get current-month usage summary for reminder emails."""
+        now = datetime.now(UTC)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        conversations_query = select(func.count(ConversationSession.id)).where(
+            and_(
+                ConversationSession.tenant_id == tenant_id,
+                ConversationSession.created_at >= month_start,
+            )
+        )
+        tickets_query = select(func.count(Ticket.id)).where(
+            and_(
+                Ticket.tenant_id == tenant_id,
+                Ticket.created_at >= month_start,
+            )
+        )
+        knowledge_sources_query = select(func.count(KnowledgeSource.id)).where(
+            and_(
+                KnowledgeSource.tenant_id == tenant_id,
+                KnowledgeSource.created_at >= month_start,
+            )
+        )
+
+        conversations_result = await self._execute(conversations_query)
+        tickets_result = await self._execute(tickets_query)
+        knowledge_sources_result = await self._execute(knowledge_sources_query)
+
+        return {
+            "conversations": int(conversations_result.scalar() or 0),
+            "tickets": int(tickets_result.scalar() or 0),
+            "knowledge_sources": int(knowledge_sources_result.scalar() or 0),
+        }
+
+    async def _get_latest_successful_payment(
+        self, tenant_id: uuid.UUID
+    ) -> PaymentTransaction | None:
+        """Get latest successful payment transaction for tenant."""
+        query = (
+            select(PaymentTransaction)
+            .where(
+                and_(
+                    PaymentTransaction.tenant_id == tenant_id,
+                    PaymentTransaction.status == "success",
+                )
+            )
+            .order_by(PaymentTransaction.paid_at.desc(), PaymentTransaction.created_at.desc())
+            .limit(1)
+        )
+        result = await self._execute(query)
+        return cast(PaymentTransaction | None, result.scalars().first())
+
+    async def estimate_next_renewal_at(self, tenant_id: uuid.UUID) -> datetime | None:
+        """Estimate next auto-renewal timestamp from latest successful payment."""
+        tenant_query = select(Tenant).where(Tenant.id == tenant_id)
+        tenant_result = await self._execute(tenant_query)
+        tenant = tenant_result.scalars().first()
+        if not tenant or tenant.subscription_status != "active" or tenant.subscription_tier == "trial":
+            return None
+
+        latest_payment = await self._get_latest_successful_payment(tenant_id)
+        if not latest_payment:
+            return None
+
+        base_time = latest_payment.paid_at or latest_payment.created_at
+        if not base_time:
+            return None
+
+        billing_cycle = tenant.billing_cycle or latest_payment.billing_cycle
+        if billing_cycle == "annual":
+            return base_time + timedelta(days=365)
+        return base_time + timedelta(days=30)
+
     async def send_trial_expiration_reminder(
         self, tenant_id: uuid.UUID, days_remaining: int = 3
     ) -> bool:
@@ -168,12 +279,16 @@ class EmailNotificationService:
             True if sent successfully, False otherwise
         """
         try:
-            # Check for duplicates
-            if await self._check_if_already_sent(tenant_id, "trial_expiring", hours=24):
+            notification_type = (
+                "trial_expiring_today" if days_remaining <= 0 else f"trial_expiring_{days_remaining}d"
+            )
+
+            # Check for duplicates for this specific reminder window.
+            if await self._check_if_already_sent(tenant_id, notification_type, hours=24):
                 logger.info(f"Trial expiration email already sent for tenant {tenant_id}")
                 await self._record_notification(
                     tenant_id=tenant_id,
-                    notification_type="trial_expiring",
+                    notification_type=notification_type,
                     recipient_email="",
                     subject="",
                     template_data={},
@@ -196,26 +311,35 @@ class EmailNotificationService:
                 return False
 
             # Prepare template data
+            lite_monthly = await self._get_plan_price_display("lite")
+            professional_monthly = await self._get_plan_price_display("professional")
+            usage_summary = await self._get_monthly_usage_summary(tenant_id)
+            days_label = "today" if days_remaining <= 0 else str(days_remaining)
+
             template_data = {
                 "admin_name": admin.full_name,
                 "company_name": tenant.display_name,
                 "days_remaining": days_remaining,
+                "days_label": days_label,
                 "expiry_date": tenant.trial_ends_at.strftime("%B %d, %Y"),
-                "usage_summary": {
-                    "conversations": 0,  # TODO: Query from analytics
-                    "tickets": 0,
-                    "knowledge_sources": 0,
-                },
+                "usage_summary": usage_summary,
                 "pricing": {
-                    "lite_monthly": "₦12,000",
-                    "professional_monthly": "₦35,000",
+                    "lite_monthly": lite_monthly,
+                    "professional_monthly": professional_monthly,
                 },
                 "app_url": settings.FRONTEND_URL,
                 "doc_url": settings.FRONTEND_DOC_URL,
                 "current_year": datetime.now().year,
             }
 
-            subject = f"Your Luran Trial Expires in {days_remaining} Days - {tenant.display_name}"
+            if days_remaining <= 0:
+                subject = f"Your Luran free trial expires today - {tenant.display_name}"
+            elif days_remaining == 1:
+                subject = f"Your Luran free trial expires in 1 day - {tenant.display_name}"
+            else:
+                subject = (
+                    f"Your Luran free trial expires in {days_remaining} days - {tenant.display_name}"
+                )
 
             # Try to send email
             try:
@@ -231,7 +355,7 @@ class EmailNotificationService:
                 # Record notification
                 await self._record_notification(
                     tenant_id=tenant_id,
-                    notification_type="trial_expiring",
+                    notification_type=notification_type,
                     recipient_email=admin.email,
                     subject=subject,
                     template_data=template_data,
@@ -245,7 +369,7 @@ class EmailNotificationService:
                 logger.error(f"Failed to send trial expiration email: {e}")
                 await self._record_notification(
                     tenant_id=tenant_id,
-                    notification_type="trial_expiring",
+                    notification_type=notification_type,
                     recipient_email=admin.email,
                     subject=subject,
                     template_data=template_data,
@@ -498,4 +622,101 @@ class EmailNotificationService:
 
         except Exception as e:
             logger.error(f"Error in send_payment_failure_notification: {e}")
+            return False
+
+    async def send_subscription_renewal_reminder(
+        self,
+        tenant_id: uuid.UUID,
+        days_remaining: int,
+        next_renewal_at: datetime | None = None,
+    ) -> bool:
+        """
+        Send pre-renewal reminder for active paid subscriptions.
+
+        Args:
+            tenant_id: Tenant ID
+            days_remaining: Days until renewal (e.g., 7, 3, 1)
+            next_renewal_at: Optional precomputed renewal timestamp
+        """
+        try:
+            notification_type = f"subscription_renewal_{days_remaining}d"
+            if await self._check_if_already_sent(tenant_id, notification_type, hours=24):
+                logger.info(f"Renewal reminder already sent for tenant {tenant_id}")
+                return True
+
+            tenant_query = select(Tenant).where(Tenant.id == tenant_id)
+            tenant_result = await self._execute(tenant_query)
+            tenant = tenant_result.scalars().first()
+            if not tenant:
+                logger.warning(f"Tenant {tenant_id} not found")
+                return False
+            if tenant.subscription_status != "active" or tenant.subscription_tier == "trial":
+                logger.info(f"Skipping renewal reminder: tenant {tenant_id} is not on active paid plan")
+                return False
+
+            admin = await self._get_tenant_admin(tenant_id)
+            if not admin:
+                logger.warning(f"No admin found for tenant {tenant_id}")
+                return False
+
+            renewal_at = next_renewal_at or await self.estimate_next_renewal_at(tenant_id)
+            if not renewal_at:
+                logger.warning(f"No renewal timestamp available for tenant {tenant_id}")
+                return False
+
+            latest_payment = await self._get_latest_successful_payment(tenant_id)
+            amount_naira = await self._get_plan_renewal_amount_display(
+                tier=tenant.subscription_tier,
+                billing_cycle=tenant.billing_cycle,
+            )
+
+            renewal_local = renewal_at.astimezone(self._lagos_tz)
+            renewal_date_local = renewal_local.strftime("%B %d, %Y")
+            renewal_time_local = renewal_local.strftime("%I:%M %p")
+
+            template_data = {
+                "admin_name": admin.full_name,
+                "company_name": tenant.display_name,
+                "plan_name": tenant.subscription_tier.replace("_", " ").title(),
+                "billing_cycle": (tenant.billing_cycle or "monthly").title(),
+                "days_remaining": days_remaining,
+                "renewal_date": renewal_date_local,
+                "renewal_time": renewal_time_local,
+                "renewal_timezone": "GMT+1 (Africa/Lagos)",
+                "renewal_amount": amount_naira,
+                "app_url": settings.FRONTEND_URL,
+                "doc_url": settings.FRONTEND_DOC_URL,
+                "current_year": datetime.now(UTC).year,
+            }
+
+            if days_remaining == 1:
+                subject = f"Your Luran subscription renews in 1 day - {tenant.display_name}"
+            else:
+                subject = (
+                    f"Your Luran subscription renews in {days_remaining} days - {tenant.display_name}"
+                )
+
+            template = self.email_service.jinja_env.get_template("subscription_renewal_upcoming.html")
+            html_content = template.render(**template_data)
+            success = self.email_service._send_email(
+                to_email=admin.email,
+                subject=subject,
+                html_content=html_content,
+            )
+
+            await self._record_notification(
+                tenant_id=tenant_id,
+                notification_type=notification_type,
+                recipient_email=admin.email,
+                subject=subject,
+                template_data=template_data,
+                reference_id=latest_payment.id if latest_payment else None,
+                reference_type="payment",
+                status="sent" if success else "failed",
+                error_message=None if success else "SMTP send failed",
+            )
+            return success
+
+        except Exception as e:
+            logger.error(f"Error in send_subscription_renewal_reminder: {e}")
             return False

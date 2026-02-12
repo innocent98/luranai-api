@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Your Luran Subscription Renews Soon{% endblock %}
+
+{% block content %}
+<h1>Upcoming Subscription Renewal</h1>
+
+<p>Hi {{ admin_name }},</p>
+
+<p>
+    Your <strong>{{ plan_name }}</strong> plan for <strong>{{ company_name }}</strong>
+    will auto-renew in <strong>{{ days_remaining }} day{% if days_remaining != 1 %}s{% endif %}</strong>.
+</p>
+
+<div class="info">
+    <strong>Renewal Details:</strong>
+    <ul style="margin: 8px 0 0 0; padding-left: 20px;">
+        <li><strong>Plan:</strong> {{ plan_name }} ({{ billing_cycle }})</li>
+        <li><strong>Amount:</strong> {{ renewal_amount }}</li>
+        <li><strong>Date:</strong> {{ renewal_date }}</li>
+        <li><strong>Time:</strong> {{ renewal_time }} {{ renewal_timezone }}</li>
+    </ul>
+</div>
+
+<p style="margin-top: 20px;">
+    No action is required if your payment method is valid.
+</p>
+
+<p>
+    If you want to update your billing details or manage your subscription,
+    visit your billing settings.
+</p>
+
+<center>
+    <a href="{{ app_url }}/dashboard/settings/subscription" class="button">
+        Manage Subscription
+    </a>
+</center>
+
+<p style="margin-top: 24px;">
+    Need help? Visit our docs at {{ doc_url }} or contact support.
+</p>
+{% endblock %}
+

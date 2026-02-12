@@ -179,6 +179,52 @@ class Settings(BaseSettings):
     RATE_LIMIT_FAIL_OPEN: bool = True
     RATE_LIMIT_ERROR_LOG_COOLDOWN_SECONDS: int = 60
 
+    # Subscription/trial reminder scheduling
+    # Comma-separated day offsets before expiry. Example: "14,7,3,1,0"
+    TRIAL_EXPIRY_REMINDER_DAYS: str = "14,7,3,1,0"
+    # Comma-separated day offsets before paid-plan auto-renewal. Example: "7,3,1"
+    SUBSCRIPTION_RENEWAL_REMINDER_DAYS: str = "7,3,1"
+
+    def get_trial_expiry_reminder_days(self) -> list[int]:
+        """Parse and validate reminder windows from env setting."""
+        try:
+            values = [
+                int(item.strip())
+                for item in self.TRIAL_EXPIRY_REMINDER_DAYS.split(",")
+                if item.strip() != ""
+            ]
+        except ValueError as e:
+            raise ValueError(
+                "TRIAL_EXPIRY_REMINDER_DAYS must be a comma-separated list of integers"
+            ) from e
+
+        if not values:
+            raise ValueError("TRIAL_EXPIRY_REMINDER_DAYS cannot be empty")
+        if any(day < 0 for day in values):
+            raise ValueError("TRIAL_EXPIRY_REMINDER_DAYS cannot contain negative values")
+
+        return sorted(set(values))
+
+    def get_subscription_renewal_reminder_days(self) -> list[int]:
+        """Parse and validate paid-subscription renewal reminder windows."""
+        try:
+            values = [
+                int(item.strip())
+                for item in self.SUBSCRIPTION_RENEWAL_REMINDER_DAYS.split(",")
+                if item.strip() != ""
+            ]
+        except ValueError as e:
+            raise ValueError(
+                "SUBSCRIPTION_RENEWAL_REMINDER_DAYS must be a comma-separated list of integers"
+            ) from e
+
+        if not values:
+            raise ValueError("SUBSCRIPTION_RENEWAL_REMINDER_DAYS cannot be empty")
+        if any(day < 0 for day in values):
+            raise ValueError("SUBSCRIPTION_RENEWAL_REMINDER_DAYS cannot contain negative values")
+
+        return sorted(set(values))
+
     model_config = SettingsConfigDict(
         case_sensitive=True,
         env_file=".env",

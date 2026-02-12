@@ -197,3 +197,30 @@ def get_dashboard_summary(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch dashboard summary: {str(e)}",
         ) from e
+
+
+@router.get(
+    "/ai-flows",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_analytics_rate_limit)],
+)
+def get_ai_flow_comparison(
+    days: int = Query(30, ge=7, le=365, description="Number of days to analyze"),
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
+):
+    """
+    Compare AI/RAG and Flow performance across the platform.
+
+    Returns:
+        KPI comparison, daily trend, outcomes, and top-tenant mix
+    """
+    try:
+        analytics_service = PlatformAnalyticsService(db)
+        metrics = analytics_service.get_ai_flow_comparison_metrics(days=days)
+        return metrics
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch AI/Flow comparison metrics: {str(e)}",
+        ) from e

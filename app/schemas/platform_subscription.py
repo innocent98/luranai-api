@@ -140,3 +140,27 @@ class TrialExtensionResponse(BaseModel):
     previous_trial_end: datetime
     new_trial_end: datetime
     days_extended: int
+
+
+class TrialReminderNotificationResponse(BaseModel):
+    """Single trial reminder email event."""
+
+    id: UUID
+    tenant_id: UUID
+    tenant_name: str
+    notification_type: str
+    days_remaining: int | None = None
+    recipient_email: str
+    status: str
+    subject: str
+    sent_at: datetime | None = None
+    created_at: datetime
+
+
+class TrialReminderHistoryResponse(BaseModel):
+    """Paginated trial reminder history response."""
+
+    items: list[TrialReminderNotificationResponse] = Field(default_factory=list)
+    total: int
+    limit: int
+    offset: int

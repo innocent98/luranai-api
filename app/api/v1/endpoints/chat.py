@@ -10,7 +10,13 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_tenant_admin, get_current_user, get_db, verify_tenant_access
+from app.api.deps import (
+    get_current_tenant_admin,
+    get_current_user,
+    get_db,
+    verify_subscription_active,
+    verify_tenant_access,
+)
 from app.db.models.conversation import (
     ConversationSession,
     EscalationAction,
@@ -1534,6 +1540,7 @@ async def agent_takeover(
     session_id: UUID,
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
+    _subscription_check: object = Depends(verify_subscription_active),
 ):
     """
     Agent takes over a conversation session.
@@ -1639,6 +1646,7 @@ async def send_agent_message(
     message_data: MessageRequest,
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
+    _subscription_check: object = Depends(verify_subscription_active),
 ):
     """
     Send a message as an agent (alternative to WebSocket for HTTP-based agents).

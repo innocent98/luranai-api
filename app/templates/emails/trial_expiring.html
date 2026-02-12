@@ -3,12 +3,18 @@
 {% block title %}Your Luran Trial is Expiring Soon{% endblock %}
 
 {% block content %}
-<h1>Your Trial is Expiring in {{ days_remaining }} Days</h1>
+{% if days_remaining <= 0 %}
+<h1>Your Trial Expires Today</h1>
+{% elif days_remaining == 1 %}
+<h1>Your Trial Expires in 1 Day</h1>
+{% else %}
+<h1>Your Trial Expires in {{ days_remaining }} Days</h1>
+{% endif %}
 
 <p>Hi {{ admin_name }},</p>
 
 <p>
-    Your <strong>{{ company_name }}</strong> free trial of Luran will expire on
+    Your free trial for <strong>{{ company_name }}</strong> will expire on
     <strong>{{ expiry_date }}</strong>. Don't lose access to your AI-powered customer support!
 </p>
 
@@ -16,15 +22,9 @@
 <div class="info">
     <strong>Your Usage This Month:</strong>
     <ul style="margin: 8px 0 0 0; padding-left: 20px;">
-        {% if usage_summary.conversations %}
-        <li><strong>{{ usage_summary.conversations }}</strong> conversations handled</li>
-        {% endif %}
-        {% if usage_summary.tickets %}
-        <li><strong>{{ usage_summary.tickets }}</strong> support tickets managed</li>
-        {% endif %}
-        {% if usage_summary.knowledge_sources %}
-        <li><strong>{{ usage_summary.knowledge_sources }}</strong> knowledge sources uploaded</li>
-        {% endif %}
+        <li><strong>{{ usage_summary.conversations or 0 }}</strong> conversations handled</li>
+        <li><strong>{{ usage_summary.tickets or 0 }}</strong> support tickets managed</li>
+        <li><strong>{{ usage_summary.knowledge_sources or 0 }}</strong> knowledge sources uploaded</li>
     </ul>
 </div>
 {% endif %}
@@ -41,7 +41,7 @@
                 {{ pricing.lite_monthly }}/month
             </div>
             <ul style="color: #4b5563; font-size: 14px; padding-left: 20px; margin: 0;">
-                <li>1,000 conversations/month</li>
+                <li>2,000 conversations/month</li>
                 <li>3 team members</li>
                 <li>10 knowledge sources</li>
                 <li>Priority email support</li>
@@ -59,7 +59,7 @@
                 {{ pricing.professional_monthly }}/month
             </div>
             <ul style="color: #4b5563; font-size: 14px; padding-left: 20px; margin: 0;">
-                <li>5,000 conversations/month</li>
+                <li>10,000 conversations/month</li>
                 <li>10 team members</li>
                 <li>30 knowledge sources</li>
                 <li>Advanced AI responses</li>

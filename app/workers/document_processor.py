@@ -408,7 +408,7 @@ Luran Team
 
 async def check_trial_expiration_3days(ctx: dict) -> dict:
     """
-    Check for trials expiring in 3 days and send reminder emails.
+    Check for trial/free-tier expirations and send reminder emails.
 
     Scheduled: Daily at 9:00 AM UTC
 
@@ -425,54 +425,82 @@ async def check_trial_expiration_3days(ctx: dict) -> dict:
     from app.db.models.tenant import Tenant
     from app.services.email_notification_service import EmailNotificationService
 
-    logger.info("Running trial expiration check (3-day reminder)")
+    # Config-driven reminder offsets (days before trial expiry).
+    # Process longest window first for clearer logs and expected reminder cadence.
+    reminder_windows_days = sorted(settings.get_trial_expiry_reminder_days(), reverse=True)
+
+    logger.info(
+        "Running trial expiration reminders for windows: {}",
+        ",".join(map(str, reminder_windows_days)),
+    )
 
     db = SessionLocal()
     emails_sent = 0
+    tenants_checked = 0
 
     try:
-        # Find tenants with trials expiring in 3 days
-        target_date = datetime.now(UTC) + timedelta(days=3)
-        date_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        date_end = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-
-        query = select(Tenant).where(
-            and_(
-                Tenant.subscription_status == "trialing",
-                Tenant.trial_ends_at >= date_start,
-                Tenant.trial_ends_at <= date_end,
-            )
-        )
-
-        result = db.execute(query)
-        expiring_tenants = result.scalars().all()
-
-        logger.info(f"Found {len(expiring_tenants)} tenants with trials expiring in 3 days")
-
-        # Send reminder emails
         email_service = EmailNotificationService(db)
 
-        for tenant in expiring_tenants:
-            try:
-                success = await email_service.send_trial_expiration_reminder(
-                    tenant_id=tenant.id, days_remaining=3
+        for days_remaining in reminder_windows_days:
+            target_date = datetime.now(UTC) + timedelta(days=days_remaining)
+            date_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            date_end = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+            query = select(Tenant).where(
+                and_(
+                    Tenant.subscription_status.in_(["trialing", "trial"]),
+                    Tenant.trial_ends_at >= date_start,
+                    Tenant.trial_ends_at <= date_end,
                 )
-                if success:
-                    emails_sent += 1
-                    logger.info(f"Sent trial expiration reminder to tenant {tenant.name}")
-                else:
-                    logger.warning(f"Failed to send reminder to tenant {tenant.name}")
-            except Exception as e:
-                logger.error(f"Error sending reminder to tenant {tenant.name}: {e}")
+            )
+
+            result = db.execute(query)
+            expiring_tenants = result.scalars().all()
+            tenants_checked += len(expiring_tenants)
+
+            logger.info(
+                "Found {} tenants with trials expiring in {} day(s)",
+                len(expiring_tenants),
+                days_remaining,
+            )
+
+            for tenant in expiring_tenants:
+                try:
+                    success = await email_service.send_trial_expiration_reminder(
+                        tenant_id=tenant.id, days_remaining=days_remaining
+                    )
+                    if success:
+                        emails_sent += 1
+                        logger.info(
+                            "Sent trial expiration reminder to tenant {} ({} day(s) remaining)",
+                            tenant.name,
+                            days_remaining,
+                        )
+                    else:
+                        logger.warning(
+                            "Failed to send reminder to tenant {} ({} day(s) remaining)",
+                            tenant.name,
+                            days_remaining,
+                        )
+                except Exception as e:
+                    logger.error(
+                        "Error sending reminder to tenant {} ({} day(s) remaining): {}",
+                        tenant.name,
+                        days_remaining,
+                        e,
+                    )
 
         logger.info(
-            f"Trial expiration check complete. Sent {emails_sent}/{len(expiring_tenants)} emails"
+            "Trial expiration reminder run complete. Sent {}/{} emails",
+            emails_sent,
+            tenants_checked,
         )
 
         return {
             "status": "success",
             "emails_sent": emails_sent,
-            "tenants_checked": len(expiring_tenants),
+            "tenants_checked": tenants_checked,
+            "windows": reminder_windows_days,
         }
 
     except Exception as e:
@@ -552,6 +580,105 @@ async def send_subscription_confirmations(ctx: dict) -> dict:
 
     except Exception as e:
         logger.error(f"Error in subscription confirmation job: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "emails_sent": emails_sent,
+        }
+    finally:
+        db.close()
+
+
+async def check_subscription_renewal_reminders(ctx: dict) -> dict:
+    """
+    Send paid subscription auto-renewal reminders (7/3/1 days by default).
+
+    Scheduled: Daily at 10:00 AM UTC
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import and_, select
+
+    from app.db.models.tenant import Tenant
+    from app.services.email_notification_service import EmailNotificationService
+
+    reminder_windows_days = sorted(settings.get_subscription_renewal_reminder_days(), reverse=True)
+
+    logger.info(
+        "Running subscription renewal reminders for windows: {}",
+        ",".join(map(str, reminder_windows_days)),
+    )
+
+    db = SessionLocal()
+    emails_sent = 0
+    tenants_checked = 0
+
+    try:
+        email_service = EmailNotificationService(db)
+
+        base_query = select(Tenant).where(
+            and_(
+                Tenant.subscription_status == "active",
+                Tenant.subscription_tier != "trial",
+                Tenant.billing_cycle.isnot(None),
+            )
+        )
+        tenant_candidates = db.execute(base_query).scalars().all()
+        logger.info("Found {} active paid tenants to evaluate for renewal reminders", len(tenant_candidates))
+
+        for days_remaining in reminder_windows_days:
+            target_date = datetime.now(UTC) + timedelta(days=days_remaining)
+            date_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            date_end = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+            for tenant in tenant_candidates:
+                next_renewal_at = await email_service.estimate_next_renewal_at(tenant.id)
+                if not next_renewal_at:
+                    continue
+                if not (date_start <= next_renewal_at <= date_end):
+                    continue
+
+                tenants_checked += 1
+                try:
+                    success = await email_service.send_subscription_renewal_reminder(
+                        tenant_id=tenant.id,
+                        days_remaining=days_remaining,
+                        next_renewal_at=next_renewal_at,
+                    )
+                    if success:
+                        emails_sent += 1
+                        logger.info(
+                            "Sent renewal reminder to tenant {} ({} day(s) remaining)",
+                            tenant.name,
+                            days_remaining,
+                        )
+                    else:
+                        logger.warning(
+                            "Failed renewal reminder for tenant {} ({} day(s) remaining)",
+                            tenant.name,
+                            days_remaining,
+                        )
+                except Exception as e:
+                    logger.error(
+                        "Error sending renewal reminder to tenant {} ({} day(s) remaining): {}",
+                        tenant.name,
+                        days_remaining,
+                        e,
+                    )
+
+        logger.info(
+            "Subscription renewal reminder run complete. Sent {}/{} emails",
+            emails_sent,
+            tenants_checked,
+        )
+        return {
+            "status": "success",
+            "emails_sent": emails_sent,
+            "tenants_checked": tenants_checked,
+            "windows": reminder_windows_days,
+        }
+    except Exception as e:
+        logger.error(f"Error in subscription renewal reminders job: {e}")
         return {
             "status": "error",
             "error": str(e),
@@ -779,6 +906,7 @@ class WorkerSettings:
         auto_abandon_inactive_conversations,
         auto_resolve_stale_tickets,
         check_trial_expiration_3days,
+        check_subscription_renewal_reminders,
         send_subscription_confirmations,
         send_payment_failure_emails,
         aggregate_daily_metrics,
@@ -811,10 +939,17 @@ class WorkerSettings:
             minute=0,
             run_at_startup=False,  # Don't run on startup
         ),
-        # Check trial expiration (3-day reminder) - daily at 9 AM UTC
+        # Check trial expiration reminders (14/7/3/1/0 days) - daily at 9 AM UTC
         cron(
             check_trial_expiration_3days,
             hour=9,
+            minute=0,
+            run_at_startup=False,
+        ),
+        # Check paid subscription auto-renewal reminders (7/3/1 days) - daily at 10 AM UTC
+        cron(
+            check_subscription_renewal_reminders,
+            hour=10,
             minute=0,
             run_at_startup=False,
         ),

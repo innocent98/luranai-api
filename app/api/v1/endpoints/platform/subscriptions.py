@@ -11,6 +11,7 @@ from app.schemas.platform_subscription import (
     PaymentTransactionResponse,
     SubscriptionOverrideResponse,
     TenantSubscriptionDetailResponse,
+    TrialReminderHistoryResponse,
     TenantSubscriptionOverrideRequest,
     TrialExtensionRequest,
     TrialExtensionResponse,
@@ -230,4 +231,94 @@ def list_payment_transactions(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list transactions: {str(e)}",
+        ) from e
+
+
+@router.get(
+    "/reminders/trial",
+    response_model=TrialReminderHistoryResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def list_trial_reminder_history(
+    tenant_id: UUID | None = Query(None, description="Filter by tenant"),
+    days_remaining: int | None = Query(
+        None,
+        ge=0,
+        le=365,
+        description="Filter by reminder window in days (e.g., 14, 7, 3, 1, 0)",
+    ),
+    status_filter: str | None = Query(
+        None,
+        description="Filter by delivery status (sent, failed, skipped, pending)",
+    ),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum results"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
+):
+    """
+    List trial reminder email history (platform admin only).
+
+    Useful for auditing reminder delivery and troubleshooting notification gaps.
+    """
+    service = PlatformSubscriptionService(db)
+
+    try:
+        return service.get_trial_reminder_history(
+            tenant_id=tenant_id,
+            days_remaining=days_remaining,
+            status=status_filter,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch trial reminder history: {str(e)}",
+        ) from e
+
+
+@router.get(
+    "/reminders/renewal",
+    response_model=TrialReminderHistoryResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def list_renewal_reminder_history(
+    tenant_id: UUID | None = Query(None, description="Filter by tenant"),
+    days_remaining: int | None = Query(
+        None,
+        ge=1,
+        le=365,
+        description="Filter by reminder window in days (e.g., 7, 3, 1)",
+    ),
+    status_filter: str | None = Query(
+        None,
+        description="Filter by delivery status (sent, failed, skipped, pending)",
+    ),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum results"),
+    offset: int = Query(0, ge=0, description="Pagination offset"),
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
+):
+    """
+    List paid-subscription renewal reminder email history (platform admin only).
+
+    Useful for auditing renewal reminder delivery before charge dates.
+    """
+    service = PlatformSubscriptionService(db)
+
+    try:
+        return service.get_renewal_reminder_history(
+            tenant_id=tenant_id,
+            days_remaining=days_remaining,
+            status=status_filter,
+            limit=limit,
+            offset=offset,
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch renewal reminder history: {str(e)}",
         ) from e

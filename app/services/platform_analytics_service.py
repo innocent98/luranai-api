@@ -4,11 +4,13 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from loguru import logger
-from sqlalchemy import and_, distinct, func, or_, select
+from sqlalchemy import String, and_, cast, distinct, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models.conversation import ConversationSession, Ticket
+from app.db.models.conversation import ConversationSession, Message, MessageRole, SessionStatus, Ticket
+from app.db.models.flow import FlowExecution, FlowExecutionStatus
 from app.db.models.knowledge import KnowledgeSource
+from app.db.models.subscription_plan import SubscriptionPlan
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant
 from app.services.visit_analytics_service import VisitAnalyticsService
@@ -66,11 +68,20 @@ class PlatformAnalyticsService:
             result = self.db.execute(active_subscriptions_query)
             subscriptions = result.all()
 
-            # Pricing tiers (in Naira)
+            # Pricing from DB plans (fallback to 0 when unavailable).
+            plans = self.db.execute(
+                select(
+                    SubscriptionPlan.tier,
+                    SubscriptionPlan.monthly_price_kobo,
+                    SubscriptionPlan.annual_price_kobo,
+                ).where(SubscriptionPlan.is_active.is_(True))
+            ).all()
             pricing = {
-                "lite": {"monthly": 12000, "annual": 120000},
-                "professional": {"monthly": 35000, "annual": 350000},
-                "enterprise": {"monthly": 0, "annual": 0},  # Contact pricing
+                str(tier).lower(): {
+                    "monthly": int(monthly_price_kobo or 0) / 100,
+                    "annual": int(annual_price_kobo or 0) / 100,
+                }
+                for tier, monthly_price_kobo, annual_price_kobo in plans
             }
 
             mrr = 0
@@ -414,6 +425,261 @@ class PlatformAnalyticsService:
 
         except Exception as e:
             logger.error(f"Error calculating usage metrics: {e}")
+            raise
+
+    def get_ai_flow_comparison_metrics(self, days: int = 30) -> dict[str, Any]:
+        """
+        Compare AI/RAG and Flow performance across the platform.
+
+        Args:
+            days: Lookback period in days
+        """
+        try:
+            end_date = datetime.utcnow()
+            start_date = end_date - timedelta(days=days)
+            flow_flag_expr = func.lower(
+                func.replace(
+                    func.coalesce(cast(Message.meta["flow_triggered"], String), ""),
+                    '"',
+                    "",
+                )
+            )
+
+            # Interaction counts from assistant messages.
+            ai_interactions_query = select(func.count(Message.id)).where(
+                and_(
+                    Message.role == MessageRole.ASSISTANT,
+                    Message.created_at >= start_date,
+                    or_(
+                        Message.meta.is_(None),
+                        flow_flag_expr != "true",
+                    ),
+                )
+            )
+            ai_interactions = int(self.db.execute(ai_interactions_query).scalar() or 0)
+
+            flow_interactions_query = select(func.count(Message.id)).where(
+                and_(
+                    Message.role == MessageRole.ASSISTANT,
+                    Message.created_at >= start_date,
+                    flow_flag_expr == "true",
+                )
+            )
+            flow_interactions = int(self.db.execute(flow_interactions_query).scalar() or 0)
+
+            # Flow execution performance.
+            flow_exec_total = int(
+                self.db.execute(
+                    select(func.count(FlowExecution.id)).where(FlowExecution.created_at >= start_date)
+                ).scalar()
+                or 0
+            )
+            flow_exec_completed = int(
+                self.db.execute(
+                    select(func.count(FlowExecution.id)).where(
+                        and_(
+                            FlowExecution.created_at >= start_date,
+                            FlowExecution.status == FlowExecutionStatus.COMPLETED,
+                        )
+                    )
+                ).scalar()
+                or 0
+            )
+            flow_exec_failed = int(
+                self.db.execute(
+                    select(func.count(FlowExecution.id)).where(
+                        and_(
+                            FlowExecution.created_at >= start_date,
+                            FlowExecution.status == FlowExecutionStatus.FAILED,
+                        )
+                    )
+                ).scalar()
+                or 0
+            )
+
+            # Session classification for escalation comparison.
+            flow_session_subquery = (
+                select(FlowExecution.session_id.label("session_id"))
+                .where(FlowExecution.created_at >= start_date)
+                .distinct()
+                .subquery()
+            )
+            ai_session_subquery = (
+                select(Message.session_id.label("session_id"))
+                .where(
+                    and_(
+                        Message.role == MessageRole.ASSISTANT,
+                        Message.created_at >= start_date,
+                        or_(
+                            Message.meta.is_(None),
+                            flow_flag_expr != "true",
+                        ),
+                        ~Message.session_id.in_(select(flow_session_subquery.c.session_id)),
+                    )
+                )
+                .distinct()
+                .subquery()
+            )
+
+            flow_escalations = int(
+                self.db.execute(
+                    select(func.count(Ticket.id)).where(
+                        and_(
+                            Ticket.created_at >= start_date,
+                            Ticket.session_id.in_(select(flow_session_subquery.c.session_id)),
+                        )
+                    )
+                ).scalar()
+                or 0
+            )
+            ai_escalations = int(
+                self.db.execute(
+                    select(func.count(Ticket.id)).where(
+                        and_(
+                            Ticket.created_at >= start_date,
+                            Ticket.session_id.in_(select(ai_session_subquery.c.session_id)),
+                        )
+                    )
+                ).scalar()
+                or 0
+            )
+
+            ai_sessions_total = int(
+                self.db.execute(select(func.count()).select_from(ai_session_subquery)).scalar() or 0
+            )
+            ai_sessions_resolved = int(
+                self.db.execute(
+                    select(func.count(ConversationSession.id)).where(
+                        and_(
+                            ConversationSession.id.in_(select(ai_session_subquery.c.session_id)),
+                            ConversationSession.status == SessionStatus.RESOLVED,
+                        )
+                    )
+                ).scalar()
+                or 0
+            )
+
+            ai_resolution_rate = (
+                (ai_sessions_resolved / ai_sessions_total * 100) if ai_sessions_total > 0 else 0
+            )
+            flow_completion_rate = (
+                (flow_exec_completed / flow_exec_total * 100) if flow_exec_total > 0 else 0
+            )
+            flow_failure_rate = (flow_exec_failed / flow_exec_total * 100) if flow_exec_total > 0 else 0
+
+            # Daily AI vs Flow interaction trend.
+            daily_rows = self.db.execute(
+                select(
+                    func.date(Message.created_at).label("day"),
+                    flow_flag_expr.label("flow_flag"),
+                    func.count(Message.id).label("count"),
+                ).where(
+                    and_(
+                        Message.role == MessageRole.ASSISTANT,
+                        Message.created_at >= start_date,
+                    )
+                )
+                .group_by(func.date(Message.created_at), flow_flag_expr)
+                .order_by(func.date(Message.created_at).asc())
+            ).all()
+
+            trend_map: dict[str, dict[str, int]] = {}
+            for day, flow_flag, count in daily_rows:
+                day_key = day.isoformat() if hasattr(day, "isoformat") else str(day)
+                if day_key not in trend_map:
+                    trend_map[day_key] = {"ai_interactions": 0, "flow_interactions": 0}
+                if flow_flag == "true":
+                    trend_map[day_key]["flow_interactions"] += int(count or 0)
+                else:
+                    trend_map[day_key]["ai_interactions"] += int(count or 0)
+
+            daily_trend = [
+                {
+                    "date": day_key,
+                    "ai_interactions": values["ai_interactions"],
+                    "flow_interactions": values["flow_interactions"],
+                }
+                for day_key, values in sorted(trend_map.items(), key=lambda x: x[0])
+            ]
+
+            # Top tenants by interaction volume (AI + Flow).
+            tenant_rows = self.db.execute(
+                select(
+                    Tenant.id,
+                    Tenant.name,
+                    flow_flag_expr.label("flow_flag"),
+                    func.count(Message.id).label("count"),
+                )
+                .select_from(Message)
+                .join(ConversationSession, Message.session_id == ConversationSession.id)
+                .join(Tenant, ConversationSession.tenant_id == Tenant.id)
+                .where(
+                    and_(
+                        Message.role == MessageRole.ASSISTANT,
+                        Message.created_at >= start_date,
+                    )
+                )
+                .group_by(Tenant.id, Tenant.name, flow_flag_expr)
+            ).all()
+
+            tenant_map: dict[str, dict[str, Any]] = {}
+            for tenant_id, tenant_name, flow_flag, count in tenant_rows:
+                tkey = str(tenant_id)
+                if tkey not in tenant_map:
+                    tenant_map[tkey] = {
+                        "tenant_id": tkey,
+                        "tenant_name": tenant_name,
+                        "ai_interactions": 0,
+                        "flow_interactions": 0,
+                        "total_interactions": 0,
+                    }
+                if flow_flag == "true":
+                    tenant_map[tkey]["flow_interactions"] += int(count or 0)
+                else:
+                    tenant_map[tkey]["ai_interactions"] += int(count or 0)
+                tenant_map[tkey]["total_interactions"] = (
+                    tenant_map[tkey]["ai_interactions"] + tenant_map[tkey]["flow_interactions"]
+                )
+
+            top_tenants = sorted(
+                tenant_map.values(), key=lambda row: row["total_interactions"], reverse=True
+            )[:10]
+            for tenant in top_tenants:
+                total = tenant["total_interactions"] or 1
+                tenant["flow_share_percentage"] = round(tenant["flow_interactions"] / total * 100, 1)
+
+            return {
+                "period_days": days,
+                "period": {
+                    "start": start_date.isoformat(),
+                    "end": end_date.isoformat(),
+                },
+                "kpis": {
+                    "ai_interactions": ai_interactions,
+                    "flow_interactions": flow_interactions,
+                    "ai_escalations": ai_escalations,
+                    "flow_escalations": flow_escalations,
+                    "ai_resolution_rate": round(ai_resolution_rate, 2),
+                    "flow_completion_rate": round(flow_completion_rate, 2),
+                    "flow_failure_rate": round(flow_failure_rate, 2),
+                },
+                "outcomes": {
+                    "ai": {
+                        "resolved": ai_sessions_resolved,
+                        "escalated": ai_escalations,
+                    },
+                    "flow": {
+                        "completed": flow_exec_completed,
+                        "failed": flow_exec_failed,
+                        "escalated": flow_escalations,
+                    },
+                },
+                "daily_trend": daily_trend,
+                "top_tenants": top_tenants,
+            }
+
+        except Exception as e:
+            logger.error(f"Error calculating AI/Flow comparison metrics: {e}")
             raise
 
     def get_cohort_analysis(

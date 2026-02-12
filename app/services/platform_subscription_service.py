@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import and_, func
 from sqlalchemy.orm import Session
 
+from app.db.models.email_notification import EmailNotification
 from app.db.models.payment import PaymentTransaction
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant, TenantCapabilities
@@ -14,6 +15,8 @@ from app.schemas.platform_subscription import (
     PricingPlanResponse,
     SubscriptionHistoryResponse,
     SubscriptionOverrideResponse,
+    TrialReminderHistoryResponse,
+    TrialReminderNotificationResponse,
     TenantSubscriptionDetailResponse,
     TrialExtensionResponse,
 )
@@ -378,6 +381,142 @@ class PlatformSubscriptionService:
             for payment, tenant_name in results
         ]
 
+    def get_trial_reminder_history(
+        self,
+        tenant_id: UUID | None = None,
+        days_remaining: int | None = None,
+        status: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> TrialReminderHistoryResponse:
+        """
+        Get paginated trial reminder email history (platform admin view).
+
+        Args:
+            tenant_id: Optional tenant filter
+            days_remaining: Optional reminder window filter (e.g., 14, 7, 3, 1, 0)
+            status: Optional status filter (sent, failed, skipped)
+            limit: Page size
+            offset: Pagination offset
+        """
+        query = self.db.query(EmailNotification, Tenant.name.label("tenant_name")).join(
+            Tenant, EmailNotification.tenant_id == Tenant.id
+        )
+
+        query = query.filter(EmailNotification.notification_type.like("trial_expiring%"))
+
+        if tenant_id:
+            query = query.filter(EmailNotification.tenant_id == tenant_id)
+
+        if status:
+            query = query.filter(EmailNotification.status == status)
+
+        if days_remaining is not None:
+            target_type = (
+                "trial_expiring_today"
+                if days_remaining == 0
+                else f"trial_expiring_{days_remaining}d"
+            )
+            query = query.filter(EmailNotification.notification_type == target_type)
+
+        total = query.count()
+
+        rows = (
+            query.order_by(EmailNotification.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+        items = [
+            TrialReminderNotificationResponse(
+                id=notification.id,
+                tenant_id=notification.tenant_id,
+                tenant_name=tenant_name,
+                notification_type=notification.notification_type,
+                days_remaining=self._extract_days_remaining(notification.notification_type),
+                recipient_email=notification.recipient_email,
+                status=notification.status,
+                subject=notification.subject,
+                sent_at=notification.sent_at,
+                created_at=notification.created_at,
+            )
+            for notification, tenant_name in rows
+        ]
+
+        return TrialReminderHistoryResponse(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
+
+    def get_renewal_reminder_history(
+        self,
+        tenant_id: UUID | None = None,
+        days_remaining: int | None = None,
+        status: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> TrialReminderHistoryResponse:
+        """
+        Get paginated subscription renewal reminder history (platform admin view).
+
+        Args:
+            tenant_id: Optional tenant filter
+            days_remaining: Optional reminder window filter (e.g., 7, 3, 1)
+            status: Optional status filter (sent, failed, skipped)
+            limit: Page size
+            offset: Pagination offset
+        """
+        query = self.db.query(EmailNotification, Tenant.name.label("tenant_name")).join(
+            Tenant, EmailNotification.tenant_id == Tenant.id
+        )
+
+        query = query.filter(EmailNotification.notification_type.like("subscription_renewal_%"))
+
+        if tenant_id:
+            query = query.filter(EmailNotification.tenant_id == tenant_id)
+
+        if status:
+            query = query.filter(EmailNotification.status == status)
+
+        if days_remaining is not None:
+            target_type = f"subscription_renewal_{days_remaining}d"
+            query = query.filter(EmailNotification.notification_type == target_type)
+
+        total = query.count()
+
+        rows = (
+            query.order_by(EmailNotification.created_at.desc())
+            .offset(offset)
+            .limit(limit)
+            .all()
+        )
+
+        items = [
+            TrialReminderNotificationResponse(
+                id=notification.id,
+                tenant_id=notification.tenant_id,
+                tenant_name=tenant_name,
+                notification_type=notification.notification_type,
+                days_remaining=self._extract_days_remaining(notification.notification_type),
+                recipient_email=notification.recipient_email,
+                status=notification.status,
+                subject=notification.subject,
+                sent_at=notification.sent_at,
+                created_at=notification.created_at,
+            )
+            for notification, tenant_name in rows
+        ]
+
+        return TrialReminderHistoryResponse(
+            items=items,
+            total=total,
+            limit=limit,
+            offset=offset,
+        )
+
     def get_pricing_plans(self) -> list[PricingPlanResponse]:
         """
         Get public pricing information for all tiers.
@@ -426,6 +565,20 @@ class PlatformSubscriptionService:
             plans.append(pricing_plan)
 
         return plans
+
+    @staticmethod
+    def _extract_days_remaining(notification_type: str) -> int | None:
+        """Parse day window from notification type."""
+        if notification_type == "trial_expiring_today":
+            return 0
+        suffix = "d"
+        if notification_type.endswith(suffix):
+            for prefix in ("trial_expiring_", "subscription_renewal_"):
+                if notification_type.startswith(prefix):
+                    days_part = notification_type[len(prefix) : -len(suffix)]
+                    if days_part.isdigit():
+                        return int(days_part)
+        return None
 
     def _update_capabilities_with_overrides(
         self,
