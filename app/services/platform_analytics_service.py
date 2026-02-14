@@ -435,6 +435,18 @@ class PlatformAnalyticsService:
             days: Lookback period in days
         """
         try:
+            def _percentile(values: list[float], p: float) -> float:
+                if not values:
+                    return 0.0
+                ordered = sorted(values)
+                if len(ordered) == 1:
+                    return float(ordered[0])
+                rank = (len(ordered) - 1) * p
+                low = int(rank)
+                high = min(low + 1, len(ordered) - 1)
+                frac = rank - low
+                return float(ordered[low] + (ordered[high] - ordered[low]) * frac)
+
             end_date = datetime.utcnow()
             start_date = end_date - timedelta(days=days)
             flow_flag_expr = func.lower(
@@ -648,6 +660,107 @@ class PlatformAnalyticsService:
                 total = tenant["total_interactions"] or 1
                 tenant["flow_share_percentage"] = round(tenant["flow_interactions"] / total * 100, 1)
 
+            # AI/RAG quality counters from assistant message metadata.
+            ai_meta_rows = self.db.execute(
+                select(Message.session_id, Message.created_at, Message.meta).where(
+                    and_(
+                        Message.role == MessageRole.ASSISTANT,
+                        Message.created_at >= start_date,
+                        or_(
+                            Message.meta.is_(None),
+                            flow_flag_expr != "true",
+                        ),
+                    )
+                )
+            ).all()
+            ai_meta = [row[2] for row in ai_meta_rows if isinstance(row[2], dict)]
+            hit_count = sum(1 for meta in ai_meta if meta.get("retrieval_hit") is True)
+            hit_rate = (hit_count / len(ai_meta) * 100) if ai_meta else 0.0
+            miss_count = max(len(ai_meta) - hit_count, 0)
+            miss_rate = (miss_count / len(ai_meta) * 100) if ai_meta else 0.0
+
+            similarity_values = [
+                float(meta.get("avg_similarity", 0.0))
+                for meta in ai_meta
+                if meta.get("avg_similarity") is not None
+            ]
+            avg_similarity = (
+                sum(similarity_values) / len(similarity_values) if similarity_values else 0.0
+            )
+            similarity_hit_values = [
+                float(meta.get("avg_similarity", 0.0))
+                for meta in ai_meta
+                if meta.get("retrieval_hit") is True and meta.get("avg_similarity") is not None
+            ]
+            similarity_miss_values = [
+                float(meta.get("avg_similarity", 0.0))
+                for meta in ai_meta
+                if meta.get("retrieval_hit") is False and meta.get("avg_similarity") is not None
+            ]
+
+            prompt_tokens = [
+                float((meta.get("token_breakdown") or {}).get("prompt_tokens", 0))
+                for meta in ai_meta
+                if isinstance(meta.get("token_breakdown"), dict)
+                and (meta.get("token_breakdown") or {}).get("prompt_tokens") is not None
+            ]
+            completion_tokens = [
+                float((meta.get("token_breakdown") or {}).get("completion_tokens", 0))
+                for meta in ai_meta
+                if isinstance(meta.get("token_breakdown"), dict)
+                and (meta.get("token_breakdown") or {}).get("completion_tokens") is not None
+            ]
+            total_tokens = [
+                float((meta.get("token_breakdown") or {}).get("total_tokens", 0))
+                for meta in ai_meta
+                if isinstance(meta.get("token_breakdown"), dict)
+                and (meta.get("token_breakdown") or {}).get("total_tokens") is not None
+            ]
+            uncertainty_count = sum(
+                1
+                for meta in ai_meta
+                if (meta.get("response_quality") or {}).get("has_uncertainty") is True
+            )
+            uncertainty_rate = (uncertainty_count / len(ai_meta) * 100) if ai_meta else 0.0
+
+            # "Isolated sample" proxy: first assistant response per session in period.
+            first_meta_by_session: dict[str, tuple[datetime, dict[str, Any]]] = {}
+            for session_id, created_at, meta in ai_meta_rows:
+                if not isinstance(meta, dict):
+                    continue
+                key = str(session_id)
+                existing = first_meta_by_session.get(key)
+                if existing is None or created_at < existing[0]:
+                    first_meta_by_session[key] = (created_at, meta)
+
+            first_turn_prompt_tokens = [
+                float((meta.get("token_breakdown") or {}).get("prompt_tokens", 0))
+                for _, meta in first_meta_by_session.values()
+                if isinstance(meta.get("token_breakdown"), dict)
+                and (meta.get("token_breakdown") or {}).get("prompt_tokens") is not None
+            ]
+            first_turn_completion_tokens = [
+                float((meta.get("token_breakdown") or {}).get("completion_tokens", 0))
+                for _, meta in first_meta_by_session.values()
+                if isinstance(meta.get("token_breakdown"), dict)
+                and (meta.get("token_breakdown") or {}).get("completion_tokens") is not None
+            ]
+            first_turn_total_tokens = [
+                float((meta.get("token_breakdown") or {}).get("total_tokens", 0))
+                for _, meta in first_meta_by_session.values()
+                if isinstance(meta.get("token_breakdown"), dict)
+                and (meta.get("token_breakdown") or {}).get("total_tokens") is not None
+            ]
+            escalated_after_answer = sum(
+                1
+                for meta in ai_meta
+                if meta.get("escalation_action") in {"offer_escalation", "auto_escalate"}
+                and (meta.get("response_quality") or {}).get("is_substantial") is True
+            )
+            escalated_after_answer_rate = (
+                (escalated_after_answer / len(ai_meta) * 100) if ai_meta else 0.0
+            )
+
             return {
                 "period_days": days,
                 "period": {
@@ -673,6 +786,61 @@ class PlatformAnalyticsService:
                         "failed": flow_exec_failed,
                         "escalated": flow_escalations,
                     },
+                },
+                "rag_quality": {
+                    "retrieval_hit_rate": round(hit_rate, 2),
+                    "retrieval_miss_rate": round(miss_rate, 2),
+                    "avg_similarity": round(avg_similarity, 3),
+                    "avg_similarity_hit": round(
+                        (sum(similarity_hit_values) / len(similarity_hit_values))
+                        if similarity_hit_values
+                        else 0.0,
+                        3,
+                    ),
+                    "avg_similarity_miss": round(
+                        (sum(similarity_miss_values) / len(similarity_miss_values))
+                        if similarity_miss_values
+                        else 0.0,
+                        3,
+                    ),
+                    "uncertainty_rate": round(uncertainty_rate, 2),
+                    "escalation_after_answer_rate": round(escalated_after_answer_rate, 2),
+                    "prompt_tokens_total": int(round(sum(prompt_tokens))) if prompt_tokens else 0,
+                    "completion_tokens_total": (
+                        int(round(sum(completion_tokens))) if completion_tokens else 0
+                    ),
+                    "total_tokens_total": int(round(sum(total_tokens))) if total_tokens else 0,
+                    "prompt_tokens_avg": (
+                        round(sum(prompt_tokens) / len(prompt_tokens), 1) if prompt_tokens else 0.0
+                    ),
+                    "completion_tokens_avg": (
+                        round(sum(completion_tokens) / len(completion_tokens), 1)
+                        if completion_tokens
+                        else 0.0
+                    ),
+                    "total_tokens_avg": (
+                        round(sum(total_tokens) / len(total_tokens), 1) if total_tokens else 0.0
+                    ),
+                    "first_turn_prompt_tokens_avg": (
+                        round(sum(first_turn_prompt_tokens) / len(first_turn_prompt_tokens), 1)
+                        if first_turn_prompt_tokens
+                        else 0.0
+                    ),
+                    "first_turn_completion_tokens_avg": (
+                        round(
+                            sum(first_turn_completion_tokens) / len(first_turn_completion_tokens), 1
+                        )
+                        if first_turn_completion_tokens
+                        else 0.0
+                    ),
+                    "first_turn_total_tokens_avg": (
+                        round(sum(first_turn_total_tokens) / len(first_turn_total_tokens), 1)
+                        if first_turn_total_tokens
+                        else 0.0
+                    ),
+                    "prompt_tokens_p50": int(round(_percentile(prompt_tokens, 0.50))),
+                    "prompt_tokens_p95": int(round(_percentile(prompt_tokens, 0.95))),
+                    "samples": len(ai_meta),
                 },
                 "daily_trend": daily_trend,
                 "top_tenants": top_tenants,

@@ -747,7 +747,7 @@ class FlowEngine:
         auto_retrieve = config.get("auto_retrieve", False)
         max_tokens = config.get("max_tokens", 350)
         model_name = config.get("model_name")
-        max_history_turns = config.get("max_history_turns", 8)
+        max_history_turns = config.get("max_history_turns", 6)
 
         # Resolve user query
         user_query = self._interpolate_variables(prompt_template, execution.collected_data)

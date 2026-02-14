@@ -1085,7 +1085,7 @@ async def send_message(
             retrieved_chunks, similarity_scores = await rag_service.retrieve_relevant_chunks(
                 tenant_id=session.tenant_id,
                 query=message_data.message,
-                max_chunks=5,  # Changed from 3
+                max_chunks=rag_service.MAX_CHUNKS_RETRIEVE,
                 score_threshold=rag_service.MIN_SCORE_THRESHOLD,
             )
             logger.info(
@@ -1114,6 +1114,7 @@ async def send_message(
         should_skip_generation = False
         skip_reason = None
         token_count: int | None = None
+        prompt_components = None
 
         if escalation_decision.action == EscalationAction.AUTO_ESCALATE:
             # User explicitly requested human - acknowledge and escalate
@@ -1173,7 +1174,7 @@ async def send_message(
                     conversation_history=conversation_history,
                     company_name=tenant_response.display_name,
                     company_description=tenant_response.description,
-                    max_history_turns=10,  # Increased from 5 to 10 for better conversation continuity
+                    max_history_turns=6,
                 )
                 logger.info(
                     f"Assembled prompt with {prompt_components.knowledge_chunks_used} chunks, "
@@ -1207,6 +1208,20 @@ async def send_message(
                         is_substantial=False, has_uncertainty=True, word_count=0, char_count=0
                     )
                 else:
+                    avg_similarity_for_guard = (
+                        sum(similarity_scores) / len(similarity_scores) if similarity_scores else 0.0
+                    )
+                    if rag_service.should_force_clarifying_followup(
+                        user_query=message_data.message,
+                        ai_response=ai_response_text,
+                        retrieved_chunks_count=len(retrieved_chunks),
+                        avg_similarity=avg_similarity_for_guard,
+                    ):
+                        ai_response_text = (
+                            "I want to give you the exact policy/pricing detail. "
+                            "Can you share a bit more context (for example your exact plan or the specific policy area)?"
+                        )
+
                     # Evaluate response quality - skip if satisfaction detected
                     if not escalation_decision.skip_quality_check:
                         quality = rag_service.evaluate_response_quality(ai_response_text)
@@ -1233,12 +1248,19 @@ async def send_message(
                         )
 
         # Step 8: Save assistant message
-        retrieved_chunk_ids: list[UUID] = []
+        retrieved_chunk_ids: list[str] = []
         for chunk in retrieved_chunks:
             try:
-                retrieved_chunk_ids.append(UUID(str(chunk.id)))
+                # Store as strings to keep JSON serialization safe.
+                retrieved_chunk_ids.append(str(chunk.id))
             except Exception:
                 continue
+        avg_similarity = (
+            (sum(similarity_scores) / len(similarity_scores)) if similarity_scores else 0.0
+        )
+        retrieval_hit = (
+            len(retrieved_chunks) > 0 and avg_similarity >= rag_service.MIN_RELEVANT_SIMILARITY
+        )
         assistant_message = conversation_service.add_message(
             session_id=session_id,
             role=MessageRole.ASSISTANT,
@@ -1247,6 +1269,8 @@ async def send_message(
             token_count=token_count,
             meta={
                 "chunks_used": len(retrieved_chunks),
+                "avg_similarity": round(avg_similarity, 3),
+                "retrieval_hit": retrieval_hit,
                 "escalation_action": escalation_decision.action.value,
                 "response_quality": {
                     "is_substantial": quality.is_substantial,
@@ -1275,7 +1299,6 @@ async def send_message(
 
         # Track metrics for monitoring
         if similarity_scores:
-            avg_similarity = sum(similarity_scores) / len(similarity_scores)
             rag_service.track_retrieval_metrics(
                 query=message_data.message,
                 retrieved_chunks_count=len(retrieved_chunks),
@@ -1284,7 +1307,11 @@ async def send_message(
                 escalated=(escalation_decision.action != EscalationAction.NO_ESCALATION),
                 generation_skipped=should_skip_generation,
                 skip_reason=skip_reason,
-                prompt_tokens=token_count,
+                prompt_tokens=(
+                    prompt_components.prompt_tokens
+                    if "prompt_components" in locals() and prompt_components
+                    else None
+                ),
             )
 
         # Step 9: Handle escalation based on action

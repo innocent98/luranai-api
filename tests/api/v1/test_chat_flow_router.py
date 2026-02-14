@@ -24,7 +24,6 @@ def _create_tenant_with_router_flow(db: Session) -> Tenant:
         tenant_id=tenant.id,
         brand_voice={},
         escalation_keywords=[],
-        confidence_threshold=0.55,
         max_response_tokens=250,
         grounding_requirement=True,
     )

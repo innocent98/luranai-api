@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_password_hash
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
+from app.services.plan_service import PlanService
 from app.schemas.tenant import (
     TenantAIConfigResponse,
     TenantAIConfigUpdate,
@@ -70,8 +71,7 @@ class TenantService:
             tenant_id=db_tenant.id,
             brand_voice={},
             escalation_keywords=[],
-            confidence_threshold=0.55,
-            max_response_tokens=400,
+            max_response_tokens=450,
             grounding_requirement=True,
         )
         self.db.add(ai_config)
@@ -272,6 +272,22 @@ class TenantService:
 
         # Update fields
         update_data = config_data.model_dump(exclude_unset=True)
+
+        # Enforce per-tier max_response_tokens ceiling from active plan config.
+        if "max_response_tokens" in update_data:
+            tenant_stmt = select(Tenant).where(Tenant.id == tenant_id)
+            tenant = self.db.execute(tenant_stmt).scalar_one_or_none()
+            if not tenant:
+                raise ValueError("Tenant not found")
+
+            plan_config = PlanService(self.db).get_plan_config(str(tenant.subscription_tier))
+            tier_limit = plan_config.get("max_response_tokens")
+            requested = update_data["max_response_tokens"]
+            if isinstance(tier_limit, int) and isinstance(requested, int) and requested > tier_limit:
+                raise ValueError(
+                    f"max_response_tokens exceeds plan limit ({requested} > {tier_limit})"
+                )
+
         for field, value in update_data.items():
             setattr(config, field, value)
 

@@ -32,11 +32,8 @@ class TenantAIConfigBase(BaseModel):
     escalation_keywords: list[str] = Field(
         default_factory=list, description="Keywords that trigger human escalation"
     )
-    confidence_threshold: float = Field(
-        default=0.55, ge=0.0, le=1.0, description="Minimum confidence score for responses"
-    )
     max_response_tokens: int = Field(
-        default=800, ge=50, le=2000, description="Maximum tokens for AI response (default: 800)"
+        default=450, ge=50, le=2000, description="Maximum tokens for AI response (default: 450)"
     )
     grounding_requirement: bool = Field(
         default=True, description="Whether AI must ground responses in knowledge base"
@@ -105,7 +102,6 @@ class TenantAIConfigUpdate(BaseModel):
     allowed_topics: list[str] | None = None
     blocked_topics: list[str] | None = None
     escalation_keywords: list[str] | None = None
-    confidence_threshold: float | None = Field(None, ge=0.0, le=1.0)
     max_response_tokens: int | None = Field(None, ge=50, le=2000)
     grounding_requirement: bool | None = None
     custom_instructions: str | None = None

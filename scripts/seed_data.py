@@ -38,7 +38,7 @@ def create_subscription_plans(db):
             "max_knowledge_mb": 10,
             "max_conversations_per_month": 200,
             "max_team_members": 1,
-            "max_response_tokens": 800,
+            "max_response_tokens": 450,
             "max_flows": 0,
             "max_nodes_per_flow": 0,
             "can_use_webhooks": False,
@@ -65,7 +65,7 @@ def create_subscription_plans(db):
             "max_knowledge_mb": 50,
             "max_conversations_per_month": 2000,
             "max_team_members": 3,
-            "max_response_tokens": 1000,
+            "max_response_tokens": 800,
             "max_flows": 2,
             "max_nodes_per_flow": 20,
             "can_use_webhooks": False,
@@ -95,7 +95,7 @@ def create_subscription_plans(db):
             "max_knowledge_mb": 200,
             "max_conversations_per_month": 10000,
             "max_team_members": 10,
-            "max_response_tokens": 1500,
+            "max_response_tokens": 1200,
             "max_flows": 10,
             "max_nodes_per_flow": 50,
             "can_use_webhooks": True,
@@ -127,7 +127,7 @@ def create_subscription_plans(db):
             "max_knowledge_mb": 500,
             "max_conversations_per_month": 25000,
             "max_team_members": 20,
-            "max_response_tokens": 1500,
+            "max_response_tokens": 1400,
             "max_flows": 25,
             "max_nodes_per_flow": 100,
             "can_use_webhooks": True,
@@ -159,7 +159,7 @@ def create_subscription_plans(db):
             "max_knowledge_mb": None,  # Unlimited
             "max_conversations_per_month": None,  # Unlimited
             "max_team_members": None,  # Unlimited
-            "max_response_tokens": 2000,
+            "max_response_tokens": 1600,
             "max_flows": None,  # Unlimited
             "max_nodes_per_flow": None,  # Unlimited
             "can_use_webhooks": True,

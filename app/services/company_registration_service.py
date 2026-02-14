@@ -95,8 +95,7 @@ class CompanyRegistrationService:
                 tenant_id=tenant.id,
                 brand_voice={},
                 escalation_keywords=[],
-                confidence_threshold=0.55,
-                max_response_tokens=800,  # Trial tier default
+                max_response_tokens=450,  # Trial tier default
                 grounding_requirement=True,
             )
             self.db.add(ai_config)

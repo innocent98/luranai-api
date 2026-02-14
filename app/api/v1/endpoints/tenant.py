@@ -145,7 +145,7 @@ def update_my_ai_config(
                 "emoji_usage": true
             },
             "escalation_keywords": ["speak to human", "manager"],
-            "confidence_threshold": 0.60,
+            "max_response_tokens": 450,
             "custom_instructions": "Always mention our 24/7 hotline."
         }
     """

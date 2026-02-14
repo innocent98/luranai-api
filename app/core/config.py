@@ -184,6 +184,8 @@ class Settings(BaseSettings):
     TRIAL_EXPIRY_REMINDER_DAYS: str = "14,7,3,1,0"
     # Comma-separated day offsets before paid-plan auto-renewal. Example: "7,3,1"
     SUBSCRIPTION_RENEWAL_REMINDER_DAYS: str = "7,3,1"
+    # Optional comma-separated extra stopwords for rerank keyword overlap.
+    RAG_EXTRA_STOPWORDS: str = ""
 
     def get_trial_expiry_reminder_days(self) -> list[int]:
         """Parse and validate reminder windows from env setting."""

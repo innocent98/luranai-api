@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import JSON, Boolean, DateTime
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import Float, ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -216,19 +216,12 @@ class TenantAIConfig(Base, UUIDMixin, TimestampMixin):
         default=list,
         comment="Array of keywords that trigger human escalation",
     )
-    confidence_threshold: Mapped[float] = mapped_column(
-        Float,
-        default=0.55,
-        nullable=False,
-        comment="Minimum confidence score to return AI response (0.0-1.0)",
-    )
-
     # Response Generation Parameters
     max_response_tokens: Mapped[int] = mapped_column(
         Integer,
-        default=200,
+        default=450,
         nullable=False,
-        comment="Maximum tokens for AI response (recommended: 200-400, hard cap: 600)",
+        comment="Maximum tokens for AI response",
     )
     grounding_requirement: Mapped[bool] = mapped_column(
         Boolean,
@@ -251,7 +244,7 @@ class TenantAIConfig(Base, UUIDMixin, TimestampMixin):
     )
 
     def __repr__(self) -> str:
-        return f"<TenantAIConfig(tenant_id={self.tenant_id}, confidence_threshold={self.confidence_threshold})>"
+        return f"<TenantAIConfig(tenant_id={self.tenant_id}, max_response_tokens={self.max_response_tokens})>"
 
 
 class TenantCapabilities(Base, UUIDMixin, TimestampMixin):

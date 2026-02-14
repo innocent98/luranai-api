@@ -7,6 +7,7 @@ from uuid import UUID
 from loguru import logger
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.models.tenant import TenantAIConfig
 from app.schemas.conversation import MessageResponse
 from app.schemas.knowledge import KnowledgeChunkResponse
@@ -28,17 +29,100 @@ class RAGService:
     def __init__(self, db: Session):
         """Initialize RAG service with database session."""
         self.db = db
+        extra_stopwords = {
+            token.strip().lower()
+            for token in settings.RAG_EXTRA_STOPWORDS.split(",")
+            if token.strip()
+        }
+        self.stopwords = self.STOPWORDS | extra_stopwords
 
     # Similarity thresholds
     MIN_SCORE_THRESHOLD = 0.35  # Vector search cutoff - Lowered from 0.40 for better recall
     MIN_RELEVANT_SIMILARITY = 0.40  # Quality gate - Balanced (was 0.42)
 
     # Token optimization settings
-    MAX_CHUNK_CHARS = 900  # Max characters per knowledge chunk (~225 tokens)
+    MAX_CHUNK_CHARS = 750  # Max characters per knowledge chunk (~190 tokens)
 
     # Chunk retrieval configuration
-    MAX_CHUNKS_RETRIEVE = 5  # Retrieve from Qdrant (was 3)
-    MAX_CHUNKS_KEEP = 4  # Keep after reranking (was 3)
+    MAX_CHUNKS_RETRIEVE = 6  # Retrieve from Qdrant, then rerank
+    MAX_CHUNKS_KEEP = 4  # Keep after reranking
+    KNOWLEDGE_CONTEXT_TOKEN_BUDGET = 700  # Max KB tokens to inject in final prompt
+    MAX_HISTORY_TOKENS = 420  # Max conversation-history tokens to inject
+    MAX_HISTORY_MESSAGE_CHARS = 320  # Trim verbose history lines
+    STOPWORDS = {
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "by",
+        "for",
+        "from",
+        "how",
+        "i",
+        "in",
+        "is",
+        "it",
+        "of",
+        "on",
+        "or",
+        "that",
+        "the",
+        "to",
+        "was",
+        "what",
+        "when",
+        "where",
+        "who",
+        "why",
+        "with",
+        "you",
+        "your",
+    }
+
+    def _extract_keywords(self, text: str) -> set[str]:
+        """Extract normalized keywords for lightweight overlap scoring."""
+        return {
+            token
+            for token in re.findall(r"[a-z0-9]+", text.lower())
+            if len(token) > 1 and token not in self.stopwords
+        }
+
+    def should_force_clarifying_followup(
+        self,
+        user_query: str,
+        ai_response: str,
+        retrieved_chunks_count: int,
+        avg_similarity: float,
+    ) -> bool:
+        """
+        Guardrail: for policy/pricing-sensitive questions with weak retrieval,
+        ask a clarifying question instead of giving a potentially wrong final answer.
+        """
+        pricing_terms = {
+            "price",
+            "pricing",
+            "cost",
+            "fee",
+            "refund",
+            "billing",
+            "subscription",
+            "cancel",
+            "cancellation",
+        }
+        policy_terms = {"policy", "terms"}
+        query_tokens = self._extract_keywords(user_query)
+        # Scope this guard to query intent only.
+        # Using response tokens can cause false positives when answers mention "policy".
+        is_pricing_like = bool(pricing_terms & query_tokens)
+        is_policy_like = bool(policy_terms & query_tokens)
+        has_pricing_context = is_pricing_like or (
+            is_policy_like and bool({"billing", "refund", "cancel", "price", "subscription"} & query_tokens)
+        )
+        weak_coverage = retrieved_chunks_count < 2 or avg_similarity < 0.45
+        return has_pricing_context and weak_coverage
 
     def normalize_query(self, query: str) -> str:
         """
@@ -70,7 +154,7 @@ class RAGService:
         query: str,
         chunks: list[KnowledgeChunkResponse],
         similarity_scores: list[float],
-        top_k: int = 2,
+        top_k: int = 4,
     ) -> tuple[list[KnowledgeChunkResponse], list[float]]:
         """
         Re-rank retrieved chunks using keyword overlap + similarity.
@@ -90,12 +174,12 @@ class RAGService:
         if not chunks:
             return chunks, similarity_scores
 
-        query_words = set(query.lower().split())
+        query_words = self._extract_keywords(query)
         reranked: list[dict[str, Any]] = []
 
         for chunk, similarity in zip(chunks, similarity_scores, strict=False):
             # Calculate keyword overlap
-            chunk_words = set(chunk.content.lower().split())
+            chunk_words = self._extract_keywords(chunk.content)
             overlap = len(query_words & chunk_words) / len(query_words) if query_words else 0
 
             # Combined score: 70% similarity + 30% keyword overlap
@@ -176,14 +260,39 @@ class RAGService:
         if len(sentences) <= 1:
             sentences = chunk_content.split(". ")
 
-        query_words = set(query.lower().split())
+        query_words = self._extract_keywords(query)
+        query_lower = query.lower()
+        is_timeline_query = any(
+            marker in query_lower
+            for marker in (
+                "how long",
+                "timeline",
+                "turnaround",
+                "processing time",
+                "processing take",
+                "duration",
+            )
+        )
+        time_pattern = re.compile(
+            r"(\b\d+\s*-\s*\d+\b|\b\d+\b|\bhour[s]?\b|\bday[s]?\b|\bweek[s]?\b|\bbusiness\b)",
+            re.IGNORECASE,
+        )
 
         # Score each sentence by keyword overlap
-        scored_sentences = []
+        scored_sentences: list[tuple[str, float]] = []
         for sentence in sentences:
-            sentence_words = set(sentence.lower().split())
-            overlap = len(query_words & sentence_words)
-            scored_sentences.append((sentence, overlap))
+            sentence_words = self._extract_keywords(sentence)
+            score = float(len(query_words & sentence_words))
+
+            # For timeline questions, prioritize numeric/time-bearing sentences.
+            if is_timeline_query and time_pattern.search(sentence):
+                score += 3.0
+
+            # Light domain boost for claim timelines.
+            if "claim" in query_words and "claim" in sentence_words:
+                score += 1.0
+
+            scored_sentences.append((sentence, score))
 
         # Sort by overlap (descending)
         scored_sentences.sort(key=lambda x: x[1], reverse=True)
@@ -339,26 +448,49 @@ Guidance:
 - If this is a specific question, note that you'll need more details or suggest escalation
 - Don't immediately say you can't help - try to guide the conversation first)"""
         else:
-            context_parts = []
-            for i, chunk in enumerate(retrieved_chunks, 1):
+            context_parts: list[str] = []
+            context_tokens = 0
+            source_number = 1
+            for chunk in retrieved_chunks:
                 chunk_content = self.compress_chunk_context(
                     query=user_query,
                     chunk_content=chunk.content,
-                    max_sentences=10,
+                    max_sentences=6,
                 )
-                context_parts.append(f"[Source {i}]\n{chunk_content}")
+                candidate = f"[Source {source_number}]\n{chunk_content}"
+                candidate_tokens = count_tokens(candidate)
+                # Always keep at least the top chunk, then enforce KB context budget.
+                if (
+                    context_parts
+                    and context_tokens + candidate_tokens > self.KNOWLEDGE_CONTEXT_TOKEN_BUDGET
+                ):
+                    break
+                context_parts.append(candidate)
+                context_tokens += candidate_tokens
+                source_number += 1
             knowledge_context = "\n\n".join(context_parts)
 
         # Conversation history
+        recent_messages: list[MessageResponse] = []
         if not conversation_history:
             history_context = "(This is the first message in the conversation)"
         else:
             recent_messages = conversation_history[-(max_history_turns * 2) :]
-            history_parts = []
-            for msg in recent_messages:
+            history_parts_reversed: list[str] = []
+            history_tokens = 0
+            for msg in reversed(recent_messages):
                 role = msg.role.value.upper()
-                history_parts.append(f"{role}: {msg.content}")
-            history_context = "\n".join(history_parts)
+                msg_content = (msg.content or "").strip()
+                if len(msg_content) > self.MAX_HISTORY_MESSAGE_CHARS:
+                    msg_content = msg_content[: self.MAX_HISTORY_MESSAGE_CHARS] + "..."
+                line = f"{role}: {msg_content}"
+                line_tokens = count_tokens(line)
+                # Always keep most recent line, then enforce history budget.
+                if history_parts_reversed and history_tokens + line_tokens > self.MAX_HISTORY_TOKENS:
+                    break
+                history_parts_reversed.append(line)
+                history_tokens += line_tokens
+            history_context = "\n".join(reversed(history_parts_reversed))
 
         # Assemble full prompt using new intelligent template
         full_prompt = self.INTELLIGENT_SYSTEM_PROMPT.format(
@@ -755,7 +887,7 @@ Guidance:
                     query=normalized_query,  # Use normalized query
                     chunks=chunks,
                     similarity_scores=scores,
-                    top_k=4,  # Changed from 3
+                    top_k=self.MAX_CHUNKS_KEEP,
                 )
                 scores = relevance_scores  # Update scores with reranked values
 
