@@ -25,7 +25,7 @@ services:
       OPENAI_LLM_MODEL: ${OPENAI_LLM_MODEL}
       EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION}
       ENVIRONMENT: ${ENVIRONMENT:-production}
-      API_WORKERS: ${API_WORKERS:-2}
+      API_WORKERS: ${API_WORKERS:-4}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
