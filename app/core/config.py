@@ -22,9 +22,12 @@ class Settings(BaseSettings):
 
     # CORS
     BACKEND_CORS_ORIGINS: list[str] = [
-        "http://localhost:3000",
-        "http://localhost:3000",
-        "http://localhost:8000",
+        "https://luranai.com",
+        "https://www.luranai.com",
+        "https://docs.luranai.com",
+        "https://chat.luranai.com",
+        "https://cdn.luranai.com",
+        "https://api.luranai.com",
     ]
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
