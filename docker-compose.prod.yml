@@ -1,0 +1,70 @@
+services:
+  api:
+    deploy: !reset {}
+    volumes: !reset []
+    depends_on:
+      - pgbouncer
+      - redis
+      - qdrant
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
+      API_WORKERS: ${API_WORKERS:-4}
+    mem_limit: 1400m
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=5)",
+        ]
+
+  worker:
+    deploy: !reset {}
+    volumes: !reset []
+    depends_on:
+      - pgbouncer
+      - redis
+      - qdrant
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
+    mem_limit: 900m
+
+  db:
+    deploy: !reset {}
+    ports: !reset []
+    mem_limit: 1400m
+
+  redis:
+    deploy: !reset {}
+    ports: !reset []
+    mem_limit: 512m
+
+  qdrant:
+    deploy: !reset {}
+    ports: !reset []
+    mem_limit: 1400m
+    healthcheck:
+      disable: true
+
+  pgbouncer:
+    image: edoburu/pgbouncer:latest@sha256:85d1e38593617af1b5f7f285e97d407e56c29939683cc7cfe4c8f6dc19f1268b
+    container_name: luran_pgbouncer
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      DB_USER: ${POSTGRES_USER}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_HOST: db
+      DB_NAME: ${POSTGRES_DB}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: ${PGBOUNCER_MAX_CLIENT_CONN:-300}
+      DEFAULT_POOL_SIZE: ${PGBOUNCER_DEFAULT_POOL_SIZE:-20}
+      RESERVE_POOL_SIZE: ${PGBOUNCER_RESERVE_POOL_SIZE:-5}
+      SERVER_RESET_QUERY: DISCARD ALL
+      IGNORE_STARTUP_PARAMETERS: extra_float_digits
+      AUTH_TYPE: scram-sha-256
+    expose:
+      - "5432"
+    mem_limit: 256m

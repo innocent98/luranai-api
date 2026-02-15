@@ -39,12 +39,10 @@ jobs:
       - name: Lint with ruff
         run: |
           poetry run ruff check app/
-        continue-on-error: true
 
       - name: Check formatting with black
         run: |
           poetry run black --check app/
-        continue-on-error: true
 
   test:
     name: Run Tests
@@ -52,7 +50,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15
+        image: postgres:15-alpine
         env:
           POSTGRES_USER: test_user
           POSTGRES_PASSWORD: test_password
@@ -106,14 +104,13 @@ jobs:
           DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
           REDIS_URL: redis://localhost:6379/0
           SECRET_KEY: test_secret_key_for_ci_testing_32chars_minimum
-          GOOGLE_API_KEY: test_google_api_key
+          OPENAI_API_KEY: sk-test-ci-openai-key
           PAYSTACK_SECRET_KEY: sk_test_ci_testing_key_12345
           FIRST_SUPERUSER_EMAIL: ci_admin@test.com
           FIRST_SUPERUSER_PASSWORD: CI_Test_P@ssw0rd_2026!
           ENVIRONMENT: test
         run: |
           poetry run pytest tests/ -v --cov=app --cov-report=xml --cov-report=term
-        continue-on-error: true
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4
