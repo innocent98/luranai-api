@@ -1,9 +1,20 @@
 # Deployment Guide - Simple & Clear
 
-## 📁 One File for Everything: docker-compose.yml
+## 📁 Compose Files
 
-You have **ONE docker-compose.yml** that works for both development and production.
-Control behavior with the `API_WORKERS` environment variable.
+- `docker-compose.yml` = base (development-friendly defaults)
+- `docker-compose.prod.yml` = production override
+
+Use both files in production:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+Why `docker-compose.prod.yml` is shorter:
+- It is an **override file**, not a full duplicate.
+- Docker Compose merges it with `docker-compose.yml`.
+- You only put production differences inside it (e.g., pgbouncer, no bind mounts, hidden internal ports).
 
 ---
 
@@ -13,13 +24,13 @@ Control behavior with the `API_WORKERS` environment variable.
 
 **Option 1: Environment variable**
 ```bash
-API_WORKERS=2 docker-compose up -d
+API_WORKERS=2 docker compose up -d
 ```
 
 **Option 2: Set in .env file**
 ```bash
 echo "API_WORKERS=2" >> .env
-docker-compose up -d
+docker compose up -d
 ```
 
 **Memory usage with 2 workers: ~1.5-2GB total**
@@ -31,14 +42,14 @@ docker-compose up -d
 ### Use 4 workers (default, handles 80-120 req/sec)
 
 ```bash
-# Just run docker-compose - defaults to 4 workers
-docker-compose up -d
+# Run with production override
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
 Or explicitly set in .env:
 ```bash
 echo "API_WORKERS=4" >> .env
-docker-compose up -d
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
 **Memory usage with 4 workers: ~3-4GB total (perfect for 8GB server)**
@@ -50,32 +61,32 @@ docker-compose up -d
 ### Start Services
 ```bash
 # Development
-API_WORKERS=2 docker-compose up -d
+API_WORKERS=2 docker compose up -d
 
-# Production (or just docker-compose up -d)
-docker-compose up -d
+# Production
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
 ### Check Status
 ```bash
-docker-compose ps
+docker compose ps
 docker stats
 ```
 
 ### View Logs
 ```bash
-docker-compose logs -f api
-docker-compose logs --tail=100 worker
+docker compose logs -f api
+docker compose logs --tail=100 worker
 ```
 
 ### Stop Services
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ### Restart After Code Changes
 ```bash
-docker-compose restart api
+docker compose restart api
 ```
 
 ---
@@ -86,7 +97,7 @@ docker-compose restart api
 
 ```bash
 # Start Adminer
-docker-compose --profile tools up -d adminer
+docker compose --profile tools up -d adminer
 
 # Open browser: http://localhost:8080
 # Login:
@@ -97,7 +108,7 @@ docker-compose --profile tools up -d adminer
 #   Database: luran_db
 
 # Stop when done
-docker-compose stop adminer
+docker compose stop adminer
 ```
 
 ### Option 2: CLI (Zero RAM)
@@ -127,9 +138,9 @@ docker exec -i luran_db psql -U luran_user -d luran_db < backup.sql
 curl -fsSL https://get.docker.com -o get-docker.sh
 sh get-docker.sh
 
-# Install Docker Compose
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
+# Docker Compose plugin is included with modern Docker installs.
+# Verify:
+docker compose version
 
 # Clone your repo
 cd /opt
@@ -157,20 +168,20 @@ echo "API_WORKERS=4" >> .env
 ### 3. Start Services
 
 ```bash
-# Build and start
-docker-compose up -d
+# Build and start production stack
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 # Check status
-docker-compose ps
+docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
 
 # Run migrations
-docker-compose exec api alembic upgrade head
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api alembic upgrade head
 
 # Test health
 curl http://localhost:8000/api/v1/health
 
 # Seed database (create subscription plans + platform admin)
-docker-compose exec api python scripts/seed_data.py
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api python scripts/seed_data.py
 ```
 
 ### 4. Setup Automatic Database Backups
@@ -254,14 +265,19 @@ Paste this config:
 ```nginx
 server {
     listen 80;
-    server_name yourdomain.com;
+    server_name api.luranai.com;
 
     location / {
-        proxy_pass http://localhost:8000;
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 120s;
+        proxy_send_timeout 120s;
     }
 }
 ```
@@ -277,7 +293,17 @@ sudo systemctl reload nginx
 
 ```bash
 sudo apt install certbot python3-certbot-nginx
-sudo certbot --nginx -d yourdomain.com
+sudo certbot --nginx -d api.luranai.com
+```
+
+After certbot succeeds, enforce HTTPS redirect in your nginx config:
+
+```nginx
+server {
+    listen 80;
+    server_name api.luranai.com;
+    return 301 https://$host$request_uri;
+}
 ```
 
 ---
@@ -309,13 +335,13 @@ docker exec -it luran_redis redis-cli GET "http_registration:192.168.1.1"
 ### Check Logs
 ```bash
 # API logs
-docker-compose logs --tail=100 -f api
+docker compose logs --tail=100 -f api
 
 # All services
-docker-compose logs -f
+docker compose logs -f
 
 # Database logs (for slow queries)
-docker-compose logs --tail=50 db
+docker compose logs --tail=50 db
 ```
 
 ---
@@ -340,35 +366,35 @@ Example strong password: `AdminP@ssw0rd2026!`
 docker stats
 
 # If API using > 1GB, reduce workers
-API_WORKERS=3 docker-compose restart api
+API_WORKERS=3 docker compose restart api
 
 # Or in .env
 echo "API_WORKERS=3" >> .env
-docker-compose restart api
+docker compose restart api
 ```
 
 ### Rate Limiting Not Working
 ```bash
 # Check Redis is running
-docker-compose ps redis
+docker compose ps redis
 
 # Check if keys exist after making requests
 docker exec -it luran_redis redis-cli KEYS "http_*"
 
 # Restart API
-docker-compose restart api
+docker compose restart api
 ```
 
 ### Database Connection Errors
 ```bash
 # Check DB is running
-docker-compose ps db
+docker compose ps db
 
 # Check logs
-docker-compose logs db
+docker compose logs db
 
 # Restart DB
-docker-compose restart db
+docker compose restart db
 ```
 
 ---
@@ -380,11 +406,11 @@ docker-compose restart db
 git pull origin main
 
 # Rebuild and restart
-docker-compose build
-docker-compose up -d
+docker compose -f docker-compose.yml -f docker-compose.prod.yml build
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 # Run migrations
-docker-compose exec api alembic upgrade head
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api alembic upgrade head
 
 # Check health
 curl http://localhost:8000/api/v1/health
@@ -396,21 +422,21 @@ curl http://localhost:8000/api/v1/health
 
 | Task | Command |
 |------|---------|
-| Start dev (2 workers) | `API_WORKERS=2 docker-compose up -d` |
-| Start prod (4 workers) | `docker-compose up -d` |
-| Stop all | `docker-compose down` |
-| View logs | `docker-compose logs -f api` |
+| Start dev (2 workers) | `API_WORKERS=2 docker compose up -d` |
+| Start prod (4 workers) | `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d` |
+| Stop all | `docker compose down` |
+| View logs | `docker compose logs -f api` |
 | Check resources | `docker stats` |
-| Database GUI | `docker-compose --profile tools up -d adminer` |
+| Database GUI | `docker compose --profile tools up -d adminer` |
 | Database CLI | `docker exec -it luran_db psql -U luran_user -d luran_db` |
-| Restart API | `docker-compose restart api` |
-| Run migrations | `docker-compose exec api alembic upgrade head` |
+| Restart API | `docker compose restart api` |
+| Run migrations (prod stack) | `docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api alembic upgrade head` |
 
 ---
 
 ## ✅ What's Included
 
-The docker-compose.yml has everything configured:
+The production stack has everything configured:
 
 ✅ **Resource Limits** - Prevents server crashes
 - API: 1GB limit
@@ -433,7 +459,7 @@ The docker-compose.yml has everything configured:
 |------------|-------------|------------------|
 | 2GB | 2 | 0-50 users |
 | 4GB | 3 | 50-200 users |
-| 8GB | 4 | 200-500 users |
+| 8GB | 4 | 100-300 concurrent active sessions (after load-test) |
 | 16GB+ | 6-8 | 500+ users |
 
 **Start with 4 workers on your 8GB server. Scale up only if needed.**
@@ -442,10 +468,10 @@ The docker-compose.yml has everything configured:
 
 ## Summary
 
-🎯 **One file for everything:** `docker-compose.yml`
-🎯 **Development:** `API_WORKERS=2 docker-compose up -d`
-🎯 **Production:** `docker-compose up -d` (defaults to 4 workers)
-🎯 **Database GUI:** `docker-compose --profile tools up -d adminer`
+🎯 **Use override in production:** `docker-compose.yml` + `docker-compose.prod.yml`
+🎯 **Development:** `API_WORKERS=2 docker compose up -d`
+🎯 **Production:** `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
+🎯 **Database GUI:** `docker compose --profile tools up -d adminer`
 🎯 **All optimized:** Resource limits, health checks, log rotation included
 
 **That's it! Keep it simple.** 🚀

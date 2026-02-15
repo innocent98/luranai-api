@@ -25,7 +25,7 @@ This directory contains GitHub Actions workflows for Continuous Integration and 
   - Build Docker images
   - Copy files via SCP
   - Run migrations
-  - Zero-downtime deployment
+  - Compose-based deployment with production override
   - Health check validation
 
 **Required Secrets:**
@@ -88,7 +88,7 @@ cd /opt/luran
 nano .env
 # Add your production environment variables
 
-# Install Docker and Docker Compose
+# Install Docker (includes docker compose plugin on modern installs)
 curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER
 ```
@@ -101,8 +101,8 @@ Create `/opt/luran/.env` on your VPS with production values:
 # Copy from .env.example and fill in production values
 SECRET_KEY=<generate with: openssl rand -hex 32>
 POSTGRES_PASSWORD=<strong-password>
-GOOGLE_API_KEY=<your-api-key>
-PGADMIN_PASSWORD=<strong-password>
+OPENAI_API_KEY=<your-openai-api-key>
+# ... other variables used by app/core/config.py
 # ... other variables
 ```
 
@@ -111,9 +111,9 @@ PGADMIN_PASSWORD=<strong-password>
 ```bash
 # On your VPS
 cd /opt/luran
-docker-compose pull
-docker-compose up -d
-docker-compose exec api alembic upgrade head
+docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api alembic upgrade head
 ```
 
 ### 5. Enable Workflows
@@ -124,10 +124,10 @@ docker-compose exec api alembic upgrade head
 
 ## Workflow Features
 
-### Zero-Downtime Deployment
-- Uses `docker-compose up -d --no-deps` to restart only changed services
-- Health check validation before marking deployment as successful
-- Automatic rollback on failure
+### Deployment Behavior
+- Uses `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
+- Runs migration before service refresh
+- Validates deployment with health check
 
 ### Security
 - No secrets in code
@@ -151,18 +151,16 @@ Trigger manual deployment from GitHub:
 
 ## Rollback
 
-If deployment fails, the workflow automatically:
-1. Detects failure via health check
-2. Rolls back to previous Docker image
-3. Validates rollback with health check
+Current workflow does **not** implement automatic rollback.
+If deployment fails, use manual rollback.
 
 Manual rollback:
 ```bash
 # SSH into VPS
 cd /opt/luran
-docker-compose down
+docker compose -f docker-compose.yml -f docker-compose.prod.yml down
 docker tag luran-api:previous luran-api:latest
-docker-compose up -d
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
 ## Troubleshooting
@@ -170,10 +168,10 @@ docker-compose up -d
 ### Deployment Fails
 - Check VPS SSH access: `ssh user@vps-ip`
 - Verify secrets are set correctly
-- Check VPS logs: `cd /opt/luran && docker-compose logs`
+- Check VPS logs: `cd /opt/luran && docker compose -f docker-compose.yml -f docker-compose.prod.yml logs`
 
 ### Health Check Fails
-- Check API logs: `docker-compose logs api`
+- Check API logs: `docker compose -f docker-compose.yml -f docker-compose.prod.yml logs api`
 - Verify environment variables in `/opt/luran/.env`
 - Test health endpoint: `curl http://localhost:8000/api/v1/health`
 
@@ -186,8 +184,8 @@ docker-compose up -d
 
 1. **Always test locally first:**
    ```bash
-   docker-compose build
-   docker-compose up -d
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml build
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
    curl http://localhost:8000/api/v1/health
    ```
 

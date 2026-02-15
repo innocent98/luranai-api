@@ -94,12 +94,13 @@ class TestRerankerNaming:
 
 
 class TestMaxChunkCharsTODO:
-    """Test that MAX_CHUNK_CHARS has TODO comment."""
+    """Test that MAX_CHUNK_CHARS constant exists and is tuned."""
 
     def test_token_safety_todo_exists(self):
         """RAGService should have MAX_CHUNK_CHARS constant."""
         assert hasattr(RAGService, "MAX_CHUNK_CHARS")
-        assert RAGService.MAX_CHUNK_CHARS == 900
+        # Tuned value for prompt efficiency while preserving chunk signal.
+        assert RAGService.MAX_CHUNK_CHARS == 750
 
 
 class TestTokenCounter:
