@@ -39,6 +39,8 @@ COPY ./app /app/app
 COPY ./worker.py /app/worker.py
 COPY ./alembic /app/alembic
 COPY ./alembic.ini /app/alembic.ini
+# Keep production image lean: include only scripts needed in production ops.
+COPY ./scripts/seed_data.py /app/scripts/seed_data.py
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
