@@ -163,6 +163,22 @@ docker tag luran-api:previous luran-api:latest
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
+## To confirm deployment on VPS, run these once:
+```bash
+cd /opt/luran
+docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=100 api
+curl -sS http://localhost:8000/api/v1/health
+```
+
+## Also verify running image/build time:
+```bash
+docker images | grep luran-api
+docker inspect luran-api:latest --format='{{.Created}}'
+```
+### NB: If health is ok and containers are up, deployment is updated.
+
+
 ## Troubleshooting
 
 ### Deployment Fails

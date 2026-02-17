@@ -20,6 +20,7 @@ from app.schemas.platform_subscription import (
     TenantSubscriptionDetailResponse,
     TrialExtensionResponse,
 )
+from app.utils.datetime import ensure_utc_aware
 from app.services.plan_service import PlanService
 from app.services.subscription_service import SubscriptionService
 
@@ -88,7 +89,9 @@ class PlatformSubscriptionService:
             tenant.trial_ends_at = None
         else:
             # If moving back to trial, set trial end date
-            if not tenant.trial_ends_at or tenant.trial_ends_at < datetime.now(UTC):
+            now = datetime.now(UTC)
+            trial_ends_at = ensure_utc_aware(tenant.trial_ends_at)
+            if not trial_ends_at or trial_ends_at < now:
                 tenant.trial_ends_at = datetime.now(UTC) + timedelta(days=14)
 
         # Update capabilities
@@ -163,7 +166,7 @@ class PlatformSubscriptionService:
             # If no trial end date, start from now
             previous_end = datetime.now(UTC)
         else:
-            previous_end = tenant.trial_ends_at
+            previous_end = ensure_utc_aware(tenant.trial_ends_at) or datetime.now(UTC)
 
         # If trial already expired, extend from now
         if previous_end < datetime.now(UTC):
