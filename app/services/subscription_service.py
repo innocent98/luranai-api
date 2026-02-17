@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant, TenantCapabilities
 from app.services.plan_service import PlanService
+from app.utils.datetime import ensure_utc_aware
 
 
 class SubscriptionService:
@@ -110,13 +111,15 @@ class SubscriptionService:
 
         now = datetime.now(UTC)
         is_trial = tenant.subscription_tier == "trial"
+        trial_ends_at = ensure_utc_aware(tenant.trial_ends_at)
+        subscription_ends_at = ensure_utc_aware(tenant.subscription_ends_at)
 
         # Calculate days until expiry
         days_until_expiry = None
-        if is_trial and tenant.trial_ends_at:
-            days_until_expiry = (tenant.trial_ends_at - now).days
-        elif tenant.subscription_ends_at:
-            days_until_expiry = (tenant.subscription_ends_at - now).days
+        if is_trial and trial_ends_at:
+            days_until_expiry = (trial_ends_at - now).days
+        elif subscription_ends_at:
+            days_until_expiry = (subscription_ends_at - now).days
 
         # Calculate next billing date (for active subscriptions)
         next_billing_date = None

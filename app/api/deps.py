@@ -17,6 +17,7 @@ from app.schemas.platform_admin import PlatformAdminResponse
 from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
 from app.services.platform_admin_auth_service import PlatformAdminAuthService
+from app.utils.datetime import ensure_utc_aware
 
 security = HTTPBearer()
 
@@ -118,9 +119,9 @@ async def verify_subscription_active(
 
     # Check trial expiration
     if tenant.subscription_status in {"trialing", "trial"}:
-
         now = datetime.now(UTC)
-        if tenant.trial_ends_at and now > tenant.trial_ends_at:
+        trial_ends_at = ensure_utc_aware(tenant.trial_ends_at)
+        if trial_ends_at and now > trial_ends_at:
             # Auto-update status
             tenant.subscription_status = "trial_expired"
             db.commit()
@@ -130,7 +131,7 @@ async def verify_subscription_active(
                 detail={
                     "error": "trial_expired",
                     "message": "Your 30-day trial has expired. Please upgrade to continue using Luran.",
-                    "trial_ended": tenant.trial_ends_at.isoformat(),
+                    "trial_ended": trial_ends_at.isoformat(),
                     "upgrade_url": "/dashboard/upgrade",
                     "subscription_tier": tenant.subscription_tier,
                 },
@@ -138,11 +139,11 @@ async def verify_subscription_active(
 
     # Check active subscription expiration (for end-of-period cancellations)
     if tenant.subscription_status == "active":
-
         now = datetime.now(UTC)
+        subscription_ends_at = ensure_utc_aware(tenant.subscription_ends_at)
 
         # If subscription has an end date and it has passed, auto-expire
-        if tenant.subscription_ends_at and now > tenant.subscription_ends_at:
+        if subscription_ends_at and now > subscription_ends_at:
             tenant.subscription_status = "canceled"
             db.commit()
 
@@ -151,7 +152,7 @@ async def verify_subscription_active(
                 detail={
                     "error": "subscription_expired",
                     "message": "Your subscription has ended. Please reactivate to continue using Luran.",
-                    "subscription_ended": tenant.subscription_ends_at.isoformat(),
+                    "subscription_ended": subscription_ends_at.isoformat(),
                     "upgrade_url": "/dashboard/billing",
                     "subscription_tier": tenant.subscription_tier,
                 },

@@ -14,6 +14,7 @@ from app.db.models.tenant import Tenant
 from app.db.models.user import UserRole
 from app.db.session import SessionLocal
 from app.services.conversation_service import ConversationService
+from app.utils.datetime import ensure_utc_aware
 
 router = APIRouter()
 
@@ -25,7 +26,8 @@ def _is_subscription_inactive(tenant: Tenant | None) -> bool:
 
     if tenant.subscription_status in {"trialing", "trial"}:
         now = datetime.now(UTC)
-        if tenant.trial_ends_at and now > tenant.trial_ends_at:
+        trial_ends_at = ensure_utc_aware(tenant.trial_ends_at)
+        if trial_ends_at and now > trial_ends_at:
             return True
 
     return tenant.subscription_status in {"trial_expired", "canceled", "past_due"}

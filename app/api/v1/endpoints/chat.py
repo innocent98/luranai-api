@@ -44,7 +44,7 @@ from app.services.flow_engine import FlowEngine
 from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
 from app.services.ticket_service import TicketService
-from app.utils.datetime import utcnow_naive
+from app.utils.datetime import ensure_utc_aware, utcnow_aware, utcnow_naive
 from app.utils.http_rate_limiter import chat_rate_limit
 
 router = APIRouter()
@@ -312,9 +312,9 @@ async def send_message(
     if tenant_model:
         # Check trial expiration
         if tenant_model.subscription_status in {"trialing", "trial"}:
-
-            now = utcnow_naive()
-            if tenant_model.trial_ends_at and now > tenant_model.trial_ends_at:
+            now = utcnow_aware()
+            trial_ends_at = ensure_utc_aware(tenant_model.trial_ends_at)
+            if trial_ends_at and now > trial_ends_at:
                 # Auto-update status
                 tenant_model.subscription_status = "trial_expired"
                 db.commit()
@@ -324,7 +324,7 @@ async def send_message(
                     detail={
                         "error": "trial_expired",
                         "message": "Your 30-day trial has expired. Please upgrade to continue using Luran.",
-                        "trial_ended": tenant_model.trial_ends_at.isoformat(),
+                        "trial_ended": trial_ends_at.isoformat(),
                         "upgrade_url": "/dashboard/upgrade",
                     },
                 )
