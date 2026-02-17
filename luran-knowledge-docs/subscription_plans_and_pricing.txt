@@ -1,120 +1,73 @@
-LURAN SUBSCRIPTION PLANS AND PRICING (IMPLEMENTATION-ALIGNED)
+Subscription Plans and Limits (Tenant Version)
 
-Last verified against code: February 10, 2026
-Primary sources: scripts/seed_data.py, app/services/company_registration_service.py,
-app/services/flow_service.py, app/api/deps.py
-
-================================================================================
-OVERVIEW
-================================================================================
-
-Luran currently uses 5 tiers:
+Current tiers
 - trial
 - lite
 - professional
 - growth
 - enterprise
 
-Currency in seed data is kobo (NGN x 100).
+Current public pricing references
+- Lite: ₦9,000/month
+- Professional: ₦40,000/month
+- Growth: ₦80,000/month
+- Enterprise: custom pricing (contact sales)
 
-Important implementation notes:
-- Self-service signup creates a trial tenant with trial_ends_at = now + 30 days.
-- Platform-admin override to trial currently sets +14 days when trial is reset.
-- Capability enforcement is done at runtime using tenant capabilities.
+Trial basics
+- Trial starts at signup.
+- Trial duration is currently 30 days.
+- Trial defaults include:
+  - 200 conversations/month
+  - 2 knowledge sources
+  - 10 MB knowledge storage
+  - 1 team member
+  - 0 flows
+  - no URL knowledge sources
 
-================================================================================
-PLAN MATRIX (CURRENT DEFAULTS)
-================================================================================
+Starter capability examples by tier
 
-TRIAL
-- Price: NGN 0 monthly / NGN 0 annual
-- Conversations/month: 200 (plan default)
-- Max response tokens: 800
-- Knowledge sources: 2
-- Storage: 10 MB
-- URL sources: No
-- Team members: 1
-- Flows: 0
-- Nodes/flow: 0
-- Webhooks: No
-- Webhooks/flow: 0
-- Analytics: No
+Lite
+- 2,000 conversations/month
+- 15 knowledge sources
+- 50 MB storage
+- 3 team members
+- 2 flows
+- URL sources enabled
+- webhooks not enabled
 
-LITE
-- Price: NGN 9,000 monthly / NGN 90,000 annual
-- Conversations/month: 2,000
-- Max response tokens: 1,000
-- Knowledge sources: 15
-- Storage: 50 MB
-- URL sources: Yes
-- Team members: 3
-- Flows: 2
-- Nodes/flow: 20
-- Webhooks: No
-- Webhooks/flow: 0
-- Analytics: Yes
+Professional
+- 10,000 conversations/month
+- 50 knowledge sources
+- 200 MB storage
+- 10 team members
+- 10 flows
+- webhooks enabled (up to 3 per flow)
 
-PROFESSIONAL
-- Price: NGN 40,000 monthly / NGN 400,000 annual
-- Conversations/month: 10,000
-- Max response tokens: 1,500
-- Knowledge sources: 50
-- Storage: 200 MB
-- URL sources: Yes
-- Team members: 10
-- Flows: 10
-- Nodes/flow: 50
-- Webhooks: Yes
-- Webhooks/flow: 3
-- Analytics: Yes
+Growth
+- 25,000 conversations/month
+- 50 knowledge sources
+- 500 MB storage
+- 20 team members
+- 25 flows
+- webhooks enabled (up to 10 per flow)
 
-GROWTH
-- Price: NGN 80,000 monthly / NGN 800,000 annual
-- Conversations/month: 25,000
-- Max response tokens: 1,500
-- Knowledge sources: 50
-- Storage: 500 MB
-- URL sources: Yes
-- Team members: 20
-- Flows: 25
-- Nodes/flow: 100
-- Webhooks: Yes
-- Webhooks/flow: 10
-- Analytics: Yes
+Enterprise
+- conversation, storage, and flow limits are custom/unlimited by plan config
+- webhooks and team limits are custom
 
-ENTERPRISE
-- Price: Custom / Contact sales
-- Conversations/month: Unlimited
-- Max response tokens: 2,000
-- Knowledge sources: Unlimited
-- Storage: Unlimited
-- URL sources: Yes
-- Team members: Unlimited
-- Flows: Unlimited
-- Nodes/flow: Unlimited
-- Webhooks: Yes
-- Webhooks/flow: Unlimited
-- Analytics: Yes
+How limits are enforced
+- Limits are checked at runtime. If your plan limit is reached, action is blocked.
+- Common enforced limits:
+  - monthly conversation quota
+  - knowledge source count
+  - knowledge storage
+  - team member count
+  - flow count
+  - webhook usage (by tier)
 
-================================================================================
-ENFORCEMENT BEHAVIOR
-================================================================================
+What happens when subscription is inactive
+- If trial expires or subscription becomes inactive, protected features are blocked until reactivation.
 
-- Flow create limits are enforced in flow_service.check_flow_limits().
-- Node-per-flow and webhook permissions are validated before save/execute.
-- Knowledge source count and storage are enforced at upload/scrape time.
-- Conversation limits are checked monthly in verify_conversation_limit().
-- Inactive subscription states (trial_expired, canceled, past_due) are blocked
-  by verify_subscription_active() on protected routes.
+Note
+- Plan details can be updated by platform policy. Always confirm latest values on your in-app Pricing page.
 
-================================================================================
-CANCELLATION / EXPIRY
-================================================================================
-
-- Trial expiry: tenant moves to trial_expired and protected features are blocked.
-- Active subscription past subscription_ends_at: marked canceled and blocked.
-- Immediate cancel: status set to canceled now.
-- End-of-period cancel: remains active until subscription_ends_at.
-
-This file is intentionally implementation-first. If plan policy changes, update both
-seed data and this doc together.

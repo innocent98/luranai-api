@@ -342,7 +342,7 @@ class SubscriptionService:
             raise ValueError(f"Invalid tier: {new_tier}")
 
         # 3. Validate downgrade direction (not upgrade)
-        tier_order = {"trial": 0, "lite": 1, "professional": 2, "enterprise": 3}
+        tier_order = {"trial": 0, "lite": 1, "professional": 2, "growth": 3, "enterprise": 4}
         if tier_order.get(new_tier, -1) >= tier_order.get(current_tier, -1):
             raise ValueError("Use upgrade endpoint for tier increases")
 

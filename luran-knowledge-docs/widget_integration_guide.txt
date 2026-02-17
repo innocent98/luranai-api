@@ -1,24 +1,17 @@
-LURAN CHAT WIDGET INTEGRATION GUIDE (IMPLEMENTATION-ALIGNED)
+Luran Widget Integration Guide (Tenant Version)
 
-Last verified against code: February 10, 2026
-Primary sources: app/api/v1/endpoints/widget.py, luran-chat/app/widget/page.tsx
+What you need before install
+- Your `tenantId` (from dashboard).
+- Your public API key (starts with `pk_live_`).
 
-================================================================================
-REQUIRED VALUES
-================================================================================
+Important:
+- Use public key only in website code.
+- Never expose secret keys (`sk_live_`) in frontend.
 
-You need:
-- tenantId: tenant UUID
-- apiKey: PUBLIC API key (starts with pk_live_)
+Quick install
+Add this before `</body>` on your website:
 
-Do not expose secret keys (sk_live_) in browser code.
-
-================================================================================
-QUICK INSTALL
-================================================================================
-
-Add this before closing </body>:
-
+```html
 <script>
   window.luranSettings = {
     tenantId: 'YOUR_TENANT_UUID',
@@ -26,70 +19,44 @@ Add this before closing </body>:
   };
 </script>
 <script src="https://cdn.luranai.com/widget/v1/widget.js" async defer></script>
+```
 
-================================================================================
-HOW IT WORKS
-================================================================================
+What happens after install
+1. Widget reads your `tenantId` and public key.
+2. It loads your widget settings (name, colors, greeting, logo, position).
+3. It shows the floating chat button on your website.
+4. When users open it, chat starts with your tenant configuration.
 
-1. Loader script reads window.luranSettings.
-2. Loader calls backend public widget config endpoint:
-   GET /api/v1/widget/public/config/{tenant_id}
-   with header: X-API-Key: pk_live_...
-3. Backend validates:
-   - API key is valid
-   - key belongs to the same tenant
-4. Loader opens chat UI (iframe) with tenant context.
+What you can customize in dashboard
+- brand colors
+- company name/description
+- greeting message
+- widget position
+- logo
+- unread badge
+- file upload toggle
 
-================================================================================
-BACKEND-PROVIDED WIDGET CONFIG
-================================================================================
+If you upload a logo:
+- Max logo upload size is `5 MB`.
 
-Public config fields include:
-- company_name
-- company_description
-- primary_color
-- accent_color
-- logo_url
-- greeting_message
-- position
-- show_unread_badge
-- allow_file_upload
+How to test quickly
+1. Publish the snippet on a page.
+2. Open page in browser.
+3. Confirm floating button appears.
+4. Open chat and send a test message.
+5. Confirm message appears in your dashboard support view.
 
-Default fallbacks used by backend if tenant fields are empty:
-- primary_color: #2563eb
-- accent_color: #10b981
-- greeting_message: "Hi! How can we help you today?"
-- position: bottom-right
+Common issues and fixes
+- Widget not showing:
+  - missing or wrong `tenantId`
+  - missing or wrong public API key
+  - script not loaded (check browser console/network)
 
-================================================================================
-CUSTOMIZATION (DASHBOARD)
-================================================================================
+- Config request fails:
+  - `401`: API key is invalid/revoked
+  - `403`: API key does not belong to that tenant
+  - `404`: tenant ID is wrong
 
-Tenant admins can update:
-- widget_primary_color
-- widget_accent_color
-- widget_logo_url
-- widget_greeting_message
-- widget_position (bottom-right, bottom-left, top-right, top-left)
-- widget_show_unread_badge
-- widget_allow_file_upload
-
-Logo upload endpoint accepts image file up to 5 MB.
-
-================================================================================
-COMMON ISSUES
-================================================================================
-
-Widget not appearing:
-- tenantId or apiKey missing/incorrect
-- script not loaded
-- CDN blocked by CSP/network
-
-401 from public config endpoint:
-- invalid or revoked API key
-
-403 from public config endpoint:
-- API key does not belong to requested tenant
-
-404 from public config endpoint:
-- tenant UUID is wrong
+- Chat opens but answers are weak:
+  - knowledge files may still be `PROCESSING`
+  - no `ACTIVE` knowledge sources yet

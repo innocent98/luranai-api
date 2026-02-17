@@ -1,85 +1,38 @@
-LURAN GETTING STARTED WALKTHROUGH (IMPLEMENTATION-ALIGNED)
+Getting Started Walkthrough (Tenant Admin)
 
-Last verified against code: February 10, 2026
+Quick setup checklist
+1. Create your account and verify email.
+2. Upload your first knowledge files.
+3. Configure your widget look and greeting.
+4. Create a public API key.
+5. Install the widget snippet on your website.
+6. Run a real test conversation.
 
-================================================================================
-SETUP CHECKLIST
-================================================================================
+Step 1: Account and Trial
+- After signup, your workspace and tenant admin account are created automatically.
+- Trial starts immediately and currently lasts 30 days.
+- Verify your email, then sign in to dashboard.
 
-1) Create account and verify email
-2) Upload knowledge sources
-3) Configure widget branding
-4) Generate public API key
-5) Install widget snippet on website
-6) Test chat, flow routing, and escalation
+Step 2: Upload Knowledge
+- Upload files your customers ask about most.
+- Supported: `.txt`, `.md`, `.pdf`, `.docx`.
+- Max file size: `10 MB` per file.
+- Uploads process in the background. Status moves from `PROCESSING` to `ACTIVE` when ready.
+- Start with FAQs, pricing, support policies, onboarding guides, and troubleshooting steps.
 
-================================================================================
-STEP 1: ACCOUNT + TRIAL
-================================================================================
+Step 3: Build Flows (Optional, Recommended)
+- Flows help guide users with step-by-step options.
+- Good examples: Data / Airtime / Services menu, billing troubleshooting, escalation to human support.
+- Use clear flow names because customers may see these as menu options.
+- If a request is not handled by flow, chat can continue with AI/RAG.
 
-Self-service registration creates:
-- a tenant
-- a tenant admin user
-- default trial subscription
+Step 4: Configure Widget
+- In Widget settings, set brand colors, welcome greeting, position, company logo, unread badge, and file-upload options.
 
-Current trial behavior in code:
-- trial_ends_at default: now + 30 days (company registration flow)
+Step 5: Install Widget Snippet
+Add before `</body>`:
 
-After signup:
-- verify email
-- login to dashboard
-
-================================================================================
-STEP 2: UPLOAD KNOWLEDGE
-================================================================================
-
-Supported file uploads:
-- .txt, .md, .pdf, .docx
-- max size: 10 MB/file
-
-Upload is processed asynchronously:
-- source created
-- text chunked
-- embeddings generated
-- vectors stored
-- status moves to ACTIVE on success
-
-Tip:
-- start with core FAQs/policies first, then expand.
-
-================================================================================
-STEP 3: FLOWS (OPTIONAL BUT RECOMMENDED)
-================================================================================
-
-Use flows for guided support paths (for example MTN-style menu flows):
-- question -> option -> next node
-- condition / ai_action / webhook / escalate / end
-
-Current best practice:
-- use clear flow names and trigger configuration
-- set menu_label/menu_description for router display
-- set exclude_from_router=true for internal flows
-
-If no flow matches, chat falls back to AI/RAG response path.
-
-================================================================================
-STEP 4: WIDGET CONFIG
-================================================================================
-
-In dashboard widget settings, set:
-- primary/accent colors
-- greeting message
-- position
-- logo
-- unread badge toggle
-- file upload toggle
-
-================================================================================
-STEP 5: INSTALL SNIPPET
-================================================================================
-
-Add before </body>:
-
+```html
 <script>
   window.luranSettings = {
     tenantId: 'YOUR_TENANT_UUID',
@@ -87,27 +40,20 @@ Add before </body>:
   };
 </script>
 <script src="https://cdn.luranai.com/widget/v1/widget.js" async defer></script>
+```
 
-Use PUBLIC key only (pk_live_...).
+- Use public key only (`pk_live_...`), never a secret key.
 
-================================================================================
-STEP 6: VERIFY END-TO-END
-================================================================================
+Step 6: Verify End-to-End
+- Open your website and launch widget.
+- Confirm greeting appears.
+- Ask a question covered by knowledge base.
+- Test a flow path (if you created flows).
+- Test escalation to human support.
+- Confirm agent reply from dashboard appears in widget.
 
-Test these paths:
-- Welcome/greeting shown
-- Router options shown when multiple active flows exist
-- Flow branch selection works
-- AI fallback works for non-flow queries
-- Talk-to-human escalation creates ticket
-- Agent can reply from dashboard and message reaches chat UI
-
-================================================================================
-COMMON BLOCKERS
-================================================================================
-
-- Invalid tenantId/apiKey in widget script
-- CORS origin missing for environment
-- No active knowledge sources
-- Plan limits reached (flows, sources, storage, conversations)
-- Subscription inactive (trial_expired/canceled/past_due)
+Common issues
+- Wrong `tenantId` or API key in script.
+- Knowledge source still `PROCESSING` or in `FAILED` state.
+- Plan limits reached (knowledge, flows, storage, conversations).
+- Subscription inactive.

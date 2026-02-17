@@ -1,120 +1,105 @@
-LURAN PLATFORM KNOWLEDGE (IMPLEMENTATION-ALIGNED)
+Luran Platform Knowledge (Tenant Version)
 
-Last verified against code: February 10, 2026
+What Luran is
+Luran is a customer support platform that combines three support layers:
+- AI answers from your uploaded knowledge base
+- guided flows for repeatable support journeys
+- human agent handoff for complex cases
 
-================================================================================
-WHAT LURAN IS
-================================================================================
+Your team manages this from dashboard, while your customers interact through the website widget.
 
-Luran is a multi-tenant AI support platform for website chat.
-It combines:
-- Retrieval-Augmented Generation (RAG)
-- Flow-based guided support
-- Human escalation/ticketing
-- Dashboard tooling for knowledge, flows, and support agents
+How customer support works in Luran
+1. Customer opens your widget.
+2. If you have active customer-facing flows, the customer can be guided through options.
+3. If flow does not resolve the request, AI can continue with knowledge-based answers.
+4. If needed, the conversation is escalated to a human agent.
+5. Agent continues in dashboard with conversation context.
 
-================================================================================
-CORE ARCHITECTURE
-================================================================================
+How AI answers are grounded
+- You upload support content (FAQs, guides, policies, docs).
+- Luran processes and indexes the content.
+- AI retrieves relevant knowledge and uses it to answer customer questions.
+- If knowledge is missing or weak, AI may ask clarifying questions or move toward escalation.
 
-Backend stack (from code):
-- FastAPI API server
-- PostgreSQL for relational data
-- Redis for queues/rate controls
-- Qdrant for vector search
-- OpenAI models for embeddings + LLM
+How flows and AI work together
+- Flows are best for structured, repeatable journeys (for example support menus and troubleshooting paths).
+- AI is best for open-ended questions that are not fully captured in fixed paths.
+- Luran can use both in one customer journey: flow first, AI fallback, then human escalation when needed.
 
-Default AI models:
-- Embedding: text-embedding-3-small
-- LLM: gpt-4o-mini
+Typical flow use cases
+- telecom-style support menu (Data / Airtime / Services)
+- billing and payment troubleshooting
+- onboarding and account setup help
+- eligibility checks before escalation
+- structured handoff to human support
 
-Frontend apps:
-- luran-dashboard (admin/agent operations)
-- luran-chat (embedded customer chat iframe)
+Knowledge source lifecycle
+- After upload, source enters `PROCESSING`.
+- When successful, source becomes `ACTIVE`.
+- If processing fails, source becomes `FAILED`.
+- Deleting a source marks it `INACTIVE` and removes it from active retrieval.
 
-================================================================================
-HOW ANSWERING WORKS
-================================================================================
+When customers can expect good answers
+- Best results happen when key knowledge is `ACTIVE`.
+- If sources are still processing, answers may be incomplete.
+- Keep high-frequency support topics updated for better response quality.
 
-Chat request path:
-1) Session/user message arrives
-2) Flow engine attempts trigger/match
-3) If flow is active, flow node executes
-4) If no flow path applies, RAG pipeline answers from knowledge
-5) If confidence/logic requires, escalation path can create ticket/handoff
+Escalation behavior
+- Escalation can happen through flows or AI support logic.
+- Customer can also request human support directly in conversation.
+- When escalated, a support ticket can be created and agents can reply from dashboard.
 
-Knowledge pipeline:
-- upload/scrape source
-- extract text
-- chunk text
-- embed chunks
-- store in Qdrant + metadata in PostgreSQL
-- retrieve top chunks at query time
+Widget experience basics
+- You embed one script snippet on your website.
+- Widget uses your tenant settings (greeting, colors, logo, position).
+- Your customer messages are linked to your tenant context.
 
-================================================================================
-FLOWS IN LURAN
-================================================================================
+Tenant isolation and data scope
+- Your tenant data is separated from other businesses.
+- Knowledge, chat sessions, flows, and support operations are scoped to your tenant.
+- API keys are tenant-scoped.
 
-Flow intent:
-- turn common support journeys into deterministic multi-step outcomes
-- reduce repetitive human workload
-- keep complex or sensitive cases for humans
+API keys and safe usage
+- Public key (`pk_live_...`) is for widget/frontend usage.
+- Secret keys must not be exposed in browser code.
+- Wrong tenantId/key combination causes widget config/auth errors.
 
-Supported node families in backend include:
-- message
-- question
-- text_input
-- condition
-- ai_action
-- rag_query
-- webhook
-- escalate
-- end
+Plan and usage enforcement
+Runtime checks enforce plan capabilities such as:
+- monthly conversations
+- knowledge storage and source count
+- team size
+- flow limits
+- webhook-related limits
 
-Flow routing supports:
-- keyword trigger
-- manual/intent/event/schedule trigger types in backend model
-- start router behavior for multiple active flows
-- optional menu labels/descriptions for cleaner customer choices
+If subscription state is inactive (for example trial expired), protected usage is blocked until reactivated.
 
-================================================================================
-TENANT ISOLATION + ACCESS
-================================================================================
+Team operations in dashboard
+Tenant admins can:
+- manage knowledge sources
+- configure widget settings
+- build and publish flows
+- monitor support activity
+- manage users/agents and handle escalations
 
-Luran enforces tenant isolation at data and API layer:
-- tenant-scoped queries
-- per-tenant API keys for widget access
-- role checks for admin operations
+Best practices for strong support quality
+- upload accurate, customer-facing documentation
+- prioritize top customer questions first
+- use flows for repetitive processes
+- keep tone and wording consistent with your brand
+- test end-to-end after major changes (knowledge, flows, widget settings)
 
-Key types:
-- PUBLIC key (pk_live_...): widget/public endpoints
-- SECRET key (sk_live_...): server-side/admin integrations
+Common reasons support quality drops
+- outdated or incomplete knowledge content
+- too many critical journeys left unstructured (no flow)
+- invalid widget tenantId or public key
+- plan limits reached
+- inactive subscription state
 
-================================================================================
-LIMITS + SUBSCRIPTION ENFORCEMENT
-================================================================================
+Quick success checklist
+1. Upload core FAQs/policies.
+2. Confirm knowledge sources are `ACTIVE`.
+3. Configure greeting and branding.
+4. Add at least one customer-facing flow for frequent requests.
+5. Test AI response, flow path, and escalation path before going live.
 
-Runtime limit checks include:
-- conversation quota per month
-- knowledge source count
-- knowledge storage MB
-- team member count
-- flow count / nodes per flow
-- webhook capability and webhook count
-
-Inactive subscription states block protected usage:
-- trial_expired
-- canceled
-- past_due
-
-================================================================================
-SECURITY CONTROLS PRESENT IN CODE
-================================================================================
-
-- JWT auth for dashboard APIs
-- CORS policy from BACKEND_CORS_ORIGINS
-- Security headers middleware
-- API key validation for widget public config
-- tenant key ownership checks
-
-This document only states behavior observable in this codebase.
