@@ -74,7 +74,7 @@ app = FastAPI(
 # CORS middleware - environment-based configuration
 if settings.ENVIRONMENT == "production":
     allowed_methods = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
-    allowed_headers = ["Content-Type", "Authorization", "X-API-Key"]
+    allowed_headers = ["Content-Type", "Authorization", "X-API-Key", "X-Visitor-Id"]
 else:
     allowed_methods = ["*"]
     allowed_headers = ["*"]
