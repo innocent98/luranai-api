@@ -1,4 +1,5 @@
 """Conversation service for managing chat sessions and messages."""
+
 from uuid import UUID
 
 from sqlalchemy import desc, select

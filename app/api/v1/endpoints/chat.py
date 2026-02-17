@@ -483,7 +483,9 @@ async def send_message(
                             ticket_id=str(ticket.id),
                         )
                     except Exception as email_error:
-                        logger.error(f"Router escalation email error for {recipient.email}: {email_error}")
+                        logger.error(
+                            f"Router escalation email error for {recipient.email}: {email_error}"
+                        )
             except Exception as ticket_error:
                 logger.error(f"Failed to create router escalation ticket: {ticket_error}")
             assistant_message = conversation_service.add_message(
@@ -1209,7 +1211,9 @@ async def send_message(
                     )
                 else:
                     avg_similarity_for_guard = (
-                        sum(similarity_scores) / len(similarity_scores) if similarity_scores else 0.0
+                        sum(similarity_scores) / len(similarity_scores)
+                        if similarity_scores
+                        else 0.0
                     )
                     if rag_service.should_force_clarifying_followup(
                         user_query=message_data.message,

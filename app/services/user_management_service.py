@@ -501,16 +501,26 @@ class UserManagementService:
         if capabilities and capabilities.max_team_members is not None:
             return capabilities.max_team_members
 
-        plan = self.db.execute(
-            select(SubscriptionPlan).where(
-                SubscriptionPlan.tier == tenant.subscription_tier,
-                SubscriptionPlan.is_active.is_(True),
+        plan = (
+            self.db.execute(
+                select(SubscriptionPlan).where(
+                    SubscriptionPlan.tier == tenant.subscription_tier,
+                    SubscriptionPlan.is_active.is_(True),
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if not plan:
-            plan = self.db.execute(
-                select(SubscriptionPlan).where(SubscriptionPlan.tier == tenant.subscription_tier)
-            ).scalars().first()
+            plan = (
+                self.db.execute(
+                    select(SubscriptionPlan).where(
+                        SubscriptionPlan.tier == tenant.subscription_tier
+                    )
+                )
+                .scalars()
+                .first()
+            )
         if not plan:
             raise ValueError(f"Subscription plan not found for tier: {tenant.subscription_tier}")
 

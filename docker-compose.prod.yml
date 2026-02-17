@@ -1,7 +1,8 @@
 services:
   api:
     deploy: !reset {}
-    volumes: !reset []
+    volumes: !reset
+      - ./logs:/app/logs
     depends_on:
       - pgbouncer
       - redis
@@ -21,7 +22,8 @@ services:
 
   worker:
     deploy: !reset {}
-    volumes: !reset []
+    volumes: !reset
+      - ./logs:/app/logs
     depends_on:
       - pgbouncer
       - redis

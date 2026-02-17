@@ -119,7 +119,8 @@ class RAGService:
         is_pricing_like = bool(pricing_terms & query_tokens)
         is_policy_like = bool(policy_terms & query_tokens)
         has_pricing_context = is_pricing_like or (
-            is_policy_like and bool({"billing", "refund", "cancel", "price", "subscription"} & query_tokens)
+            is_policy_like
+            and bool({"billing", "refund", "cancel", "price", "subscription"} & query_tokens)
         )
         weak_coverage = retrieved_chunks_count < 2 or avg_similarity < 0.45
         return has_pricing_context and weak_coverage
@@ -486,7 +487,10 @@ Guidance:
                 line = f"{role}: {msg_content}"
                 line_tokens = count_tokens(line)
                 # Always keep most recent line, then enforce history budget.
-                if history_parts_reversed and history_tokens + line_tokens > self.MAX_HISTORY_TOKENS:
+                if (
+                    history_parts_reversed
+                    and history_tokens + line_tokens > self.MAX_HISTORY_TOKENS
+                ):
                     break
                 history_parts_reversed.append(line)
                 history_tokens += line_tokens

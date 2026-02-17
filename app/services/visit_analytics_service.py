@@ -70,7 +70,9 @@ class VisitAnalyticsService:
         except (ProgrammingError, OperationalError) as e:
             self.db.rollback()
             if "daily_visits" in str(e):
-                log.warning("Visit tracking skipped because daily_visits table is not available yet")
+                log.warning(
+                    "Visit tracking skipped because daily_visits table is not available yet"
+                )
                 return
             raise
 

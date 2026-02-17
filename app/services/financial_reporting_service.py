@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.db.models.payment import PaymentTransaction
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant
+from app.services.plan_service import PlanService
 
 
 class FinancialReportingService:
@@ -23,13 +24,14 @@ class FinancialReportingService:
             db: Database session
         """
         self.db = db
+        self.plan_service = PlanService(db)
 
-        # Pricing tiers (in Naira)
-        self.pricing = {
-            "lite": {"monthly": 12000, "annual": 120000},
-            "professional": {"monthly": 35000, "annual": 350000},
-            "enterprise": {"monthly": 0, "annual": 0},  # Contact pricing
-        }
+    @staticmethod
+    def _kobo_to_naira(amount_kobo: int | float | None) -> float:
+        """Convert kobo (minor unit) to naira (major unit)."""
+        if amount_kobo is None:
+            return 0.0
+        return float(amount_kobo) / 100.0
 
     def get_revenue_breakdown(
         self,
@@ -64,45 +66,38 @@ class FinancialReportingService:
             result = self.db.execute(payments_query)
             payments = result.scalars().all()
 
-            # Calculate total revenue
-            total_revenue = float(sum(payment.amount for payment in payments))
+            # Calculate total revenue (naira)
+            total_revenue = self._kobo_to_naira(sum(payment.amount for payment in payments))
 
-            # Revenue by tier (from tenant info at payment time)
+            # Revenue by tier (from payment snapshot to avoid drift when tenant changes plan later)
             revenue_by_tier: dict[str, float] = {}
             payment_counts_by_tier: dict[str, int] = {}
 
             for payment in payments:
-                # Get tenant info
-                tenant_query = select(Tenant).where(Tenant.id == payment.tenant_id)
-                tenant_result = self.db.execute(tenant_query)
-                tenant = tenant_result.scalars().first()
+                tier = payment.tier.lower() if payment.tier else "unknown"
+                if tier not in revenue_by_tier:
+                    revenue_by_tier[tier] = 0.0
+                    payment_counts_by_tier[tier] = 0
 
-                if tenant:
-                    tier = tenant.subscription_tier.lower()
-                    if tier not in revenue_by_tier:
-                        revenue_by_tier[tier] = 0
-                        payment_counts_by_tier[tier] = 0
-
-                    revenue_by_tier[tier] += float(payment.amount)
-                    payment_counts_by_tier[tier] += 1
+                revenue_by_tier[tier] += self._kobo_to_naira(payment.amount)
+                payment_counts_by_tier[tier] += 1
 
             # Revenue by billing cycle
             revenue_by_cycle: dict[str, float] = {}
             payment_counts_by_cycle: dict[str, int] = {}
 
             for payment in payments:
-                tenant_query = select(Tenant).where(Tenant.id == payment.tenant_id)
-                tenant_result = self.db.execute(tenant_query)
-                tenant = tenant_result.scalars().first()
+                cycle = payment.billing_cycle.lower() if payment.billing_cycle else "unknown"
+                if cycle not in revenue_by_cycle:
+                    revenue_by_cycle[cycle] = 0.0
+                    payment_counts_by_cycle[cycle] = 0
 
-                if tenant and tenant.billing_cycle:
-                    cycle = tenant.billing_cycle
-                    if cycle not in revenue_by_cycle:
-                        revenue_by_cycle[cycle] = 0
-                        payment_counts_by_cycle[cycle] = 0
+                revenue_by_cycle[cycle] += self._kobo_to_naira(payment.amount)
+                payment_counts_by_cycle[cycle] += 1
 
-                    revenue_by_cycle[cycle] += float(payment.amount)
-                    payment_counts_by_cycle[cycle] += 1
+            # Ensure expected keys always exist for frontend rendering
+            revenue_by_cycle.setdefault("monthly", 0.0)
+            revenue_by_cycle.setdefault("annual", 0.0)
 
             # Average revenue per payment
             avg_revenue = (total_revenue / len(payments)) if payments else 0.0
@@ -119,7 +114,7 @@ class FinancialReportingService:
             for payment in payments:
                 date_key = payment.created_at.date().isoformat()
                 if date_key in daily_revenue:
-                    daily_revenue[date_key] += float(payment.amount)
+                    daily_revenue[date_key] += self._kobo_to_naira(payment.amount)
 
             return {
                 "period": {
@@ -182,23 +177,19 @@ class FinancialReportingService:
             )
 
             # Revenue from successful payments
-            successful_revenue = float(
-                sum(
-                payment.amount for payment in payments if payment.status == "success"
-                )
+            successful_revenue = self._kobo_to_naira(
+                sum(payment.amount for payment in payments if payment.status == "success")
             )
 
             # Potential lost revenue from failures
-            failed_revenue = float(
-                sum(
-                payment.amount for payment in payments if payment.status == "failed"
-                )
+            failed_revenue = self._kobo_to_naira(
+                sum(payment.amount for payment in payments if payment.status == "failed")
             )
 
             # Payment methods breakdown (if tracked)
             payment_methods: dict[str, dict[str, float]] = {}
             for payment in payments:
-                method = getattr(payment, "payment_method", "card")  # Default to 'card'
+                method = payment.channel or "unknown"
                 if method not in payment_methods:
                     payment_methods[method] = {"count": 0.0, "success": 0.0, "failed": 0.0}
 
@@ -232,7 +223,7 @@ class FinancialReportingService:
             failure_details = [
                 {
                     "payment_reference": str(payment.reference),
-                    "amount": float(payment.amount),
+                    "amount": self._kobo_to_naira(payment.amount),
                     "tenant_id": str(payment.tenant_id),
                     "created_at": payment.created_at.isoformat(),
                 }
@@ -296,15 +287,25 @@ class FinancialReportingService:
             result = self.db.execute(active_query)
             active_subscriptions = result.all()
 
-            # Calculate current MRR
+            # Get active plan pricing from database (single source of truth)
+            active_plans = self.plan_service.get_all_plans(active_only=True)
+            price_by_tier: dict[str, dict[str, float]] = {}
+            for plan in active_plans:
+                tier = str(plan.tier).lower()
+                price_by_tier[tier] = {
+                    "monthly": self._kobo_to_naira(plan.monthly_price_kobo),
+                    "annual": self._kobo_to_naira(plan.annual_price_kobo),
+                }
+
+            # Calculate current MRR (naira)
             current_mrr: float = 0.0
             for tier, cycle, count in active_subscriptions:
                 tier_lower = tier.lower()
-                if tier_lower in self.pricing:
+                if tier_lower in price_by_tier:
                     if cycle == "monthly":
-                        current_mrr += self.pricing[tier_lower]["monthly"] * count
+                        current_mrr += price_by_tier[tier_lower]["monthly"] * count
                     elif cycle == "annual":
-                        current_mrr += (self.pricing[tier_lower]["annual"] / 12) * count
+                        current_mrr += (price_by_tier[tier_lower]["annual"] / 12) * count
 
             # Get growth rate from last 3 months
             three_months_ago = datetime.utcnow() - timedelta(days=90)
@@ -333,10 +334,12 @@ class FinancialReportingService:
             recent_conversions = recent_result.scalar() or 0
 
             # Calculate monthly growth rate
+            used_default_growth = False
             if old_conversions > 0:
                 monthly_growth_rate = (recent_conversions - old_conversions) / old_conversions
             else:
-                monthly_growth_rate = 0.05  # Default 5% growth if no historical data
+                monthly_growth_rate = 0.0
+                used_default_growth = True
 
             # Cap growth rate at reasonable limits
             monthly_growth_rate = max(
@@ -370,7 +373,11 @@ class FinancialReportingService:
                 "forecast": forecast,
                 "total_projected_revenue": float(total_projected),
                 "currency": "NGN",
-                "disclaimer": "Forecast based on current trends and may vary with market conditions",
+                "disclaimer": (
+                    "Limited historical conversion data; growth assumed at 0% for this forecast window."
+                    if used_default_growth
+                    else "Forecast based on recent conversion trends and may vary with market conditions."
+                ),
             }
 
         except Exception as e:
@@ -403,7 +410,7 @@ class FinancialReportingService:
                 and_(
                     SubscriptionHistory.created_at >= start_date,
                     SubscriptionHistory.created_at <= end_date,
-                    SubscriptionHistory.action.in_(["cancellation", "refund"]),
+                    SubscriptionHistory.action == "refund",
                 )
             )
 
@@ -442,7 +449,7 @@ class FinancialReportingService:
             recent_refunds = [
                 {
                     "tenant_id": str(record.tenant_id),
-                "tier": record.previous_tier,
+                    "tier": record.previous_tier,
                     "reason": record.reason,
                     "created_at": record.created_at.isoformat(),
                 }

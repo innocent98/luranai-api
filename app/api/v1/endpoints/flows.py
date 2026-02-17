@@ -88,7 +88,9 @@ def _enforce_template_min_tier(tenant_tier: str | None, required_tier: str | Non
         )
 
 
-def _validate_reserved_trigger_keywords(trigger_type: FlowTriggerType, trigger_config: dict) -> None:
+def _validate_reserved_trigger_keywords(
+    trigger_type: FlowTriggerType, trigger_config: dict
+) -> None:
     """Ensure tenant flows don't use system-reserved trigger words."""
     if trigger_type != FlowTriggerType.KEYWORD:
         return
@@ -336,7 +338,9 @@ def _prune_unreachable_template_nodes(template_nodes: dict) -> dict:
             if nxt not in visited and nxt in node_map:
                 queue.append(nxt)
 
-    pruned["nodes"] = [node for node in nodes if isinstance(node, dict) and node.get("id") in visited]
+    pruned["nodes"] = [
+        node for node in nodes if isinstance(node, dict) and node.get("id") in visited
+    ]
     return pruned
 
 
@@ -536,11 +540,7 @@ def list_flow_templates(
                 nodes = normalized_nodes.get("nodes", [])
                 if isinstance(nodes, list):
                     node_types = list(
-                        {
-                            node.get("type", "unknown")
-                            for node in nodes
-                            if isinstance(node, dict)
-                        }
+                        {node.get("type", "unknown") for node in nodes if isinstance(node, dict)}
                     )
                     node_count = len(nodes)
 
@@ -1144,7 +1144,9 @@ def get_flow_executions(
         f"(total: {total}, offset: {offset})"
     )
 
-    execution_responses = [FlowExecutionResponse.model_validate(execution) for execution in executions]
+    execution_responses = [
+        FlowExecutionResponse.model_validate(execution) for execution in executions
+    ]
     return FlowExecutionListResponse(
         executions=execution_responses,
         total=total,

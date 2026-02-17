@@ -218,10 +218,12 @@ class SystemHealthService:
                 else {}
             )
 
-            # Calculate pool utilization
-            total_connections = (pool.size() + pool.overflow()) if pool else 0
+            # Calculate pool utilization against configured max capacity.
+            # NOTE: pool.overflow() can be negative when below pool_size, so it should
+            # not be used as the denominator for utilization.
+            max_capacity = (pool.size() + pool._max_overflow) if pool else 0
             in_use = pool.checkedout() if pool else 0
-            utilization = (in_use / total_connections * 100) if total_connections > 0 else 0
+            utilization = (in_use / max_capacity * 100) if max_capacity > 0 else 0
 
             # Test database response time
             start_time = datetime.utcnow()

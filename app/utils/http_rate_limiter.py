@@ -110,7 +110,9 @@ async def check_rate_limit(
         identifier = request.client.host if request.client else "unknown"
     elif identifier_key == "user":
         user = getattr(request.state, "user", None)
-        identifier = str(user.id) if user else (request.client.host if request.client else "unknown")
+        identifier = (
+            str(user.id) if user else (request.client.host if request.client else "unknown")
+        )
     else:
         identifier = request.client.host if request.client else "unknown"
 

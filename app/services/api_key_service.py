@@ -132,7 +132,9 @@ class APIKeyService:
 
         # Backward compatibility fallback for any historical keys with unexpected prefix shape.
         if not keys:
-            fallback_stmt = select(APIKey).where(APIKey.key_type == key_type, APIKey.is_active.is_(True))
+            fallback_stmt = select(APIKey).where(
+                APIKey.key_type == key_type, APIKey.is_active.is_(True)
+            )
             keys = self.db.execute(fallback_stmt).scalars().all()
 
         # Verify key against each stored hash

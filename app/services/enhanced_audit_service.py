@@ -60,7 +60,9 @@ class EnhancedAuditService:
             user_agent: User agent string
         """
         actor_user_id = (
-            performed_by_id if performed_by_type in {"user", "tenant_user", "tenant_admin"} else None
+            performed_by_id
+            if performed_by_type in {"user", "tenant_user", "tenant_admin"}
+            else None
         )
 
         changes = {
