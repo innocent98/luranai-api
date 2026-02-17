@@ -994,13 +994,19 @@ class FlowEngine:
         elif validation_type == "email":
             email_pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
             if not re.match(email_pattern, input_value):
-                return {"valid": False, "error": custom_error or "Please enter a valid email address."}
+                return {
+                    "valid": False,
+                    "error": custom_error or "Please enter a valid email address.",
+                }
 
         elif validation_type == "phone":
             # Basic phone validation (10+ digits)
             phone_digits = re.sub(r"\D", "", input_value)
             if len(phone_digits) < 10:
-                return {"valid": False, "error": custom_error or "Please enter a valid phone number."}
+                return {
+                    "valid": False,
+                    "error": custom_error or "Please enter a valid phone number.",
+                }
 
         elif validation_type == "number":
             try:

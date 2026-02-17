@@ -101,8 +101,13 @@ jobs:
 
       - name: Run tests
         env:
+          SERVER_HOST: http://localhost:8000
+          FRONTEND_URL: http://localhost:3000
+          FRONTEND_DOC_URL: http://localhost:3002
           DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
           REDIS_URL: redis://localhost:6379/0
+          QDRANT_URL: http://localhost:6333
+          QDRANT_COLLECTION_NAME: test_collection
           SECRET_KEY: test_secret_key_for_ci_testing_32chars_minimum
           OPENAI_API_KEY: sk-test-ci-openai-key
           PAYSTACK_SECRET_KEY: sk_test_ci_testing_key_12345

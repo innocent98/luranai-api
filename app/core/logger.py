@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from typing import Any
 
@@ -34,7 +35,24 @@ def setup_logging() -> Any:
     """Configure logging based on environment."""
     logger.remove()
 
-    log_level = "DEBUG" if settings.ENVIRONMENT == "development" else "INFO"
+    log_level = settings.LOG_LEVEL.upper() if settings.LOG_LEVEL else "INFO"
+    if settings.ENVIRONMENT == "development" and settings.LOG_LEVEL.lower() == "info":
+        log_level = "DEBUG"
+
+    if settings.LOG_TO_FILE:
+        log_dir = os.path.dirname(settings.LOG_FILE_PATH) or "."
+        os.makedirs(log_dir, exist_ok=True)
+        logger.add(
+            settings.LOG_FILE_PATH,
+            rotation=f"{settings.LOG_FILE_ROTATION_MB} MB",
+            retention=f"{settings.LOG_FILE_RETENTION_DAYS} days",
+            compression=settings.LOG_FILE_COMPRESSION or None,
+            level=log_level,
+            enqueue=True,
+            backtrace=False,
+            diagnose=False,
+            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
+        )
 
     if settings.ENVIRONMENT == "development":
         # Development: Human-readable colored output
@@ -43,15 +61,6 @@ def setup_logging() -> Any:
             format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
             level=log_level,
             colorize=True,
-        )
-
-        # File logging for development
-        logger.add(
-            "logs/app.log",
-            rotation="10 MB",
-            retention="1 week",
-            level=log_level,
-            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
         )
     else:
         # Production: JSON logs to stdout

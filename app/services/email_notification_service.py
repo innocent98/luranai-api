@@ -249,7 +249,11 @@ class EmailNotificationService:
         tenant_query = select(Tenant).where(Tenant.id == tenant_id)
         tenant_result = await self._execute(tenant_query)
         tenant = tenant_result.scalars().first()
-        if not tenant or tenant.subscription_status != "active" or tenant.subscription_tier == "trial":
+        if (
+            not tenant
+            or tenant.subscription_status != "active"
+            or tenant.subscription_tier == "trial"
+        ):
             return None
 
         latest_payment = await self._get_latest_successful_payment(tenant_id)
@@ -280,7 +284,9 @@ class EmailNotificationService:
         """
         try:
             notification_type = (
-                "trial_expiring_today" if days_remaining <= 0 else f"trial_expiring_{days_remaining}d"
+                "trial_expiring_today"
+                if days_remaining <= 0
+                else f"trial_expiring_{days_remaining}d"
             )
 
             # Check for duplicates for this specific reminder window.
@@ -337,9 +343,7 @@ class EmailNotificationService:
             elif days_remaining == 1:
                 subject = f"Your Luran free trial expires in 1 day - {tenant.display_name}"
             else:
-                subject = (
-                    f"Your Luran free trial expires in {days_remaining} days - {tenant.display_name}"
-                )
+                subject = f"Your Luran free trial expires in {days_remaining} days - {tenant.display_name}"
 
             # Try to send email
             try:
@@ -651,7 +655,9 @@ class EmailNotificationService:
                 logger.warning(f"Tenant {tenant_id} not found")
                 return False
             if tenant.subscription_status != "active" or tenant.subscription_tier == "trial":
-                logger.info(f"Skipping renewal reminder: tenant {tenant_id} is not on active paid plan")
+                logger.info(
+                    f"Skipping renewal reminder: tenant {tenant_id} is not on active paid plan"
+                )
                 return False
 
             admin = await self._get_tenant_admin(tenant_id)
@@ -692,11 +698,11 @@ class EmailNotificationService:
             if days_remaining == 1:
                 subject = f"Your Luran subscription renews in 1 day - {tenant.display_name}"
             else:
-                subject = (
-                    f"Your Luran subscription renews in {days_remaining} days - {tenant.display_name}"
-                )
+                subject = f"Your Luran subscription renews in {days_remaining} days - {tenant.display_name}"
 
-            template = self.email_service.jinja_env.get_template("subscription_renewal_upcoming.html")
+            template = self.email_service.jinja_env.get_template(
+                "subscription_renewal_upcoming.html"
+            )
             html_content = template.render(**template_data)
             success = self.email_service._send_email(
                 to_email=admin.email,

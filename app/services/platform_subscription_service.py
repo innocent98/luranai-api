@@ -421,12 +421,7 @@ class PlatformSubscriptionService:
 
         total = query.count()
 
-        rows = (
-            query.order_by(EmailNotification.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
+        rows = query.order_by(EmailNotification.created_at.desc()).offset(offset).limit(limit).all()
 
         items = [
             TrialReminderNotificationResponse(
@@ -487,12 +482,7 @@ class PlatformSubscriptionService:
 
         total = query.count()
 
-        rows = (
-            query.order_by(EmailNotification.created_at.desc())
-            .offset(offset)
-            .limit(limit)
-            .all()
-        )
+        rows = query.order_by(EmailNotification.created_at.desc()).offset(offset).limit(limit).all()
 
         items = [
             TrialReminderNotificationResponse(

@@ -9,6 +9,7 @@ services:
       - ./alembic:/app/alembic
       - ./scripts:/app/scripts
       - ./tests:/app/tests
+      - ./logs:/app/logs
     env_file:
       - .env
     depends_on:
@@ -56,6 +57,7 @@ services:
       - ./alembic:/app/alembic
       - ./worker.py:/app/worker.py
       - ./scripts:/app/scripts
+      - ./logs:/app/logs
     env_file:
       - .env
     depends_on:

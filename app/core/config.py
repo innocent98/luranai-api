@@ -170,6 +170,11 @@ class Settings(BaseSettings):
     # Production Server
     API_WORKERS: int = 4
     LOG_LEVEL: str = "info"
+    LOG_TO_FILE: bool = True
+    LOG_FILE_PATH: str = "logs/app.log"
+    LOG_FILE_ROTATION_MB: int = 10
+    LOG_FILE_RETENTION_DAYS: int = 14
+    LOG_FILE_COMPRESSION: str = "zip"
 
     # Database connection pooling enhancements
     DATABASE_POOL_RECYCLE: int = 3600

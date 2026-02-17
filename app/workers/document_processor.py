@@ -237,10 +237,10 @@ async def process_document_ingestion(
                 job,
                 "result_data",
                 {
-                "source_id": str(source.id),
-                "source_name": source.name,
-                "chunks_created": len(successful_chunks),
-                "chunks_failed": len(failed_chunks),
+                    "source_id": str(source.id),
+                    "source_name": source.name,
+                    "chunks_created": len(successful_chunks),
+                    "chunks_failed": len(failed_chunks),
                 },
             )
             logger.success(
@@ -624,7 +624,9 @@ async def check_subscription_renewal_reminders(ctx: dict) -> dict:
             )
         )
         tenant_candidates = db.execute(base_query).scalars().all()
-        logger.info("Found {} active paid tenants to evaluate for renewal reminders", len(tenant_candidates))
+        logger.info(
+            "Found {} active paid tenants to evaluate for renewal reminders", len(tenant_candidates)
+        )
 
         for days_remaining in reminder_windows_days:
             target_date = datetime.now(UTC) + timedelta(days=days_remaining)

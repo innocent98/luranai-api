@@ -7,7 +7,13 @@ from loguru import logger
 from sqlalchemy import String, and_, cast, distinct, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.db.models.conversation import ConversationSession, Message, MessageRole, SessionStatus, Ticket
+from app.db.models.conversation import (
+    ConversationSession,
+    Message,
+    MessageRole,
+    SessionStatus,
+    Ticket,
+)
 from app.db.models.flow import FlowExecution, FlowExecutionStatus
 from app.db.models.knowledge import KnowledgeSource
 from app.db.models.subscription_plan import SubscriptionPlan
@@ -435,6 +441,7 @@ class PlatformAnalyticsService:
             days: Lookback period in days
         """
         try:
+
             def _percentile(values: list[float], p: float) -> float:
                 if not values:
                     return 0.0
@@ -482,7 +489,9 @@ class PlatformAnalyticsService:
             # Flow execution performance.
             flow_exec_total = int(
                 self.db.execute(
-                    select(func.count(FlowExecution.id)).where(FlowExecution.created_at >= start_date)
+                    select(func.count(FlowExecution.id)).where(
+                        FlowExecution.created_at >= start_date
+                    )
                 ).scalar()
                 or 0
             )
@@ -577,7 +586,9 @@ class PlatformAnalyticsService:
             flow_completion_rate = (
                 (flow_exec_completed / flow_exec_total * 100) if flow_exec_total > 0 else 0
             )
-            flow_failure_rate = (flow_exec_failed / flow_exec_total * 100) if flow_exec_total > 0 else 0
+            flow_failure_rate = (
+                (flow_exec_failed / flow_exec_total * 100) if flow_exec_total > 0 else 0
+            )
 
             # Daily AI vs Flow interaction trend.
             daily_rows = self.db.execute(
@@ -585,7 +596,8 @@ class PlatformAnalyticsService:
                     func.date(Message.created_at).label("day"),
                     flow_flag_expr.label("flow_flag"),
                     func.count(Message.id).label("count"),
-                ).where(
+                )
+                .where(
                     and_(
                         Message.role == MessageRole.ASSISTANT,
                         Message.created_at >= start_date,
@@ -658,7 +670,9 @@ class PlatformAnalyticsService:
             )[:10]
             for tenant in top_tenants:
                 total = tenant["total_interactions"] or 1
-                tenant["flow_share_percentage"] = round(tenant["flow_interactions"] / total * 100, 1)
+                tenant["flow_share_percentage"] = round(
+                    tenant["flow_interactions"] / total * 100, 1
+                )
 
             # AI/RAG quality counters from assistant message metadata.
             ai_meta_rows = self.db.execute(
@@ -792,15 +806,19 @@ class PlatformAnalyticsService:
                     "retrieval_miss_rate": round(miss_rate, 2),
                     "avg_similarity": round(avg_similarity, 3),
                     "avg_similarity_hit": round(
-                        (sum(similarity_hit_values) / len(similarity_hit_values))
-                        if similarity_hit_values
-                        else 0.0,
+                        (
+                            (sum(similarity_hit_values) / len(similarity_hit_values))
+                            if similarity_hit_values
+                            else 0.0
+                        ),
                         3,
                     ),
                     "avg_similarity_miss": round(
-                        (sum(similarity_miss_values) / len(similarity_miss_values))
-                        if similarity_miss_values
-                        else 0.0,
+                        (
+                            (sum(similarity_miss_values) / len(similarity_miss_values))
+                            if similarity_miss_values
+                            else 0.0
+                        ),
                         3,
                     ),
                     "uncertainty_rate": round(uncertainty_rate, 2),

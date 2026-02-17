@@ -1,6 +1,16 @@
 """Widget configuration and public endpoints."""
 
-from fastapi import APIRouter, Depends, File, Header, HTTPException, Path, Request, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Header,
+    HTTPException,
+    Path,
+    Request,
+    UploadFile,
+    status,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 

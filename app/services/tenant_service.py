@@ -283,7 +283,11 @@ class TenantService:
             plan_config = PlanService(self.db).get_plan_config(str(tenant.subscription_tier))
             tier_limit = plan_config.get("max_response_tokens")
             requested = update_data["max_response_tokens"]
-            if isinstance(tier_limit, int) and isinstance(requested, int) and requested > tier_limit:
+            if (
+                isinstance(tier_limit, int)
+                and isinstance(requested, int)
+                and requested > tier_limit
+            ):
                 raise ValueError(
                     f"max_response_tokens exceeds plan limit ({requested} > {tier_limit})"
                 )
