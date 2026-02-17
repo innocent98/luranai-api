@@ -153,12 +153,14 @@ def build_account_subscription_flow() -> dict[str, Any]:
                 "message",
                 {
                     "message": (
-                        "Current plans:\n"
-                        "- Trial: NGN 0 (200 conversations/month, 10MB, 1 team member).\n"
-                        "- Lite: NGN 9,000/month or NGN 90,000/year.\n"
-                        "- Professional: NGN 40,000/month or NGN 400,000/year.\n"
-                        "- Growth: NGN 80,000/month or NGN 800,000/year.\n"
-                        "- Enterprise: custom pricing via sales."
+                        "Plans and pricing are managed from your Pricing/Subscription pages.\n"
+                        "Current public references are:\n"
+                        "- Trial: NGN 0 (starter limits).\n"
+                        "- Lite: NGN 9,000/month.\n"
+                        "- Professional: NGN 40,000/month.\n"
+                        "- Growth: NGN 80,000/month.\n"
+                        "- Enterprise: custom pricing via sales.\n"
+                        "For latest exact limits and annual pricing, open Dashboard -> Settings -> Subscription."
                     ),
                     "next_node_id": "plan_follow_up",
                 },
@@ -185,7 +187,7 @@ def build_account_subscription_flow() -> dict[str, Any]:
                         "Plan change rules:\n"
                         "- Upgrade payment initialization supports lite/professional/growth.\n"
                         "- Billing cycle must be monthly or annual.\n"
-                        "- Downgrade validates your current usage against lower-tier limits.\n"
+                        "- Downgrade validates your current usage against lower-tier limits and may depend on current tier support.\n"
                         "- Downgrade from trial is not allowed; upgrade first."
                     ),
                     "next_node_id": "plan_follow_up",
@@ -330,7 +332,7 @@ def build_troubleshooting_errors_flow() -> dict[str, Any]:
                     "message": (
                         "Flow trigger checklist:\n"
                         "1. Flow must be active and status=active.\n"
-                        "2. Trigger keywords should avoid reserved global start routing behavior.\n"
+                        "2. Avoid overlapping trigger keywords with global start/router keywords to reduce conflicts.\n"
                         "3. Start node must exist and be reachable.\n"
                         "4. Option branches must have valid next_node_id values."
                     ),

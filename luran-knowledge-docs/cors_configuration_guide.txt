@@ -1,71 +1,30 @@
-LURAN CORS CONFIGURATION GUIDE (IMPLEMENTATION-ALIGNED)
+CORS Guide (Tenant Version, Custom Integrations Only)
 
-Last verified against code: February 10, 2026
-Primary sources: app/main.py, app/core/config.py
+For most tenants using the standard widget snippet, you do not need this.
 
-================================================================================
-HOW CORS IS CONFIGURED
-================================================================================
+When CORS matters
+- You are building a custom frontend that calls Luran APIs directly.
+- Your frontend domain is different from your API domain.
 
-CORS is configured through environment variable:
-- BACKEND_CORS_ORIGINS
+Typical symptoms
+- Browser shows CORS errors in console.
+- API works in tools like Postman, but fails in browser.
 
-Accepted formats:
-1) Comma-separated string
-   BACKEND_CORS_ORIGINS=https://example.com,https://www.example.com
-2) JSON array string
-   BACKEND_CORS_ORIGINS=["https://example.com","https://www.example.com"]
+What must be configured
+- Your frontend origin must be allowed by platform backend CORS policy.
+- Origin must match exactly (protocol + domain + port if present).
 
-Defaults in config include localhost origins for development.
+Examples
+- `https://app.example.com`
+- `https://www.example.com`
+- `http://localhost:3000` (development)
 
-================================================================================
-RUNTIME POLICY
-================================================================================
+Important notes
+- If you use multiple domains/subdomains, each must be added.
+- After CORS config changes, backend service must be restarted.
 
-Production mode:
-- allow_methods: GET, POST, PUT, DELETE, PATCH
-- allow_headers: Content-Type, Authorization, X-API-Key
-
-Non-production mode:
-- allow_methods: *
-- allow_headers: *
-
-Always enabled:
-- allow_credentials: true
-- max_age: 600
-
-================================================================================
-SECURITY HEADERS ADDED BY MIDDLEWARE
-================================================================================
-
-Always:
-- X-Frame-Options: DENY
-- X-Content-Type-Options: nosniff
-- X-XSS-Protection: 1; mode=block
-- Referrer-Policy: strict-origin-when-cross-origin
-- Permissions-Policy: geolocation=(), microphone=(), camera=()
-
-Production only:
-- Content-Security-Policy
-
-Production + ENABLE_HSTS=true:
-- Strict-Transport-Security: max-age=31536000; includeSubDomains
-
-================================================================================
-TROUBLESHOOTING
-================================================================================
-
-CORS blocked:
-- Ensure exact origin match (scheme + host + optional port)
-- Add both www and non-www if needed
-- Add each subdomain explicitly
-
-Credential errors:
-- Frontend must send requests from an allowed origin
-- Do not use wildcard origin with credentials
-
-Preflight failures:
-- Restrict custom headers/methods to allowed values in production
-
-After changing CORS env values:
-- restart backend service
+If you are using the official widget and still seeing issues
+- Confirm widget script loads from CDN.
+- Confirm `tenantId` and public API key are correct.
+- Confirm API key belongs to that tenant.
+- Contact support with browser console and network error details.

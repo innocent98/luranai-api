@@ -1,35 +1,49 @@
-# Luran FAQ (Implementation-Aligned)
-
-Last updated: February 10, 2026
+# Luran FAQ (Tenant Version)
 
 ## 1) What is Luran?
-Luran is a multi-tenant customer support platform that combines AI/RAG chat, flow automation, and human escalation.
+Luran is a customer support platform that combines:
+- AI answers from your knowledge base
+- Guided flows for repeatable support paths
+- Human handoff when needed
 
-## 2) Which AI provider/models are used now?
-Current backend defaults are OpenAI:
-- `gpt-4o-mini` for generation
-- `text-embedding-3-small` for embeddings
+## 2) How fast can I get started?
+Most teams can go live in minutes:
+1. Create account and verify email
+2. Upload knowledge files
+3. Configure widget branding
+4. Add widget script to website
 
-## 3) Does Luran support guided button-style support flows?
-Yes. Flows can present options and branch by selected response (for example MTN-style guided journeys).
+## 3) What files can I upload to Knowledge Base?
+Supported file types:
+- `.txt`
+- `.md`
+- `.pdf`
+- `.docx`
 
-## 4) If no flow matches, what happens?
-The system falls back to AI/RAG chat, using active knowledge sources.
+Max file size is `10 MB` per file.
 
-## 5) Can users still reach a human agent?
-Yes. Escalation can happen from flow nodes or AI support logic, and can create tickets for support follow-up.
+## 4) What happens after I upload a file?
+Uploads are processed in the background:
+- text is extracted
+- content is chunked
+- source moves to `ACTIVE` when ready
 
-## 6) What file types can be uploaded to knowledge base?
-Supported: `.txt`, `.md`, `.pdf`, `.docx`.
+If processing fails, source status becomes `FAILED`.
 
-## 7) What is the file size limit?
-10 MB per file.
+## 5) How does the AI answer questions?
+The AI uses your uploaded knowledge to answer customer questions.  
+If the question is outside your available knowledge, it may ask for clarification or guide the user toward escalation.
 
-## 8) Are limits enforced by subscription plan?
-Yes. Runtime checks enforce tenant capabilities such as conversations/month, knowledge storage, source count, flows, and webhook access.
+## 6) Can I still use flows?
+Yes. Flows are great for structured support journeys (menu-style support, troubleshooting steps, guided options).  
+If no flow handles a question, chat can continue with AI.
 
-## 9) How do I embed the widget?
-Use the widget snippet with `window.luranSettings`:
+## 7) Can customers talk to a human agent?
+Yes. Handoff can happen from flow steps or AI escalation logic.  
+When escalated, a support ticket can be created and agents can continue in dashboard.
+
+## 8) How do I embed the widget?
+Use your install snippet and place it before `</body>`:
 
 ```html
 <script>
@@ -41,42 +55,54 @@ Use the widget snippet with `window.luranSettings`:
 <script src="https://cdn.luranai.com/widget/v1/widget.js" async defer></script>
 ```
 
-## 10) Which API key should be used in frontend widget code?
-Only PUBLIC key (`pk_live_...`). Never expose secret keys in browser code.
+Use public key only (`pk_live_...`).
 
-## 11) Does conversation continue after browser refresh?
-Current chat client stores session state in browser storage and restores by tenant/session context. If storage is cleared or expired, a new session may start.
+## 9) Why is widget setup failing?
+Most common causes:
+- wrong `tenantId`
+- wrong public API key
+- source still processing
+- plan limits reached
+- subscription inactive
 
-## 12) What are current default subscription tiers?
-`trial`, `lite`, `professional`, `growth`, `enterprise`.
+## 10) What are the current plan tiers?
+Current tiers:
+- `trial`
+- `lite`
+- `professional`
+- `growth`
+- `enterprise`
 
-## 13) What is trial duration?
-Self-service registration currently sets trial end to +30 days.
+## 11) How long is trial?
+Trial is currently `30 days` from signup.
 
-## 14) Why can a request fail with 402?
-Typical reasons:
-- trial expired
-- subscription inactive/canceled/past_due
-- conversation quota reached
+## 12) What happens when trial or subscription expires?
+Chat/support capabilities are restricted until the subscription is reactivated.
 
-## 15) Why can knowledge upload fail with 403?
-Typical reasons:
-- storage limit reached
-- knowledge source count limit reached
+## 13) Why can uploads fail with limit errors?
+Limits are enforced per plan, including:
+- total storage (MB)
+- number of knowledge sources
 
-## 16) Why can widget config calls fail with 401/403?
-- 401: API key invalid
-- 403: API key does not belong to tenant being requested
+If you hit a limit, reduce usage or upgrade plan.
 
-## 17) Does Luran include CORS controls?
-Yes. CORS is configured by `BACKEND_CORS_ORIGINS` and enforced in backend middleware.
+## 14) Can one tenant run multiple flows?
+Yes. You can have multiple active flows.  
+Use clear flow titles and menu labels so customers can choose the right path.
 
-## 18) Does dashboard need to mirror backend flow schema exactly?
-Yes. Node config keys and edge shape should stay in parity with backend execution schema to avoid runtime mismatches.
+## 15) Can I hide some flows from customer menu?
+Yes. Internal flows can be excluded from the customer router menu.
 
-## 19) Can one tenant have multiple active flows?
-Yes. Multiple active flows can coexist. Router behavior decides which one to start when a welcome/global trigger is used.
+## 16) Is conversation preserved on refresh?
+The chat widget restores recent session context from browser storage (within session/TTL rules).  
+If storage is cleared or expired, a new session starts.
 
-## 20) Can a tenant hide some flows from auto-router menu?
-Yes. Flows can set router-related config (for example `exclude_from_router`) so only intended customer-facing flows appear.
+## 17) What are current starter pricing references?
+Current public pricing references:
+- Lite: ₦9,000/month
+- Professional: ₦40,000/month
+- Growth: ₦80,000/month
+- Enterprise: custom pricing
+
+For latest plan details, always confirm from the Pricing page.
 

@@ -1,87 +1,55 @@
-LURAN FILE UPLOAD AND STORAGE LIMITS (IMPLEMENTATION-ALIGNED)
+File Upload and Storage Limits
 
-Last verified against code: February 10, 2026
-Primary sources: app/api/v1/endpoints/knowledge_upload.py,
-app/utils/chunking.py, app/services/knowledge_service.py, app/services/rag_service.py
+How file upload works (for tenant admins)
+- Go to your Knowledge section and upload a file.
+- Supported file types: `.txt`, `.md`, `.pdf`, `.docx`.
+- Max file size: `10 MB` per file.
+- Empty files are rejected.
+- Files with no meaningful text (less than 10 extracted characters) are rejected.
 
-================================================================================
-SUPPORTED FILES
-================================================================================
+What happens after you upload
+- Luran accepts the upload and queues it for background processing.
+- Your source status starts as `PROCESSING`.
+- Luran extracts text, splits it into chunks, and creates embeddings.
+- Once processing succeeds, status becomes `ACTIVE`.
+- If processing fails, status becomes `FAILED`.
 
-Supported extensions for direct upload:
-- .txt
-- .md
-- .pdf
-- .docx
+When your AI agent starts using the file
+- Your agent uses knowledge from processed chunks in your knowledge base.
+- In practice, treat `ACTIVE` as the ready state for full use.
+- If a source is `PROCESSING`, results can be incomplete until processing finishes.
 
-Upload limits:
-- Max file size: 10 MB per file
-- Empty files are rejected
-- Files with less than 10 extracted characters are rejected
+Storage and source limits
+- Limits are enforced by your subscription capabilities.
+- Two limits are checked: total storage (MB) and total number of knowledge sources.
 
-Text extraction behavior:
-- .txt / .md: UTF-8 first, fallback to Latin-1
-- .pdf: PyPDF2 extraction
-- .docx: python-docx extraction
-
-================================================================================
-STORAGE LIMITS
-================================================================================
-
-Storage is measured in MB and enforced per tenant capabilities.
-Current default limits by plan:
-- trial: 10 MB
-- lite: 50 MB
-- professional: 200 MB
-- growth: 500 MB
+Default storage limits by tier
+- trial: `10 MB`
+- lite: `50 MB`
+- professional: `200 MB`
+- growth: `500 MB`
 - enterprise: unlimited
 
-Knowledge source count is also enforced separately (plan-dependent).
+Default source-count examples
+- trial: `2` sources
+- higher tiers: larger limits based on plan
+- URL/webpage sources are plan-gated (for example, trial can be file-only).
 
-What counts toward storage:
-- Uploaded file sources
-- URL-scraped sources
-- Active + processing sources
+What counts toward storage
+- File uploads and URL knowledge sources
+- Sources in `ACTIVE` and `PROCESSING` states
 
-What does not count toward this storage limit:
-- Conversation message records
-- Widget configuration
-- Team users
+What does not count toward this storage metric
+- Conversations
+- Widget settings
+- Team members
 
-================================================================================
-CHUNKING + RETRIEVAL
-================================================================================
+If you hit a limit
+- Upload is blocked.
+- You receive a clear error with current usage and plan limit.
+- Upgrade your plan or remove old/inactive knowledge sources.
 
-Chunking defaults (TextChunker):
-- chunk_size: 250 tokens
-- chunk_overlap: 50 tokens
-- min_chunk_size: 60 tokens
-
-RAG retrieval/runtime defaults:
-- retrieve up to 5 chunks from vector search
-- chunk compression target: up to ~900 chars per chunk in prompt context
-- model defaults:
-  - embedding: text-embedding-3-small
-  - LLM: gpt-4o-mini
-
-================================================================================
-WHEN LIMITS ARE EXCEEDED
-================================================================================
-
-If file size > 10 MB:
-- Request is rejected with 413
-
-If storage limit is exceeded:
-- Request is rejected with 403
-- Response includes current usage and limit values
-
-If knowledge source count limit is exceeded:
-- Request is rejected with 403
-
-================================================================================
-OPERATIONAL NOTES
-================================================================================
-
-- Uploaded documents are processed asynchronously by background jobs.
-- A source can be PROCESSING, ACTIVE, FAILED, or INACTIVE.
-- Deleting a source deactivates chunks and removes related vectors from Qdrant.
+If you delete a source
+- The source is set to `INACTIVE`.
+- Its chunks are deactivated and vectors are removed.
+- This helps reduce active knowledge footprint and usage.
