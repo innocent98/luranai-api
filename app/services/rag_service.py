@@ -20,11 +20,6 @@ if TYPE_CHECKING:
     from app.schemas.rag import EscalationDecision, PromptComponents, ResponseQuality
 
 
-def AsyncOpenAI(*args: Any, **kwargs: Any):
-    """Compatibility wrapper for tests patching either module or openai symbol."""
-    return openai.AsyncOpenAI(*args, **kwargs)
-
-
 class RAGService:
     """
     Service for Retrieval-Augmented Generation.
@@ -967,7 +962,7 @@ Instructions:
             await openai_llm_rate_limiter.acquire()
 
             # Create client
-            client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+            client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
             # Generate response
             logger.debug(f"Calling OpenAI API with max_tokens={max_tokens}")

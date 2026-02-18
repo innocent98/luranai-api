@@ -84,7 +84,7 @@ class TestRuntimeSystemMessage:
         mock_response.choices = [Mock(message=Mock(content="Use the reset link on login."))]
         mock_response.usage = Mock(total_tokens=42)
 
-        with patch("app.services.rag_service.AsyncOpenAI") as mock_openai_class:
+        with patch("openai.AsyncOpenAI") as mock_openai_class:
             mock_client = AsyncMock()
             mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
             mock_openai_class.return_value = mock_client
