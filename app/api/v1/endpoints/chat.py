@@ -1118,7 +1118,9 @@ async def send_message(
                 else f"Retrieved {len(retrieved_chunks)} chunks"
             )
 
-        avg_similarity = (sum(similarity_scores) / len(similarity_scores)) if similarity_scores else 0.0
+        avg_similarity = (
+            (sum(similarity_scores) / len(similarity_scores)) if similarity_scores else 0.0
+        )
 
         # Step 5: Deterministic scope/topic guard before model generation
         scope_allowed, scope_reason = rag_service.enforce_scope_policy(
@@ -1285,9 +1287,7 @@ async def send_message(
                         logger.info("Response quality insufficient, offering escalation")
                         escalation_decision.action = EscalationAction.OFFER_ESCALATION
                         escalation_decision.reason = "AI response quality below threshold"
-                        ai_response_text = (
-                            f"{ai_response_text}\n\nWould you like me to connect you with someone from our team?"
-                        )
+                        ai_response_text = f"{ai_response_text}\n\nWould you like me to connect you with someone from our team?"
                 else:
                     quality = ResponseQuality(
                         is_substantial=True,
@@ -1310,7 +1310,9 @@ async def send_message(
                 retrieved_chunk_ids.append(str(chunk.id))
             except Exception:
                 continue
-        avg_similarity = (sum(similarity_scores) / len(similarity_scores)) if similarity_scores else 0.0
+        avg_similarity = (
+            (sum(similarity_scores) / len(similarity_scores)) if similarity_scores else 0.0
+        )
         retrieval_hit = (
             len(retrieved_chunks) > 0 and avg_similarity >= rag_service.MIN_RELEVANT_SIMILARITY
         )
