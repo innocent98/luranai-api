@@ -1,11 +1,14 @@
 """Tenant Pydantic schemas for request/response."""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.models.tenant import TenantStatus
+
+CUSTOM_INSTRUCTIONS_MAX_CHARS = 500
 
 
 # Base schemas
@@ -23,7 +26,7 @@ class TenantAIConfigBase(BaseModel):
 
     brand_voice: dict = Field(
         default_factory=dict,
-        description="Brand voice configuration: {tone, greeting_style, emoji_usage, formality_level}",
+        description="Brand voice configuration: {tone, greeting_style, formality_level}",
     )
     allowed_topics: list[str] | None = Field(
         None, description="Array of allowed topics (null = all topics allowed)"
@@ -38,8 +41,22 @@ class TenantAIConfigBase(BaseModel):
     grounding_requirement: bool = Field(
         default=True, description="Whether AI must ground responses in knowledge base"
     )
+    grounding_mode: Literal["strict", "balanced", "flexible"] = Field(
+        default="balanced",
+        description="Grounding strictness policy",
+    )
+    low_confidence_action: Literal["answer", "clarify", "escalate", "refuse"] = Field(
+        default="clarify",
+        description="Action when retrieval confidence is low",
+    )
+    no_retrieval_action: Literal["answer", "clarify", "escalate", "refuse"] = Field(
+        default="clarify",
+        description="Action when no knowledge is retrieved",
+    )
     custom_instructions: str | None = Field(
-        None, description="Additional prompt instructions specific to this tenant"
+        None,
+        max_length=CUSTOM_INSTRUCTIONS_MAX_CHARS,
+        description="Additional prompt instructions specific to this tenant",
     )
 
 
@@ -104,7 +121,10 @@ class TenantAIConfigUpdate(BaseModel):
     escalation_keywords: list[str] | None = None
     max_response_tokens: int | None = Field(None, ge=50, le=2000)
     grounding_requirement: bool | None = None
-    custom_instructions: str | None = None
+    grounding_mode: Literal["strict", "balanced", "flexible"] | None = None
+    low_confidence_action: Literal["answer", "clarify", "escalate", "refuse"] | None = None
+    no_retrieval_action: Literal["answer", "clarify", "escalate", "refuse"] | None = None
+    custom_instructions: str | None = Field(None, max_length=CUSTOM_INSTRUCTIONS_MAX_CHARS)
 
 
 class TenantCapabilitiesUpdate(BaseModel):

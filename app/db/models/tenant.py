@@ -229,6 +229,24 @@ class TenantAIConfig(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Whether AI must ground responses in knowledge base",
     )
+    grounding_mode: Mapped[str] = mapped_column(
+        String(20),
+        default="balanced",
+        nullable=False,
+        comment="Grounding strictness: strict, balanced, flexible",
+    )
+    low_confidence_action: Mapped[str] = mapped_column(
+        String(20),
+        default="clarify",
+        nullable=False,
+        comment="Action when retrieval confidence is low: answer, clarify, escalate, refuse",
+    )
+    no_retrieval_action: Mapped[str] = mapped_column(
+        String(20),
+        default="clarify",
+        nullable=False,
+        comment="Action when no knowledge is retrieved: answer, clarify, escalate, refuse",
+    )
 
     # Custom Instructions
     custom_instructions: Mapped[str | None] = mapped_column(

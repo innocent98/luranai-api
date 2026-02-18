@@ -5,12 +5,14 @@ from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 from loguru import logger
+from openai import AsyncOpenAI
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models.tenant import TenantAIConfig
 from app.schemas.conversation import MessageResponse
 from app.schemas.knowledge import KnowledgeChunkResponse
+from app.utils.rate_limiter import openai_llm_rate_limiter
 from app.utils.token_counter import count_tokens
 
 if TYPE_CHECKING:
@@ -82,6 +84,25 @@ class RAGService:
         "your",
     }
 
+    RUNTIME_SYSTEM_MESSAGE = """You are the AI support assistant operating on behalf of a tenant company in a multi-tenant platform.
+
+Role and scope:
+- Support end-users for the active tenant's business context.
+- Follow tenant configuration and instructions in the prompt (voice, allowed topics, blocked topics, escalation rules).
+- Decline requests that are outside the tenant's support scope and redirect to relevant in-scope help.
+- Do not produce personal creative-writing content unrelated to tenant support workflows.
+
+Grounding and safety:
+- Use provided context for factual claims.
+- Do not invent policies, pricing, timelines, account details, or commitments.
+- If information is missing, ask a concise clarifying question or offer human escalation.
+
+Style:
+- Clear, concise, professional, and natural.
+- Do not use emojis.
+- Avoid fluff, roleplay, and emotional storytelling.
+"""
+
     def _extract_keywords(self, text: str) -> set[str]:
         """Extract normalized keywords for lightweight overlap scoring."""
         return {
@@ -89,6 +110,57 @@ class RAGService:
             for token in re.findall(r"[a-z0-9]+", text.lower())
             if len(token) > 1 and token not in self.stopwords
         }
+
+    def _topic_match_score(self, text: str, topic: str) -> float:
+        """Compute a lightweight match score between query text and a configured topic."""
+        text_lower = text.lower()
+        topic_lower = topic.lower().strip()
+        if not topic_lower:
+            return 0.0
+        if topic_lower in text_lower:
+            return 1.0
+
+        query_tokens = self._extract_keywords(text_lower)
+        topic_tokens = self._extract_keywords(topic_lower)
+        if not query_tokens or not topic_tokens:
+            return 0.0
+
+        overlap = len(query_tokens & topic_tokens)
+        if len(topic_tokens) == 1:
+            return 1.0 if overlap == 1 else 0.0
+        return overlap / len(topic_tokens)
+
+    def _matches_any_topic(self, text: str, topics: list[str] | None) -> bool:
+        """Return True if text matches any configured topic."""
+        if not topics:
+            return False
+        for topic in topics:
+            score = self._topic_match_score(text, topic)
+            if score >= 0.6:
+                return True
+        return False
+
+    def enforce_scope_policy(
+        self,
+        user_query: str,
+        ai_config: TenantAIConfig,
+        retrieved_chunks_count: int,
+        avg_similarity: float,
+    ) -> tuple[bool, str | None]:
+        """
+        Deterministically enforce support scope and tenant topic controls.
+
+        Returns:
+            tuple[is_allowed, reason]
+        """
+        if ai_config.blocked_topics and self._matches_any_topic(
+            user_query, cast(list[str], ai_config.blocked_topics)
+        ):
+            return False, "blocked_topic"
+
+        # allowed_topics and broader scope handling are enforced via model instructions
+        # so tenant-specific behavior can remain adaptive instead of regex-pattern based.
+        return True, None
 
     def should_force_clarifying_followup(
         self,
@@ -315,71 +387,28 @@ class RAGService:
 
         return compressed
 
-    # System-level prompt (intelligent conversational mode)
-    INTELLIGENT_SYSTEM_PROMPT = """You are a helpful customer support assistant for {company_name}.
+    # Compact context envelope (sent as user content). Runtime policy lives in RUNTIME_SYSTEM_MESSAGE.
+    INTELLIGENT_SYSTEM_PROMPT = """Tenant:
+{company_name}
 
-Your primary goal: Help customers effectively by combining available knowledge with natural conversation.
-
-## HOW TO HELP (Adaptive by Situation):
-
-### WHEN YOU HAVE SPECIFIC INFORMATION:
-→ Use it directly and confidently
-→ Provide exact details (pricing, features, policies)
-→ Be factual and precise
-→ Don't add information not in the provided knowledge
-
-### WHEN YOU HAVE LIMITED/PARTIAL INFORMATION:
-→ Use what you have as a starting point
-→ Acknowledge what you know and what you're less certain about
-→ Ask clarifying questions to narrow down their need
-→ Guide them to be more specific
-→ Example: "Based on our integrations, I can see we support X and Y. Could you tell me more about which platform you're looking to integrate with?"
-
-### WHEN YOU HAVE NO RELEVANT INFORMATION:
-→ **For greetings/general inquiries:** Respond naturally and warmly, ask how you can help
-→ **For vague questions:** Ask clarifying questions to understand their need better
-→ **For specific questions:** After clarifying, if you still can't help, suggest connecting them with someone who has detailed access
-
-## IMPORTANT RULES:
-✓ **Never invent** specific facts, numbers, pricing, or policies
-✓ **Do reason** naturally - you can explain general concepts, make logical connections, ask questions
-✓ **Use conversation history** - reference what was discussed before, maintain context
-✓ **Ask before giving up** - Try clarifying questions before suggesting escalation
-✓ **Be conversational** - You're helping a person, not filling out a form
-
-## CONVERSATION APPROACH:
-1. If they're vague or exploratory → Ask clarifying questions to understand
-2. If you have information after clarifying → Answer with it
-3. If you tried clarifying but still can't help → Suggest human assistance with clear reasoning
-
-## ESCALATION (Last Resort Only):
-Only suggest escalation when:
-- User explicitly asks for human agent
-- You've asked clarifying questions but still can't help
-- They need account-specific information you don't have access to
-- Critical issue requiring immediate human attention
-
-When suggesting escalation, explain:
-- WHY it helps them (specific expertise, account access, etc.)
-- HOW it benefits them (faster resolution, detailed answers, etc.)
-
-Remember: Your job is to HELP, not just answer. Sometimes helping means asking the right questions first.
-
----
-
-SUPPORT CONFIGURATION:
+Tenant configuration:
 {tenant_config}
 
-AVAILABLE INFORMATION:
+Retrieved knowledge:
 {knowledge_context}
 
-CONVERSATION HISTORY:
+Conversation history:
 {history_context}
 
-CUSTOMER QUESTION:
+User message:
 {user_query}
 
-Help the customer based on what you have available. Be natural, helpful, and intelligent:"""
+Instructions:
+- Answer using tenant knowledge and prior conversation context when relevant.
+- Keep the response concise and directly useful.
+- For follow-up questions, continue from prior turns before asking for clarification.
+- If required details are still missing, ask one clarifying question or offer human support.
+"""
 
     def assemble_prompt(
         self,
@@ -433,21 +462,24 @@ Help the customer based on what you have available. Be natural, helpful, and int
             tenant_config_parts.append(
                 "Strict grounding: Only answer from provided information for factual questions"
             )
+        tenant_config_parts.append(
+            f"Grounding mode: {getattr(ai_config, 'grounding_mode', 'balanced')}"
+        )
+        tenant_config_parts.append(
+            f"Low-confidence action: {getattr(ai_config, 'low_confidence_action', 'clarify')}"
+        )
+        tenant_config_parts.append(
+            f"No-retrieval action: {getattr(ai_config, 'no_retrieval_action', 'clarify')}"
+        )
 
         if ai_config.custom_instructions:
             tenant_config_parts.append(f"Additional: {ai_config.custom_instructions}")
 
         tenant_config = "\n".join(tenant_config_parts)
 
-        # Knowledge context with intelligent signaling
+        # Knowledge context
         if not retrieved_chunks:
-            knowledge_context = """(No specific knowledge base information available for this query.
-
-Guidance:
-- If this is a greeting or general inquiry, respond naturally and warmly
-- If this is a vague request, ask clarifying questions to understand their need
-- If this is a specific question, note that you'll need more details or suggest escalation
-- Don't immediately say you can't help - try to guide the conversation first)"""
+            knowledge_context = "(No retrieved knowledge for this query.)"
         else:
             context_parts: list[str] = []
             context_tokens = 0
@@ -907,6 +939,7 @@ Guidance:
         prompt: "PromptComponents",
         max_tokens: int = 800,  # Increased for comprehensive responses (was 200)
         model_name: str | None = None,
+        system_message: str | None = None,
     ) -> tuple[str, int | None, bool]:
         """
         Generate AI response using OpenAI API.
@@ -921,12 +954,6 @@ Guidance:
             - is_api_error=True means technical failure (503, timeout, etc.)
               Don't evaluate quality or offer escalation for API errors
         """
-        from loguru import logger
-        from openai import AsyncOpenAI
-
-        from app.core.config import settings
-        from app.utils.rate_limiter import openai_llm_rate_limiter
-
         # Use provided model or default from settings
         model = model_name or settings.OPENAI_LLM_MODEL
 
@@ -942,12 +969,15 @@ Guidance:
             response = await client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": "You are a helpful customer support assistant."},
+                    {
+                        "role": "system",
+                        "content": system_message or self.RUNTIME_SYSTEM_MESSAGE,
+                    },
                     {"role": "user", "content": prompt.full_prompt},
                 ],
                 max_tokens=max_tokens,
-                temperature=0.4,  # Increased from 0.2 for more natural, varied responses while maintaining groundedness
-                top_p=0.9,  # Add nucleus sampling for controlled variation
+                temperature=0.2,
+                top_p=0.8,
             )
 
             # Extract text

@@ -17,15 +17,19 @@ from app.api.deps import (
     verify_subscription_active,
     verify_tenant_access,
 )
+from app.core.config import settings
+from app.core.websocket import connection_manager
 from app.db.models.conversation import (
     ConversationSession,
     EscalationAction,
     MessageRole,
     SessionStatus,
+    Ticket,
     TicketPriority,
 )
-from app.db.models.flow import Flow, FlowStatus
+from app.db.models.flow import Flow, FlowExecution, FlowStatus
 from app.db.models.tenant import TenantAIConfig
+from app.db.models.user import User, UserRole
 from app.schemas.conversation import (
     ChatResponse,
     ConversationSessionCreate,
@@ -37,6 +41,7 @@ from app.schemas.conversation import (
     SessionResponse,
 )
 from app.schemas.rag import ResponseQuality
+from app.schemas.ticket import TicketAssign, TicketCreate
 from app.schemas.tenant import TenantResponse
 from app.schemas.user import UserResponse
 from app.services.conversation_service import ConversationService
@@ -45,6 +50,7 @@ from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
 from app.services.ticket_service import TicketService
 from app.utils.datetime import ensure_utc_aware, utcnow_aware, utcnow_naive
+from app.utils.email import send_ticket_escalation_email
 from app.utils.http_rate_limiter import chat_rate_limit
 
 router = APIRouter()
@@ -156,6 +162,38 @@ def _determine_ticket_priority(
 
     # LOW: Default for other escalations (e.g., response quality issues)
     return TicketPriority.LOW
+
+
+def _has_usable_followup_context(conversation_history: list[MessageResponse]) -> bool:
+    """
+    Return True when session history contains enough recent exchange context to
+    answer a follow-up even if current retrieval returns no chunks.
+    """
+    if not conversation_history:
+        return False
+
+    user_count = 0
+    assistant_count = 0
+    last_user_content = ""
+    last_assistant_content = ""
+
+    for msg in conversation_history:
+        content = (msg.content or "").strip()
+        if not content:
+            continue
+        if msg.role == MessageRole.USER:
+            user_count += 1
+            last_user_content = content
+        elif msg.role in {MessageRole.ASSISTANT, MessageRole.HUMAN_AGENT}:
+            assistant_count += 1
+            last_assistant_content = content
+
+    return (
+        user_count >= 1
+        and assistant_count >= 1
+        and bool(last_user_content)
+        and bool(last_assistant_content)
+    )
 
 
 @router.post("/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
@@ -441,9 +479,6 @@ async def send_message(
             conversation_service.escalate_session(session_id=session_id, reason=escalation_reason)
             ticket_id = None
             try:
-                from app.schemas.ticket import TicketCreate
-                from app.db.models.user import User, UserRole
-                from app.utils.email import send_ticket_escalation_email
 
                 ticket_service = TicketService(db)
                 ticket = ticket_service.create_ticket(
@@ -526,7 +561,6 @@ async def send_message(
 
         if not active_exec:
             # Start new flow execution
-            from app.db.models.flow import FlowExecution
 
             active_exec = FlowExecution(
                 flow_id=matched_flow.id,
@@ -577,9 +611,6 @@ async def send_message(
                 # Create ticket
                 ticket_id = None
                 try:
-                    from app.db.models.user import UserRole
-                    from app.schemas.ticket import TicketCreate
-                    from app.utils.email import send_ticket_escalation_email
 
                     ticket_service = TicketService(db)
                     conversation_history = conversation_service.get_session_messages(
@@ -612,7 +643,6 @@ async def send_message(
                         session.tenant_id, include_relations=False
                     )
                     tenant_name = tenant_for_email.display_name if tenant_for_email else "Unknown"
-                    from app.db.models.user import User
 
                     notification_recipients = (
                         db.query(User)
@@ -770,9 +800,6 @@ async def send_message(
                     # Create ticket
                     ticket_id = None
                     try:
-                        from app.db.models.user import UserRole
-                        from app.schemas.ticket import TicketCreate
-                        from app.utils.email import send_ticket_escalation_email
 
                         ticket_service = TicketService(db)
                         conversation_history = conversation_service.get_session_messages(
@@ -807,7 +834,6 @@ async def send_message(
                         tenant_name = (
                             tenant_for_email.display_name if tenant_for_email else "Unknown"
                         )
-                        from app.db.models.user import User
 
                         notification_recipients = (
                             db.query(User)
@@ -942,9 +968,6 @@ async def send_message(
             # Create ticket (copy logic from below)
             ticket_id = None
             try:
-                from app.db.models.user import UserRole
-                from app.schemas.ticket import TicketCreate
-                from app.utils.email import send_ticket_escalation_email
 
                 ticket_service = TicketService(db)
                 conversation_history = conversation_service.get_session_messages(
@@ -977,7 +1000,6 @@ async def send_message(
                     session.tenant_id, include_relations=False
                 )
                 tenant_name = tenant_for_email.display_name if tenant_for_email else "Unknown"
-                from app.db.models.user import User
 
                 notification_recipients = (
                     db.query(User)
@@ -1096,7 +1118,17 @@ async def send_message(
                 else f"Retrieved {len(retrieved_chunks)} chunks"
             )
 
-        # Step 5: Determine initial escalation strategy
+        avg_similarity = (sum(similarity_scores) / len(similarity_scores)) if similarity_scores else 0.0
+
+        # Step 5: Deterministic scope/topic guard before model generation
+        scope_allowed, scope_reason = rag_service.enforce_scope_policy(
+            user_query=message_data.message,
+            ai_config=tenant_ai_config,
+            retrieved_chunks_count=len(retrieved_chunks),
+            avg_similarity=avg_similarity,
+        )
+
+        # Step 5.5: Determine initial escalation strategy
         escalation_decision = rag_service.should_escalate(
             user_query=message_data.message,
             ai_config=tenant_ai_config,
@@ -1108,18 +1140,28 @@ async def send_message(
         # Step 6: Get conversation history for context (needed for ticket creation too)
         conversation_history = conversation_service.get_session_messages(
             session_id=session_id,
-            limit=20,  # Last 10 turns (user + assistant) - Increased from 10 for better context
+            limit=20,
         )
 
-        # Step 7: Generate AI response based on escalation action
-        # Initialize tracking variables
+        # Step 7: Determine directive action (no hardcoded fallback text)
         should_skip_generation = False
         skip_reason = None
         token_count: int | None = None
         prompt_components = None
+        policy_action = "answer"
+        policy_reason = "normal_generation"
+
+        if not scope_allowed:
+            policy_action = "refuse"
+            policy_reason = f"scope_policy_{scope_reason}"
+            escalation_decision = SimpleNamespace(
+                action=EscalationAction.NO_ESCALATION,
+                reason=scope_reason,
+                skip_quality_check=True,
+            )
+            logger.info(f"Scope policy blocked request: {scope_reason}")
 
         if escalation_decision.action == EscalationAction.AUTO_ESCALATE:
-            # User explicitly requested human - acknowledge and escalate
             ai_response_text = "Of course! Connecting you with someone from our team now."
             token_count = 0
             quality = ResponseQuality(
@@ -1127,129 +1169,138 @@ async def send_message(
             )
             logger.info("Auto-escalating due to user request")
 
-        elif escalation_decision.action == EscalationAction.OFFER_ESCALATION:
-            # No knowledge available - offer escalation with empowering language
-            ai_response_text = "I'd like to help you with that, but to give you the most accurate information, I'd recommend connecting with our support team. They'll have access to the specific details you need. Shall I transfer you to someone who can assist?"
-            token_count = 0
-            quality = ResponseQuality(
-                is_substantial=False, has_uncertainty=True, word_count=0, char_count=0
-            )
-            logger.info("No knowledge available, offering escalation")
-
         else:
-            # no_escalation - AI has knowledge, but check similarity first
+            grounding_mode = str(getattr(tenant_ai_config, "grounding_mode", "balanced"))
+            if scope_allowed:
+                low_confidence_action = str(
+                    getattr(tenant_ai_config, "low_confidence_action", "clarify")
+                )
+                no_retrieval_action = str(
+                    getattr(tenant_ai_config, "no_retrieval_action", "clarify")
+                )
 
-            # HARD GATE: Skip generation if similarity too low AND not conversational mode
-            # Allow conversational mode even with low/no similarity scores
+                has_no_retrieval = len(retrieved_chunks) == 0
+                has_low_confidence = (
+                    len(retrieved_chunks) > 0
+                    and avg_similarity < rag_service.MIN_RELEVANT_SIMILARITY
+                )
+                has_followup_context = _has_usable_followup_context(conversation_history)
 
-            if similarity_scores and escalation_decision.reason not in [
-                "conversational_mode",
-                "partial_knowledge_mode",
-            ]:
-                avg_similarity = sum(similarity_scores) / len(similarity_scores)
-                if avg_similarity < rag_service.MIN_RELEVANT_SIMILARITY:
-                    should_skip_generation = True
-                    skip_reason = f"low_similarity_{avg_similarity:.2f}"
-                    logger.warning(
-                        f"Hard gate triggered: avg_similarity={avg_similarity:.2f} < {rag_service.MIN_RELEVANT_SIMILARITY}"
-                    )
+                if has_no_retrieval:
+                    if has_followup_context:
+                        policy_action = "answer"
+                        policy_reason = "no_retrieval_followup_context"
+                    elif grounding_mode in {"strict", "balanced"}:
+                        policy_action = no_retrieval_action
+                        policy_reason = "no_retrieval"
+                    elif grounding_mode == "flexible" and no_retrieval_action != "clarify":
+                        policy_action = no_retrieval_action
+                        policy_reason = "no_retrieval"
+                elif has_low_confidence:
+                    if grounding_mode == "strict":
+                        policy_action = low_confidence_action
+                        policy_reason = f"low_similarity_{avg_similarity:.2f}"
+                    elif grounding_mode == "balanced" and escalation_decision.reason not in [
+                        "conversational_mode",
+                        "partial_knowledge_mode",
+                    ]:
+                        policy_action = low_confidence_action
+                        policy_reason = f"low_similarity_{avg_similarity:.2f}"
+                    elif grounding_mode == "flexible" and low_confidence_action != "clarify":
+                        policy_action = low_confidence_action
+                        policy_reason = f"low_similarity_{avg_similarity:.2f}"
 
-            if should_skip_generation:
-                # Don't call AI - return empowering escalation offer
-                ai_response_text = "I'd like to help you with that, but to give you the most accurate information, I'd recommend connecting with our support team. They'll have access to the specific details you need. Shall I transfer you to someone who can assist?"
-                token_count = 0
+            if policy_action == "escalate":
+                escalation_decision.action = EscalationAction.OFFER_ESCALATION
+                escalation_decision.reason = f"Grounding policy: {policy_reason}"
+                escalation_decision.skip_quality_check = True
+            elif policy_action in {"clarify", "refuse"}:
+                escalation_decision.action = EscalationAction.NO_ESCALATION
+                escalation_decision.reason = f"Grounding policy: {policy_reason}"
+                escalation_decision.skip_quality_check = True
+
+            logger.info(
+                "Policy directive resolved: "
+                f"action={policy_action}, reason={policy_reason}, mode={grounding_mode}"
+            )
+
+            logger.info("Generating AI response...")
+            prompt_components = rag_service.assemble_prompt(
+                ai_config=tenant_ai_config,
+                user_query=message_data.message,
+                retrieved_chunks=retrieved_chunks,
+                conversation_history=conversation_history,
+                company_name=tenant_response.display_name,
+                company_description=tenant_response.description,
+                max_history_turns=6,
+            )
+            directive_block = (
+                "\n\nRuntime policy decision for this turn:\n"
+                f"- Required action: {policy_action}\n"
+                f"- Reason: {policy_reason}\n"
+                f"- Retrieved chunks: {len(retrieved_chunks)}\n"
+                f"- Average similarity: {avg_similarity:.3f}\n"
+                "- Execution rules:\n"
+                "  * action=answer: answer directly if safe and grounded.\n"
+                "  * action=clarify: ask one concise clarifying question; do not fabricate facts.\n"
+                "  * action=escalate: briefly explain and ask consent to connect to support.\n"
+                "  * action=refuse: politely refuse and redirect to tenant support scope.\n"
+                "- Always follow tenant custom instructions and brand voice.\n"
+                "- Do not use emojis."
+            )
+            prompt_components.full_prompt = f"{prompt_components.full_prompt}{directive_block}"
+
+            ai_response_text, token_count, is_api_error = await rag_service.generate_ai_response(
+                prompt=prompt_components,
+                max_tokens=tenant_ai_config.max_response_tokens,
+                model_name=settings.OPENAI_LLM_MODEL,
+            )
+
+            if token_count and prompt_components.prompt_tokens:
+                completion_tokens = token_count - prompt_components.prompt_tokens
+                logger.info(
+                    f"Token usage - "
+                    f"prompt={prompt_components.prompt_tokens}, "
+                    f"completion={completion_tokens}, "
+                    f"total={token_count}"
+                )
+            else:
+                logger.info(f"Generated response ({token_count} tokens)")
+
+            if is_api_error:
+                logger.error("API error occurred, returning error message without escalation")
                 quality = ResponseQuality(
                     is_substantial=False, has_uncertainty=True, word_count=0, char_count=0
                 )
-                escalation_decision.action = EscalationAction.OFFER_ESCALATION
-                escalation_decision.reason = f"Hard gate: {skip_reason}"
-                logger.info(f"Generation skipped - {skip_reason}")
             else:
-                # Original generation logic continues
-                logger.info("Generating AI response...")
-                from app.core.config import settings
-
-                prompt_components = rag_service.assemble_prompt(
-                    ai_config=tenant_ai_config,
-                    user_query=message_data.message,
-                    retrieved_chunks=retrieved_chunks,
-                    conversation_history=conversation_history,
-                    company_name=tenant_response.display_name,
-                    company_description=tenant_response.description,
-                    max_history_turns=6,
-                )
-                logger.info(
-                    f"Assembled prompt with {prompt_components.knowledge_chunks_used} chunks, "
-                    f"{prompt_components.history_turns_used} turns"
-                )
-
-                ai_response_text, token_count, is_api_error = (
-                    await rag_service.generate_ai_response(
-                        prompt=prompt_components,
-                        max_tokens=tenant_ai_config.max_response_tokens,
-                        model_name=settings.OPENAI_LLM_MODEL,
-                    )
-                )
-
-                # Log detailed token usage
-                if token_count and prompt_components.prompt_tokens:
-                    completion_tokens = token_count - prompt_components.prompt_tokens
+                if not escalation_decision.skip_quality_check:
+                    quality = rag_service.evaluate_response_quality(ai_response_text)
                     logger.info(
-                        f"Token usage - "
-                        f"prompt={prompt_components.prompt_tokens}, "
-                        f"completion={completion_tokens}, "
-                        f"total={token_count}"
+                        f"Response quality: {quality.word_count} words, "
+                        f"substantial={quality.is_substantial}, "
+                        f"uncertain={quality.has_uncertainty}"
                     )
-                else:
-                    logger.info(f"Generated response ({token_count} tokens)")
 
-                # If API error, don't evaluate quality or offer escalation
-                if is_api_error:
-                    logger.error("API error occurred, returning error message without escalation")
-                    quality = ResponseQuality(
-                        is_substantial=False, has_uncertainty=True, word_count=0, char_count=0
-                    )
-                else:
-                    avg_similarity_for_guard = (
-                        sum(similarity_scores) / len(similarity_scores)
-                        if similarity_scores
-                        else 0.0
-                    )
-                    if rag_service.should_force_clarifying_followup(
-                        user_query=message_data.message,
-                        ai_response=ai_response_text,
-                        retrieved_chunks_count=len(retrieved_chunks),
-                        avg_similarity=avg_similarity_for_guard,
-                    ):
+                    if not quality.is_substantial:
+                        logger.info("Response quality insufficient, offering escalation")
+                        escalation_decision.action = EscalationAction.OFFER_ESCALATION
+                        escalation_decision.reason = "AI response quality below threshold"
                         ai_response_text = (
-                            "I want to give you the exact policy/pricing detail. "
-                            "Can you share a bit more context (for example your exact plan or the specific policy area)?"
+                            f"{ai_response_text}\n\nWould you like me to connect you with someone from our team?"
                         )
+                else:
+                    quality = ResponseQuality(
+                        is_substantial=True,
+                        has_uncertainty=False,
+                        word_count=len(ai_response_text.split()),
+                        char_count=len(ai_response_text),
+                    )
 
-                    # Evaluate response quality - skip if satisfaction detected
-                    if not escalation_decision.skip_quality_check:
-                        quality = rag_service.evaluate_response_quality(ai_response_text)
-                        logger.info(
-                            f"Response quality: {quality.word_count} words, "
-                            f"substantial={quality.is_substantial}, "
-                            f"uncertain={quality.has_uncertainty}"
-                        )
-
-                        # If response is weak/uncertain, offer escalation
-                        if not quality.is_substantial:
-                            logger.info("Response quality insufficient, offering escalation")
-                            escalation_decision.action = EscalationAction.OFFER_ESCALATION
-                            escalation_decision.reason = "AI response quality below threshold"
-                            ai_response_text = f"{ai_response_text}\n\nWould you like me to connect you with someone from our team?"
-                    else:
-                        # Satisfaction detected - skip quality check
-                        logger.info("Skipping quality check (satisfaction detected)")
-                        quality = ResponseQuality(
-                            is_substantial=True,
-                            has_uncertainty=False,
-                            word_count=len(ai_response_text.split()),
-                            char_count=len(ai_response_text),
-                        )
+        # Keep ticket summary context available after generation path.
+        conversation_history = conversation_service.get_session_messages(
+            session_id=session_id,
+            limit=20,
+        )
 
         # Step 8: Save assistant message
         retrieved_chunk_ids: list[str] = []
@@ -1259,9 +1310,7 @@ async def send_message(
                 retrieved_chunk_ids.append(str(chunk.id))
             except Exception:
                 continue
-        avg_similarity = (
-            (sum(similarity_scores) / len(similarity_scores)) if similarity_scores else 0.0
-        )
+        avg_similarity = (sum(similarity_scores) / len(similarity_scores)) if similarity_scores else 0.0
         retrieval_hit = (
             len(retrieved_chunks) > 0 and avg_similarity >= rag_service.MIN_RELEVANT_SIMILARITY
         )
@@ -1346,9 +1395,6 @@ async def send_message(
 
             # Create support ticket
             try:
-                from app.db.models.user import UserRole
-                from app.schemas.ticket import TicketCreate
-                from app.utils.email import send_ticket_escalation_email
 
                 ticket_service = TicketService(db)
 
@@ -1384,7 +1430,6 @@ async def send_message(
                 tenant_name = tenant_for_email.display_name if tenant_for_email else "Unknown"
 
                 # Get all tenant admins and support agents
-                from app.db.models.user import User
 
                 notification_recipients = (
                     db.query(User)
@@ -1590,8 +1635,6 @@ async def agent_takeover(
     Returns:
         Updated session with agent assignment
     """
-    from app.core.websocket import connection_manager
-    from app.db.models.user import UserRole
 
     conversation_service = ConversationService(db)
 
@@ -1617,7 +1660,6 @@ async def agent_takeover(
     )
 
     # If there's an associated ticket, assign it to the agent too
-    from app.db.models.conversation import Ticket
 
     ticket = (
         db.query(Ticket)
@@ -1627,8 +1669,6 @@ async def agent_takeover(
     )
 
     if ticket:
-        from app.schemas.ticket import TicketAssign
-        from app.services.ticket_service import TicketService
 
         ticket_service = TicketService(db)
         try:
@@ -1699,8 +1739,6 @@ async def send_agent_message(
     Returns:
         Created message
     """
-    from app.core.websocket import connection_manager
-    from app.db.models.user import UserRole
 
     conversation_service = ConversationService(db)
 

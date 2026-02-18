@@ -1,0 +1,211 @@
+Luran Dashboard Navigation and User Journey Guide (Tenant Version)
+
+Who this guide is for
+This guide helps tenant admins, support agents, and viewers understand how to move through the Luran dashboard and complete key day-to-day tasks.
+
+Before you start
+- Sign in to your tenant dashboard.
+- Use the left sidebar as your main navigation.
+
+Main navigation menu (left sidebar)
+You will see these primary areas:
+- Overview
+- Knowledge Base
+- Flows
+- Widget
+- Analytics
+- Support
+- Team Members
+- Settings
+
+1) Overview
+What it is for:
+- quick health view of support activity
+- conversations, escalations, tickets, and confidence trends
+
+What to do here:
+- review high-level performance
+- spot unusual drops in answer quality
+- jump into detailed analytics when needed
+
+Tip:
+If Custom Instructions are not configured yet, use the prompt on Overview to open AI settings and complete setup.
+
+2) Knowledge Base
+What it is for:
+- upload and manage the content your assistant uses for answers
+
+Typical journey:
+1. Open Knowledge Base
+2. Choose Upload Knowledge
+3. Upload a supported file
+4. Monitor source status
+5. Confirm key sources become ACTIVE
+
+What to watch:
+- PROCESSING means not fully ready yet
+- ACTIVE means ready for reliable use
+- FAILED means source needs correction/re-upload
+
+Plan note:
+Storage and total knowledge source count are limited by your plan.
+
+3) Flows
+What it is for:
+- create structured support journeys for repeatable customer requests
+
+Typical journey:
+1. Open Flows
+2. Create a new flow or use a template
+3. Build the journey steps
+4. Activate flow when ready
+5. Monitor usage and refine over time
+
+Plan note:
+Number of flows is controlled by your plan limits.
+If flow creation is blocked, check current subscription limits.
+
+4) Widget
+Widget has two key pages:
+- Setup
+- Install
+
+A) Widget Setup
+Use this page to configure:
+- brand colors
+- greeting message
+- widget position
+- unread badge behavior
+- file-upload behavior
+- logo upload/remove
+
+B) Widget Install
+Use this page to:
+- copy installation snippet
+- place it on your website before the closing body tag
+- verify widget display on live pages
+
+Important:
+Use your public API key for widget setup.
+
+5) Analytics
+What it is for:
+- detailed performance analysis beyond the Overview snapshot
+
+You can track:
+- conversation trends
+- ticket trends
+- customer ratings
+- knowledge performance
+- agent performance
+
+Use analytics to:
+- find recurring escalation reasons
+- identify missing or weak knowledge areas
+- improve customer satisfaction over time
+
+6) Support
+Support contains two operational queues:
+- Conversations
+- Tickets
+
+A) Conversations
+Use this to:
+- filter by status (for example escalated, active, resolved)
+- open conversation details
+- take over unassigned escalated conversations (agent workflow)
+- continue customer communication where permitted
+
+B) Tickets
+Use this to:
+- create tickets from escalated conversations
+- filter by status/priority/assignment
+- assign tickets
+- resolve tickets
+- close tickets (admin-controlled step)
+
+Practical handoff pattern:
+- AI escalates conversation
+- agent takes over conversation and/or opens ticket
+- ticket is assigned and worked
+- resolution is documented and completed
+
+7) Team Members
+What it is for:
+- invite and manage your internal support team
+
+Role model:
+- Tenant Admin: full admin control
+- Support Agent: handles support operations
+- Viewer: read-only visibility
+
+Important permissions:
+- team invite/manage actions are admin-only
+- support capacity depends on your plan’s team-member limit
+
+8) Settings
+Settings is where tenant-level controls live:
+- Company Profile
+- AI Configuration
+- Subscription
+- API Keys
+- Password
+
+A) Company Profile
+- update display details your workspace uses
+
+B) AI Configuration
+- configure behavior, topic controls, and custom instructions
+- align assistant output with your company support standards
+
+C) Subscription
+- review current tier, limits, and status
+- manage available subscription actions from this area
+
+D) API Keys
+- create and manage keys for integrations
+- store keys securely after creation
+
+E) Password
+- update your account password
+
+Governance and legal links for tenant teams
+For policy and legal reference, use:
+- Privacy: https://docs.luranai.com/privacy.html
+- Terms: https://docs.luranai.com/terms.html
+
+Recommended onboarding journey for new tenant admins
+1. Review Overview to understand current state
+2. Upload core support knowledge and wait for ACTIVE status
+3. Configure AI behavior in Settings → AI Configuration
+4. Configure and install Widget
+5. Build at least one core Flow
+6. Invite support team members with correct roles
+7. Run support tests across:
+   - in-scope question
+   - low-information question
+   - escalation scenario
+8. Start monitoring Support queues and Analytics weekly
+
+Daily operator checklist
+- check escalated conversations queue
+- process open and in-progress tickets
+- confirm urgent tickets have owners
+- review any failed knowledge sources
+
+Weekly operator checklist
+- review ratings and escalation patterns
+- update outdated knowledge
+- improve high-volume flow paths
+- verify AI configuration still matches support policy
+
+If something seems blocked
+Most blocked actions are caused by one of:
+- role permission limits
+- plan capability limits
+- subscription status
+
+When this happens, check:
+- your role
+- your current subscription capabilities
+- current workspace status in Settings

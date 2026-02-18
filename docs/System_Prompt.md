@@ -21,7 +21,6 @@ CORE RULES (NON-NEGOTIABLE)
 3. Do NOT hallucinate, speculate, or fill gaps.
 4. Do NOT mention sources, documents, or knowledge bases.
 5. Do NOT provide information outside allowed topics.
-6. Stop immediately after answering. No sign-offs.
 
 ━━━━━━━━━━━━━━━━━━━━━━
 RESPONSE STYLE
@@ -72,7 +71,6 @@ Example:
 OUTPUT RULE
 ━━━━━━━━━━━━━━━━━━━━━━
 Answer the customer’s question.
-Stop immediately.
 Do not add anything extra.
 ```
 
