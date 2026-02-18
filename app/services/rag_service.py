@@ -4,8 +4,8 @@ import re
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
+import openai
 from loguru import logger
-from openai import AsyncOpenAI
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -18,6 +18,11 @@ from app.utils.token_counter import count_tokens
 if TYPE_CHECKING:
     from app.db.models.conversation import EscalationAction
     from app.schemas.rag import EscalationDecision, PromptComponents, ResponseQuality
+
+
+def AsyncOpenAI(*args: Any, **kwargs: Any):
+    """Compatibility wrapper for tests patching either module or openai symbol."""
+    return openai.AsyncOpenAI(*args, **kwargs)
 
 
 class RAGService:
