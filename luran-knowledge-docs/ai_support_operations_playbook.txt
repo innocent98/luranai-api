@@ -1,0 +1,177 @@
+Luran AI Support Operations Playbook (Tenant Version)
+
+Purpose
+This guide explains how to run a high-quality support assistant in Luran using only verified product behavior. It is written for support leaders, tenant admins, and day-to-day operators.
+
+What your assistant should do
+Your Luran assistant is designed to support your customers about your business, services, and support workflows.
+It should:
+- answer in-scope customer support questions
+- ask clarifying questions when details are missing
+- avoid guessing when information is uncertain
+- escalate to a human when needed
+- stay professional and calm, even if the customer is upset
+
+How AI behavior is controlled in Settings → AI Configuration
+You can shape assistant behavior using these controls:
+
+1) Brand Voice
+- Tone: professional, friendly, or casual
+- Formality: formal, balanced, or casual
+- Greeting style: warm, neutral, or enthusiastic
+
+2) Knowledge Grounding
+- Grounding requirement: controls whether the assistant must stay closely tied to your available knowledge
+- Grounding mode:
+  - strict: strongest protection against unsupported claims
+  - balanced: practical default for most teams
+  - flexible: allows broader handling while still following tenant rules
+
+3) Policy behavior when confidence is low or no clear knowledge is found
+For both of these situations, you can choose one action:
+- answer: provide a safe in-scope response
+- clarify: ask one focused follow-up question
+- escalate: offer human support handoff
+- refuse: politely decline and redirect to relevant support scope
+
+4) Topic Controls
+- Allowed Topics: topics the assistant is expected to focus on
+- Blocked Topics: topics the assistant should decline
+- Escalation Keywords: words/phrases that trigger faster human handoff behavior
+
+5) Custom Instructions
+- You can add tenant-specific instructions to guide style, scope, and policy behavior
+- Maximum length is 500 characters
+- Best use: concise, high-priority rules only
+
+Current response style policy
+Luran runtime instructions currently enforce concise, professional responses and no emoji output.
+
+How to write strong Custom Instructions (recommended pattern)
+Keep Custom Instructions short and operational.
+Use this structure:
+- Scope: what your assistant should help with
+- Boundaries: what it must not do
+- Evidence rule: how to respond when information is missing
+- Escalation rule: when to hand off
+- Style rule: response length and tone
+
+Example:
+"Support customers about account, billing, onboarding, and product usage for this company. Do not guess policy or pricing details. If missing info, ask one clarifying question, then offer escalation. Keep replies professional and concise."
+
+Knowledge Base operations that directly affect answer quality
+1) Source types currently supported
+- text files
+- markdown files
+- PDF files
+- DOCX files
+- webpage URL sources (plan-dependent)
+
+2) File size and quality checks
+- Max file size per uploaded file: 10 MB
+- Empty files are rejected
+- Files without meaningful text are rejected
+
+3) Source lifecycle
+- PROCESSING: uploaded and being prepared
+- ACTIVE: ready for assistant use
+- FAILED: could not be prepared
+- INACTIVE: removed from active use
+
+4) Practical quality rule
+If your most important sources are not ACTIVE, expect weaker answers.
+
+What to do when customers ask out-of-scope requests
+Your assistant should politely decline unrelated requests and redirect the customer back to supported help.
+Examples of out-of-scope requests include personal writing tasks unrelated to your company support.
+
+Support escalation and human handoff workflow
+Luran supports both AI and human assistance in one journey.
+A typical path is:
+1. customer asks question
+2. AI tries to resolve
+3. if needed, case is escalated
+4. support team continues from the dashboard with context
+
+Ticket operations available to support teams
+Support tickets can be:
+- created
+- assigned
+- moved into progress
+- resolved
+- closed
+
+Priority levels used in tickets:
+- low
+- medium
+- high
+- urgent
+
+Team roles and responsibilities
+Tenant roles are:
+- Tenant Admin: full configuration and team control
+- Support Agent: handles support conversations and tickets
+- Viewer: read-only visibility
+
+Important team rule
+Only Tenant Admins can invite/manage team members and change key tenant settings.
+
+Customer feedback and service quality tracking
+Luran supports customer session ratings and ratings analytics.
+Use this to improve:
+- resolution quality
+- escalation quality
+- support content gaps
+
+Simple monthly quality routine
+1. Review low-rated conversations
+2. identify repeated customer questions
+3. add/refresh knowledge for those questions
+4. add or refine guided flows for repetitive journeys
+5. tune AI policy actions (answer/clarify/escalate/refuse)
+6. retest with real customer-like prompts
+
+Subscription and limits (operator guidance)
+Your workspace behavior is affected by plan capabilities, including:
+- monthly conversation allowance
+- knowledge storage allowance
+- number of knowledge sources
+- team member allowance
+- flow allowance
+
+If a limit is reached, related actions are blocked until usage is reduced or plan is adjusted.
+
+Trial expectations (default onboarding behavior)
+New trial workspaces start with a limited setup suitable for evaluation, including restricted knowledge, team, and flow capacity compared with paid tiers.
+
+Safe go-live checklist
+Before launch:
+1. Verify top support documents are ACTIVE
+2. Set AI Configuration (grounding mode, policy actions, topic controls)
+3. Add clear Custom Instructions (within 500 chars)
+4. Confirm escalation path works end-to-end
+5. Confirm support team roles and ownership
+6. Run test conversations for:
+   - a standard in-scope question
+   - a missing-information question
+   - an out-of-scope request
+   - an escalation-required case
+
+Ongoing maintenance checklist
+Weekly:
+- review unresolved or escalated conversations
+- update missing knowledge topics
+- remove outdated policy content
+
+Monthly:
+- review ratings trends
+- refine AI rules and support playbooks
+- validate subscription limits against current support volume
+
+Final operating principle
+Best results come from alignment between three things:
+- clear support scope
+- current and accurate knowledge
+- consistent escalation handling
+
+When these stay aligned, the assistant remains useful, trustworthy, and professional for your customers.

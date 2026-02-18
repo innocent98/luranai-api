@@ -97,6 +97,9 @@ class CompanyRegistrationService:
                 escalation_keywords=[],
                 max_response_tokens=450,  # Trial tier default
                 grounding_requirement=True,
+                grounding_mode="balanced",
+                low_confidence_action="clarify",
+                no_retrieval_action="clarify",
             )
             self.db.add(ai_config)
 

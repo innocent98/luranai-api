@@ -1,0 +1,164 @@
+Flows, Support Operations, and Team Workflow Guide (Tenant Version)
+
+Purpose
+This guide explains how to run structured support operations in Luran using flows, support queues, ticket lifecycle controls, and team roles.
+
+Part A: Flows
+
+What flows are for
+Flows help you handle repeatable customer journeys with consistent steps.
+Use flows when you want predictable outcomes, faster triage, and cleaner escalation.
+
+Common flow use cases
+- onboarding and setup help
+- billing issue triage
+- account access recovery paths
+- service request qualification
+- guided escalation preparation
+
+Flow creation journey
+1. Open Flows from the left sidebar.
+2. Choose create flow (or start from a template).
+3. Add and connect steps to reflect your support process.
+4. Test key paths before activation.
+5. Activate flow when ready for customer use.
+
+Flow lifecycle states
+- Draft: work in progress
+- Active: available for customer handling
+- Paused: temporarily inactive
+- Archived: retired flow
+
+Flow quality checklist before activation
+- all customer choices are clear
+- escalation branch exists where needed
+- dead ends are removed
+- language matches your support tone
+- high-risk paths are reviewed by an admin
+
+Plan-aware flow restrictions
+Flow creation and usage are controlled by your current plan.
+If you cannot create new flows, confirm:
+- your current flow count vs plan limit
+- subscription status
+- role permissions
+
+Part B: Support Operations
+
+Support area overview
+Open Support in the sidebar to access:
+- Conversations
+- Tickets
+
+1) Conversations workflow
+Use Conversations to review active/escalated customer sessions.
+
+Typical process:
+1. filter queue by status
+2. open a conversation
+3. take over if unassigned
+4. continue customer support
+5. resolve or transition to ticket if needed
+
+Important behavior:
+- agents can take over unassigned escalated conversations
+- if a conversation is already assigned to another agent, takeover is restricted
+- closed/resolved conversation states restrict further chat handling
+
+2) Tickets workflow
+Use Tickets for formal case tracking and resolution management.
+
+Ticket lifecycle
+- Open
+- In Progress
+- Resolved
+- Closed
+
+Typical process:
+1. create ticket from escalated context
+2. assign owner
+3. work ticket to resolution
+4. add resolution notes
+5. close after confirmation
+
+Priority levels
+- low
+- medium
+- high
+- urgent
+
+Operational best practices
+- always assign urgent tickets quickly
+- require clear resolution notes
+- close only after customer-impact checks
+- link ticket handling back to knowledge/flow improvements
+
+Part C: Team Roles and Collaboration
+
+Tenant roles
+- Tenant Admin
+- Support Agent
+- Viewer
+
+What each role should focus on
+Tenant Admin:
+- controls team invitations and role management
+- configures AI, widget, and key tenant settings
+- oversees subscription/capability decisions
+
+Support Agent:
+- handles conversation takeover and customer support
+- works assigned tickets
+- records clean resolution outcomes
+
+Viewer:
+- observes operations and reporting
+- no administrative management actions
+
+Team invitation journey
+1. Open Team Members.
+2. Invite new member.
+3. choose the appropriate role.
+4. confirm seat/limit availability under current plan.
+
+Plan-aware team restrictions
+Team size is controlled by your plan.
+If invitations fail, review current member limits and subscription status.
+
+Part D: AI + Flow + Human handoff model
+
+Recommended sequence
+1. Let flows handle repeatable journeys first.
+2. Let AI answer open-ended in-scope questions.
+3. Escalate to human support for exceptions, risk cases, or unresolved issues.
+
+This model gives:
+- better consistency
+- faster handling of common requests
+- cleaner human focus on high-value cases
+
+Part E: Navigation quick map (for operators)
+- Build structured journeys: Flows
+- Work escalated chat sessions: Support → Conversations
+- Manage case lifecycle: Support → Tickets
+- Invite/organize support staff: Team Members
+- Tune assistant behavior: Settings → AI Configuration
+- Manage customer-facing chat appearance: Widget
+- Improve quality with metrics: Analytics
+
+Part F: Continuous improvement loop
+Weekly cycle:
+1. review escalated conversations
+2. review unresolved and reopened tickets
+3. identify repeated causes
+4. update knowledge and flow branches
+5. adjust AI settings where needed
+
+Monthly cycle:
+1. review ratings trends
+2. review flow performance
+3. review support workload by queue and role
+4. align team capacity with plan capabilities
+
+Final principle
+Strong support operations come from role clarity, predictable flow design, disciplined ticket handling, and regular updates to knowledge and AI guidance.

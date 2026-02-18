@@ -74,23 +74,14 @@ class PlanService:
         Returns:
             List of SubscriptionPlan objects
         """
-        # Try cache first
-        cached_plans = self._cache.get_all()
-        if cached_plans is not None:
-            if active_only:
-                return [p for p in cached_plans if p.is_active]
-            return cached_plans
-
-        # Load from database
+        # Load directly from database.
+        # Avoid returning cached ORM instances across sessions to prevent DetachedInstanceError.
         query = self.db.query(SubscriptionPlan).order_by(SubscriptionPlan.sort_order)
 
         if active_only:
             query = query.filter(SubscriptionPlan.is_active.is_(True))
 
         plans = query.all()
-
-        # Update cache
-        self._cache.set(plans)
 
         logger.debug(f"Loaded {len(plans)} subscription plans from database")
 
@@ -109,18 +100,9 @@ class PlanService:
         Raises:
             ValueError: If plan not found
         """
-        # Try cache first
-        cached_plan = self._cache.get(tier)
-        if cached_plan is not None:
-            return cached_plan
-
-        # Load all plans to populate cache
-        self.get_all_plans(active_only=False)
-
-        # Try cache again
-        cached_plan = self._cache.get(tier)
-        if cached_plan is not None:
-            return cached_plan
+        plan = self.db.query(SubscriptionPlan).filter(SubscriptionPlan.tier == tier).one_or_none()
+        if plan is not None:
+            return plan
 
         # Plan not found
         raise ValueError(f"Subscription plan '{tier}' not found")
