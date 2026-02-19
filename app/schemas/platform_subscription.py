@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 class TenantSubscriptionOverrideRequest(BaseModel):
     """Request to manually override a tenant's subscription by platform admin."""
 
-    tier: Literal["trial", "lite", "professional", "enterprise"] = Field(
+    tier: Literal["trial", "lite", "growth", "professional", "enterprise"] = Field(
         ..., description="New subscription tier to assign"
     )
     billing_cycle: Literal["monthly", "annual"] | None = Field(
