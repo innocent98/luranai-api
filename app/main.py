@@ -7,6 +7,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.logger import log
+from app.core.websocket import connection_manager
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
@@ -96,6 +97,16 @@ app.add_middleware(LoggingMiddleware)
 
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    await connection_manager.start()
+
+
+@app.on_event("shutdown")
+async def shutdown_event() -> None:
+    await connection_manager.stop()
 
 
 @app.get("/")

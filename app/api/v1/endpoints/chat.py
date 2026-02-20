@@ -1,7 +1,8 @@
 """Chat and conversation endpoints."""
 
+import re
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -59,6 +60,7 @@ SYSTEM_START_TRIGGER = "start"
 FLOW_START_PREFIX = "__flow_start__:"
 TALK_TO_HUMAN_TOKEN = "__talk_to_human__"
 RAG_CHAT_TOKEN = "__rag_chat__"
+CONTACT_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 
 
 def _generate_ticket_summary(
@@ -194,6 +196,59 @@ def _has_usable_followup_context(conversation_history: list[MessageResponse]) ->
         and bool(last_user_content)
         and bool(last_assistant_content)
     )
+
+
+def _extract_valid_email(candidate: str | None) -> str | None:
+    """Extract and validate a single email from candidate text."""
+    if not candidate:
+        return None
+    normalized = candidate.strip().lower()
+    if not normalized:
+        return None
+    if CONTACT_EMAIL_PATTERN.fullmatch(normalized):
+        return normalized
+    return None
+
+
+def _resolve_customer_contact_email(
+    session_meta: dict[str, Any],
+    message_metadata: dict[str, Any] | None,
+) -> str | None:
+    """Resolve customer contact email from session metadata or request metadata."""
+    from_session = session_meta.get("contact_email")
+    valid_from_session = _extract_valid_email(
+        from_session if isinstance(from_session, str) else None
+    )
+    if valid_from_session:
+        return valid_from_session
+
+    if not isinstance(message_metadata, dict):
+        return None
+
+    for key in ("contact_email", "customer_email", "email"):
+        raw = message_metadata.get(key)
+        if isinstance(raw, str):
+            valid = _extract_valid_email(raw)
+            if valid:
+                return valid
+
+    return None
+
+
+def _store_pending_contact_capture(
+    conversation_service: ConversationService,
+    session_id: UUID,
+    session_meta: dict[str, Any],
+    escalation_reason: str,
+    customer_query: str,
+) -> None:
+    """Persist pending email-capture state for escalation workflow."""
+    session_meta["pending_contact_capture"] = True
+    session_meta["contact_capture_context"] = {
+        "reason": escalation_reason,
+        "customer_query": customer_query,
+    }
+    conversation_service.update_session_meta(session_id, session_meta)
 
 
 @router.post("/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
@@ -393,6 +448,20 @@ async def send_message(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Tenant AI configuration not found",
         )
+    require_email_before_escalation = bool(
+        getattr(tenant_ai_config, "require_email_before_escalation", False)
+    )
+    current_session_meta = dict(session_model.meta or {})
+    customer_contact_email = _resolve_customer_contact_email(
+        current_session_meta, message_data.metadata
+    )
+    if (
+        customer_contact_email
+        and current_session_meta.get("contact_email") != customer_contact_email
+    ):
+        current_session_meta["contact_email"] = customer_contact_email
+        conversation_service.update_session_meta(session_id, current_session_meta)
+        session_model.meta = current_session_meta
 
     # Step 2.5: Check for Flow Execution (BEFORE storing user message)
     flow_engine = FlowEngine(db)
@@ -476,6 +545,32 @@ async def send_message(
 
         elif effective_message_lower == TALK_TO_HUMAN_TOKEN:
             escalation_reason = "User selected talk to human from start menu"
+            session_meta = dict(session_model.meta or {})
+            contact_email = _resolve_customer_contact_email(session_meta, message_data.metadata)
+            if require_email_before_escalation and not contact_email:
+                _store_pending_contact_capture(
+                    conversation_service=conversation_service,
+                    session_id=session_id,
+                    session_meta=session_meta,
+                    escalation_reason=escalation_reason,
+                    customer_query=message_data.message,
+                )
+                assistant_message = conversation_service.add_message(
+                    session_id=session_id,
+                    role=MessageRole.ASSISTANT,
+                    content=(
+                        "Before I connect you with a support agent, please share the best email "
+                        "address for follow-up."
+                    ),
+                    meta={"contact_capture_required": True},
+                )
+                return ChatResponse(
+                    session_id=session_id,
+                    message=assistant_message,
+                    should_escalate=False,
+                    escalation_reason=None,
+                    ticket_id=None,
+                )
             conversation_service.escalate_session(session_id=session_id, reason=escalation_reason)
             ticket_id = None
             try:
@@ -516,6 +611,7 @@ async def send_message(
                             customer_query=message_data.message,
                             ticket_priority=TicketPriority.HIGH.value.upper(),
                             ticket_id=str(ticket.id),
+                            customer_contact_email=contact_email,
                         )
                     except Exception as email_error:
                         logger.error(
@@ -595,6 +691,32 @@ async def send_message(
                 flow_escalation_reason = flow_result.get(
                     "escalation_reason", "Flow triggered escalation"
                 )
+                session_meta = dict(session_model.meta or {})
+                contact_email = _resolve_customer_contact_email(session_meta, message_data.metadata)
+                if require_email_before_escalation and not contact_email:
+                    _store_pending_contact_capture(
+                        conversation_service=conversation_service,
+                        session_id=session_id,
+                        session_meta=session_meta,
+                        escalation_reason=flow_escalation_reason,
+                        customer_query=message_data.message,
+                    )
+                    assistant_message = conversation_service.add_message(
+                        session_id=session_id,
+                        role=MessageRole.ASSISTANT,
+                        content=(
+                            "Before I connect you with a support agent, please share the best "
+                            "email address for follow-up."
+                        ),
+                        meta={"contact_capture_required": True, "flow_triggered": True},
+                    )
+                    return ChatResponse(
+                        session_id=session_id,
+                        message=assistant_message,
+                        should_escalate=False,
+                        escalation_reason=None,
+                        ticket_id=None,
+                    )
                 conversation_service.escalate_session(
                     session_id=session_id, reason=flow_escalation_reason
                 )
@@ -665,6 +787,7 @@ async def send_message(
                                 customer_query=message_data.message,
                                 ticket_priority=priority.value.upper(),
                                 ticket_id=str(ticket.id),
+                                customer_contact_email=contact_email,
                             )
                             if email_sent:
                                 logger.info(f"✓ Flow escalation email sent to {recipient.email}")
@@ -783,6 +906,34 @@ async def send_message(
                     continued_escalation_reason = continued_result.get(
                         "escalation_reason", "Flow triggered escalation"
                     )
+                    session_meta = dict(session_model.meta or {})
+                    contact_email = _resolve_customer_contact_email(
+                        session_meta, message_data.metadata
+                    )
+                    if require_email_before_escalation and not contact_email:
+                        _store_pending_contact_capture(
+                            conversation_service=conversation_service,
+                            session_id=session_id,
+                            session_meta=session_meta,
+                            escalation_reason=continued_escalation_reason,
+                            customer_query=message_data.message,
+                        )
+                        assistant_message = conversation_service.add_message(
+                            session_id=session_id,
+                            role=MessageRole.ASSISTANT,
+                            content=(
+                                "Before I connect you with a support agent, please share the best "
+                                "email address for follow-up."
+                            ),
+                            meta={"contact_capture_required": True, "flow_triggered": True},
+                        )
+                        return ChatResponse(
+                            session_id=session_id,
+                            message=assistant_message,
+                            should_escalate=False,
+                            escalation_reason=None,
+                            ticket_id=None,
+                        )
                     conversation_service.escalate_session(
                         session_id=session_id, reason=continued_escalation_reason
                     )
@@ -856,6 +1007,7 @@ async def send_message(
                                     customer_query=message_data.message,
                                     ticket_priority=priority.value.upper(),
                                     ticket_id=str(ticket.id),
+                                    customer_contact_email=contact_email,
                                 )
                                 if email_sent:
                                     logger.info(
@@ -926,6 +1078,128 @@ async def send_message(
 
     # Step 3: Check for pending escalation (consent-based escalation)
     session_meta = session.meta or {}
+    pending_contact_capture = bool(session_meta.get("pending_contact_capture", False))
+    if pending_contact_capture:
+        captured_email = _extract_valid_email(message_data.message)
+        if not captured_email:
+            user_message = conversation_service.add_message(
+                session_id=session_id, role=MessageRole.USER, content=message_data.message
+            )
+            assistant_message = conversation_service.add_message(
+                session_id=session_id,
+                role=MessageRole.ASSISTANT,
+                content=(
+                    "Please share a valid email address (for example, name@example.com) so we "
+                    "can connect you with support and follow up."
+                ),
+                meta={"contact_capture_required": True},
+            )
+            return ChatResponse(
+                session_id=session_id,
+                message=assistant_message,
+                should_escalate=False,
+                escalation_reason=None,
+                ticket_id=None,
+            )
+
+        session_meta["contact_email"] = captured_email
+        session_meta["pending_contact_capture"] = False
+        contact_capture_context = session_meta.get("contact_capture_context", {}) or {}
+        session_meta["contact_capture_context"] = {}
+        conversation_service.update_session_meta(session_id, session_meta)
+
+        user_message = conversation_service.add_message(
+            session_id=session_id, role=MessageRole.USER, content=message_data.message
+        )
+
+        escalation_reason = (
+            contact_capture_context.get("reason")
+            if isinstance(contact_capture_context, dict)
+            else None
+        ) or "Escalation requested"
+        customer_query = (
+            contact_capture_context.get("customer_query")
+            if isinstance(contact_capture_context, dict)
+            else None
+        ) or message_data.message
+
+        conversation_service.escalate_session(session_id=session_id, reason=escalation_reason)
+
+        assistant_message = conversation_service.add_message(
+            session_id=session_id,
+            role=MessageRole.ASSISTANT,
+            content="Thanks. Connecting you with our support team now.",
+            meta={"contact_captured": True},
+        )
+
+        ticket_id = None
+        try:
+            ticket_service = TicketService(db)
+            conversation_history = conversation_service.get_session_messages(
+                session_id=session_id, limit=20
+            )
+
+            summary = _generate_ticket_summary(
+                conversation_history=conversation_history,
+                escalation_reason=escalation_reason,
+                user_query=customer_query,
+            )
+
+            priority = _determine_ticket_priority(
+                user_query=customer_query,
+                escalation_reason=escalation_reason,
+            )
+
+            ticket_data = TicketCreate(
+                tenant_id=session.tenant_id,
+                session_id=session_id,
+                priority=priority,
+                summary=summary,
+            )
+            ticket = ticket_service.create_ticket(ticket_data)
+            ticket_id = ticket.id
+
+            tenant_for_email = tenant_service.get_tenant_by_id(
+                session.tenant_id, include_relations=False
+            )
+            tenant_name = tenant_for_email.display_name if tenant_for_email else "Unknown"
+
+            notification_recipients = (
+                db.query(User)
+                .filter(
+                    User.tenant_id == session.tenant_id,
+                    User.is_active.is_(True),
+                    User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]),
+                )
+                .all()
+            )
+
+            for recipient in notification_recipients:
+                try:
+                    await send_ticket_escalation_email(
+                        email_to=recipient.email,
+                        user_name=recipient.full_name,
+                        tenant_name=tenant_name,
+                        ticket_number=ticket.ticket_number,
+                        escalation_reason=escalation_reason,
+                        customer_query=customer_query,
+                        ticket_priority=priority.value.upper(),
+                        ticket_id=str(ticket.id),
+                        customer_contact_email=captured_email,
+                    )
+                except Exception as email_error:
+                    logger.error(f"Contact-capture escalation email error: {email_error}")
+        except Exception as ticket_error:
+            logger.error(f"Failed to create ticket after contact capture: {ticket_error}")
+
+        return ChatResponse(
+            session_id=session_id,
+            message=assistant_message,
+            should_escalate=True,
+            escalation_reason=escalation_reason,
+            ticket_id=ticket_id,
+        )
+
     pending_escalation = session_meta.get("pending_escalation", False)
     escalation_context = session_meta.get("escalation_context", {})
 
@@ -942,15 +1216,48 @@ async def send_message(
                 session_id=session_id, role=MessageRole.USER, content=message_data.message
             )
 
+            consent_escalation_reason = escalation_context.get(
+                "reason", "User consented to escalation"
+            )
+            consent_original_query = escalation_context.get("original_query", message_data.message)
+            contact_email = _resolve_customer_contact_email(session_meta, message_data.metadata)
+
+            if require_email_before_escalation and not contact_email:
+                session_meta["pending_escalation"] = False
+                session_meta["escalation_context"] = {}
+                _store_pending_contact_capture(
+                    conversation_service=conversation_service,
+                    session_id=session_id,
+                    session_meta=session_meta,
+                    escalation_reason=consent_escalation_reason,
+                    customer_query=consent_original_query,
+                )
+                assistant_message = conversation_service.add_message(
+                    session_id=session_id,
+                    role=MessageRole.ASSISTANT,
+                    content=(
+                        "Before I connect you with a support agent, please share the best "
+                        "email address for follow-up."
+                    ),
+                    meta={"contact_capture_required": True},
+                )
+                return ChatResponse(
+                    session_id=session_id,
+                    message=assistant_message,
+                    should_escalate=False,
+                    escalation_reason=None,
+                    ticket_id=None,
+                )
+
+            if contact_email and session_meta.get("contact_email") != contact_email:
+                session_meta["contact_email"] = contact_email
+
             # Clear pending escalation from session
             session_meta["pending_escalation"] = False
             session_meta["escalation_context"] = {}
             conversation_service.update_session_meta(session_id, session_meta)
 
             # Escalate session
-            consent_escalation_reason = escalation_context.get(
-                "reason", "User consented to escalation"
-            )
             conversation_service.escalate_session(
                 session_id=session_id, reason=consent_escalation_reason
             )
@@ -977,11 +1284,11 @@ async def send_message(
                 summary = _generate_ticket_summary(
                     conversation_history=conversation_history,
                     escalation_reason=consent_escalation_reason,
-                    user_query=escalation_context.get("original_query", message_data.message),
+                    user_query=consent_original_query,
                 )
 
                 priority = _determine_ticket_priority(
-                    user_query=escalation_context.get("original_query", message_data.message),
+                    user_query=consent_original_query,
                     escalation_reason=consent_escalation_reason,
                 )
 
@@ -1019,11 +1326,10 @@ async def send_message(
                             tenant_name=tenant_name,
                             ticket_number=ticket.ticket_number,
                             escalation_reason=consent_escalation_reason,
-                            customer_query=escalation_context.get(
-                                "original_query", message_data.message
-                            ),
+                            customer_query=consent_original_query,
                             ticket_priority=priority.value.upper(),
                             ticket_id=str(ticket.id),
+                            customer_contact_email=contact_email,
                         )
                         if email_sent:
                             logger.info(f"✓ Escalation email sent to {recipient.email}")
@@ -1099,6 +1405,9 @@ async def send_message(
 
     try:
         # Step 4: Retrieve relevant knowledge chunks via vector search
+        pending_contact_capture_reason: str | None = None
+        pending_contact_capture_query: str | None = None
+
         # Check if flow provided RAG chunks
         if "flow_rag_chunks" in locals() and flow_rag_chunks:
             retrieved_chunks = flow_rag_chunks
@@ -1164,12 +1473,34 @@ async def send_message(
             logger.info(f"Scope policy blocked request: {scope_reason}")
 
         if escalation_decision.action == EscalationAction.AUTO_ESCALATE:
-            ai_response_text = "Of course! Connecting you with someone from our team now."
-            token_count = 0
-            quality = ResponseQuality(
-                is_substantial=True, has_uncertainty=False, word_count=0, char_count=0
+            auto_escalation_reason = escalation_decision.reason or "Escalation requested"
+            auto_escalation_contact = _resolve_customer_contact_email(
+                dict(session.meta or {}), message_data.metadata
             )
-            logger.info("Auto-escalating due to user request")
+            if require_email_before_escalation and not auto_escalation_contact:
+                ai_response_text = (
+                    "Before I connect you with a support agent, please share the best "
+                    "email address for follow-up."
+                )
+                token_count = 0
+                quality = ResponseQuality(
+                    is_substantial=True, has_uncertainty=False, word_count=0, char_count=0
+                )
+                pending_contact_capture_reason = auto_escalation_reason
+                pending_contact_capture_query = message_data.message
+                escalation_decision = SimpleNamespace(
+                    action=EscalationAction.NO_ESCALATION,
+                    reason="awaiting_contact_email_for_escalation",
+                    skip_quality_check=True,
+                )
+                logger.info("Auto-escalation deferred: awaiting customer email")
+            else:
+                ai_response_text = "Of course! Connecting you with someone from our team now."
+                token_count = 0
+                quality = ResponseQuality(
+                    is_substantial=True, has_uncertainty=False, word_count=0, char_count=0
+                )
+                logger.info("Auto-escalating due to user request")
 
         else:
             grounding_mode = str(getattr(tenant_ai_config, "grounding_mode", "balanced"))
@@ -1384,9 +1715,25 @@ async def send_message(
             }
             conversation_service.update_session_meta(session_id, session_meta)
             logger.info("Pending escalation stored, waiting for user consent")
+        elif pending_contact_capture_reason:
+            session_meta = dict(session.meta or {})
+            _store_pending_contact_capture(
+                conversation_service=conversation_service,
+                session_id=session_id,
+                session_meta=session_meta,
+                escalation_reason=pending_contact_capture_reason,
+                customer_query=pending_contact_capture_query or message_data.message,
+            )
+            logger.info("Stored pending contact capture for deferred escalation")
 
         elif escalation_decision.action == EscalationAction.AUTO_ESCALATE:
             # User explicitly requested human or critical keyword detected - escalate immediately
+            session_meta = dict(session.meta or {})
+            contact_email = _resolve_customer_contact_email(session_meta, message_data.metadata)
+            if contact_email and session_meta.get("contact_email") != contact_email:
+                session_meta["contact_email"] = contact_email
+                conversation_service.update_session_meta(session_id, session_meta)
+
             should_escalate = True
             logger.info("Auto-escalating: Creating ticket...")
             escalation_reason = escalation_decision.reason or "Escalation requested"
@@ -1455,6 +1802,7 @@ async def send_message(
                             customer_query=message_data.message,
                             ticket_priority=priority.value.upper(),
                             ticket_id=str(ticket.id),
+                            customer_contact_email=contact_email,
                         )
                         if email_sent:
                             logger.info(
@@ -1689,8 +2037,8 @@ async def agent_takeover(
         meta={"event": "agent_joined", "agent_id": str(current_user.id)},
     )
 
-    # Broadcast to customer via WebSocket
-    await connection_manager.send_to_customer(
+    # Broadcast to customer via WebSocket (local + cross-worker)
+    await connection_manager.fanout_event(
         session_id=session_id,
         message={
             "type": "agent_joined",
@@ -1702,6 +2050,8 @@ async def agent_takeover(
                 else None
             ),
         },
+        to_customer=True,
+        to_agents=False,
     )
 
     logger.info(f"Agent {current_user.full_name} took over session {session_id}")
@@ -1772,8 +2122,8 @@ async def send_agent_message(
         },
     )
 
-    # Broadcast to customer via WebSocket
-    await connection_manager.send_to_customer(
+    # Broadcast to customer + other agents (local + cross-worker)
+    await connection_manager.fanout_event(
         session_id=session_id,
         message={
             "type": "agent_message",
@@ -1782,18 +2132,8 @@ async def send_agent_message(
             "agent_name": current_user.full_name,
             "timestamp": message.created_at.isoformat(),
         },
-    )
-
-    # Broadcast to other agents via WebSocket
-    await connection_manager.send_to_agents(
-        session_id=session_id,
-        message={
-            "type": "agent_message",
-            "message_id": str(message.id),
-            "content": message.content,
-            "agent_name": current_user.full_name,
-            "timestamp": message.created_at.isoformat(),
-        },
+        to_customer=True,
+        to_agents=True,
         exclude_agent_id=current_user.id,
     )
 

@@ -1,10 +1,17 @@
 """WebSocket connection manager for real-time chat."""
 
+import asyncio
+import json
+import uuid
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
+import redis.asyncio as aioredis
 from fastapi import WebSocket
 from loguru import logger
+
+from app.core.config import settings
 
 
 class ConnectionManager:
@@ -29,6 +36,10 @@ class ConnectionManager:
 
         # websocket -> (session_id, user_info) for tracking who's connected
         self.connection_metadata: dict[WebSocket, dict] = {}
+        self._redis_client: Any = None
+        self._listener_task: asyncio.Task | None = None
+        self._instance_id = str(uuid.uuid4())
+        self._event_channel = "chat_ws_events"
 
     async def connect_customer(
         self,
@@ -99,16 +110,6 @@ class ConnectionManager:
 
         logger.info(f"Agent {agent_name} connected to session {session_id}")
 
-        # Notify customer that agent joined
-        await self.send_to_customer(
-            session_id=session_id,
-            message={
-                "type": "agent_joined",
-                "agent_name": agent_name,
-                "timestamp": datetime.utcnow().isoformat(),
-            },
-        )
-
     def disconnect(self, websocket: WebSocket) -> None:
         """
         Disconnect a WebSocket and clean up.
@@ -170,6 +171,167 @@ class ConnectionManager:
             logger.error(f"Error sending to customer: {e}")
             self.disconnect(websocket)
             return False
+
+    async def _get_redis_client(self) -> Any:
+        """Get or create Redis client for chat websocket fanout."""
+        if self._redis_client is None:
+            self._redis_client = await aioredis.from_url(
+                settings.REDIS_URL, encoding="utf-8", decode_responses=True
+            )
+        return self._redis_client
+
+    async def start(self) -> None:
+        """Start cross-worker Redis listener for websocket chat events."""
+        if self._listener_task and not self._listener_task.done():
+            return
+        self._listener_task = asyncio.create_task(self._listen_for_remote_events())
+        logger.info("Chat WebSocket Redis listener started")
+
+    async def stop(self) -> None:
+        """Stop cross-worker Redis listener and close Redis client."""
+        if self._listener_task and not self._listener_task.done():
+            self._listener_task.cancel()
+            try:
+                await self._listener_task
+            except asyncio.CancelledError:
+                pass
+            self._listener_task = None
+
+        if self._redis_client is not None:
+            try:
+                await self._redis_client.close()
+            except Exception as close_error:
+                logger.warning(f"Failed to close Redis client: {close_error}")
+            self._redis_client = None
+
+    async def _publish_event(
+        self,
+        session_id: UUID,
+        message: dict,
+        to_customer: bool,
+        to_agents: bool,
+        exclude_agent_id: UUID | None = None,
+    ) -> None:
+        """Publish chat event so other API workers can deliver to local sockets."""
+        try:
+            redis_client = await self._get_redis_client()
+            payload = {
+                "instance_id": self._instance_id,
+                "session_id": str(session_id),
+                "message": message,
+                "to_customer": to_customer,
+                "to_agents": to_agents,
+                "exclude_agent_id": str(exclude_agent_id) if exclude_agent_id else None,
+            }
+            await redis_client.publish(self._event_channel, json.dumps(payload))
+        except Exception as publish_error:
+            logger.error(f"Failed to publish chat websocket event: {publish_error}")
+
+    async def _listen_for_remote_events(self) -> None:
+        """Listen for chat events from other workers and deliver to local sockets."""
+        pubsub = None
+        try:
+            redis_client = await self._get_redis_client()
+            pubsub = redis_client.pubsub()
+            await pubsub.subscribe(self._event_channel)
+
+            async for raw in pubsub.listen():
+                if raw.get("type") != "message":
+                    continue
+                data = raw.get("data")
+                if not isinstance(data, str):
+                    continue
+                try:
+                    payload = json.loads(data)
+                except json.JSONDecodeError:
+                    logger.warning("Ignoring invalid chat websocket payload from Redis")
+                    continue
+
+                if payload.get("instance_id") == self._instance_id:
+                    continue
+
+                session_raw = payload.get("session_id")
+                message = payload.get("message")
+                if not isinstance(session_raw, str) or not isinstance(message, dict):
+                    continue
+
+                try:
+                    session_id = UUID(session_raw)
+                except ValueError:
+                    continue
+
+                to_customer = bool(payload.get("to_customer"))
+                to_agents = bool(payload.get("to_agents"))
+                exclude_agent_raw = payload.get("exclude_agent_id")
+                exclude_agent_id = None
+                if isinstance(exclude_agent_raw, str):
+                    try:
+                        exclude_agent_id = UUID(exclude_agent_raw)
+                    except ValueError:
+                        exclude_agent_id = None
+
+                await self._deliver_event_local(
+                    session_id=session_id,
+                    message=message,
+                    to_customer=to_customer,
+                    to_agents=to_agents,
+                    exclude_agent_id=exclude_agent_id,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as listener_error:
+            logger.error(f"Chat websocket Redis listener error: {listener_error}")
+        finally:
+            if pubsub is not None:
+                try:
+                    await pubsub.unsubscribe(self._event_channel)
+                    await pubsub.close()
+                except Exception:
+                    pass
+
+    async def _deliver_event_local(
+        self,
+        session_id: UUID,
+        message: dict,
+        to_customer: bool,
+        to_agents: bool,
+        exclude_agent_id: UUID | None = None,
+    ) -> None:
+        """Deliver a chat event only to local in-memory socket connections."""
+        if to_customer:
+            await self.send_to_customer(session_id=session_id, message=message)
+        if to_agents:
+            await self.send_to_agents(
+                session_id=session_id,
+                message=message,
+                exclude_agent_id=exclude_agent_id,
+            )
+
+    async def fanout_event(
+        self,
+        session_id: UUID,
+        message: dict,
+        to_customer: bool,
+        to_agents: bool,
+        exclude_agent_id: UUID | None = None,
+    ) -> None:
+        """
+        Deliver event to local sockets and publish to Redis so all workers fan out.
+        """
+        await self._deliver_event_local(
+            session_id=session_id,
+            message=message,
+            to_customer=to_customer,
+            to_agents=to_agents,
+            exclude_agent_id=exclude_agent_id,
+        )
+        await self._publish_event(
+            session_id=session_id,
+            message=message,
+            to_customer=to_customer,
+            to_agents=to_agents,
+            exclude_agent_id=exclude_agent_id,
+        )
 
     async def send_to_agents(
         self,
