@@ -270,8 +270,7 @@ async def resolve_ticket(
 
         # Broadcast ticket_resolved event via WebSocket
         if resolved_ticket.session_id:
-            # Send to customer
-            await connection_manager.send_to_customer(
+            await connection_manager.fanout_event(
                 session_id=resolved_ticket.session_id,
                 message={
                     "type": "ticket_resolved",
@@ -285,23 +284,8 @@ async def resolve_ticket(
                         else None
                     ),
                 },
-            )
-
-            # Send to all agents watching this session
-            await connection_manager.send_to_agents(
-                session_id=resolved_ticket.session_id,
-                message={
-                    "type": "ticket_resolved",
-                    "ticket_id": str(resolved_ticket.id),
-                    "ticket_number": resolved_ticket.ticket_number,
-                    "resolution_notes": resolved_ticket.resolution_notes,
-                    "resolved_by": current_user.full_name,
-                    "resolved_at": (
-                        resolved_ticket.resolved_at.isoformat()
-                        if resolved_ticket.resolved_at
-                        else None
-                    ),
-                },
+                to_customer=True,
+                to_agents=True,
             )
 
         return resolved_ticket
@@ -343,8 +327,7 @@ async def close_ticket(
 
         # Broadcast ticket_closed event via WebSocket
         if closed_ticket.session_id:
-            # Send to customer
-            await connection_manager.send_to_customer(
+            await connection_manager.fanout_event(
                 session_id=closed_ticket.session_id,
                 message={
                     "type": "ticket_closed",
@@ -353,18 +336,8 @@ async def close_ticket(
                     "closed_by": current_user.full_name,
                     "closed_at": datetime.utcnow().isoformat(),
                 },
-            )
-
-            # Send to all agents watching this session
-            await connection_manager.send_to_agents(
-                session_id=closed_ticket.session_id,
-                message={
-                    "type": "ticket_closed",
-                    "ticket_id": str(closed_ticket.id),
-                    "ticket_number": closed_ticket.ticket_number,
-                    "closed_by": current_user.full_name,
-                    "closed_at": datetime.utcnow().isoformat(),
-                },
+                to_customer=True,
+                to_agents=True,
             )
 
         return closed_ticket

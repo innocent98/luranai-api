@@ -148,8 +148,8 @@ async def customer_websocket(
                 finally:
                     db.close()  # Release connection immediately
 
-                # Broadcast to all agents watching this session
-                await connection_manager.send_to_agents(
+                # Broadcast to agents (local + cross-worker)
+                await connection_manager.fanout_event(
                     session_id=session_id,
                     message={
                         "type": "customer_message",
@@ -158,6 +158,8 @@ async def customer_websocket(
                         "user_identifier": user_identifier,
                         "timestamp": message_timestamp,
                     },
+                    to_customer=False,
+                    to_agents=True,
                 )
 
                 logger.info(f"Customer message in session {session_id}: {content[:50]}")
@@ -273,6 +275,40 @@ async def agent_websocket(
         agent_name=agent_full_name,
     )
 
+    # Replay recent chat messages so agents don't miss updates sent while their
+    # dashboard socket was reconnecting.
+    replay_db = SessionLocal()
+    try:
+        replay_service = ConversationService(replay_db)
+        recent_messages = replay_service.get_session_messages(session_id, limit=50)
+        for msg in recent_messages:
+            if msg.role == MessageRole.USER:
+                await websocket.send_json(
+                    {
+                        "type": "customer_message",
+                        "message_id": str(msg.id),
+                        "content": msg.content,
+                        "user_identifier": session.user_identifier,
+                        "timestamp": msg.created_at.isoformat(),
+                    }
+                )
+            elif msg.role == MessageRole.HUMAN_AGENT:
+                meta = msg.meta or {}
+                await websocket.send_json(
+                    {
+                        "type": "agent_message",
+                        "message_id": str(msg.id),
+                        "content": msg.content,
+                        "agent_name": meta.get("agent_name"),
+                        "agent_id": meta.get("agent_id"),
+                        "timestamp": msg.created_at.isoformat(),
+                    }
+                )
+    except Exception as replay_error:
+        logger.warning(f"Failed to replay recent session messages to agent: {replay_error}")
+    finally:
+        replay_db.close()
+
     try:
         while True:
             # Receive messages from agent
@@ -321,8 +357,8 @@ async def agent_websocket(
                 finally:
                     db.close()  # Release connection immediately
 
-                # Send to customer
-                await connection_manager.send_to_customer(
+                # Fanout to customer + other agents (local + cross-worker)
+                await connection_manager.fanout_event(
                     session_id=session_id,
                     message={
                         "type": "agent_message",
@@ -331,18 +367,8 @@ async def agent_websocket(
                         "agent_name": agent_full_name,
                         "timestamp": message_timestamp,
                     },
-                )
-
-                # Notify other agents watching this session
-                await connection_manager.send_to_agents(
-                    session_id=session_id,
-                    message={
-                        "type": "agent_message",
-                        "message_id": message_id,
-                        "content": content,
-                        "agent_name": agent_full_name,
-                        "timestamp": message_timestamp,
-                    },
+                    to_customer=True,
+                    to_agents=True,
                     exclude_agent_id=agent_id,
                 )
 
@@ -366,15 +392,17 @@ async def agent_websocket(
         logger.info(f"Agent {agent_full_name} disconnected from session {session_id}")
         connection_manager.disconnect(websocket)
 
-        # Notify customer that agent left
-        await connection_manager.send_to_customer(
-            session_id=session_id,
-            message={
-                "type": "agent_left",
-                "agent_name": agent_full_name,
-                "timestamp": None,
-            },
-        )
+        # Notify customer only when no agent remains connected to this session.
+        session_info = connection_manager.get_session_info(session_id)
+        if session_info.get("agents_connected", 0) == 0:
+            await connection_manager.send_to_customer(
+                session_id=session_id,
+                message={
+                    "type": "agent_left",
+                    "agent_name": agent_full_name,
+                    "timestamp": None,
+                },
+            )
 
     except Exception as e:
         logger.error(f"Error in agent WebSocket: {e}")

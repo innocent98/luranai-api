@@ -53,6 +53,10 @@ class TenantAIConfigBase(BaseModel):
         default="clarify",
         description="Action when no knowledge is retrieved",
     )
+    require_email_before_escalation: bool = Field(
+        default=False,
+        description="Require collecting customer email before escalating to human support",
+    )
     custom_instructions: str | None = Field(
         None,
         max_length=CUSTOM_INSTRUCTIONS_MAX_CHARS,
@@ -124,6 +128,7 @@ class TenantAIConfigUpdate(BaseModel):
     grounding_mode: Literal["strict", "balanced", "flexible"] | None = None
     low_confidence_action: Literal["answer", "clarify", "escalate", "refuse"] | None = None
     no_retrieval_action: Literal["answer", "clarify", "escalate", "refuse"] | None = None
+    require_email_before_escalation: bool | None = None
     custom_instructions: str | None = Field(None, max_length=CUSTOM_INSTRUCTIONS_MAX_CHARS)
 
 

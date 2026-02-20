@@ -185,6 +185,7 @@ async def send_ticket_escalation_email(
     customer_query: str,
     ticket_priority: str,
     ticket_id: str,
+    customer_contact_email: str | None = None,
 ) -> bool:
     """
     Send email notification when a conversation is escalated to a ticket.
@@ -198,11 +199,18 @@ async def send_ticket_escalation_email(
         customer_query: Last customer message
         ticket_priority: Ticket priority (LOW, MEDIUM, HIGH, URGENT)
         ticket_id: Ticket UUID
+        customer_contact_email: Captured customer follow-up email if available
 
     Returns:
         True if sent successfully
     """
     subject = f"🎫 New Support Ticket: {ticket_number} ({ticket_priority} Priority)"
+
+    customer_contact_line = (
+        f"Customer Contact Email: {customer_contact_email}\n"
+        if customer_contact_email
+        else "Customer Contact Email: Not provided\n"
+    )
 
     body = f"""
 Hello {user_name},
@@ -215,6 +223,7 @@ Ticket Number: {ticket_number}
 Priority: {ticket_priority}
 Tenant: {tenant_name}
 Escalation Reason: {escalation_reason}
+{customer_contact_line}
 
 CUSTOMER MESSAGE:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

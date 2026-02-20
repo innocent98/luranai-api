@@ -76,6 +76,7 @@ class TenantService:
             grounding_mode="balanced",
             low_confidence_action="clarify",
             no_retrieval_action="clarify",
+            require_email_before_escalation=False,
         )
         self.db.add(ai_config)
 

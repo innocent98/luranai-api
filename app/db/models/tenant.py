@@ -247,6 +247,12 @@ class TenantAIConfig(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Action when no knowledge is retrieved: answer, clarify, escalate, refuse",
     )
+    require_email_before_escalation: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Require capturing customer email before escalating to human support",
+    )
 
     # Custom Instructions
     custom_instructions: Mapped[str | None] = mapped_column(
