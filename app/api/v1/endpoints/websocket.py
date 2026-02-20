@@ -80,6 +80,31 @@ async def customer_websocket(
         user_identifier=user_identifier,
     )
 
+    # Replay recent human-agent messages so customers don't miss replies
+    # sent while their widget was closed or reconnecting.
+    replay_db = SessionLocal()
+    try:
+        replay_service = ConversationService(replay_db)
+        recent_messages = replay_service.get_session_messages(session_id, limit=50)
+        for msg in recent_messages:
+            if msg.role != MessageRole.HUMAN_AGENT:
+                continue
+            meta = msg.meta or {}
+            await websocket.send_json(
+                {
+                    "type": "agent_message",
+                    "message_id": str(msg.id),
+                    "content": msg.content,
+                    "agent_name": meta.get("agent_name"),
+                    "agent_id": meta.get("agent_id"),
+                    "timestamp": msg.created_at.isoformat(),
+                }
+            )
+    except Exception as replay_error:
+        logger.warning(f"Failed to replay recent agent messages: {replay_error}")
+    finally:
+        replay_db.close()
+
     try:
         while True:
             # Receive messages from customer
@@ -145,6 +170,10 @@ async def customer_websocket(
                     is_typing=is_typing,
                     user_name="Customer",
                     to_customer=False,  # Send to agents
+                )
+            elif message_type == "ping":
+                await websocket.send_json(
+                    {"type": "pong", "timestamp": datetime.now(UTC).isoformat()}
                 )
 
     except WebSocketDisconnect:
@@ -327,6 +356,10 @@ async def agent_websocket(
                     is_typing=is_typing,
                     user_name=agent_full_name,
                     to_customer=True,  # Send to customer
+                )
+            elif message_type == "ping":
+                await websocket.send_json(
+                    {"type": "pong", "timestamp": datetime.now(UTC).isoformat()}
                 )
 
     except WebSocketDisconnect:
