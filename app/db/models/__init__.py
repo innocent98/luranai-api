@@ -2,6 +2,17 @@
 
 from app.db.base import Base
 from app.db.models.api_key import APIKey, APIKeyType
+from app.db.models.automation import (
+    ActionAuthType,
+    ActionExecution,
+    ActionExecutionStatus,
+    ActionTriggerSource,
+    ActionSecret,
+    TenantAutomationConfig,
+    TenantAction,
+    TenantActionStatus,
+    TenantActionType,
+)
 from app.db.models.audit import AnalyticsMetric, AuditLog
 from app.db.models.conversation import (
     ConversationSession,
@@ -70,6 +81,16 @@ __all__ = [
     # API Key models
     "APIKey",
     "APIKeyType",
+    # Automation models
+    "TenantAction",
+    "TenantActionStatus",
+    "TenantActionType",
+    "ActionAuthType",
+    "ActionExecution",
+    "ActionExecutionStatus",
+    "ActionTriggerSource",
+    "ActionSecret",
+    "TenantAutomationConfig",
     # Audit models
     "AuditLog",
     "AnalyticsMetric",

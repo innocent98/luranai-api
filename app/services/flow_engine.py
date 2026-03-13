@@ -11,8 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models.conversation import ConversationSession
+from app.db.models.automation import ActionExecutionStatus, ActionTriggerSource
 from app.db.models.flow import Flow, FlowExecution, FlowExecutionStatus, FlowStatus, FlowTriggerType
 from app.services.rag_service import RAGService
+from app.services.automation_service import AutomationService
 from app.schemas.knowledge import KnowledgeChunkResponse
 from app.utils.datetime import utcnow_naive
 from app.utils.network_security import ensure_safe_outbound_url
@@ -273,6 +275,8 @@ class FlowEngine:
                 result = await self._exec_rag_query(execution, current_node)
             elif node_type == "webhook":
                 result = await self._exec_webhook(execution, current_node)
+            elif node_type == "action_call":
+                result = await self._exec_action_call(execution, current_node)
             elif node_type == "ai_action":
                 result = await self._exec_ai_action(execution, current_node, user_input)
             elif node_type == "escalate":
@@ -683,6 +687,122 @@ class FlowEngine:
                 return await self.execute_node(execution, None)
             else:
                 return self._error_result(f"Webhook failed: {str(e)}")
+
+    async def _exec_action_call(self, execution: FlowExecution, node: dict) -> dict:
+        """
+        Execute ACTION_CALL node: run a tenant action and route based on result.
+
+        Args:
+            execution: Flow execution
+            node: Node configuration
+
+        Returns:
+            Execution result
+        """
+        config = node.get("config", {})
+        action_id = config.get("action_id")
+        if not action_id:
+            return self._error_result("Action node missing action_id")
+
+        # Load session for tenant context
+        session = self.db.execute(
+            select(ConversationSession).where(ConversationSession.id == execution.session_id)
+        ).scalar_one_or_none()
+        if not session:
+            return self._error_result("Session not found")
+
+        automation_service = AutomationService(self.db)
+        action = automation_service.get_action(
+            tenant_id=session.tenant_id, action_id=UUID(action_id)
+        )
+        if not action:
+            return self._error_result("Configured action not found")
+
+        input_map = config.get("input_map", {})
+        input_payload = (
+            self._interpolate_dict(input_map, execution.collected_data)
+            if isinstance(input_map, dict)
+            else {}
+        )
+        if not input_payload:
+            # Default pass-through behavior if no explicit mapping exists
+            input_payload = dict(execution.collected_data or {})
+
+        action_execution = await automation_service.execute_action(
+            tenant_id=session.tenant_id,
+            action=action,
+            input_payload=input_payload,
+            session_id=execution.session_id,
+            flow_execution_id=execution.id,
+            flow_id=execution.flow_id,
+            node_id=node.get("id"),
+            trigger_source=ActionTriggerSource.FLOW_NODE,
+        )
+
+        output_save_to = config.get("output_save_to", "action_result")
+        execution.collected_data[output_save_to] = (
+            action_execution.normalized_output
+            or action_execution.response_body
+            or {
+                "success": action_execution.status == ActionExecutionStatus.SUCCEEDED,
+                "status": action_execution.status.value,
+                "error": action_execution.error_message,
+            }
+        )
+
+        output_map = config.get("output_map", {})
+        if isinstance(output_map, dict):
+            mapped_output: dict[str, Any] = {}
+            source = {
+                "normalized": action_execution.normalized_output,
+                "response": action_execution.response_body,
+                "status_code": action_execution.response_status_code,
+                "success": action_execution.status == ActionExecutionStatus.SUCCEEDED,
+                "error": action_execution.error_message,
+            }
+            for target_key, source_path in output_map.items():
+                if not isinstance(target_key, str) or not isinstance(source_path, str):
+                    continue
+                mapped_output[target_key] = self._extract_json_path_value(source, source_path)
+            if mapped_output:
+                execution.collected_data.update(mapped_output)
+
+        next_node_id = None
+        if action_execution.status == ActionExecutionStatus.SUCCEEDED:
+            next_node_id = config.get("on_success_next_node_id") or config.get("next_node_id")
+        elif action_execution.status == ActionExecutionStatus.TIMED_OUT:
+            next_node_id = config.get("on_timeout_next_node_id") or config.get(
+                "on_failure_next_node_id"
+            )
+        elif action_execution.status == ActionExecutionStatus.BLOCKED_POLICY:
+            next_node_id = (
+                config.get("on_policy_block_next_node_id")
+                or config.get("on_approval_required_next_node_id")
+                or config.get("on_failure_next_node_id")
+            )
+        else:
+            next_node_id = config.get("on_failure_next_node_id")
+
+        execution.current_node_id = str(next_node_id) if next_node_id else None
+        self.db.commit()
+
+        if next_node_id:
+            return await self.execute_node(execution, None)
+
+        is_success = action_execution.status == ActionExecutionStatus.SUCCEEDED
+        if is_success:
+            return {
+                "message": "Done.",
+                "buttons": None,
+                "is_complete": True,
+                "use_rag_response": False,
+                "should_escalate": False,
+                "structured_output": action_execution.normalized_output,
+            }
+
+        return self._error_result(
+            action_execution.error_message or "Action execution failed without a failure route."
+        )
 
     async def _exec_escalate(self, execution: FlowExecution, node: dict) -> dict:
         """
@@ -1095,6 +1215,34 @@ class FlowEngine:
             else:
                 result[key] = value
         return result
+
+    def _extract_json_path_value(self, source: dict, path: str) -> Any:
+        """
+        Extract a value from dict source using a minimal JSONPath-like syntax.
+
+        Supported:
+        - $.a.b.c
+        - a.b.c
+        """
+        normalized = path.strip()
+        if normalized.startswith("$."):
+            normalized = normalized[2:]
+        elif normalized.startswith("$"):
+            normalized = normalized[1:]
+
+        if not normalized:
+            return source
+
+        value: Any = source
+        for part in normalized.split("."):
+            key = part.strip()
+            if not key:
+                continue
+            if isinstance(value, dict):
+                value = value.get(key)
+            else:
+                return None
+        return value
 
     def _error_result(self, error_message: str) -> dict:
         """

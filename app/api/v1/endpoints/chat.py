@@ -46,6 +46,7 @@ from app.schemas.ticket import TicketAssign, TicketCreate
 from app.schemas.tenant import TenantResponse
 from app.schemas.user import UserResponse
 from app.services.conversation_service import ConversationService
+from app.services.chat_automation_orchestrator import ChatAutomationOrchestrator
 from app.services.flow_engine import FlowEngine
 from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
@@ -317,6 +318,7 @@ async def send_message(
         AI response with metadata and escalation status
     """
     conversation_service = ConversationService(db)
+    automation_orchestrator = ChatAutomationOrchestrator(db)
     rag_service = RAGService(db)
     tenant_service = TenantService(db)
 
@@ -1404,6 +1406,35 @@ async def send_message(
     logger.info(f"Added user message: {user_message.id}")
 
     try:
+        conversation_history = conversation_service.get_session_messages(
+            session_id=session_id,
+            limit=20,
+        )
+        automation_result = await automation_orchestrator.handle_turn(
+            tenant_id=session.tenant_id,
+            session_id=session_id,
+            user_message=message_data.message,
+            session_meta=dict(session_model.meta or {}),
+            conversation_history=conversation_history,
+            tenant_ai_config=tenant_ai_config,
+            company_name=tenant_response.display_name,
+        )
+        if automation_result.handled and automation_result.assistant_text:
+            assistant_message = conversation_service.add_message(
+                session_id=session_id,
+                role=MessageRole.ASSISTANT,
+                content=automation_result.assistant_text,
+                token_count=automation_result.token_count,
+                meta=automation_result.metadata or {},
+            )
+            return ChatResponse(
+                session_id=session_id,
+                message=assistant_message,
+                should_escalate=automation_result.should_escalate,
+                escalation_reason=automation_result.escalation_reason,
+                ticket_id=None,
+            )
+
         # Step 4: Retrieve relevant knowledge chunks via vector search
         pending_contact_capture_reason: str | None = None
         pending_contact_capture_query: str | None = None
@@ -1449,10 +1480,6 @@ async def send_message(
         logger.info(f"Initial escalation action: {escalation_decision.action.value}")
 
         # Step 6: Get conversation history for context (needed for ticket creation too)
-        conversation_history = conversation_service.get_session_messages(
-            session_id=session_id,
-            limit=20,
-        )
 
         # Step 7: Determine directive action (no hardcoded fallback text)
         should_skip_generation = False

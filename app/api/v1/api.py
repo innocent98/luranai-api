@@ -3,6 +3,8 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     analytics,
     api_keys,
+    automation,
+    automation_sandbox,
     auth,
     chat,
     company_registration,
@@ -141,6 +143,20 @@ api_router.include_router(
     tenant.router,
     prefix="/tenant",
     tags=["tenant"],
+)
+
+# Tenant automation endpoints
+api_router.include_router(
+    automation.router,
+    prefix="/tenant/automation",
+    tags=["tenant-automation"],
+)
+
+# Automation sandbox endpoints (for testing/demo action integrations)
+api_router.include_router(
+    automation_sandbox.router,
+    prefix="/automation-sandbox",
+    tags=["automation-sandbox"],
 )
 
 # Subscription management endpoints

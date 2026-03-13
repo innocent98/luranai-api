@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
+from app.db.models.automation import TenantAction
 from app.db.models.flow import Flow, FlowStatus
 from app.db.models.subscription_plan import SubscriptionPlan
 from app.db.models.tenant import Tenant, TenantCapabilities
@@ -45,6 +46,7 @@ class FlowService:
         # Check for webhook nodes if webhooks not allowed
         if normalized_nodes:
             self._validate_webhook_usage(flow_data.tenant_id, normalized_nodes)
+            self._validate_action_call_usage(flow_data.tenant_id, normalized_nodes)
 
         # Create flow
         db_flow = Flow(
@@ -149,6 +151,7 @@ class FlowService:
             self._validate_nodes(update_data["nodes"])
             # Check webhook usage when updating nodes
             self._validate_webhook_usage(flow.tenant_id, update_data["nodes"])
+            self._validate_action_call_usage(flow.tenant_id, update_data["nodes"])
 
         # Update fields
         for field, value in update_data.items():
@@ -501,6 +504,40 @@ class FlowService:
                 raise ValueError(
                     f"Flow exceeds maximum nodes limit. Your plan allows {max_nodes} nodes per flow, "
                     f"but this flow has {node_count} nodes."
+                )
+
+    def _validate_action_call_usage(self, tenant_id: UUID, nodes: dict) -> None:
+        """
+        Validate action_call node references and tenant scoping.
+
+        Args:
+            tenant_id: Tenant UUID
+            nodes: Flow nodes configuration
+
+        Raises:
+            ValueError: If action reference is missing/invalid.
+        """
+        node_list = nodes.get("nodes", [])
+        action_call_nodes = [node for node in node_list if node.get("type") == "action_call"]
+        if not action_call_nodes:
+            return
+
+        for node in action_call_nodes:
+            node_id = node.get("id")
+            config = node.get("config", {})
+            action_id = config.get("action_id")
+            if not action_id:
+                raise ValueError(f"ACTION_CALL node '{node_id}' must include 'action_id'.")
+
+            action = self.db.execute(
+                select(TenantAction).where(
+                    TenantAction.id == action_id,
+                    TenantAction.tenant_id == tenant_id,
+                )
+            ).scalar_one_or_none()
+            if not action:
+                raise ValueError(
+                    f"ACTION_CALL node '{node_id}' references unknown action_id: {action_id}"
                 )
 
     def _get_flow_limits(self, tenant_id: UUID) -> dict:

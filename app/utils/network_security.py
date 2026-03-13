@@ -22,7 +22,7 @@ def _is_disallowed_ip(ip_str: str) -> bool:
     )
 
 
-def ensure_safe_outbound_url(url: str) -> None:
+def ensure_safe_outbound_url(url: str, allowed_hostnames: set[str] | None = None) -> None:
     """
     Validate outbound URL for SSRF protection.
 
@@ -38,6 +38,10 @@ def ensure_safe_outbound_url(url: str) -> None:
         raise ValueError("URL hostname is required")
 
     hostname = parsed.hostname.strip().lower()
+    allowed_hostnames = allowed_hostnames or set()
+    if hostname in allowed_hostnames:
+        return
+
     if hostname in {"localhost"} or hostname.endswith(".local"):
         raise ValueError("Localhost/internal hostnames are not allowed")
 
