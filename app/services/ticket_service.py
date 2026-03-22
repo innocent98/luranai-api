@@ -5,9 +5,10 @@ from uuid import UUID
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
-from app.db.models.conversation import Ticket, TicketStatus
+from app.db.models.conversation import ConversationSession, Ticket, TicketStatus
 from app.db.models.tenant import TenantCapabilities
 from app.db.models.user import User
+from app.db.models.visitor import Visitor
 from app.schemas.ticket import (
     AssignedAgent,
     TicketAssign,
@@ -16,6 +17,7 @@ from app.schemas.ticket import (
     TicketResponse,
     TicketUpdate,
 )
+from app.schemas.visitor import VisitorIdentitySummary
 from app.utils.datetime import utcnow_naive
 
 
@@ -50,6 +52,25 @@ class TicketService:
                     email=agent.email,
                     full_name=agent.full_name,
                     role=agent.role,
+                )
+
+        session = self.db.execute(
+            select(ConversationSession).where(ConversationSession.id == ticket.session_id)
+        ).scalar_one_or_none()
+        if session and session.visitor_id:
+            visitor = self.db.execute(
+                select(Visitor).where(Visitor.id == session.visitor_id)
+            ).scalar_one_or_none()
+            if visitor:
+                ticket_response.visitor = VisitorIdentitySummary(
+                    id=visitor.id,
+                    name=visitor.name,
+                    email=visitor.email,
+                    phone=visitor.phone,
+                    public_token=visitor.public_token,
+                    first_seen_at=visitor.first_seen_at,
+                    last_seen_at=visitor.last_seen_at,
+                    is_blocked=visitor.is_blocked,
                 )
 
         return ticket_response

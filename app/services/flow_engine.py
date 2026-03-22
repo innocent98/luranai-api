@@ -214,6 +214,18 @@ class FlowEngine:
 
         return self.db.execute(stmt).scalar_one_or_none()
 
+    def _set_collected_value(self, execution: FlowExecution, key: str, value: Any) -> None:
+        """Persist a single collected_data key via reassignment."""
+        next_data = dict(execution.collected_data or {})
+        next_data[key] = value
+        execution.collected_data = next_data
+
+    def _merge_collected_values(self, execution: FlowExecution, values: dict[str, Any]) -> None:
+        """Persist multiple collected_data values via reassignment."""
+        next_data = dict(execution.collected_data or {})
+        next_data.update(values)
+        execution.collected_data = next_data
+
     async def execute_node(self, execution: FlowExecution, user_input: str | None = None) -> dict:
         """
         Execute current node in flow execution and advance to next.
@@ -393,7 +405,7 @@ class FlowEngine:
 
         # Save selected option (support legacy `variable` key)
         save_to = config.get("save_to") or config.get("variable") or "question_response"
-        execution.collected_data[save_to] = matched_option.get("value")
+        self._set_collected_value(execution, save_to, matched_option.get("value"))
         self.db.flush()
 
         # Advance to option's target node (fallback to config-level next_node_id)
@@ -471,7 +483,7 @@ class FlowEngine:
                 }
 
         # Save input
-        execution.collected_data[save_to] = user_input
+        self._set_collected_value(execution, save_to, user_input)
         self.db.flush()
 
         # Advance to next node
@@ -491,6 +503,7 @@ class FlowEngine:
                 # Auto-continue for non-interactive nodes
                 if next_node_type in [
                     "webhook",
+                    "action_call",
                     "rag_query",
                     "condition",
                     "message",
@@ -592,7 +605,7 @@ class FlowEngine:
             "chunks": [{"id": str(chunk.id), "content": chunk.content} for chunk in chunks],
             "scores": scores,
         }
-        execution.collected_data[save_to] = rag_result
+        self._set_collected_value(execution, save_to, rag_result)
         self.db.flush()
 
         # Advance to next node
@@ -658,7 +671,7 @@ class FlowEngine:
                     "success": 200 <= response.status_code < 300,
                     "data": response_data,
                 }
-                execution.collected_data[save_to] = webhook_result
+                self._set_collected_value(execution, save_to, webhook_result)
                 self.db.flush()
 
                 # Advance to next node
@@ -672,11 +685,15 @@ class FlowEngine:
         except Exception as e:
             logger.error(f"Webhook call failed: {e}", exc_info=True)
             # Save error
-            execution.collected_data[save_to] = {
-                "status_code": 0,
-                "success": False,
-                "error": str(e),
-            }
+            self._set_collected_value(
+                execution,
+                save_to,
+                {
+                    "status_code": 0,
+                    "success": False,
+                    "error": str(e),
+                },
+            )
             self.db.flush()
 
             # Try error path if configured
@@ -740,14 +757,16 @@ class FlowEngine:
         )
 
         output_save_to = config.get("output_save_to", "action_result")
-        execution.collected_data[output_save_to] = (
+        self._set_collected_value(
+            execution,
+            output_save_to,
             action_execution.normalized_output
             or action_execution.response_body
             or {
                 "success": action_execution.status == ActionExecutionStatus.SUCCEEDED,
                 "status": action_execution.status.value,
                 "error": action_execution.error_message,
-            }
+            },
         )
 
         output_map = config.get("output_map", {})
@@ -765,7 +784,7 @@ class FlowEngine:
                     continue
                 mapped_output[target_key] = self._extract_json_path_value(source, source_path)
             if mapped_output:
-                execution.collected_data.update(mapped_output)
+                self._merge_collected_values(execution, mapped_output)
 
         next_node_id = None
         if action_execution.status == ActionExecutionStatus.SUCCEEDED:
@@ -916,13 +935,17 @@ class FlowEngine:
                     max_chunks=self.rag_service.MAX_CHUNKS_RETRIEVE,
                 )
                 retrieved_chunks = chunks
-                execution.collected_data[rag_key] = {
-                    "query": user_query,
-                    "chunks_count": len(chunks),
-                    "avg_similarity": sum(scores) / len(scores) if scores else 0,
-                    "chunks": [{"id": str(chunk.id), "content": chunk.content} for chunk in chunks],
-                    "scores": scores,
-                }
+                self._set_collected_value(
+                    execution,
+                    rag_key,
+                    {
+                        "query": user_query,
+                        "chunks_count": len(chunks),
+                        "avg_similarity": sum(scores) / len(scores) if scores else 0,
+                        "chunks": [{"id": str(chunk.id), "content": chunk.content} for chunk in chunks],
+                        "scores": scores,
+                    },
+                )
 
         # Conversation history
         conversation_service = ConversationService(self.db)
@@ -956,7 +979,7 @@ class FlowEngine:
             "chunks_used": len(retrieved_chunks),
             "scores": scores,
         }
-        execution.collected_data[save_to] = structured_output
+        self._set_collected_value(execution, save_to, structured_output)
         self.db.flush()
 
         # Advance to next node
@@ -986,6 +1009,7 @@ class FlowEngine:
         """
         config = node.get("config", {})
         message_template = config.get("message", "Thank you!")
+        use_rag_response = bool(config.get("use_rag_response", False))
 
         # Interpolate variables
         message = self._interpolate_variables(message_template, execution.collected_data)
@@ -1003,7 +1027,7 @@ class FlowEngine:
             "message": message,
             "buttons": None,
             "is_complete": True,
-            "use_rag_response": True,  # Allow RAG to handle follow-up questions
+            "use_rag_response": use_rag_response,
             "should_escalate": False,
         }
 

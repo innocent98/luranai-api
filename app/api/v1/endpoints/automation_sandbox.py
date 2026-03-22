@@ -49,6 +49,20 @@ def track_order_status(
     }
 
 
+@router.get("/orders/status")
+def track_order_status_by_reference(
+    order_reference: str,
+    authorization: str | None = Header(default=None),
+    x_customer_email: str | None = Header(default=None),
+):
+    """Return synthetic order status data using a query-based order reference."""
+    return track_order_status(
+        order_id=order_reference,
+        authorization=authorization,
+        x_customer_email=x_customer_email,
+    )
+
+
 @router.get("/accounts/{account_id}/status")
 def get_account_status(
     account_id: str,
@@ -65,6 +79,20 @@ def get_account_status(
         "suspension_reason": "multiple_failed_logins" if is_suspended else None,
         "can_self_recover": not is_suspended,
     }
+
+
+@router.get("/accounts/status")
+def get_account_status_by_query(
+    account_id: str,
+    email: str | None = None,
+    authorization: str | None = Header(default=None),
+):
+    """Return synthetic account status using a query-based account ID."""
+    return get_account_status(
+        account_id=account_id,
+        email=email,
+        authorization=authorization,
+    )
 
 
 @router.get("/accounts/lookup")
@@ -125,6 +153,25 @@ def unlock_suspended_account(
         "reason": reason,
         "updated_at": datetime.now(UTC).isoformat(),
     }
+
+
+@router.post("/accounts/unlock")
+def unlock_suspended_account_from_body(
+    payload: dict,
+    authorization: str | None = Header(default=None),
+):
+    """Perform synthetic account unlock action using body-based account ID."""
+    account_id = str(payload.get("account_id", "")).strip()
+    if not account_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="account_id is required",
+        )
+    return unlock_suspended_account(
+        account_id=account_id,
+        payload=payload,
+        authorization=authorization,
+    )
 
 
 @router.get("/appointments/slots")

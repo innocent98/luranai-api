@@ -1,6 +1,6 @@
 # Makefile for Luran
 
-.PHONY: help install dev-install run test lint format clean docker-build docker-up docker-down migrate shell
+.PHONY: help install dev-install run test lint format clean docker-build docker-up docker-down migrate shell smoke-automation-flows
 
 help:
 	@echo "Available commands:"
@@ -17,6 +17,7 @@ help:
 	@echo "  make docker-down   - Stop Docker containers"
 	@echo "  make migrate       - Run database migrations"
 	@echo "  make shell         - Activate poetry shell"
+	@echo "  make smoke-automation-flows - Run live automation/flow smoke regression"
 
 install:
 	poetry install --only main
@@ -70,3 +71,6 @@ migrate-create:
 
 shell:
 	poetry shell
+
+smoke-automation-flows:
+	docker exec luran_api python -u /app/scripts/smoke_automation_and_flows.py

@@ -77,6 +77,8 @@ class PublicWidgetConfigResponse(BaseModel):
     position: str = Field(..., description="Widget position")
     show_unread_badge: bool = Field(..., description="Show unread badge")
     allow_file_upload: bool = Field(..., description="Allow file uploads")
+    collect_name_before_chat: bool = Field(..., description="Collect customer name before chat")
+    collect_email_before_chat: bool = Field(..., description="Collect customer email before chat")
 
 
 # Widget installation code response

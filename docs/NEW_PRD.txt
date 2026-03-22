@@ -1,0 +1,301 @@
+# Luran Reduced Engineering PRD
+
+## Scope: Net-New MVP Work Only
+
+## Purpose
+
+This document trims the original PRD down to the minimum systems we still need to add after reviewing the current codebase across:
+
+* `luran` backend
+* `luran-dashboard`
+* `luran-chat`
+
+The goal is to avoid rebuilding systems that already exist and define only the missing work needed to complete the customer-facing support entry flow.
+
+---
+
+# 1. Current Implementation Snapshot
+
+The following are already present in the codebase and should be treated as existing MVP foundations, not new scope:
+
+* tenant/business auth and registration
+* tenant dashboard, settings, billing, analytics, and team management
+* AI + RAG chat flow
+* embedded widget configuration, logo upload, install code, and public widget config endpoint
+* chat session creation and message persistence
+* session message history in dashboard
+* escalation from AI chat to support ticket
+* support ticket lifecycle: `open`, `in_progress`, `resolved`, `closed`
+* agent takeover of escalated conversations
+* ticket assignment and unassigned ticket queue
+* websocket fanout for customer/agent real-time events
+* email notifications for ticket escalation
+* background auto-abandon / auto-resolve jobs
+
+Important existing architectural reality:
+
+* Customer chat is currently modeled around `conversation_sessions`
+* Human support workflow is currently modeled around `tickets`
+* The widget already stores a browser-side anonymous ID and persists chat session state locally
+* The system already supports tenant isolation
+
+This means the remaining PRD should extend the current session/ticket model, not replace it with a second parallel conversation platform unless absolutely necessary.
+
+---
+
+# 2. True Net-New Scope
+
+Only the following should be considered required new work.
+
+## 2.1 Public Support Page
+
+We still need a hosted public support page for businesses that do not want to rely only on the embedded widget.
+
+Minimum outcome:
+
+* public route by business slug, e.g. `/b/{slug}`
+* resolve tenant from slug
+* show public brand information already available from tenant/company data
+* launch the same chat experience used by the widget
+* unknown slug returns branded not-found state
+
+This is the clearest missing customer-facing feature in the current stack.
+
+## 2.2 Shareable Support Link
+
+We need a stable support URL per tenant that points to the public support page.
+
+Minimum outcome:
+
+* each tenant has one unique public slug
+* tenant admin can view and copy the support link in dashboard
+* tenant admin can edit slug with uniqueness checks
+
+This can live on the existing tenant record unless a separate public-profile table becomes necessary.
+
+## 2.3 Persistent Visitor Identity Model
+
+The frontend already creates a browser-local anonymous identifier, but the backend does not yet have a first-class visitor entity.
+
+Minimum outcome:
+
+* add a `visitor` model scoped to tenant/workspace
+* visitor can start anonymous and later be enriched with optional `name`, `email`, `phone`
+* browser token maps to persistent backend visitor record
+* same browser returning later resolves to the same visitor for that tenant
+
+This is needed so customer continuity is not tied only to the current local session payload.
+
+## 2.4 Visitor Session Tracking
+
+The current backend `conversation_session` is acting as the chat thread/session, but it is not a browser-visit session model in the PRD sense.
+
+Minimum outcome:
+
+* add a lightweight `visitor_session` record tied to `visitor`
+* capture entry point and metadata like user agent, referrer, locale, landing URL, IP if desired
+* support inactivity timeout for session rollover
+* keep historical visitor sessions for analytics/debugging
+
+This should supplement the existing chat session model, not replace it.
+
+## 2.5 Resume / Reopen Rules
+
+The current system persists local chat state and supports session history, but the resume rules are not formalized around persistent visitor identity.
+
+Minimum outcome:
+
+* define when a returning visitor resumes the latest thread vs starts a new one
+* define how resolved sessions/tickets reopen when the visitor sends a new message
+* ensure support-page entry and embedded-widget entry follow the same resume logic
+
+This is primarily a behavior standardization task on top of the current model.
+
+---
+
+# 3. What Should Be Removed From New Scope
+
+The following were in the larger PRD but should not be treated as required net-new MVP work right now.
+
+## 3.1 New Parallel Conversation Data Model
+
+Do not introduce a brand-new `conversations` + `conversation_assignments` + `messages` stack if the existing `conversation_sessions` + `messages` + `tickets` model can be extended.
+
+Recommendation:
+
+* keep `conversation_sessions` as the live chat thread
+* keep `tickets` as the human-support object
+* only add visitor and visitor-session layers underneath
+
+## 3.2 Full Notification Center
+
+A dedicated `notifications` table, unread counts, and dashboard notification center are not minimum-scope requirements.
+
+Reason:
+
+* websocket events already exist
+* ticket escalation emails already exist
+* assignment already exists via takeover / ticket assignment flow
+
+If we need more later, we can add notification-center UX as a follow-up phase.
+
+## 3.3 Full New State Machine Rewrite
+
+The original PRD introduced `open`, `pending`, `resolved`, `archived` as a new canonical conversation state machine.
+
+Minimum-scope recommendation:
+
+* do not rewrite all support logic around a new lifecycle yet
+* retain current session states: `active`, `escalated`, `resolved`, `abandoned`
+* retain current ticket states: `open`, `in_progress`, `resolved`, `closed`
+* only add missing reopen/resume rules where needed
+
+`pending` and `archived` can wait unless a specific operational need appears.
+
+## 3.4 Advanced Assignment Automation
+
+Do not add full assignment-history automation, reassignment workflows, or routing engines yet.
+
+Current MVP already has:
+
+* manual ticket assignment
+* agent takeover
+* unassigned ticket queue
+
+Only add default owner auto-assign if it is truly needed and cheap.
+
+## 3.5 Separate Support-Link Domain Model
+
+A dedicated support-link entity is not required for MVP if one slug on the tenant can solve the use case.
+
+---
+
+# 4. Reduced MVP Deliverables
+
+## Phase 1: Public Entry
+
+Deliver:
+
+* tenant public slug
+* public support page route
+* support link display/edit/copy in dashboard
+
+## Phase 2: Visitor Layer
+
+Deliver:
+
+* `visitors` table
+* `visitor_sessions` table
+* bootstrap/resolve logic from browser token
+* optional visitor enrichment fields
+
+## Phase 3: Continuity Rules
+
+Deliver:
+
+* shared widget + support-page visitor bootstrap flow
+* resume latest active thread behavior
+* reopen behavior for previously resolved conversations/tickets
+
+## Phase 4: Hardening
+
+Deliver:
+
+* rate limiting on new public endpoints
+* tenant-safe visitor resolution
+* abuse blocking hooks for visitors
+* analytics/debug metadata from visitor sessions
+
+---
+
+# 5. Minimum Backend Additions
+
+## Required
+
+* tenant slug field or equivalent public identifier
+* visitor persistence model
+* visitor-session persistence model
+* public endpoint to resolve tenant by slug
+* public bootstrap endpoint to resolve/create visitor and visitor session
+* current chat endpoint updates so messages can be tied to visitor + visitor session
+
+## Prefer Reusing Existing Endpoints Where Possible
+
+Avoid inventing a fully separate `/public/conversations/...` stack if the existing chat endpoints can be safely extended for public support-page usage.
+
+Preferred direction:
+
+* reuse existing chat/session flow
+* add public bootstrap/resolution layer ahead of it
+* pass resolved visitor identity into current session/ticket logic
+
+---
+
+# 6. Minimum Frontend Additions
+
+## `luran-chat`
+
+Add:
+
+* public business support page route by slug
+* support-page wrapper around the existing chat UI
+* browser storage for visitor token and visitor-session token
+
+## `luran-dashboard`
+
+Add:
+
+* support-link settings UI
+* slug edit flow with availability validation
+* public-link copy action
+
+Do not add a full notification center or major inbox redesign in this phase.
+
+---
+
+# 7. Acceptance Criteria
+
+Launch-ready for this reduced scope means:
+
+* a tenant can share a public support URL
+* opening the support URL resolves the correct tenant
+* a visitor can start chatting from the support page without creating an account
+* the same browser returns as the same backend visitor for that tenant
+* visitor sessions are historically tracked across visits
+* the support page and embedded widget use the same core chat backend
+* previously resolved customer threads can be resumed or reopened according to defined rules
+* tenant admin can view, edit, and copy the support link
+
+---
+
+# 8. Explicit Non-Goals For This Phase
+
+Not part of this reduced PRD:
+
+* new standalone notification center
+* full assignment-history model
+* round-robin or skills-based routing
+* CRM sync
+* omnichannel expansion
+* major replacement of current ticket/session architecture
+* full `pending` / `archived` conversation workflow rewrite
+
+---
+
+# 9. Implementation Guidance
+
+Use the current architecture as the base:
+
+* `Tenant` remains the workspace/business anchor
+* `conversation_sessions` remain the existing chat-thread layer
+* `messages` remain the chat transcript layer
+* `tickets` remain the human-support layer
+
+Add only the missing public-access and identity-continuity layers:
+
+* public slug
+* visitor
+* visitor session
+* support page
+
+That is the minimum new scope that meaningfully completes the MVP.

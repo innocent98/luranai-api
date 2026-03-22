@@ -31,6 +31,7 @@ from app.db.models.conversation import (
 from app.db.models.flow import Flow, FlowExecution, FlowStatus
 from app.db.models.tenant import TenantAIConfig
 from app.db.models.user import User, UserRole
+from app.db.models.visitor import VisitorSource
 from app.schemas.conversation import (
     ChatResponse,
     ConversationSessionCreate,
@@ -45,12 +46,14 @@ from app.schemas.rag import ResponseQuality
 from app.schemas.ticket import TicketAssign, TicketCreate
 from app.schemas.tenant import TenantResponse
 from app.schemas.user import UserResponse
+from app.schemas.visitor import VisitorEnrichmentUpdate
 from app.services.conversation_service import ConversationService
 from app.services.chat_automation_orchestrator import ChatAutomationOrchestrator
 from app.services.flow_engine import FlowEngine
 from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
 from app.services.ticket_service import TicketService
+from app.services.visitor_service import VisitorService
 from app.utils.datetime import ensure_utc_aware, utcnow_aware, utcnow_naive
 from app.utils.email import send_ticket_escalation_email
 from app.utils.http_rate_limiter import chat_rate_limit
@@ -62,6 +65,20 @@ FLOW_START_PREFIX = "__flow_start__:"
 TALK_TO_HUMAN_TOKEN = "__talk_to_human__"
 RAG_CHAT_TOKEN = "__rag_chat__"
 CONTACT_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+
+
+def _extract_customer_name(candidate: str | None) -> str | None:
+    """Normalize a lightweight customer name from free text."""
+    if not candidate:
+        return None
+
+    normalized = re.sub(r"\s+", " ", candidate).strip()
+    if len(normalized) < 2 or len(normalized) > 100:
+        return None
+    if CONTACT_EMAIL_PATTERN.fullmatch(normalized.lower()):
+        return None
+
+    return normalized
 
 
 def _generate_ticket_summary(
@@ -214,8 +231,13 @@ def _extract_valid_email(candidate: str | None) -> str | None:
 def _resolve_customer_contact_email(
     session_meta: dict[str, Any],
     message_metadata: dict[str, Any] | None,
+    existing_email: str | None = None,
 ) -> str | None:
     """Resolve customer contact email from session metadata or request metadata."""
+    valid_existing_email = _extract_valid_email(existing_email)
+    if valid_existing_email:
+        return valid_existing_email
+
     from_session = session_meta.get("contact_email")
     valid_from_session = _extract_valid_email(
         from_session if isinstance(from_session, str) else None
@@ -236,20 +258,151 @@ def _resolve_customer_contact_email(
     return None
 
 
+def _resolve_customer_name(
+    session_meta: dict[str, Any],
+    message_metadata: dict[str, Any] | None,
+    existing_name: str | None = None,
+) -> str | None:
+    """Resolve customer name from visitor profile, session metadata, or request metadata."""
+    valid_existing_name = _extract_customer_name(existing_name)
+    if valid_existing_name:
+        return valid_existing_name
+
+    from_session = session_meta.get("contact_name")
+    valid_from_session = _extract_customer_name(
+        from_session if isinstance(from_session, str) else None
+    )
+    if valid_from_session:
+        return valid_from_session
+
+    if not isinstance(message_metadata, dict):
+        return None
+
+    for key in ("contact_name", "customer_name", "name"):
+        raw = message_metadata.get(key)
+        if isinstance(raw, str):
+            valid = _extract_customer_name(raw)
+            if valid:
+                return valid
+
+    return None
+
+
+def _get_missing_contact_fields(
+    *,
+    require_name_before_escalation: bool,
+    require_email_before_escalation: bool,
+    customer_name: str | None,
+    customer_contact_email: str | None,
+) -> list[str]:
+    """Return the ordered list of customer identity fields still needed for escalation."""
+    missing_fields: list[str] = []
+    if require_name_before_escalation and not customer_name:
+        missing_fields.append("name")
+    if require_email_before_escalation and not customer_contact_email:
+        missing_fields.append("email")
+    return missing_fields
+
+
+def _build_contact_capture_prompt(required_fields: list[str]) -> str:
+    """Generate the next customer identity prompt for escalation."""
+    next_field = required_fields[0] if required_fields else "email"
+    if next_field == "name":
+        return "Before I connect you with a support agent, what name should I share with the team?"
+    return (
+        "Before I connect you with a support agent, please share the best email "
+        "address for follow-up."
+    )
+
+
+def _build_contact_capture_retry_prompt(field_name: str) -> str:
+    """Generate a validation retry prompt for the requested identity field."""
+    if field_name == "name":
+        return "Please share your name so I can pass it along to the support team."
+    return (
+        "Please share a valid email address (for example, name@example.com) so we "
+        "can connect you with support and follow up."
+    )
+
+
 def _store_pending_contact_capture(
     conversation_service: ConversationService,
     session_id: UUID,
     session_meta: dict[str, Any],
     escalation_reason: str,
     customer_query: str,
+    required_fields: list[str] | None = None,
 ) -> None:
-    """Persist pending email-capture state for escalation workflow."""
+    """Persist pending identity-capture state for escalation workflow."""
     session_meta["pending_contact_capture"] = True
     session_meta["contact_capture_context"] = {
         "reason": escalation_reason,
         "customer_query": customer_query,
+        "required_fields": required_fields or ["email"],
     }
     conversation_service.update_session_meta(session_id, session_meta)
+
+
+def _resolve_bootstrapped_visitor_context(
+    visitor_service: VisitorService,
+    tenant_id: UUID,
+    metadata: dict[str, Any] | None,
+) -> tuple[UUID | None, UUID | None]:
+    """Resolve visitor identifiers only when the caller already has bootstrap tokens."""
+    if not isinstance(metadata, dict):
+        return None, None
+
+    visitor_token = metadata.get("visitor_token")
+    visitor_session_token = metadata.get("visitor_session_token")
+    entry_point = metadata.get("entry_point")
+    if not isinstance(visitor_token, str) or not visitor_token.strip():
+        return None, None
+    if entry_point not in {VisitorSource.WIDGET.value, VisitorSource.SUPPORT_PAGE.value}:
+        return None, None
+
+    visitor = visitor_service.get_visitor_by_token(tenant_id, visitor_token.strip())
+    if not visitor:
+        return None, None
+
+    visitor_session_id: UUID | None = None
+    if isinstance(visitor_session_token, str) and visitor_session_token.strip():
+        visitor_session = visitor_service.get_visitor_session_by_token(
+            visitor.id, visitor_session_token.strip()
+        )
+        if visitor_session:
+            visitor_session_id = visitor_session.id
+
+    return visitor.id, visitor_session_id
+
+
+def _persist_contact_email_to_visitor(
+    visitor_service: VisitorService,
+    session_id: UUID,
+    email: str | None,
+) -> None:
+    """Sync captured contact email into the linked visitor record when present."""
+    valid_email = _extract_valid_email(email)
+    if not valid_email:
+        return
+    visitor_service.update_visitor_from_session(
+        session_id,
+        VisitorEnrichmentUpdate(email=valid_email),
+    )
+
+
+def _persist_contact_name_to_visitor(
+    visitor_service: VisitorService,
+    session_id: UUID,
+    name: str | None,
+) -> None:
+    """Sync captured customer name into the linked visitor record when present."""
+    valid_name = _extract_customer_name(name)
+    if not valid_name:
+        return
+    visitor_service.update_visitor_from_session(
+        session_id,
+        VisitorEnrichmentUpdate(name=valid_name),
+    )
 
 
 @router.post("/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
@@ -268,6 +421,7 @@ async def create_session(
         Created session
     """
     conversation_service = ConversationService(db)
+    visitor_service = VisitorService(db)
 
     # Verify tenant exists
     tenant_service = TenantService(db)
@@ -277,9 +431,16 @@ async def create_session(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
     # Convert SessionCreateRequest to ConversationSessionCreate
+    visitor_id, visitor_session_id = _resolve_bootstrapped_visitor_context(
+        visitor_service,
+        session_data.tenant_id,
+        session_data.metadata,
+    )
     session_create = ConversationSessionCreate(
         tenant_id=session_data.tenant_id,
         user_identifier=session_data.user_identifier,
+        visitor_id=visitor_id,
+        visitor_session_id=visitor_session_id,
         meta=session_data.metadata or {},
     )
 
@@ -321,6 +482,7 @@ async def send_message(
     automation_orchestrator = ChatAutomationOrchestrator(db)
     rag_service = RAGService(db)
     tenant_service = TenantService(db)
+    visitor_service = VisitorService(db)
 
     logger.info(f"Processing chat message: session_id={message_data.session_id}")
 
@@ -335,47 +497,76 @@ async def send_message(
                 detail="tenant_id and user_identifier are required for new sessions",
             )
 
-        # Check conversation limit before creating new session
-        capabilities = tenant_service.get_capabilities(message_data.tenant_id)
+        visitor_id, visitor_session_id = _resolve_bootstrapped_visitor_context(
+            visitor_service,
+            message_data.tenant_id,
+            message_data.metadata,
+        )
 
-        if capabilities and capabilities.max_conversations_per_month is not None:
-            # Get start of current month
-
-            now = utcnow_naive()
-            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-            # Count conversations this month
-            monthly_count = (
-                db.query(ConversationSession)
-                .filter(
-                    ConversationSession.tenant_id == message_data.tenant_id,
-                    ConversationSession.created_at >= month_start,
-                )
-                .count()
+        # If this public/browser visitor already has an active or escalated thread,
+        # continue that thread instead of opening a parallel conversation.
+        reused_session: SessionResponse | None = None
+        if visitor_id:
+            reused_session = conversation_service.get_latest_session_for_visitor(
+                tenant_id=message_data.tenant_id,
+                visitor_id=visitor_id,
+                allowed_statuses=[SessionStatus.ACTIVE, SessionStatus.ESCALATED],
             )
 
-            # Check limit
-            if monthly_count >= capabilities.max_conversations_per_month:
-                raise HTTPException(
-                    status_code=402,
-                    detail={
-                        "error": "conversation_limit_reached",
-                        "message": f"Monthly conversation limit of {capabilities.max_conversations_per_month} reached.",
-                        "current_count": monthly_count,
-                        "limit": capabilities.max_conversations_per_month,
-                        "resets_at": (month_start + timedelta(days=32)).replace(day=1).isoformat(),
-                    },
+        if reused_session:
+            session = reused_session
+            session_id = reused_session.id
+            existing_session_model = db.execute(
+                select(ConversationSession).where(ConversationSession.id == session_id)
+            ).scalar_one_or_none()
+            if existing_session_model and visitor_session_id:
+                existing_session_model.visitor_session_id = visitor_session_id
+                db.commit()
+            logger.info(f"Reusing existing visitor session: {session_id}")
+        else:
+            # Check conversation limit before creating new session
+            capabilities = tenant_service.get_capabilities(message_data.tenant_id)
+
+            if capabilities and capabilities.max_conversations_per_month is not None:
+                # Get start of current month
+
+                now = utcnow_naive()
+                month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+                # Count conversations this month
+                monthly_count = (
+                    db.query(ConversationSession)
+                    .filter(
+                        ConversationSession.tenant_id == message_data.tenant_id,
+                        ConversationSession.created_at >= month_start,
+                    )
+                    .count()
                 )
 
-        # Convert to ConversationSessionCreate
-        session_create = ConversationSessionCreate(
-            tenant_id=message_data.tenant_id,
-            user_identifier=message_data.user_identifier,
-            meta=message_data.metadata or {},
-        )
-        session = conversation_service.create_session(session_create)
-        session_id = session.id
-        logger.info(f"Created new session: {session_id}")
+                # Check limit
+                if monthly_count >= capabilities.max_conversations_per_month:
+                    raise HTTPException(
+                        status_code=402,
+                        detail={
+                            "error": "conversation_limit_reached",
+                            "message": f"Monthly conversation limit of {capabilities.max_conversations_per_month} reached.",
+                            "current_count": monthly_count,
+                            "limit": capabilities.max_conversations_per_month,
+                            "resets_at": (month_start + timedelta(days=32)).replace(day=1).isoformat(),
+                        },
+                    )
+
+            # Convert to ConversationSessionCreate
+            session_create = ConversationSessionCreate(
+                tenant_id=message_data.tenant_id,
+                user_identifier=message_data.user_identifier,
+                visitor_id=visitor_id,
+                visitor_session_id=visitor_session_id,
+                meta=message_data.metadata or {},
+            )
+            session = conversation_service.create_session(session_create)
+            session_id = session.id
+            logger.info(f"Created new session: {session_id}")
     else:
         # Verify session exists
         session = conversation_service.get_session(session_id)
@@ -389,6 +580,14 @@ async def send_message(
                 session_id, ConversationSessionUpdate(status=SessionStatus.ACTIVE)
             )
             logger.info(f"Session {session_id} reactivated from ABANDONED to ACTIVE")
+        elif session.status == SessionStatus.RESOLVED:
+            welcome_triggers = {"start", "hello", "hi", "hey", "welcome", "__init__", "__welcome__"}
+            if message_data.message.lower().strip() not in welcome_triggers:
+                logger.info(f"User replied on resolved session {session_id}, reopening...")
+                session = conversation_service.update_session(
+                    session_id, ConversationSessionUpdate(status=SessionStatus.ACTIVE)
+                )
+                logger.info(f"Session {session_id} reactivated from RESOLVED to ACTIVE")
 
     session_model = db.execute(
         select(ConversationSession).where(ConversationSession.id == session_id)
@@ -453,16 +652,33 @@ async def send_message(
     require_email_before_escalation = bool(
         getattr(tenant_ai_config, "require_email_before_escalation", False)
     )
-    current_session_meta = dict(session_model.meta or {})
-    customer_contact_email = _resolve_customer_contact_email(
-        current_session_meta, message_data.metadata
+    require_name_before_escalation = bool(
+        getattr(tenant_ai_config, "require_name_before_escalation", False)
     )
+    linked_visitor = visitor_service.get_visitor_for_session(session_id)
+    current_session_meta = dict(session_model.meta or {})
+    customer_name = _resolve_customer_name(
+        current_session_meta,
+        message_data.metadata,
+        linked_visitor.name if linked_visitor else None,
+    )
+    customer_contact_email = _resolve_customer_contact_email(
+        current_session_meta,
+        message_data.metadata,
+        linked_visitor.email if linked_visitor else None,
+    )
+    if customer_name and current_session_meta.get("contact_name") != customer_name:
+        current_session_meta["contact_name"] = customer_name
+        conversation_service.update_session_meta(session_id, current_session_meta)
+        _persist_contact_name_to_visitor(visitor_service, session_id, customer_name)
+        session_model.meta = current_session_meta
     if (
         customer_contact_email
         and current_session_meta.get("contact_email") != customer_contact_email
     ):
         current_session_meta["contact_email"] = customer_contact_email
         conversation_service.update_session_meta(session_id, current_session_meta)
+        _persist_contact_email_to_visitor(visitor_service, session_id, customer_contact_email)
         session_model.meta = current_session_meta
 
     # Step 2.5: Check for Flow Execution (BEFORE storing user message)
@@ -548,23 +764,39 @@ async def send_message(
         elif effective_message_lower == TALK_TO_HUMAN_TOKEN:
             escalation_reason = "User selected talk to human from start menu"
             session_meta = dict(session_model.meta or {})
-            contact_email = _resolve_customer_contact_email(session_meta, message_data.metadata)
-            if require_email_before_escalation and not contact_email:
+            contact_name = _resolve_customer_name(
+                session_meta,
+                message_data.metadata,
+                linked_visitor.name if linked_visitor else None,
+            )
+            contact_email = _resolve_customer_contact_email(
+                session_meta,
+                message_data.metadata,
+                linked_visitor.email if linked_visitor else None,
+            )
+            missing_contact_fields = _get_missing_contact_fields(
+                require_name_before_escalation=require_name_before_escalation,
+                require_email_before_escalation=require_email_before_escalation,
+                customer_name=contact_name,
+                customer_contact_email=contact_email,
+            )
+            if missing_contact_fields:
                 _store_pending_contact_capture(
                     conversation_service=conversation_service,
                     session_id=session_id,
                     session_meta=session_meta,
                     escalation_reason=escalation_reason,
                     customer_query=message_data.message,
+                    required_fields=missing_contact_fields,
                 )
                 assistant_message = conversation_service.add_message(
                     session_id=session_id,
                     role=MessageRole.ASSISTANT,
-                    content=(
-                        "Before I connect you with a support agent, please share the best email "
-                        "address for follow-up."
-                    ),
-                    meta={"contact_capture_required": True},
+                    content=_build_contact_capture_prompt(missing_contact_fields),
+                    meta={
+                        "contact_capture_required": True,
+                        "contact_capture_fields": missing_contact_fields,
+                    },
                 )
                 return ChatResponse(
                     session_id=session_id,
@@ -673,8 +905,10 @@ async def send_message(
             db.refresh(active_exec)
             logger.info(f"Created new flow execution: {active_exec.id}")
 
-        # Execute current node
-        flow_result = await flow_engine.execute_node(active_exec, effective_message)
+        # Execute current node. For explicit manual flow starts, do not pass the
+        # hidden router token into the first interactive node as user input.
+        flow_input = None if forced_flow else effective_message
+        flow_result = await flow_engine.execute_node(active_exec, flow_input)
         flow_response = None
         flow_handoff_to_rag = False
 
@@ -694,23 +928,40 @@ async def send_message(
                     "escalation_reason", "Flow triggered escalation"
                 )
                 session_meta = dict(session_model.meta or {})
-                contact_email = _resolve_customer_contact_email(session_meta, message_data.metadata)
-                if require_email_before_escalation and not contact_email:
+                contact_name = _resolve_customer_name(
+                    session_meta,
+                    message_data.metadata,
+                    linked_visitor.name if linked_visitor else None,
+                )
+                contact_email = _resolve_customer_contact_email(
+                    session_meta,
+                    message_data.metadata,
+                    linked_visitor.email if linked_visitor else None,
+                )
+                missing_contact_fields = _get_missing_contact_fields(
+                    require_name_before_escalation=require_name_before_escalation,
+                    require_email_before_escalation=require_email_before_escalation,
+                    customer_name=contact_name,
+                    customer_contact_email=contact_email,
+                )
+                if missing_contact_fields:
                     _store_pending_contact_capture(
                         conversation_service=conversation_service,
                         session_id=session_id,
                         session_meta=session_meta,
                         escalation_reason=flow_escalation_reason,
                         customer_query=message_data.message,
+                        required_fields=missing_contact_fields,
                     )
                     assistant_message = conversation_service.add_message(
                         session_id=session_id,
                         role=MessageRole.ASSISTANT,
-                        content=(
-                            "Before I connect you with a support agent, please share the best "
-                            "email address for follow-up."
-                        ),
-                        meta={"contact_capture_required": True, "flow_triggered": True},
+                        content=_build_contact_capture_prompt(missing_contact_fields),
+                        meta={
+                            "contact_capture_required": True,
+                            "contact_capture_fields": missing_contact_fields,
+                            "flow_triggered": True,
+                        },
                     )
                     return ChatResponse(
                         session_id=session_id,
@@ -909,25 +1160,40 @@ async def send_message(
                         "escalation_reason", "Flow triggered escalation"
                     )
                     session_meta = dict(session_model.meta or {})
-                    contact_email = _resolve_customer_contact_email(
-                        session_meta, message_data.metadata
+                    contact_name = _resolve_customer_name(
+                        session_meta,
+                        message_data.metadata,
+                        linked_visitor.name if linked_visitor else None,
                     )
-                    if require_email_before_escalation and not contact_email:
+                    contact_email = _resolve_customer_contact_email(
+                        session_meta,
+                        message_data.metadata,
+                        linked_visitor.email if linked_visitor else None,
+                    )
+                    missing_contact_fields = _get_missing_contact_fields(
+                        require_name_before_escalation=require_name_before_escalation,
+                        require_email_before_escalation=require_email_before_escalation,
+                        customer_name=contact_name,
+                        customer_contact_email=contact_email,
+                    )
+                    if missing_contact_fields:
                         _store_pending_contact_capture(
                             conversation_service=conversation_service,
                             session_id=session_id,
                             session_meta=session_meta,
                             escalation_reason=continued_escalation_reason,
                             customer_query=message_data.message,
+                            required_fields=missing_contact_fields,
                         )
                         assistant_message = conversation_service.add_message(
                             session_id=session_id,
                             role=MessageRole.ASSISTANT,
-                            content=(
-                                "Before I connect you with a support agent, please share the best "
-                                "email address for follow-up."
-                            ),
-                            meta={"contact_capture_required": True, "flow_triggered": True},
+                            content=_build_contact_capture_prompt(missing_contact_fields),
+                            meta={
+                                "contact_capture_required": True,
+                                "contact_capture_fields": missing_contact_fields,
+                                "flow_triggered": True,
+                            },
                         )
                         return ChatResponse(
                             session_id=session_id,
@@ -1082,19 +1348,30 @@ async def send_message(
     session_meta = session.meta or {}
     pending_contact_capture = bool(session_meta.get("pending_contact_capture", False))
     if pending_contact_capture:
-        captured_email = _extract_valid_email(message_data.message)
-        if not captured_email:
+        contact_capture_context = session_meta.get("contact_capture_context", {}) or {}
+        required_fields = (
+            contact_capture_context.get("required_fields")
+            if isinstance(contact_capture_context, dict)
+            else None
+        )
+        if not isinstance(required_fields, list) or not required_fields:
+            required_fields = ["email"]
+
+        current_field = required_fields[0]
+        captured_value = (
+            _extract_customer_name(message_data.message)
+            if current_field == "name"
+            else _extract_valid_email(message_data.message)
+        )
+        if not captured_value:
             user_message = conversation_service.add_message(
                 session_id=session_id, role=MessageRole.USER, content=message_data.message
             )
             assistant_message = conversation_service.add_message(
                 session_id=session_id,
                 role=MessageRole.ASSISTANT,
-                content=(
-                    "Please share a valid email address (for example, name@example.com) so we "
-                    "can connect you with support and follow up."
-                ),
-                meta={"contact_capture_required": True},
+                content=_build_contact_capture_retry_prompt(current_field),
+                meta={"contact_capture_required": True, "contact_capture_fields": required_fields},
             )
             return ChatResponse(
                 session_id=session_id,
@@ -1104,15 +1381,40 @@ async def send_message(
                 ticket_id=None,
             )
 
-        session_meta["contact_email"] = captured_email
-        session_meta["pending_contact_capture"] = False
-        contact_capture_context = session_meta.get("contact_capture_context", {}) or {}
-        session_meta["contact_capture_context"] = {}
+        if current_field == "name":
+            session_meta["contact_name"] = captured_value
+            _persist_contact_name_to_visitor(visitor_service, session_id, captured_value)
+        else:
+            session_meta["contact_email"] = captured_value
+            _persist_contact_email_to_visitor(visitor_service, session_id, captured_value)
+
+        remaining_fields = required_fields[1:]
+        session_meta["pending_contact_capture"] = bool(remaining_fields)
+        if isinstance(contact_capture_context, dict):
+            contact_capture_context["required_fields"] = remaining_fields
+            session_meta["contact_capture_context"] = contact_capture_context if remaining_fields else {}
+        else:
+            session_meta["contact_capture_context"] = {}
         conversation_service.update_session_meta(session_id, session_meta)
 
         user_message = conversation_service.add_message(
             session_id=session_id, role=MessageRole.USER, content=message_data.message
         )
+
+        if remaining_fields:
+            assistant_message = conversation_service.add_message(
+                session_id=session_id,
+                role=MessageRole.ASSISTANT,
+                content=_build_contact_capture_prompt(remaining_fields),
+                meta={"contact_capture_required": True, "contact_capture_fields": remaining_fields},
+            )
+            return ChatResponse(
+                session_id=session_id,
+                message=assistant_message,
+                should_escalate=False,
+                escalation_reason=None,
+                ticket_id=None,
+            )
 
         escalation_reason = (
             contact_capture_context.get("reason")
@@ -1133,6 +1435,8 @@ async def send_message(
             content="Thanks. Connecting you with our support team now.",
             meta={"contact_captured": True},
         )
+
+        final_contact_email = _resolve_customer_contact_email(session_meta, message_data.metadata)
 
         ticket_id = None
         try:
@@ -1187,7 +1491,7 @@ async def send_message(
                         customer_query=customer_query,
                         ticket_priority=priority.value.upper(),
                         ticket_id=str(ticket.id),
-                        customer_contact_email=captured_email,
+                        customer_contact_email=final_contact_email,
                     )
                 except Exception as email_error:
                     logger.error(f"Contact-capture escalation email error: {email_error}")
@@ -1222,9 +1526,24 @@ async def send_message(
                 "reason", "User consented to escalation"
             )
             consent_original_query = escalation_context.get("original_query", message_data.message)
-            contact_email = _resolve_customer_contact_email(session_meta, message_data.metadata)
+            contact_name = _resolve_customer_name(
+                session_meta,
+                message_data.metadata,
+                linked_visitor.name if linked_visitor else None,
+            )
+            contact_email = _resolve_customer_contact_email(
+                session_meta,
+                message_data.metadata,
+                linked_visitor.email if linked_visitor else None,
+            )
+            missing_contact_fields = _get_missing_contact_fields(
+                require_name_before_escalation=require_name_before_escalation,
+                require_email_before_escalation=require_email_before_escalation,
+                customer_name=contact_name,
+                customer_contact_email=contact_email,
+            )
 
-            if require_email_before_escalation and not contact_email:
+            if missing_contact_fields:
                 session_meta["pending_escalation"] = False
                 session_meta["escalation_context"] = {}
                 _store_pending_contact_capture(
@@ -1233,15 +1552,16 @@ async def send_message(
                     session_meta=session_meta,
                     escalation_reason=consent_escalation_reason,
                     customer_query=consent_original_query,
+                    required_fields=missing_contact_fields,
                 )
                 assistant_message = conversation_service.add_message(
                     session_id=session_id,
                     role=MessageRole.ASSISTANT,
-                    content=(
-                        "Before I connect you with a support agent, please share the best "
-                        "email address for follow-up."
-                    ),
-                    meta={"contact_capture_required": True},
+                    content=_build_contact_capture_prompt(missing_contact_fields),
+                    meta={
+                        "contact_capture_required": True,
+                        "contact_capture_fields": missing_contact_fields,
+                    },
                 )
                 return ChatResponse(
                     session_id=session_id,
@@ -1251,6 +1571,8 @@ async def send_message(
                     ticket_id=None,
                 )
 
+            if contact_name and session_meta.get("contact_name") != contact_name:
+                session_meta["contact_name"] = contact_name
             if contact_email and session_meta.get("contact_email") != contact_email:
                 session_meta["contact_email"] = contact_email
 
@@ -1258,6 +1580,8 @@ async def send_message(
             session_meta["pending_escalation"] = False
             session_meta["escalation_context"] = {}
             conversation_service.update_session_meta(session_id, session_meta)
+            _persist_contact_name_to_visitor(visitor_service, session_id, contact_name)
+            _persist_contact_email_to_visitor(visitor_service, session_id, contact_email)
 
             # Escalate session
             conversation_service.escalate_session(
@@ -1438,6 +1762,7 @@ async def send_message(
         # Step 4: Retrieve relevant knowledge chunks via vector search
         pending_contact_capture_reason: str | None = None
         pending_contact_capture_query: str | None = None
+        pending_contact_capture_fields: list[str] | None = None
 
         # Check if flow provided RAG chunks
         if "flow_rag_chunks" in locals() and flow_rag_chunks:
@@ -1501,26 +1826,39 @@ async def send_message(
 
         if escalation_decision.action == EscalationAction.AUTO_ESCALATE:
             auto_escalation_reason = escalation_decision.reason or "Escalation requested"
-            auto_escalation_contact = _resolve_customer_contact_email(
-                dict(session.meta or {}), message_data.metadata
+            auto_escalation_name = _resolve_customer_name(
+                dict(session.meta or {}),
+                message_data.metadata,
+                linked_visitor.name if linked_visitor else None,
             )
-            if require_email_before_escalation and not auto_escalation_contact:
-                ai_response_text = (
-                    "Before I connect you with a support agent, please share the best "
-                    "email address for follow-up."
-                )
+            auto_escalation_contact = _resolve_customer_contact_email(
+                dict(session.meta or {}),
+                message_data.metadata,
+                linked_visitor.email if linked_visitor else None,
+            )
+            missing_contact_fields = _get_missing_contact_fields(
+                require_name_before_escalation=require_name_before_escalation,
+                require_email_before_escalation=require_email_before_escalation,
+                customer_name=auto_escalation_name,
+                customer_contact_email=auto_escalation_contact,
+            )
+            if missing_contact_fields:
+                ai_response_text = _build_contact_capture_prompt(missing_contact_fields)
                 token_count = 0
                 quality = ResponseQuality(
                     is_substantial=True, has_uncertainty=False, word_count=0, char_count=0
                 )
                 pending_contact_capture_reason = auto_escalation_reason
                 pending_contact_capture_query = message_data.message
+                pending_contact_capture_fields = missing_contact_fields
                 escalation_decision = SimpleNamespace(
                     action=EscalationAction.NO_ESCALATION,
-                    reason="awaiting_contact_email_for_escalation",
+                    reason="awaiting_contact_details_for_escalation",
                     skip_quality_check=True,
                 )
-                logger.info("Auto-escalation deferred: awaiting customer email")
+                logger.info(
+                    f"Auto-escalation deferred: awaiting customer fields {missing_contact_fields}"
+                )
             else:
                 ai_response_text = "Of course! Connecting you with someone from our team now."
                 token_count = 0
@@ -1750,16 +2088,31 @@ async def send_message(
                 session_meta=session_meta,
                 escalation_reason=pending_contact_capture_reason,
                 customer_query=pending_contact_capture_query or message_data.message,
+                required_fields=pending_contact_capture_fields,
             )
             logger.info("Stored pending contact capture for deferred escalation")
 
         elif escalation_decision.action == EscalationAction.AUTO_ESCALATE:
             # User explicitly requested human or critical keyword detected - escalate immediately
             session_meta = dict(session.meta or {})
-            contact_email = _resolve_customer_contact_email(session_meta, message_data.metadata)
+            contact_name = _resolve_customer_name(
+                session_meta,
+                message_data.metadata,
+                linked_visitor.name if linked_visitor else None,
+            )
+            contact_email = _resolve_customer_contact_email(
+                session_meta,
+                message_data.metadata,
+                linked_visitor.email if linked_visitor else None,
+            )
+            if contact_name and session_meta.get("contact_name") != contact_name:
+                session_meta["contact_name"] = contact_name
+                conversation_service.update_session_meta(session_id, session_meta)
+                _persist_contact_name_to_visitor(visitor_service, session_id, contact_name)
             if contact_email and session_meta.get("contact_email") != contact_email:
                 session_meta["contact_email"] = contact_email
                 conversation_service.update_session_meta(session_id, session_meta)
+                _persist_contact_email_to_visitor(visitor_service, session_id, contact_email)
 
             should_escalate = True
             logger.info("Auto-escalating: Creating ticket...")

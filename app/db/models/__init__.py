@@ -50,6 +50,7 @@ from app.db.models.visit_analytics import DailyVisit
 # Import all models to ensure they're registered with SQLAlchemy
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
 from app.db.models.user import User, UserRole
+from app.db.models.visitor import DeviceType, Visitor, VisitorSession, VisitorSource
 
 __all__ = [
     "Base",
@@ -58,6 +59,10 @@ __all__ = [
     "TenantAIConfig",
     "TenantCapabilities",
     "TenantStatus",
+    "Visitor",
+    "VisitorSession",
+    "VisitorSource",
+    "DeviceType",
     # Knowledge models
     "KnowledgeSource",
     "KnowledgeChunk",

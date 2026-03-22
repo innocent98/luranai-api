@@ -18,6 +18,7 @@ from app.schemas.auth import (
 from app.services.email_service import email_service
 from app.services.token_service import token_service
 from app.utils.password import generate_temp_password
+from app.utils.slugs import PUBLIC_SLUG_MAX_LENGTH, normalize_public_slug
 
 
 class CompanyRegistrationService:
@@ -26,6 +27,24 @@ class CompanyRegistrationService:
     def __init__(self, db: Session):
         """Initialize company registration service with database session."""
         self.db = db
+
+    def _generate_unique_public_slug(self, company_name: str) -> str:
+        """Generate a unique public support slug for a new tenant."""
+        base_slug = normalize_public_slug(company_name) or "support"
+        candidate = base_slug
+        suffix = 2
+
+        while True:
+            existing = self.db.execute(
+                select(Tenant).where(Tenant.public_slug == candidate)
+            ).scalar_one_or_none()
+            if not existing:
+                return candidate
+
+            suffix_text = f"-{suffix}"
+            trimmed = base_slug[: PUBLIC_SLUG_MAX_LENGTH - len(suffix_text)].rstrip("-")
+            candidate = f"{trimmed}{suffix_text}"
+            suffix += 1
 
     def register_company(
         self, registration_data: CompanyRegistrationRequest
@@ -81,6 +100,7 @@ class CompanyRegistrationService:
             tenant = Tenant(
                 name=tenant_name,
                 display_name=display_name,
+                public_slug=self._generate_unique_public_slug(tenant_name),
                 status=TenantStatus.ACTIVE,  # Active immediately, but user needs to verify email
                 api_key_hash=api_key_hash,
                 subscription_tier="trial",
@@ -100,6 +120,10 @@ class CompanyRegistrationService:
                 grounding_mode="balanced",
                 low_confidence_action="clarify",
                 no_retrieval_action="clarify",
+                require_name_before_escalation=False,
+                require_email_before_escalation=False,
+                collect_name_before_chat=False,
+                collect_email_before_chat=False,
             )
             self.db.add(ai_config)
 

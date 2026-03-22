@@ -12,6 +12,7 @@ from app.api.v1.endpoints import (
     health,
     jobs,
     knowledge,
+    public,
     platform_admin_auth,
     reviews,
     subscription,
@@ -73,6 +74,13 @@ api_router.include_router(
     widget.router,
     prefix="/widget",
     tags=["widget"],
+)
+
+# Public support page and visitor bootstrap endpoints
+api_router.include_router(
+    public.router,
+    prefix="/public",
+    tags=["public"],
 )
 
 # Platform admin tenant management endpoints

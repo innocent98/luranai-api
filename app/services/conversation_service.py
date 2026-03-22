@@ -6,6 +6,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.db.models.conversation import ConversationSession, Message, MessageRole, SessionStatus
+from app.db.models.visitor import Visitor
 from app.schemas.conversation import (
     ConversationSessionCreate,
     ConversationSessionUpdate,
@@ -13,6 +14,7 @@ from app.schemas.conversation import (
     SessionDetailResponse,
     SessionResponse,
 )
+from app.schemas.visitor import VisitorIdentitySummary
 from app.utils.datetime import utcnow_naive
 
 
@@ -22,6 +24,39 @@ class ConversationService:
     def __init__(self, db: Session):
         """Initialize conversation service with database session."""
         self.db = db
+
+    def _build_visitor_summary(self, visitor_id: UUID | None) -> VisitorIdentitySummary | None:
+        """Build a support-facing visitor identity summary."""
+        if not visitor_id:
+            return None
+
+        visitor = self.db.execute(select(Visitor).where(Visitor.id == visitor_id)).scalar_one_or_none()
+        if not visitor:
+            return None
+
+        return VisitorIdentitySummary(
+            id=visitor.id,
+            name=visitor.name,
+            email=visitor.email,
+            phone=visitor.phone,
+            public_token=visitor.public_token,
+            first_seen_at=visitor.first_seen_at,
+            last_seen_at=visitor.last_seen_at,
+            is_blocked=visitor.is_blocked,
+        )
+
+    def _to_session_response(
+        self,
+        session: ConversationSession,
+        include_messages: bool = False,
+    ) -> SessionResponse | SessionDetailResponse:
+        """Convert DB session model to API response with visitor identity."""
+        if include_messages:
+            response = SessionDetailResponse.model_validate(session)
+        else:
+            response = SessionResponse.model_validate(session)
+        response.visitor = self._build_visitor_summary(session.visitor_id)
+        return response
 
     def create_session(self, session_data: ConversationSessionCreate) -> SessionResponse:
         """
@@ -36,6 +71,8 @@ class ConversationService:
         db_session = ConversationSession(
             tenant_id=session_data.tenant_id,
             user_identifier=session_data.user_identifier,
+            visitor_id=session_data.visitor_id,
+            visitor_session_id=session_data.visitor_session_id,
             status=SessionStatus.ACTIVE,
             meta=session_data.meta or {},
             last_message_at=utcnow_naive(),
@@ -45,7 +82,7 @@ class ConversationService:
         self.db.commit()
         self.db.refresh(db_session)
 
-        return SessionResponse.model_validate(db_session)
+        return self._to_session_response(db_session)
 
     def get_session(
         self, session_id: UUID, include_messages: bool = False
@@ -67,9 +104,9 @@ class ConversationService:
             return None
 
         if include_messages:
-            return SessionDetailResponse.model_validate(session)
+            return self._to_session_response(session, include_messages=True)
         else:
-            return SessionResponse.model_validate(session)
+            return self._to_session_response(session)
 
     def get_active_session_for_user(
         self, tenant_id: UUID, user_identifier: str
@@ -99,7 +136,40 @@ class ConversationService:
         if not session:
             return None
 
-        return SessionResponse.model_validate(session)
+        return self._to_session_response(session)
+
+    def get_latest_session_for_visitor(
+        self,
+        tenant_id: UUID,
+        visitor_id: UUID,
+        allowed_statuses: list[SessionStatus] | None = None,
+    ) -> SessionResponse | None:
+        """
+        Get the most recent session for a visitor.
+
+        Args:
+            tenant_id: Tenant UUID
+            visitor_id: Visitor UUID
+            allowed_statuses: Optional list of session statuses to consider
+
+        Returns:
+            Most recent matching session if found, None otherwise
+        """
+        stmt = select(ConversationSession).where(
+            ConversationSession.tenant_id == tenant_id,
+            ConversationSession.visitor_id == visitor_id,
+        )
+
+        if allowed_statuses:
+            stmt = stmt.where(ConversationSession.status.in_(allowed_statuses))
+
+        stmt = stmt.order_by(desc(ConversationSession.last_message_at))
+
+        session = self.db.execute(stmt).scalar_one_or_none()
+        if not session:
+            return None
+
+        return self._to_session_response(session)
 
     def update_session(
         self, session_id: UUID, session_data: ConversationSessionUpdate
@@ -131,7 +201,7 @@ class ConversationService:
         self.db.commit()
         self.db.refresh(session)
 
-        return SessionResponse.model_validate(session)
+        return self._to_session_response(session)
 
     def escalate_session(self, session_id: UUID, reason: str) -> SessionResponse:
         """
@@ -160,7 +230,7 @@ class ConversationService:
         self.db.commit()
         self.db.refresh(session)
 
-        return SessionResponse.model_validate(session)
+        return self._to_session_response(session)
 
     def update_session_meta(self, session_id: UUID, meta: dict) -> SessionResponse:
         """
@@ -308,7 +378,7 @@ class ConversationService:
 
         sessions = self.db.execute(stmt).scalars().all()
 
-        return [SessionResponse.model_validate(s) for s in sessions]
+        return [self._to_session_response(s) for s in sessions]
 
     def assign_agent_to_session(self, session_id: UUID, agent_id: UUID) -> SessionResponse:
         """
@@ -336,7 +406,7 @@ class ConversationService:
         self.db.commit()
         self.db.refresh(session)
 
-        return SessionResponse.model_validate(session)
+        return self._to_session_response(session)
 
     def remove_agent_from_session(self, session_id: UUID) -> SessionResponse:
         """
@@ -363,4 +433,4 @@ class ConversationService:
         self.db.commit()
         self.db.refresh(session)
 
-        return SessionResponse.model_validate(session)
+        return self._to_session_response(session)

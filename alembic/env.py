@@ -15,7 +15,8 @@ from app.db.models import (
     Tenant, TenantAIConfig, TenantCapabilities,
     KnowledgeSource, KnowledgeChunk,
     ConversationSession, Message, Ticket,
-    User, AuditLog, AnalyticsMetric, DailyVisit
+    User, AuditLog, AnalyticsMetric, DailyVisit,
+    Visitor, VisitorSession
 )
 from app.db.models.review import SessionRating, PlatformFeedback, PublicFeedback
 

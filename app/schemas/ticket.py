@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.models.conversation import TicketPriority, TicketStatus
+from app.schemas.visitor import VisitorIdentitySummary
 
 
 # Nested schemas
@@ -79,6 +80,7 @@ class TicketResponse(TicketBase):
     status: TicketStatus
     assigned_to: UUID | None = None  # Kept for backwards compatibility
     assigned_agent: AssignedAgent | None = None  # New: full agent details
+    visitor: VisitorIdentitySummary | None = None
     resolution_notes: str | None = None
     resolved_at: datetime | None = None
     created_at: datetime

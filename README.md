@@ -163,6 +163,44 @@ poetry run pytest tests/test_health.py
 poetry run pytest -v
 ```
 
+### Automation And Flow Smoke Regression
+
+Use this when you want a live end-to-end check of:
+- AI chat automation success and failure
+- lookup chaining
+- approval-required action escalation
+- flow `action_call` execution and saved output mapping
+
+```bash
+# Recommended local command
+make smoke-automation-flows
+
+# Or run directly inside the API container
+docker exec luran_api python -u /app/scripts/smoke_automation_and_flows.py
+```
+
+You can override the smoke target without editing the script:
+
+```bash
+docker exec \
+  -e LURAN_SMOKE_EMAIL=tenant@example.com \
+  -e LURAN_SMOKE_PASSWORD='secret' \
+  -e LURAN_SMOKE_TENANT_ID=00000000-0000-0000-0000-000000000000 \
+  -e LURAN_SMOKE_ORDER_FLOW_NAME='Automation Flow Smoke Success e00be652' \
+  -e LURAN_SMOKE_SUFFIX=ci \
+  luran_api \
+  python -u /app/scripts/smoke_automation_and_flows.py
+```
+
+Supported environment variables:
+- `LURAN_SMOKE_BASE_URL`
+- `LURAN_SMOKE_TENANT_ID`
+- `LURAN_SMOKE_EMAIL`
+- `LURAN_SMOKE_PASSWORD`
+- `LURAN_SMOKE_ORDER_FLOW_NAME`
+- `LURAN_SMOKE_TIMEOUT_SECONDS`
+- `LURAN_SMOKE_SUFFIX`
+
 ### Code Quality
 
 ```bash
@@ -265,5 +303,4 @@ MIT License
 ## Author
 
 Your Name (your.email@example.com)
-
 

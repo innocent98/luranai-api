@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import dataclass
 from types import SimpleNamespace
@@ -112,6 +113,8 @@ class LookupPlan:
 
 class ChatAutomationOrchestrator:
     """Detects, gathers inputs for, and executes tenant actions from chat."""
+
+    LLM_REPLY_TIMEOUT_SECONDS = 12
 
     def __init__(self, db: Session):
         self.db = db
@@ -792,10 +795,18 @@ class ChatAutomationOrchestrator:
 
         rag_service = RAGService(self.db)
         prompt = SimpleNamespace(full_prompt=prompt_text, prompt_tokens=0)
-        response_text, _, is_api_error = await rag_service.generate_ai_response(
-            prompt=prompt,
-            max_tokens=min(getattr(tenant_ai_config, "max_response_tokens", 220), 220),
-        )
+        try:
+            response_text, _, is_api_error = await asyncio.wait_for(
+                rag_service.generate_ai_response(
+                    prompt=prompt,
+                    max_tokens=min(
+                        getattr(tenant_ai_config, "max_response_tokens", 220), 220
+                    ),
+                ),
+                timeout=self.LLM_REPLY_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            return None
         if is_api_error:
             return None
         return response_text.strip() or None
@@ -973,12 +984,19 @@ class ChatAutomationOrchestrator:
 
         rag_service = RAGService(self.db)
         prompt = SimpleNamespace(full_prompt=prompt_text, prompt_tokens=0)
-        response_text, _, is_api_error = await rag_service.generate_ai_response(
-            prompt=prompt,
-            max_tokens=min(
-                getattr(tenant_ai_config, "max_response_tokens", max_tokens), max_tokens
-            ),
-        )
+        try:
+            response_text, _, is_api_error = await asyncio.wait_for(
+                rag_service.generate_ai_response(
+                    prompt=prompt,
+                    max_tokens=min(
+                        getattr(tenant_ai_config, "max_response_tokens", max_tokens),
+                        max_tokens,
+                    ),
+                ),
+                timeout=self.LLM_REPLY_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            return None
         if is_api_error:
             return None
         cleaned = response_text.strip()

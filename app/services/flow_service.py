@@ -401,6 +401,25 @@ class FlowService:
                             f"CONDITION node '{node_id}' condition #{idx} must have 'next_node_id'"
                         )
 
+            # Validate ACTION_CALL nodes
+            elif node_type == "action_call":
+                has_any_route = any(
+                    config.get(route_key)
+                    for route_key in (
+                        "next_node_id",
+                        "on_success_next_node_id",
+                        "on_failure_next_node_id",
+                        "on_timeout_next_node_id",
+                        "on_policy_block_next_node_id",
+                        "on_approval_required_next_node_id",
+                    )
+                )
+                if not has_any_route:
+                    raise ValueError(
+                        f"ACTION_CALL node '{node_id}' must define at least one route.\n"
+                        "Add a default next step or one of the success/failure/approval routes."
+                    )
+
             # Validate linear flow nodes (MESSAGE, TEXT_INPUT, RAG_QUERY, WEBHOOK, etc.)
             else:
                 if "next_node_id" not in config:
