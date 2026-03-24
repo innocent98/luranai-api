@@ -81,11 +81,11 @@ class EmailService:
                         server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                     server.send_message(msg)
 
-            logger.info(f"Email sent successfully to {to_email}")
+            logger.info("Email sent successfully")
             return True
 
-        except Exception as e:
-            logger.error(f"Failed to send email to {to_email}: {e}")
+        except Exception:
+            logger.error("Failed to send email")
             return False
 
     def send_welcome_email(

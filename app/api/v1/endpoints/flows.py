@@ -570,10 +570,7 @@ def list_flow_templates(
         }
 
     except Exception as e:
-        logger.error(f"Failed to list flow templates: {e}")
-        import traceback
-
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.error("Failed to list flow templates")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list templates: {str(e)}",

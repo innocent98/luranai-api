@@ -22,12 +22,13 @@ router = APIRouter()
 )
 def list_public_businesses(
     q: str | None = Query(default=None, max_length=120),
-    limit: int = Query(default=24, ge=1, le=100),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=24, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     """List publicly discoverable businesses for the customer support directory."""
     visitor_service = VisitorService(db)
-    return visitor_service.list_public_businesses(query=q, limit=limit)
+    return visitor_service.list_public_businesses(query=q, page=page, page_size=page_size)
 
 
 @router.get(

@@ -1,9 +1,15 @@
 """Quick test script for token service."""
 
 from uuid import uuid4
+from hashlib import sha256
 
 from app.services.token_service import token_service
 from app.utils.password import generate_temp_password
+
+
+def mask_identifier(value: str) -> str:
+    digest = sha256(value.encode("utf-8")).hexdigest()
+    return digest[:8]
 
 
 def test_token_service():
@@ -15,16 +21,16 @@ def test_token_service():
     user_id = uuid4()
     email = "test@example.com"
 
-    print(f"\n1. Creating email verification token for {email}")
+    print("\n1. Creating email verification token")
     token = token_service.create_email_verification_token(user_id, email)
-    print(f"   Token: {token[:20]}...")
+    print("   Token created successfully")
 
     print(f"\n2. Verifying token...")
     data = token_service.verify_email_token(token)
     if data:
         print(f"   ✅ Token verified successfully!")
-        print(f"   User ID: {data['user_id']}")
-        print(f"   Email: {data['email']}")
+        print(f"   User ID hash: {mask_identifier(str(data['user_id']))}")
+        print(f"   Email hash: {mask_identifier(data['email'])}")
     else:
         print(f"   ❌ Token verification failed")
 
@@ -38,14 +44,14 @@ def test_token_service():
     # Test password reset token
     print(f"\n4. Creating password reset token...")
     reset_token = token_service.create_password_reset_token(user_id, email)
-    print(f"   Token: {reset_token[:20]}...")
+    print("   Reset token created successfully")
 
     print(f"\n5. Verifying reset token...")
     data = token_service.verify_password_reset_token(reset_token)
     if data:
         print(f"   ✅ Reset token verified successfully!")
-        print(f"   User ID: {data['user_id']}")
-        print(f"   Email: {data['email']}")
+        print(f"   User ID hash: {mask_identifier(str(data['user_id']))}")
+        print(f"   Email hash: {mask_identifier(data['email'])}")
     else:
         print(f"   ❌ Reset token verification failed")
 
@@ -60,7 +66,7 @@ def test_password_generation():
 
     for i in range(3):
         password = generate_temp_password()
-        print(f"{i + 1}. Generated password: {password}")
+        print(f"{i + 1}. Generated password length: {len(password)}")
 
     print("✅ Password generation works!")
 

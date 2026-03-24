@@ -162,7 +162,7 @@ async def customer_websocket(
                     to_agents=True,
                 )
 
-                logger.info(f"Customer message in session {session_id}: {content[:50]}")
+                logger.info("Received customer message for agent fanout")
 
             elif message_type == "typing":
                 # Customer is typing - notify agents (no DB needed)
@@ -179,11 +179,11 @@ async def customer_websocket(
                 )
 
     except WebSocketDisconnect:
-        logger.info(f"Customer disconnected from session {session_id}")
+        logger.info("Customer disconnected from session")
         connection_manager.disconnect(websocket)
 
-    except Exception as e:
-        logger.error(f"Error in customer WebSocket: {e}")
+    except Exception:
+        logger.error("Error in customer WebSocket")
         connection_manager.disconnect(websocket)
 
 

@@ -1,6 +1,7 @@
 """Service layer for visitor identity and visitor session bootstrap."""
 
 import secrets
+from math import ceil
 from datetime import timedelta
 from typing import Any
 from uuid import UUID
@@ -80,7 +81,8 @@ class VisitorService:
     def list_public_businesses(
         self,
         query: str | None = None,
-        limit: int = 24,
+        page: int = 1,
+        page_size: int = 24,
     ) -> PublicBusinessDirectoryResponse:
         """Return publicly listed businesses for customer search and discovery."""
         stmt = select(Tenant).where(
@@ -101,7 +103,18 @@ class VisitorService:
                 )
             )
 
-        stmt = stmt.order_by(Tenant.display_name.asc()).limit(max(1, min(limit, 100)))
+        normalized_page = max(1, page)
+        normalized_page_size = max(1, min(page_size, 100))
+
+        total = self.db.execute(
+            select(func.count()).select_from(stmt.subquery())
+        ).scalar_one()
+
+        stmt = (
+            stmt.order_by(Tenant.display_name.asc())
+            .offset((normalized_page - 1) * normalized_page_size)
+            .limit(normalized_page_size)
+        )
         tenants = list(self.db.execute(stmt).scalars())
 
         return PublicBusinessDirectoryResponse(
@@ -117,8 +130,11 @@ class VisitorService:
                 )
                 for tenant in tenants
             ],
-            total=len(tenants),
+            total=total,
             query=normalized_query or None,
+            page=normalized_page,
+            page_size=normalized_page_size,
+            total_pages=ceil(total / normalized_page_size) if total else 0,
         )
 
     def _resolve_tenant(self, payload: VisitorBootstrapRequest) -> Tenant | None:

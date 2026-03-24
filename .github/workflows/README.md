@@ -11,6 +11,7 @@ This directory contains GitHub Actions workflows for Continuous Integration and 
 **Jobs:**
 - **Lint:** Code quality checks with ruff and black
 - **Test:** Run pytest with coverage
+- **Automation/Flow Regression:** Focused regression checks for action-call routing, lookup chains, interpolation, and approval paths
 - **Build:** Build Docker images
 - **Security Scan:** Vulnerability scanning with Trivy
 

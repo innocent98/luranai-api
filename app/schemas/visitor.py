@@ -49,6 +49,9 @@ class PublicBusinessDirectoryResponse(BaseModel):
     businesses: list[PublicBusinessDirectoryItem] = Field(default_factory=list)
     total: int
     query: str | None = None
+    page: int = 1
+    page_size: int = 24
+    total_pages: int = 0
 
 
 class VisitorBootstrapRequest(BaseModel):

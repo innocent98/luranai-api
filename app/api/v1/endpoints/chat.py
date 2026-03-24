@@ -484,7 +484,7 @@ async def send_message(
     tenant_service = TenantService(db)
     visitor_service = VisitorService(db)
 
-    logger.info(f"Processing chat message: session_id={message_data.session_id}")
+    logger.info("Processing chat message")
 
     # Step 1: Get or create session
     session_id = message_data.session_id
@@ -522,7 +522,7 @@ async def send_message(
             if existing_session_model and visitor_session_id:
                 existing_session_model.visitor_session_id = visitor_session_id
                 db.commit()
-            logger.info(f"Reusing existing visitor session: {session_id}")
+            logger.info("Reusing existing visitor session")
         else:
             # Check conversation limit before creating new session
             capabilities = tenant_service.get_capabilities(message_data.tenant_id)
@@ -566,7 +566,7 @@ async def send_message(
             )
             session = conversation_service.create_session(session_create)
             session_id = session.id
-            logger.info(f"Created new session: {session_id}")
+            logger.info("Created new session")
     else:
         # Verify session exists
         session = conversation_service.get_session(session_id)
@@ -575,19 +575,19 @@ async def send_message(
 
         # Auto-reactivate ABANDONED sessions when user returns
         if session.status == SessionStatus.ABANDONED:
-            logger.info(f"User returned to abandoned session {session_id}, reactivating...")
+            logger.info("Reactivating abandoned session")
             session = conversation_service.update_session(
                 session_id, ConversationSessionUpdate(status=SessionStatus.ACTIVE)
             )
-            logger.info(f"Session {session_id} reactivated from ABANDONED to ACTIVE")
+            logger.info("Session reactivated from abandoned to active")
         elif session.status == SessionStatus.RESOLVED:
             welcome_triggers = {"start", "hello", "hi", "hey", "welcome", "__init__", "__welcome__"}
             if message_data.message.lower().strip() not in welcome_triggers:
-                logger.info(f"User replied on resolved session {session_id}, reopening...")
+                logger.info("Reopening resolved session after customer reply")
                 session = conversation_service.update_session(
                     session_id, ConversationSessionUpdate(status=SessionStatus.ACTIVE)
                 )
-                logger.info(f"Session {session_id} reactivated from RESOLVED to ACTIVE")
+                logger.info("Session reactivated from resolved to active")
 
     session_model = db.execute(
         select(ConversationSession).where(ConversationSession.id == session_id)
@@ -1043,9 +1043,9 @@ async def send_message(
                                 customer_contact_email=contact_email,
                             )
                             if email_sent:
-                                logger.info(f"✓ Flow escalation email sent to {recipient.email}")
+                                logger.info("Flow escalation email sent")
                         except Exception as email_error:
-                            logger.error(f"✗ Email error: {email_error}")
+                            logger.error("Flow escalation email delivery failed")
 
                 except Exception as ticket_error:
                     logger.error(f"Failed to create ticket from flow: {ticket_error}")
@@ -1279,10 +1279,10 @@ async def send_message(
                                 )
                                 if email_sent:
                                     logger.info(
-                                        f"✓ Flow escalation email sent to {recipient.email}"
+                                        "Flow escalation email sent"
                                     )
                             except Exception as email_error:
-                                logger.error(f"✗ Email error: {email_error}")
+                                logger.error("Flow escalation email delivery failed")
 
                     except Exception as ticket_error:
                         logger.error(f"Failed to create ticket from flow: {ticket_error}")
@@ -1494,7 +1494,7 @@ async def send_message(
                         customer_contact_email=final_contact_email,
                     )
                 except Exception as email_error:
-                    logger.error(f"Contact-capture escalation email error: {email_error}")
+                    logger.error("Contact-capture escalation email delivery failed")
         except Exception as ticket_error:
             logger.error(f"Failed to create ticket after contact capture: {ticket_error}")
 
@@ -1658,9 +1658,9 @@ async def send_message(
                             customer_contact_email=contact_email,
                         )
                         if email_sent:
-                            logger.info(f"✓ Escalation email sent to {recipient.email}")
+                            logger.info("Escalation email sent")
                     except Exception as email_error:
-                        logger.error(f"✗ Email error: {email_error}")
+                        logger.error("Escalation email delivery failed")
 
             except Exception as ticket_error:
                 logger.error(f"Failed to create ticket: {ticket_error}")
@@ -2405,7 +2405,7 @@ async def agent_takeover(
             ticket_service.assign_ticket(
                 ticket_id=ticket.id, assign_data=TicketAssign(assigned_to=current_user.id)
             )
-            logger.info(f"Assigned ticket {ticket.ticket_number} to agent {current_user.full_name}")
+            logger.info("Assigned ticket to agent after takeover")
         except ValueError as e:
             logger.warning(f"Could not assign ticket: {e}")
 
@@ -2434,7 +2434,7 @@ async def agent_takeover(
         to_agents=False,
     )
 
-    logger.info(f"Agent {current_user.full_name} took over session {session_id}")
+    logger.info("Agent took over session")
 
     return updated_session
 
@@ -2517,6 +2517,6 @@ async def send_agent_message(
         exclude_agent_id=current_user.id,
     )
 
-    logger.info(f"Agent {current_user.full_name} sent message in session {session_id}")
+    logger.info("Agent sent message in session")
 
     return message
