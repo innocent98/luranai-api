@@ -68,6 +68,7 @@ jobs:
             mkdir -p "${{ secrets.DEPLOY_PATH }}"
             cd "${{ secrets.DEPLOY_PATH }}"
             docker load < api-image.tar.gz
+            export API_IMAGE="luran-api:staging-${{ github.sha }}"
             docker compose -f docker-compose.yml -f docker-compose.prod.yml pull db redis qdrant pgbouncer
             docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm api alembic upgrade head
             docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm api python /app/scripts/seed_data.py
@@ -302,6 +303,7 @@ jobs:
             mkdir -p "${{ secrets.DEPLOY_PATH }}"
             cd "${{ secrets.DEPLOY_PATH }}"
             docker load < api-image.tar.gz
+            export API_IMAGE="luran-api:latest"
             docker compose -f docker-compose.yml -f docker-compose.prod.yml pull db redis qdrant pgbouncer
             docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm api alembic upgrade head
             docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d

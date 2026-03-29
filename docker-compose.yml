@@ -1,5 +1,6 @@
 services:
   api:
+    image: ${API_IMAGE:-luran-api:latest}
     build: .
     container_name: ${COMPOSE_PROJECT_NAME:-luran}_api
     ports:
@@ -49,6 +50,7 @@ services:
         max-file: "3"
 
   worker:
+    image: ${API_IMAGE:-luran-api:latest}
     build: .
     container_name: ${COMPOSE_PROJECT_NAME:-luran}_worker
     command: python worker.py
