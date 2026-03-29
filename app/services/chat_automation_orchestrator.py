@@ -18,6 +18,7 @@ from app.db.models.automation import (
     TenantActionStatus,
 )
 from app.schemas.conversation import MessageResponse
+from app.db.models.tenant import TenantCapabilities
 from app.services.automation_service import AutomationService
 from app.services.conversation_service import ConversationService
 from app.services.rag_service import RAGService
@@ -121,6 +122,26 @@ class ChatAutomationOrchestrator:
         self.automation_service = AutomationService(db)
         self.conversation_service = ConversationService(db)
 
+    def _can_use_ai_chat_automation(self, tenant_id: UUID) -> bool:
+        capabilities = (
+            self.db.query(TenantCapabilities)
+            .filter(TenantCapabilities.tenant_id == tenant_id)
+            .one_or_none()
+        )
+        if not capabilities:
+            return False
+        return bool(capabilities.can_use_ai_chat_automation)
+
+    def _can_use_lookup_chains(self, tenant_id: UUID) -> bool:
+        capabilities = (
+            self.db.query(TenantCapabilities)
+            .filter(TenantCapabilities.tenant_id == tenant_id)
+            .one_or_none()
+        )
+        if not capabilities:
+            return False
+        return bool(capabilities.can_use_lookup_chains)
+
     async def handle_turn(
         self,
         *,
@@ -134,6 +155,10 @@ class ChatAutomationOrchestrator:
     ) -> AutomationTurnResult:
         pending = session_meta.get("pending_ai_action")
         if isinstance(pending, dict) and pending.get("action_id"):
+            if not self._can_use_ai_chat_automation(tenant_id):
+                session_meta.pop("pending_ai_action", None)
+                self.conversation_service.update_session_meta(session_id, session_meta)
+                return AutomationTurnResult(handled=False)
             return await self._continue_pending_action(
                 tenant_id=tenant_id,
                 session_id=session_id,
@@ -149,6 +174,8 @@ class ChatAutomationOrchestrator:
             for action in self.automation_service.list_actions(tenant_id)
             if action.status == TenantActionStatus.ACTIVE and action.available_in_ai_chat
         ]
+        if actions and not self._can_use_ai_chat_automation(tenant_id):
+            return AutomationTurnResult(handled=False)
         if not actions:
             return AutomationTurnResult(handled=False)
 
@@ -165,6 +192,7 @@ class ChatAutomationOrchestrator:
         missing_fields = [field for field in required_fields if field not in collected_inputs]
         if missing_fields:
             lookup_plan = self._build_lookup_plan(
+                tenant_id=tenant_id,
                 target_action=action,
                 actions=actions,
                 target_missing_fields=missing_fields,
@@ -553,10 +581,14 @@ class ChatAutomationOrchestrator:
     def _build_lookup_plan(
         self,
         *,
+        tenant_id: UUID,
         target_action: TenantAction,
         actions: list[TenantAction],
         target_missing_fields: list[str],
     ) -> LookupPlan | None:
+        if not self._can_use_lookup_chains(tenant_id):
+            return None
+
         explicit_plan = self._build_explicit_lookup_plan(
             target_action=target_action,
             actions=actions,
@@ -727,6 +759,12 @@ class ChatAutomationOrchestrator:
                     "Would you like me to connect you with someone from the team?",
                     True,
                     f"Automation action '{action.name}' requires approval",
+                )
+            if execution.error_code == "AUTOMATION_EXECUTION_LIMIT_REACHED":
+                return (
+                    "I could not complete that request because this business has reached its monthly automation limit.",
+                    False,
+                    None,
                 )
             return (
                 "I could not complete that request because this automation is currently blocked by policy.",

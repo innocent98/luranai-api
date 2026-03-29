@@ -41,10 +41,12 @@ COPY ./alembic /app/alembic
 COPY ./alembic.ini /app/alembic.ini
 # Keep production image lean: include only scripts needed in production ops.
 COPY ./scripts/seed_data.py /app/scripts/seed_data.py
+COPY ./scripts/seed_staging_e2e.py /app/scripts/seed_staging_e2e.py
 COPY ./scripts/seed_flow_templates.py /app/scripts/seed_flow_templates.py
 COPY ./scripts/create_luran_support_flows.py /app/scripts/create_luran_support_flows.py
 COPY ./scripts/create_luran_support_flows_part2.py /app/scripts/create_luran_support_flows_part2.py
 COPY ./scripts/smoke_automation_and_flows.py /app/scripts/smoke_automation_and_flows.py
+COPY ./scripts/e2e_real_tenant_enforcement.py /app/scripts/e2e_real_tenant_enforcement.py
 COPY ./scripts/backup_db.sh /app/scripts/backup_db.sh
 COPY ./scripts/backup_status.sh /app/scripts/backup_status.sh
 

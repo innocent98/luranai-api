@@ -1,11 +1,10 @@
-name: CD - Deploy to VPS
+name: CD - Staging Gate and Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     tags:
       - 'v*'
-
   workflow_dispatch:
     inputs:
       environment:
@@ -14,28 +13,38 @@ on:
         default: 'production'
         type: choice
         options:
-          - production
           - staging
+          - production
+
+permissions:
+  contents: read
 
 jobs:
-  deploy:
-    name: Deploy to VPS
+  staging-deploy:
+    name: Deploy staging stack
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/main' || github.event.inputs.environment == 'staging' || github.event.inputs.environment == 'production'
     environment:
-      name: ${{ github.event.inputs.environment || 'production' }}
+      name: staging
+    outputs:
+      deployed_at: ${{ steps.meta.outputs.deployed_at }}
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set deploy timestamp
+        id: meta
+        run: echo "deployed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and save Docker images
+      - name: Build and save API image
         run: |
-          docker build -t luran-api:latest .
-          docker save luran-api:latest | gzip > api-image.tar.gz
+          docker build -t luran-api:staging-${{ github.sha }} .
+          docker save luran-api:staging-${{ github.sha }} | gzip > api-image.tar.gz
 
-      - name: Copy files to VPS
+      - name: Copy files to staging stack directory
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -44,9 +53,9 @@ jobs:
           passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
           port: ${{ secrets.VPS_PORT || 22 }}
           source: "api-image.tar.gz,docker-compose.yml,docker-compose.prod.yml,alembic.ini,alembic/"
-          target: "/opt/luran"
+          target: ${{ secrets.DEPLOY_PATH }}
 
-      - name: Deploy to VPS
+      - name: Deploy API to staging
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
@@ -55,31 +64,209 @@ jobs:
           passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
           port: ${{ secrets.VPS_PORT || 22 }}
           script: |
-            cd /opt/luran
-            
-            # Load Docker image
+            set -euo pipefail
+            mkdir -p "${{ secrets.DEPLOY_PATH }}"
+            cd "${{ secrets.DEPLOY_PATH }}"
             docker load < api-image.tar.gz
-            
-            # Pull other required images
             docker compose -f docker-compose.yml -f docker-compose.prod.yml pull db redis qdrant pgbouncer
-            
-            # Run database migrations
             docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm api alembic upgrade head
-            
-            # Start/update services
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm api python /app/scripts/seed_data.py
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm api python /app/scripts/seed_staging_e2e.py
             docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-            
-            # Health check
-            sleep 10
-            curl -f http://localhost:8000/api/v1/health || exit 1
-            
-            # Cleanup
+            sleep 12
+            curl -f "http://localhost:${{ secrets.API_PORT || 8000 }}/api/v1/health"
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+            rm -f api-image.tar.gz
+
+      - name: Capture staging deployment context
+        run: |
+          echo "Staging API URL: ${{ secrets.APP_URL }}/api/v1"
+          echo "Deployed backend SHA: ${{ github.sha }}"
+
+  staging-api-e2e:
+    name: Run staging API E2E
+    runs-on: ubuntu-latest
+    needs: staging-deploy
+    if: needs.staging-deploy.result == 'success'
+    environment:
+      name: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: 1.8.4
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-root --with dev
+
+      - name: Run live API E2E suite
+        env:
+          LURAN_E2E_BASE_URL: ${{ secrets.APP_URL }}/api/v1
+          LURAN_E2E_PRO_EMAIL: ${{ secrets.LURAN_E2E_PRO_EMAIL }}
+          LURAN_E2E_PRO_PASSWORD: ${{ secrets.LURAN_E2E_PRO_PASSWORD }}
+          LURAN_E2E_LITE_EMAIL: ${{ secrets.LURAN_E2E_LITE_EMAIL }}
+          LURAN_E2E_LITE_PASSWORD: ${{ secrets.LURAN_E2E_LITE_PASSWORD }}
+          LURAN_E2E_QUOTA_EMAIL: ${{ secrets.LURAN_E2E_QUOTA_EMAIL }}
+          LURAN_E2E_QUOTA_PASSWORD: ${{ secrets.LURAN_E2E_QUOTA_PASSWORD }}
+          LURAN_E2E_PLATFORM_EMAIL: ${{ secrets.LURAN_E2E_PLATFORM_EMAIL }}
+          LURAN_E2E_PLATFORM_PASSWORD: ${{ secrets.LURAN_E2E_PLATFORM_PASSWORD }}
+          LURAN_E2E_TIMEOUT_SECONDS: '60'
+        run: |
+          poetry run pytest tests/e2e -m e2e -q | tee staging-api-e2e.log
+
+      - name: Upload API E2E logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-api-e2e-logs
+          path: staging-api-e2e.log
+
+  dashboard-staging-e2e:
+    name: Trigger dashboard Playwright on staging
+    runs-on: ubuntu-latest
+    needs: staging-deploy
+    if: needs.staging-deploy.result == 'success'
+    environment:
+      name: staging
+
+    steps:
+      - name: Dispatch dashboard staging workflow
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_GITHUB_TOKEN }}
+          DASHBOARD_REPO: ${{ secrets.DASHBOARD_REPO }}
+          DASHBOARD_REF: ${{ secrets.DASHBOARD_REF || 'main' }}
+          STAGING_DASHBOARD_URL: ${{ secrets.DASHBOARD_URL }}
+          STAGING_API_URL: ${{ secrets.APP_URL }}/api/v1
+          STAGING_DOCS_URL: ${{ secrets.DOCS_URL }}
+        run: |
+          set -euo pipefail
+          DISPATCHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "DISPATCHED_AT=$DISPATCHED_AT" >> "$GITHUB_ENV"
+          curl -sS -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            https://api.github.com/repos/$DASHBOARD_REPO/actions/workflows/staging-e2e.yml/dispatches \
+            -d @- <<JSON
+          {
+            "ref": "$DASHBOARD_REF",
+            "inputs": {
+              "base_url": "$STAGING_DASHBOARD_URL",
+              "api_url": "$STAGING_API_URL",
+              "docs_url": "$STAGING_DOCS_URL",
+              "backend_sha": "${{ github.sha }}"
+            }
+          }
+          JSON
+
+      - name: Wait for dashboard staging workflow completion
+        env:
+          GH_TOKEN: ${{ secrets.CROSS_REPO_GITHUB_TOKEN }}
+          DASHBOARD_REPO: ${{ secrets.DASHBOARD_REPO }}
+          DISPATCHED_AT: ${{ env.DISPATCHED_AT }}
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 60); do
+            RESPONSE=$(curl -sS \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/$DASHBOARD_REPO/actions/workflows/staging-e2e.yml/runs?event=workflow_dispatch&per_page=10")
+            STATUS=$(RESPONSE="$RESPONSE" python3 - <<'PY'
+          import json, os
+          from datetime import datetime
+
+          response = json.loads(os.environ["RESPONSE"])
+          dispatched_at = datetime.fromisoformat(os.environ["DISPATCHED_AT"].replace("Z", "+00:00"))
+          for run in response.get("workflow_runs", []):
+              created_at = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
+              if created_at >= dispatched_at:
+                  status = run.get("status")
+                  conclusion = run.get("conclusion") or ""
+                  print(f"{status}:{conclusion}:{run.get('html_url', '')}")
+                  break
+          else:
+              print("missing::")
+          PY
+          )
+            echo "$STATUS"
+            RUN_STATUS=$(printf '%s' "$STATUS" | cut -d: -f1)
+            RUN_CONCLUSION=$(printf '%s' "$STATUS" | cut -d: -f2)
+            if [ "$RUN_STATUS" = "completed" ]; then
+              [ "$RUN_CONCLUSION" = "success" ] || exit 1
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "Dashboard staging E2E did not complete in time."
+          exit 1
+
+  production-deploy:
+    name: Deploy production stack
+    runs-on: ubuntu-latest
+    needs: [staging-api-e2e, dashboard-staging-e2e]
+    if: |
+      (github.ref == 'refs/heads/main' || github.event.inputs.environment == 'production') &&
+      needs.staging-api-e2e.result == 'success' &&
+      needs.dashboard-staging-e2e.result == 'success'
+    environment:
+      name: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and save API image
+        run: |
+          docker build -t luran-api:latest .
+          docker save luran-api:latest | gzip > api-image.tar.gz
+
+      - name: Copy files to production stack directory
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "api-image.tar.gz,docker-compose.yml,docker-compose.prod.yml,alembic.ini,alembic/"
+          target: ${{ secrets.DEPLOY_PATH }}
+
+      - name: Deploy to production
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            mkdir -p "${{ secrets.DEPLOY_PATH }}"
+            cd "${{ secrets.DEPLOY_PATH }}"
+            docker load < api-image.tar.gz
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml pull db redis qdrant pgbouncer
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm api alembic upgrade head
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+            sleep 12
+            curl -f "http://localhost:${{ secrets.API_PORT || 8000 }}/api/v1/health"
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
             docker image prune -f
-            rm api-image.tar.gz
+            rm -f api-image.tar.gz
 
       - name: Notify deployment status
         if: always()
         run: |
-          echo "Deployment ${{ job.status }} to ${{ github.event.inputs.environment || 'production' }}"
+          echo "Production deployment ${{ job.status }}"
           echo "Commit: ${{ github.sha }}"
-          echo "Author: ${{ github.actor }}"
+          echo "Actor: ${{ github.actor }}"

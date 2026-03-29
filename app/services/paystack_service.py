@@ -19,12 +19,12 @@ class PaystackService:
 
     # Paystack plan codes (actual codes from Paystack dashboard)
     PLAN_CODES = {
-        "lite_monthly": "PLN_jyimgdb5eobje4a",
-        "lite_annual": "PLN_yeostwggamfwy3b",
-        "professional_monthly": "PLN_ev747ystsd08nhq",
-        "professional_annual": "PLN_pz9lyqt3q4uajn4",
-        "growth_monthly": "PLN_2poizrt6dhmf40e",
-        "growth_annual": "PLN_af25zpt8c6hdins",
+        "lite_monthly": "PLN_skd2aqpks7mdfcm",
+        "lite_annual": "PLN_v8nn8nfmnqx5m1z",
+        "professional_monthly": "PLN_o7773e3msry7irw",
+        "professional_annual": "PLN_3n37oa3jgeu7rnf",
+        "growth_monthly": "PLN_gh2uycf1yg8juwo",
+        "growth_annual": "PLN_372yln228q6ngfs",
     }
 
     def __init__(self, db: Session):

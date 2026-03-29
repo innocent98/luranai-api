@@ -401,10 +401,43 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         comment="Maximum team members allowed (null = unlimited)",
     )
+    max_automation_actions: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Maximum automation actions allowed (null = unlimited)",
+    )
+    max_automation_executions_per_month: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Maximum automation executions allowed per month (null = unlimited)",
+    )
+    can_use_ai_chat_automation: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Can use automation actions directly from normal AI chat",
+    )
+    can_use_lookup_chains: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Can use lookup-first automation chains in AI chat",
+    )
+    can_use_webhooks: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Can use webhook/direct API call nodes in flows",
+    )
     max_flows: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
         comment="Maximum flows allowed (null = unlimited)",
+    )
+    max_webhooks_per_flow: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Maximum webhook nodes allowed per flow (null = unlimited)",
     )
 
     # Override Tracking

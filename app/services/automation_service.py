@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any
 from uuid import UUID
 
 import httpx
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import or_, select
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -21,6 +23,7 @@ from app.db.models.automation import (
     TenantAction,
     TenantActionStatus,
 )
+from app.db.models.tenant import TenantCapabilities
 from app.schemas.automation import TenantActionCreate, TenantActionUpdate
 from app.utils.network_security import ensure_safe_outbound_url
 
@@ -28,12 +31,15 @@ from app.utils.network_security import ensure_safe_outbound_url
 class AutomationService:
     """Service for CRUD and runtime execution of tenant actions."""
 
+    EXECUTION_LIMIT_ERROR_CODE = "AUTOMATION_EXECUTION_LIMIT_REACHED"
+
     def __init__(self, db: Session):
         self.db = db
 
     def create_action(
         self, tenant_id: UUID, user_id: UUID | None, payload: TenantActionCreate
     ) -> TenantAction:
+        self._check_action_limit(tenant_id)
         data = payload.model_dump()
         if data.get("is_sensitive") and not data.get("requires_approval"):
             data["requires_approval"] = True
@@ -48,6 +54,90 @@ class AutomationService:
         self.db.commit()
         self.db.refresh(action)
         return action
+
+    def count_actions(self, tenant_id: UUID) -> int:
+        stmt = select(func.count()).select_from(TenantAction).where(TenantAction.tenant_id == tenant_id)
+        return int(self.db.execute(stmt).scalar() or 0)
+
+    def _check_action_limit(self, tenant_id: UUID) -> None:
+        stmt = select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant_id)
+        capabilities = self.db.execute(stmt).scalar_one_or_none()
+        if not capabilities or capabilities.max_automation_actions is None:
+            return
+
+        action_count = self.count_actions(tenant_id)
+        if action_count >= capabilities.max_automation_actions:
+            raise ValueError(
+                f"Automation action limit reached. Your plan allows {capabilities.max_automation_actions} automation actions. Upgrade to create more."
+            )
+
+    def count_monthly_executions(self, tenant_id: UUID) -> int:
+        month_start = datetime.now(timezone.utc).replace(
+            day=1,
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        stmt = (
+            select(func.count())
+            .select_from(ActionExecution)
+            .where(
+                ActionExecution.tenant_id == tenant_id,
+                ActionExecution.created_at >= month_start,
+                or_(
+                    ActionExecution.error_code.is_(None),
+                    ActionExecution.error_code != self.EXECUTION_LIMIT_ERROR_CODE,
+                ),
+            )
+        )
+        return int(self.db.execute(stmt).scalar() or 0)
+
+    def _get_execution_limit(self, tenant_id: UUID) -> int | None:
+        stmt = select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant_id)
+        capabilities = self.db.execute(stmt).scalar_one_or_none()
+        if not capabilities:
+            return None
+        return capabilities.max_automation_executions_per_month
+
+    def _build_execution_limit_blocked_execution(
+        self,
+        *,
+        tenant_id: UUID,
+        action: TenantAction,
+        input_payload: dict[str, Any],
+        session_id: UUID | None,
+        flow_execution_id: UUID | None,
+        flow_id: UUID | None,
+        node_id: str | None,
+        trigger_source: ActionTriggerSource,
+        monthly_limit: int,
+    ) -> ActionExecution:
+        execution = ActionExecution(
+            tenant_id=tenant_id,
+            session_id=session_id,
+            flow_execution_id=flow_execution_id,
+            flow_id=flow_id,
+            node_id=node_id,
+            action_id=action.id,
+            trigger_source=trigger_source,
+            status=ActionExecutionStatus.BLOCKED_POLICY,
+            input_payload=input_payload,
+            resolved_request={},
+            attempt=1,
+            requires_approval=bool(action.requires_approval),
+            approval_status="pending" if action.requires_approval else None,
+            error_code=self.EXECUTION_LIMIT_ERROR_CODE,
+            error_message=(
+                f"Monthly automation execution limit reached. Your plan allows "
+                f"{monthly_limit} automation executions per month. Upgrade to run more."
+            ),
+            meta={"blocked_by": "automation_execution_limit"},
+        )
+        self.db.add(execution)
+        self.db.commit()
+        self.db.refresh(execution)
+        return execution
 
     def create_secret(
         self, tenant_id: UUID, provider: str, key_name: str, secret_value: str
@@ -270,6 +360,22 @@ class AutomationService:
         bypass_approval_check: bool = False,
     ) -> ActionExecution:
         input_payload = input_payload or {}
+        monthly_execution_limit = self._get_execution_limit(tenant_id)
+        if monthly_execution_limit is not None:
+            monthly_execution_count = self.count_monthly_executions(tenant_id)
+            if monthly_execution_count >= monthly_execution_limit:
+                return self._build_execution_limit_blocked_execution(
+                    tenant_id=tenant_id,
+                    action=action,
+                    input_payload=input_payload,
+                    session_id=session_id,
+                    flow_execution_id=flow_execution_id,
+                    flow_id=flow_id,
+                    node_id=node_id,
+                    trigger_source=trigger_source,
+                    monthly_limit=monthly_execution_limit,
+                )
+
         execution = ActionExecution(
             tenant_id=tenant_id,
             session_id=session_id,

@@ -6113,7 +6113,7 @@ const plans = await response.json();
   {
     "tier": "trial",
     "display_name": "Trial",
-    "description": "Try out the platform with limited features",
+    "description": "Try Luran with core AI support and starter limits.",
     "monthly_price_kobo": 0,
     "annual_price_kobo": 0,
     "monthly_price_naira": 0.0,
@@ -6141,7 +6141,7 @@ const plans = await response.json();
   {
     "tier": "lite",
     "display_name": "Lite",
-    "description": "Perfect for small businesses getting started",
+    "description": "For small teams getting started.",
     "monthly_price_kobo": 1200000,  // ₦12,000
     "annual_price_kobo": 12000000,  // ₦120,000
     "monthly_price_naira": 12000.0,
@@ -6696,7 +6696,7 @@ const data = await response.json();
     {
       "tier": "trial",
       "display_name": "Trial",
-      "description": "Try out the platform with limited features",
+      "description": "Try Luran with core AI support and starter limits.",
       "monthly_price_kobo": 0,
       "annual_price_kobo": 0,
       "monthly_price_naira": 0.0,
@@ -6723,7 +6723,7 @@ const data = await response.json();
     {
       "tier": "lite",
       "display_name": "Lite",
-      "description": "Perfect for small businesses getting started",
+      "description": "For small teams getting started.",
       "monthly_price_kobo": 1200000,  // ₦12,000
       "annual_price_kobo": 12000000,  // ₦120,000
       "monthly_price_naira": 12000.0,
@@ -6880,7 +6880,7 @@ const response = await fetch(
 {
   "tier": "lite",
   "display_name": "Lite",
-  "description": "Perfect for small businesses getting started",
+  "description": "For small teams getting started.",
   "monthly_price_kobo": 1500000,
   "annual_price_kobo": 15000000,
   "monthly_price_naira": 15000.0,

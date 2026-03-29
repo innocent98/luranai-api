@@ -35,12 +35,15 @@ def create_action(
     _subscription_check: object = Depends(verify_subscription_active),
 ):
     service = AutomationService(db)
-    action = service.create_action(
-        tenant_id=current_user.tenant_id,
-        user_id=current_user.id,
-        payload=payload,
-    )
-    return TenantActionResponse.model_validate(action)
+    try:
+        action = service.create_action(
+            tenant_id=current_user.tenant_id,
+            user_id=current_user.id,
+            payload=payload,
+        )
+        return TenantActionResponse.model_validate(action)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from e
 
 
 @router.get(

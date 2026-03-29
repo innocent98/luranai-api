@@ -51,7 +51,7 @@ services:
 
   pgbouncer:
     image: edoburu/pgbouncer:latest@sha256:85d1e38593617af1b5f7f285e97d407e56c29939683cc7cfe4c8f6dc19f1268b
-    container_name: luran_pgbouncer
+    container_name: ${COMPOSE_PROJECT_NAME:-luran}_pgbouncer
     restart: unless-stopped
     depends_on:
       - db

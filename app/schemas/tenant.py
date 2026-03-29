@@ -131,7 +131,28 @@ class TenantCapabilitiesBase(BaseModel):
     )
     can_use_url_sources: bool = Field(default=False, description="Can use URL sources")
     max_team_members: int | None = Field(None, ge=0, description="Maximum team members")
+    max_automation_actions: int | None = Field(
+        None, ge=0, description="Maximum automation actions allowed"
+    )
+    max_automation_executions_per_month: int | None = Field(
+        None, ge=0, description="Maximum automation executions allowed per month"
+    )
+    can_use_ai_chat_automation: bool = Field(
+        default=False,
+        description="Whether automation actions can be used directly from normal AI chat",
+    )
+    can_use_lookup_chains: bool = Field(
+        default=False,
+        description="Whether AI chat can resolve lookup-first automation chains",
+    )
+    can_use_webhooks: bool = Field(
+        default=False,
+        description="Whether flows can include webhook/direct API call nodes",
+    )
     max_flows: int | None = Field(None, ge=0, description="Maximum flows allowed")
+    max_webhooks_per_flow: int | None = Field(
+        None, ge=0, description="Maximum webhook nodes allowed per flow"
+    )
 
 
 # Create schemas
@@ -206,7 +227,13 @@ class TenantCapabilitiesUpdate(BaseModel):
     max_knowledge_sources: int | None = Field(None, ge=0)
     can_use_url_sources: bool | None = None
     max_team_members: int | None = Field(None, ge=0)
+    max_automation_actions: int | None = Field(None, ge=0)
+    max_automation_executions_per_month: int | None = Field(None, ge=0)
+    can_use_ai_chat_automation: bool | None = None
+    can_use_lookup_chains: bool | None = None
+    can_use_webhooks: bool | None = None
     max_flows: int | None = Field(None, ge=0)
+    max_webhooks_per_flow: int | None = Field(None, ge=0)
 
 
 # Response schemas

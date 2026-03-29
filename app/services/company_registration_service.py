@@ -138,7 +138,13 @@ class CompanyRegistrationService:
                 max_knowledge_sources=2,  # Only 2 sources for trial
                 can_use_url_sources=False,  # Files only, no URLs in trial
                 max_team_members=1,  # Only 1 user (admin) for trial
-                max_flows=0,  # No flows on trial by default
+                max_automation_actions=2,  # Starter automation access in trial
+                max_automation_executions_per_month=100,  # Starter monthly automation usage in trial
+                can_use_ai_chat_automation=True,  # Trial should experience real AI chat automation
+                can_use_lookup_chains=False,  # Lookup-first chaining starts on higher plans
+                can_use_webhooks=False,  # Direct API/webhook nodes start on higher plans
+                max_flows=1,  # Allow one flow on trial
+                max_webhooks_per_flow=0,  # No webhook nodes on trial
             )
             self.db.add(capabilities)
 
