@@ -153,6 +153,12 @@ class Settings(BaseSettings):
     # Paystack Payment Gateway
     PAYSTACK_SECRET_KEY: str
     PAYSTACK_PUBLIC_KEY: str | None = None
+    PAYSTACK_PLAN_LITE_MONTHLY: str | None = None
+    PAYSTACK_PLAN_LITE_ANNUAL: str | None = None
+    PAYSTACK_PLAN_PROFESSIONAL_MONTHLY: str | None = None
+    PAYSTACK_PLAN_PROFESSIONAL_ANNUAL: str | None = None
+    PAYSTACK_PLAN_GROWTH_MONTHLY: str | None = None
+    PAYSTACK_PLAN_GROWTH_ANNUAL: str | None = None
     # DEPRECATED: Paystack uses PAYSTACK_SECRET_KEY for webhook verification
     # See: https://paystack.com/docs/payments/webhooks/#verify-webhook-signature
     PAYSTACK_WEBHOOK_SECRET: str | None = None  # Not used - kept for backwards compatibility

@@ -28,9 +28,23 @@ from app.services.paystack_service import PaystackService
 from app.services.platform_subscription_service import PlatformSubscriptionService
 from app.services.subscription_service import SubscriptionService
 from app.services.webhook_handler_service import WebhookHandlerService
-from app.utils.http_rate_limiter import payment_rate_limit, subscription_rate_limit
+from app.utils.http_rate_limiter import (
+    payment_rate_limit,
+    subscription_rate_limit,
+    subscription_read_rate_limit,
+)
 
 router = APIRouter()
+
+
+def _tier_rank(tier: str) -> int:
+    return {
+        "trial": 0,
+        "lite": 1,
+        "professional": 2,
+        "growth": 3,
+        "enterprise": 4,
+    }.get(tier, -1)
 
 
 @router.post(
@@ -76,6 +90,21 @@ async def initialize_subscription_payment(
             detail="Invalid billing cycle. Choose 'monthly' or 'annual'.",
         )
 
+    from app.db.models.tenant import Tenant
+
+    tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    current_tier = str(tenant.subscription_tier)
+    requested_tier = str(payment_request.tier)
+
+    if _tier_rank(requested_tier) <= _tier_rank(current_tier):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Lower-tier changes must use the downgrade flow. Please use the downgrade page to move to a lower plan.",
+        )
+
     # Initialize Paystack payment
     paystack_service = PaystackService(db)
     webhook_handler = WebhookHandlerService(db)
@@ -113,10 +142,12 @@ async def initialize_subscription_payment(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to initialize payment: {str(e)}",
+            detail="Failed to initialize payment.",
         ) from e
 
 
@@ -232,6 +263,18 @@ async def upgrade_subscription_direct(
     subscription_service = SubscriptionService(db)
 
     try:
+        from app.db.models.tenant import Tenant
+
+        tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+        if not tenant:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+        if _tier_rank(upgrade_data.tier) <= _tier_rank(str(tenant.subscription_tier)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Use the downgrade endpoint for lower-tier changes.",
+            )
+
         tenant = subscription_service.upgrade_subscription(
             tenant_id=current_user.tenant_id,
             tier=upgrade_data.tier,
@@ -249,13 +292,15 @@ async def upgrade_subscription_direct(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+    except HTTPException:
+        raise
 
 
 @router.get(
     "/plans",
     response_model=list[PricingPlanResponse],
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(subscription_rate_limit)],
+    dependencies=[Depends(subscription_read_rate_limit)],
 )
 async def get_pricing_plans(
     db: Session = Depends(get_db),
@@ -293,7 +338,7 @@ async def get_pricing_plans(
 @router.get(
     "/my-subscription",
     response_model=MySubscriptionResponse,
-    dependencies=[Depends(subscription_rate_limit)],
+    dependencies=[Depends(subscription_read_rate_limit)],
 )
 async def get_my_subscription(
     current_user: UserResponse = Depends(get_current_user),
@@ -406,7 +451,7 @@ async def cancel_my_subscription(
 @router.get(
     "/history",
     response_model=list[SubscriptionHistoryResponse],
-    dependencies=[Depends(subscription_rate_limit)],
+    dependencies=[Depends(subscription_read_rate_limit)],
 )
 async def get_subscription_history(
     limit: int = 20,

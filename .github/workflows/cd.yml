@@ -109,6 +109,33 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction --no-root --with dev
 
+      - name: Reset staging E2E rate limit keys
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T redis redis-cli DEL \
+              http_auth:127.0.0.1 \
+              http_auth:localhost \
+              http_subscription:127.0.0.1 \
+              http_subscription:localhost \
+              http_subscription_read:127.0.0.1 \
+              http_subscription_read:localhost >/dev/null || true
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T redis sh -lc '
+              for pattern in http_auth* http_subscription* http_subscription_read*; do
+                for key in $(redis-cli --scan --pattern "$pattern"); do
+                  redis-cli DEL "$key" >/dev/null
+                done
+              done
+              echo "Staging rate-limit keys cleared"
+            '
+
       - name: Run live API E2E suite
         env:
           LURAN_E2E_BASE_URL: ${{ secrets.APP_URL }}/api/v1
@@ -140,6 +167,26 @@ jobs:
       name: staging
 
     steps:
+      - name: Reset staging dashboard E2E rate limit keys
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T redis sh -lc '
+              for pattern in http_auth* http_subscription* http_subscription_read*; do
+                for key in $(redis-cli --scan --pattern "$pattern"); do
+                  redis-cli DEL "$key" >/dev/null
+                done
+              done
+              echo "Staging rate-limit keys cleared for dashboard E2E"
+            '
+
       - name: Dispatch dashboard staging workflow
         env:
           GH_TOKEN: ${{ secrets.CROSS_REPO_GITHUB_TOKEN }}
