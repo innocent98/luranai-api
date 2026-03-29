@@ -1044,7 +1044,7 @@ async def send_message(
                             )
                             if email_sent:
                                 logger.info("Flow escalation email sent")
-                        except Exception as email_error:
+                        except Exception:
                             logger.error("Flow escalation email delivery failed")
 
                 except Exception as ticket_error:
@@ -1281,7 +1281,7 @@ async def send_message(
                                     logger.info(
                                         "Flow escalation email sent"
                                     )
-                            except Exception as email_error:
+                            except Exception:
                                 logger.error("Flow escalation email delivery failed")
 
                     except Exception as ticket_error:
@@ -1493,7 +1493,7 @@ async def send_message(
                         ticket_id=str(ticket.id),
                         customer_contact_email=final_contact_email,
                     )
-                except Exception as email_error:
+                except Exception:
                     logger.error("Contact-capture escalation email delivery failed")
         except Exception as ticket_error:
             logger.error(f"Failed to create ticket after contact capture: {ticket_error}")
@@ -1659,7 +1659,7 @@ async def send_message(
                         )
                         if email_sent:
                             logger.info("Escalation email sent")
-                    except Exception as email_error:
+                    except Exception:
                         logger.error("Escalation email delivery failed")
 
             except Exception as ticket_error:

@@ -843,7 +843,7 @@ class ChatAutomationOrchestrator:
                 ),
                 timeout=self.LLM_REPLY_TIMEOUT_SECONDS,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
         if is_api_error:
             return None
@@ -1033,7 +1033,7 @@ class ChatAutomationOrchestrator:
                 ),
                 timeout=self.LLM_REPLY_TIMEOUT_SECONDS,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return None
         if is_api_error:
             return None

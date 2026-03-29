@@ -1,5 +1,6 @@
 services:
   api:
+    build: !reset null
     deploy: !reset {}
     volumes: !reset
       - ./logs:/app/logs
@@ -21,6 +22,7 @@ services:
         ]
 
   worker:
+    build: !reset null
     deploy: !reset {}
     volumes: !reset
       - ./logs:/app/logs

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
 from uuid import UUID
@@ -72,7 +72,7 @@ class AutomationService:
             )
 
     def count_monthly_executions(self, tenant_id: UUID) -> int:
-        month_start = datetime.now(timezone.utc).replace(
+        month_start = datetime.now(UTC).replace(
             day=1,
             hour=0,
             minute=0,
