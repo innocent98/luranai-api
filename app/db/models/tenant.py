@@ -51,6 +51,49 @@ class Tenant(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         comment="Brief description of the product/tenant",
     )
+    long_description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="Extended company and support description for hosted support pages",
+    )
+    support_headline: Mapped[str | None] = mapped_column(
+        String(160),
+        nullable=True,
+        comment="Short hosted-support headline shown on the public support page",
+    )
+    support_subheadline: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Supporting hosted-support subheadline shown on the public support page",
+    )
+    support_hours: Mapped[str | None] = mapped_column(
+        String(120),
+        nullable=True,
+        comment="Business support hours shown on the public support page",
+    )
+    support_response_time: Mapped[str | None] = mapped_column(
+        String(120),
+        nullable=True,
+        comment="Typical support response-time note shown on the public support page",
+    )
+    support_footer_note: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Small hosted-support footer note shown on the public support page",
+    )
+    is_publicly_listed: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Whether this tenant should appear in the public business directory",
+    )
+    public_slug: Mapped[str | None] = mapped_column(
+        String(50),
+        unique=True,
+        index=True,
+        nullable=True,
+        comment="Public support slug used for hosted support pages",
+    )
     status: Mapped[TenantStatus] = mapped_column(
         SQLEnum(TenantStatus, name="tenant_status"),
         default=TenantStatus.ACTIVE,
@@ -253,6 +296,24 @@ class TenantAIConfig(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Require capturing customer email before escalating to human support",
     )
+    require_name_before_escalation: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Require capturing customer name before escalating to human support",
+    )
+    collect_name_before_chat: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Collect customer name before starting chat",
+    )
+    collect_email_before_chat: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Collect customer email before starting chat",
+    )
 
     # Custom Instructions
     custom_instructions: Mapped[str | None] = mapped_column(
@@ -340,10 +401,43 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         comment="Maximum team members allowed (null = unlimited)",
     )
+    max_automation_actions: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Maximum automation actions allowed (null = unlimited)",
+    )
+    max_automation_executions_per_month: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Maximum automation executions allowed per month (null = unlimited)",
+    )
+    can_use_ai_chat_automation: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Can use automation actions directly from normal AI chat",
+    )
+    can_use_lookup_chains: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Can use lookup-first automation chains in AI chat",
+    )
+    can_use_webhooks: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        comment="Can use webhook/direct API call nodes in flows",
+    )
     max_flows: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
         comment="Maximum flows allowed (null = unlimited)",
+    )
+    max_webhooks_per_flow: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Maximum webhook nodes allowed per flow (null = unlimited)",
     )
 
     # Override Tracking

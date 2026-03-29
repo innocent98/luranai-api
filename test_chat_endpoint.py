@@ -11,6 +11,7 @@ Verifies:
 
 import requests
 import json
+from hashlib import sha256
 from uuid import UUID
 
 BASE_URL = "http://localhost:8000"
@@ -19,6 +20,10 @@ API_V1 = f"{BASE_URL}/api/v1"
 # Use existing weysure tenant
 TENANT_ID = "bb24bf9e-63c2-4497-b5f5-e46dd916f7ea"
 USER_IDENTIFIER = "test-user-polish@example.com"
+
+
+def mask_identifier(value: str) -> str:
+    return sha256(value.encode("utf-8")).hexdigest()[:8]
 
 def test_send_message():
     """Test sending a message through the chat endpoint."""
@@ -37,9 +42,9 @@ def test_send_message():
         }
     }
 
-    print(f"📤 Sending message to tenant: {TENANT_ID[:8]}...")
-    print(f"   User: {USER_IDENTIFIER}")
-    print(f"   Message: '{message_data['message']}'")
+    print("📤 Sending test message")
+    print(f"   Tenant hash: {mask_identifier(TENANT_ID)}")
+    print(f"   User hash: {mask_identifier(USER_IDENTIFIER)}")
 
     # Send request
     try:
@@ -62,7 +67,7 @@ def test_send_message():
 
             # Verify session_id
             if "session_id" in data:
-                print(f"✅ Session ID: {data['session_id'][:8]}...")
+                print("✅ Session created successfully")
             else:
                 print("❌ FAIL: No session_id in response")
                 return False
@@ -71,7 +76,6 @@ def test_send_message():
             if "message" in data:
                 msg = data["message"]
                 print(f"\n📨 Message Details:")
-                print(f"   ID: {msg.get('id', 'N/A')[:8] if msg.get('id') else 'N/A'}...")
                 print(f"   Role: {msg.get('role', 'N/A')}")
                 print(f"   Content Length: {len(msg.get('content', ''))} chars")
 
@@ -86,8 +90,7 @@ def test_send_message():
 
                 # Check if response has content
                 if msg.get("content"):
-                    print(f"\n💬 AI Response (first 200 chars):")
-                    print(f"   {msg['content'][:200]}...")
+                    print("\n💬 AI response content received")
                 else:
                     print("\n⚠️  WARNING: Empty response content")
 
@@ -95,7 +98,6 @@ def test_send_message():
                 if msg.get("retrieved_chunk_ids"):
                     print(f"\n🔍 RAG Retrieval:")
                     print(f"   Chunks retrieved: {len(msg['retrieved_chunk_ids'])}")
-                    print(f"   Chunk IDs: {[str(c)[:8] for c in msg['retrieved_chunk_ids']]}")
                 else:
                     print(f"\n⚠️  No chunks retrieved (might be expected for this query)")
 
@@ -168,7 +170,7 @@ def test_retrieve_session():
         session_id = data.get("session_id")
 
         if session_id:
-            print(f"✅ Session created: {session_id[:8]}...")
+            print("✅ Session created")
 
             # Now retrieve the session
             retrieve_response = requests.get(

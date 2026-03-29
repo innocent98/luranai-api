@@ -2,6 +2,17 @@
 
 from app.db.base import Base
 from app.db.models.api_key import APIKey, APIKeyType
+from app.db.models.automation import (
+    ActionAuthType,
+    ActionExecution,
+    ActionExecutionStatus,
+    ActionTriggerSource,
+    ActionSecret,
+    TenantAutomationConfig,
+    TenantAction,
+    TenantActionStatus,
+    TenantActionType,
+)
 from app.db.models.audit import AnalyticsMetric, AuditLog
 from app.db.models.conversation import (
     ConversationSession,
@@ -39,6 +50,7 @@ from app.db.models.visit_analytics import DailyVisit
 # Import all models to ensure they're registered with SQLAlchemy
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
 from app.db.models.user import User, UserRole
+from app.db.models.visitor import DeviceType, Visitor, VisitorSession, VisitorSource
 
 __all__ = [
     "Base",
@@ -47,6 +59,10 @@ __all__ = [
     "TenantAIConfig",
     "TenantCapabilities",
     "TenantStatus",
+    "Visitor",
+    "VisitorSession",
+    "VisitorSource",
+    "DeviceType",
     # Knowledge models
     "KnowledgeSource",
     "KnowledgeChunk",
@@ -70,6 +86,16 @@ __all__ = [
     # API Key models
     "APIKey",
     "APIKeyType",
+    # Automation models
+    "TenantAction",
+    "TenantActionStatus",
+    "TenantActionType",
+    "ActionAuthType",
+    "ActionExecution",
+    "ActionExecutionStatus",
+    "ActionTriggerSource",
+    "ActionSecret",
+    "TenantAutomationConfig",
     # Audit models
     "AuditLog",
     "AnalyticsMetric",

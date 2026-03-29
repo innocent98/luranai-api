@@ -570,10 +570,7 @@ def list_flow_templates(
         }
 
     except Exception as e:
-        logger.error(f"Failed to list flow templates: {e}")
-        import traceback
-
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.error("Failed to list flow templates")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list templates: {str(e)}",
@@ -915,10 +912,7 @@ def delete_flow(
     current_user: UserResponse = Depends(get_current_tenant_admin),
 ):
     """
-    Delete (archive) a flow.
-
-    This soft-deletes the flow by setting its status to ARCHIVED
-    and is_active to False.
+    Delete a flow permanently.
 
     Args:
         flow_id: Flow UUID
@@ -943,13 +937,10 @@ def delete_flow(
     verify_tenant_access(flow.tenant_id, current_user)
 
     try:
-        # Soft delete: archive and deactivate
-        flow.status = FlowStatus.ARCHIVED
-        flow.is_active = False
+        flow_service = FlowService(db)
+        flow_service.delete_flow(flow_id)
 
-        db.commit()
-
-        logger.info(f"Flow archived: {flow.name} (ID: {flow_id}) by user {current_user.email}")
+        logger.info(f"Flow deleted: {flow.name} (ID: {flow_id}) by user {current_user.email}")
 
         return None
 

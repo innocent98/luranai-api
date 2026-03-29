@@ -11,8 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models.conversation import ConversationSession
+from app.db.models.automation import ActionExecutionStatus, ActionTriggerSource
 from app.db.models.flow import Flow, FlowExecution, FlowExecutionStatus, FlowStatus, FlowTriggerType
 from app.services.rag_service import RAGService
+from app.services.automation_service import AutomationService
 from app.schemas.knowledge import KnowledgeChunkResponse
 from app.utils.datetime import utcnow_naive
 from app.utils.network_security import ensure_safe_outbound_url
@@ -212,6 +214,18 @@ class FlowEngine:
 
         return self.db.execute(stmt).scalar_one_or_none()
 
+    def _set_collected_value(self, execution: FlowExecution, key: str, value: Any) -> None:
+        """Persist a single collected_data key via reassignment."""
+        next_data = dict(execution.collected_data or {})
+        next_data[key] = value
+        execution.collected_data = next_data
+
+    def _merge_collected_values(self, execution: FlowExecution, values: dict[str, Any]) -> None:
+        """Persist multiple collected_data values via reassignment."""
+        next_data = dict(execution.collected_data or {})
+        next_data.update(values)
+        execution.collected_data = next_data
+
     async def execute_node(self, execution: FlowExecution, user_input: str | None = None) -> dict:
         """
         Execute current node in flow execution and advance to next.
@@ -273,6 +287,8 @@ class FlowEngine:
                 result = await self._exec_rag_query(execution, current_node)
             elif node_type == "webhook":
                 result = await self._exec_webhook(execution, current_node)
+            elif node_type == "action_call":
+                result = await self._exec_action_call(execution, current_node)
             elif node_type == "ai_action":
                 result = await self._exec_ai_action(execution, current_node, user_input)
             elif node_type == "escalate":
@@ -389,7 +405,7 @@ class FlowEngine:
 
         # Save selected option (support legacy `variable` key)
         save_to = config.get("save_to") or config.get("variable") or "question_response"
-        execution.collected_data[save_to] = matched_option.get("value")
+        self._set_collected_value(execution, save_to, matched_option.get("value"))
         self.db.flush()
 
         # Advance to option's target node (fallback to config-level next_node_id)
@@ -467,7 +483,7 @@ class FlowEngine:
                 }
 
         # Save input
-        execution.collected_data[save_to] = user_input
+        self._set_collected_value(execution, save_to, user_input)
         self.db.flush()
 
         # Advance to next node
@@ -487,6 +503,7 @@ class FlowEngine:
                 # Auto-continue for non-interactive nodes
                 if next_node_type in [
                     "webhook",
+                    "action_call",
                     "rag_query",
                     "condition",
                     "message",
@@ -588,7 +605,7 @@ class FlowEngine:
             "chunks": [{"id": str(chunk.id), "content": chunk.content} for chunk in chunks],
             "scores": scores,
         }
-        execution.collected_data[save_to] = rag_result
+        self._set_collected_value(execution, save_to, rag_result)
         self.db.flush()
 
         # Advance to next node
@@ -654,7 +671,7 @@ class FlowEngine:
                     "success": 200 <= response.status_code < 300,
                     "data": response_data,
                 }
-                execution.collected_data[save_to] = webhook_result
+                self._set_collected_value(execution, save_to, webhook_result)
                 self.db.flush()
 
                 # Advance to next node
@@ -668,11 +685,15 @@ class FlowEngine:
         except Exception as e:
             logger.error(f"Webhook call failed: {e}", exc_info=True)
             # Save error
-            execution.collected_data[save_to] = {
-                "status_code": 0,
-                "success": False,
-                "error": str(e),
-            }
+            self._set_collected_value(
+                execution,
+                save_to,
+                {
+                    "status_code": 0,
+                    "success": False,
+                    "error": str(e),
+                },
+            )
             self.db.flush()
 
             # Try error path if configured
@@ -683,6 +704,124 @@ class FlowEngine:
                 return await self.execute_node(execution, None)
             else:
                 return self._error_result(f"Webhook failed: {str(e)}")
+
+    async def _exec_action_call(self, execution: FlowExecution, node: dict) -> dict:
+        """
+        Execute ACTION_CALL node: run a tenant action and route based on result.
+
+        Args:
+            execution: Flow execution
+            node: Node configuration
+
+        Returns:
+            Execution result
+        """
+        config = node.get("config", {})
+        action_id = config.get("action_id")
+        if not action_id:
+            return self._error_result("Action node missing action_id")
+
+        # Load session for tenant context
+        session = self.db.execute(
+            select(ConversationSession).where(ConversationSession.id == execution.session_id)
+        ).scalar_one_or_none()
+        if not session:
+            return self._error_result("Session not found")
+
+        automation_service = AutomationService(self.db)
+        action = automation_service.get_action(
+            tenant_id=session.tenant_id, action_id=UUID(action_id)
+        )
+        if not action:
+            return self._error_result("Configured action not found")
+
+        input_map = config.get("input_map", {})
+        input_payload = (
+            self._interpolate_dict(input_map, execution.collected_data)
+            if isinstance(input_map, dict)
+            else {}
+        )
+        if not input_payload:
+            # Default pass-through behavior if no explicit mapping exists
+            input_payload = dict(execution.collected_data or {})
+
+        action_execution = await automation_service.execute_action(
+            tenant_id=session.tenant_id,
+            action=action,
+            input_payload=input_payload,
+            session_id=execution.session_id,
+            flow_execution_id=execution.id,
+            flow_id=execution.flow_id,
+            node_id=node.get("id"),
+            trigger_source=ActionTriggerSource.FLOW_NODE,
+        )
+
+        output_save_to = config.get("output_save_to", "action_result")
+        self._set_collected_value(
+            execution,
+            output_save_to,
+            action_execution.normalized_output
+            or action_execution.response_body
+            or {
+                "success": action_execution.status == ActionExecutionStatus.SUCCEEDED,
+                "status": action_execution.status.value,
+                "error": action_execution.error_message,
+            },
+        )
+
+        output_map = config.get("output_map", {})
+        if isinstance(output_map, dict):
+            mapped_output: dict[str, Any] = {}
+            source = {
+                "normalized": action_execution.normalized_output,
+                "response": action_execution.response_body,
+                "status_code": action_execution.response_status_code,
+                "success": action_execution.status == ActionExecutionStatus.SUCCEEDED,
+                "error": action_execution.error_message,
+            }
+            for target_key, source_path in output_map.items():
+                if not isinstance(target_key, str) or not isinstance(source_path, str):
+                    continue
+                mapped_output[target_key] = self._extract_json_path_value(source, source_path)
+            if mapped_output:
+                self._merge_collected_values(execution, mapped_output)
+
+        next_node_id = None
+        if action_execution.status == ActionExecutionStatus.SUCCEEDED:
+            next_node_id = config.get("on_success_next_node_id") or config.get("next_node_id")
+        elif action_execution.status == ActionExecutionStatus.TIMED_OUT:
+            next_node_id = config.get("on_timeout_next_node_id") or config.get(
+                "on_failure_next_node_id"
+            )
+        elif action_execution.status == ActionExecutionStatus.BLOCKED_POLICY:
+            next_node_id = (
+                config.get("on_policy_block_next_node_id")
+                or config.get("on_approval_required_next_node_id")
+                or config.get("on_failure_next_node_id")
+            )
+        else:
+            next_node_id = config.get("on_failure_next_node_id")
+
+        execution.current_node_id = str(next_node_id) if next_node_id else None
+        self.db.commit()
+
+        if next_node_id:
+            return await self.execute_node(execution, None)
+
+        is_success = action_execution.status == ActionExecutionStatus.SUCCEEDED
+        if is_success:
+            return {
+                "message": "Done.",
+                "buttons": None,
+                "is_complete": True,
+                "use_rag_response": False,
+                "should_escalate": False,
+                "structured_output": action_execution.normalized_output,
+            }
+
+        return self._error_result(
+            action_execution.error_message or "Action execution failed without a failure route."
+        )
 
     async def _exec_escalate(self, execution: FlowExecution, node: dict) -> dict:
         """
@@ -796,13 +935,17 @@ class FlowEngine:
                     max_chunks=self.rag_service.MAX_CHUNKS_RETRIEVE,
                 )
                 retrieved_chunks = chunks
-                execution.collected_data[rag_key] = {
-                    "query": user_query,
-                    "chunks_count": len(chunks),
-                    "avg_similarity": sum(scores) / len(scores) if scores else 0,
-                    "chunks": [{"id": str(chunk.id), "content": chunk.content} for chunk in chunks],
-                    "scores": scores,
-                }
+                self._set_collected_value(
+                    execution,
+                    rag_key,
+                    {
+                        "query": user_query,
+                        "chunks_count": len(chunks),
+                        "avg_similarity": sum(scores) / len(scores) if scores else 0,
+                        "chunks": [{"id": str(chunk.id), "content": chunk.content} for chunk in chunks],
+                        "scores": scores,
+                    },
+                )
 
         # Conversation history
         conversation_service = ConversationService(self.db)
@@ -836,7 +979,7 @@ class FlowEngine:
             "chunks_used": len(retrieved_chunks),
             "scores": scores,
         }
-        execution.collected_data[save_to] = structured_output
+        self._set_collected_value(execution, save_to, structured_output)
         self.db.flush()
 
         # Advance to next node
@@ -866,6 +1009,7 @@ class FlowEngine:
         """
         config = node.get("config", {})
         message_template = config.get("message", "Thank you!")
+        use_rag_response = bool(config.get("use_rag_response", False))
 
         # Interpolate variables
         message = self._interpolate_variables(message_template, execution.collected_data)
@@ -883,7 +1027,7 @@ class FlowEngine:
             "message": message,
             "buttons": None,
             "is_complete": True,
-            "use_rag_response": True,  # Allow RAG to handle follow-up questions
+            "use_rag_response": use_rag_response,
             "should_escalate": False,
         }
 
@@ -1095,6 +1239,34 @@ class FlowEngine:
             else:
                 result[key] = value
         return result
+
+    def _extract_json_path_value(self, source: dict, path: str) -> Any:
+        """
+        Extract a value from dict source using a minimal JSONPath-like syntax.
+
+        Supported:
+        - $.a.b.c
+        - a.b.c
+        """
+        normalized = path.strip()
+        if normalized.startswith("$."):
+            normalized = normalized[2:]
+        elif normalized.startswith("$"):
+            normalized = normalized[1:]
+
+        if not normalized:
+            return source
+
+        value: Any = source
+        for part in normalized.split("."):
+            key = part.strip()
+            if not key:
+                continue
+            if isinstance(value, dict):
+                value = value.get(key)
+            else:
+                return None
+        return value
 
     def _error_result(self, error_message: str) -> dict:
         """

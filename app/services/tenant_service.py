@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_password_hash
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
-from app.services.plan_service import PlanService
 from app.schemas.tenant import (
     TenantAIConfigResponse,
     TenantAIConfigUpdate,
@@ -19,6 +18,13 @@ from app.schemas.tenant import (
     TenantResponse,
     TenantUpdate,
 )
+from app.services.plan_service import PlanService
+from app.utils.slugs import (
+    PUBLIC_SLUG_MAX_LENGTH,
+    PUBLIC_SLUG_MIN_LENGTH,
+    is_valid_public_slug,
+    normalize_public_slug,
+)
 
 
 class TenantService:
@@ -27,6 +33,46 @@ class TenantService:
     def __init__(self, db: Session):
         """Initialize tenant service with database session."""
         self.db = db
+
+    def _get_unique_public_slug(self, base_value: str, exclude_tenant_id: UUID | None = None) -> str:
+        """Generate a globally unique public slug."""
+        base_slug = normalize_public_slug(base_value)
+        if len(base_slug) < PUBLIC_SLUG_MIN_LENGTH:
+            base_slug = "support"
+
+        candidate = base_slug
+        suffix = 2
+        while True:
+            stmt = select(Tenant).where(Tenant.public_slug == candidate)
+            if exclude_tenant_id:
+                stmt = stmt.where(Tenant.id != exclude_tenant_id)
+            existing = self.db.execute(stmt).scalar_one_or_none()
+            if not existing:
+                return candidate
+
+            suffix_text = f"-{suffix}"
+            trimmed = base_slug[: PUBLIC_SLUG_MAX_LENGTH - len(suffix_text)].rstrip("-")
+            candidate = f"{trimmed}{suffix_text}"
+            suffix += 1
+
+    def _validate_requested_public_slug(
+        self, value: str, exclude_tenant_id: UUID | None = None
+    ) -> str:
+        """Validate and reserve a user-provided public slug."""
+        normalized = value.strip().lower()
+        if not is_valid_public_slug(normalized):
+            raise ValueError(
+                "Public slug must be 3-50 characters using lowercase letters, numbers, and hyphens only"
+            )
+
+        stmt = select(Tenant).where(Tenant.public_slug == normalized)
+        if exclude_tenant_id:
+            stmt = stmt.where(Tenant.id != exclude_tenant_id)
+        existing = self.db.execute(stmt).scalar_one_or_none()
+        if existing:
+            raise ValueError(f"Public slug '{normalized}' is already in use")
+
+        return normalized
 
     def create_tenant(self, tenant_data: TenantCreate) -> TenantResponse:
         """
@@ -59,6 +105,7 @@ class TenantService:
             name=tenant_data.name,
             display_name=tenant_data.display_name,
             description=tenant_data.description,
+            public_slug=self._get_unique_public_slug(tenant_data.name),
             status=tenant_data.status,
             api_key_hash=api_key_hash,
         )
@@ -77,6 +124,9 @@ class TenantService:
             low_confidence_action="clarify",
             no_retrieval_action="clarify",
             require_email_before_escalation=False,
+            require_name_before_escalation=False,
+            collect_name_before_chat=False,
+            collect_email_before_chat=False,
         )
         self.db.add(ai_config)
 
@@ -91,7 +141,13 @@ class TenantService:
             max_knowledge_sources=2,  # Only 2 sources for trial
             can_use_url_sources=False,  # Files only, no URLs in trial
             max_team_members=1,  # Only 1 user (admin) for trial
-            max_flows=0,  # No flows on trial by default
+            max_automation_actions=2,  # Starter automation access in trial
+            max_automation_executions_per_month=100,  # Starter monthly automation usage in trial
+            can_use_ai_chat_automation=True,  # Trial should experience real AI chat automation
+            can_use_lookup_chains=False,  # Lookup-first chaining starts on higher plans
+            can_use_webhooks=False,  # Direct API/webhook flow nodes start on higher plans
+            max_flows=1,  # Allow one flow on trial
+            max_webhooks_per_flow=0,  # No webhook nodes on trial
         )
         self.db.add(capabilities)
 
@@ -158,6 +214,16 @@ class TenantService:
 
         return TenantResponse.model_validate(tenant)
 
+    def get_tenant_by_public_slug(self, public_slug: str) -> TenantResponse | None:
+        """Get tenant by public support slug."""
+        stmt = select(Tenant).where(Tenant.public_slug == public_slug.strip().lower())
+        tenant = self.db.execute(stmt).scalar_one_or_none()
+
+        if not tenant:
+            return None
+
+        return TenantResponse.model_validate(tenant)
+
     def get_all_tenants(self, status: TenantStatus | None = None) -> list[TenantListResponse]:
         """
         Get all tenants, optionally filtered by status.
@@ -200,6 +266,11 @@ class TenantService:
 
         # Update fields
         update_data = tenant_data.model_dump(exclude_unset=True)
+        if "public_slug" in update_data and update_data["public_slug"] is not None:
+            update_data["public_slug"] = self._validate_requested_public_slug(
+                str(update_data["public_slug"]),
+                exclude_tenant_id=tenant_id,
+            )
         for field, value in update_data.items():
             setattr(tenant, field, value)
 
@@ -276,6 +347,17 @@ class TenantService:
 
         # Update fields
         update_data = config_data.model_dump(exclude_unset=True)
+
+        collect_name_before_chat = bool(
+            update_data.get("collect_name_before_chat", config.collect_name_before_chat)
+        )
+        collect_email_before_chat = bool(
+            update_data.get("collect_email_before_chat", config.collect_email_before_chat)
+        )
+        if collect_name_before_chat:
+            update_data["require_name_before_escalation"] = False
+        if collect_email_before_chat:
+            update_data["require_email_before_escalation"] = False
 
         # Enforce per-tier max_response_tokens ceiling from active plan config.
         if "max_response_tokens" in update_data:

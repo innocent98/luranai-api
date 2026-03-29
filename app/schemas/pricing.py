@@ -17,6 +17,14 @@ class PricingPlanCapabilitiesUpdate(BaseModel):
     max_conversations_per_month: int | None = None
     max_team_members: int | None = None
     max_response_tokens: int | None = None
+    max_automation_actions: int | None = None
+    max_automation_executions_per_month: int | None = None
+    can_use_ai_chat_automation: bool | None = None
+    can_use_lookup_chains: bool | None = None
+    max_flows: int | None = None
+    max_nodes_per_flow: int | None = None
+    can_use_webhooks: bool | None = None
+    max_webhooks_per_flow: int | None = None
 
 
 class PricingPlanUpdateRequest(BaseModel):
@@ -67,6 +75,14 @@ class PricingPlanCapabilitiesResponse(BaseModel):
     max_conversations_per_month: int | None
     max_team_members: int | None
     max_response_tokens: int
+    max_automation_actions: int | None
+    max_automation_executions_per_month: int | None
+    can_use_ai_chat_automation: bool
+    can_use_lookup_chains: bool
+    max_flows: int | None
+    max_nodes_per_flow: int | None
+    can_use_webhooks: bool
+    max_webhooks_per_flow: int | None
 
 
 class PricingPlanResponse(BaseModel):

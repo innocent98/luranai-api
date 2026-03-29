@@ -248,6 +248,51 @@ class PlanService:
                     raise ValueError("max_response_tokens must be positive")
                 _set_plan_attr("max_response_tokens", capabilities["max_response_tokens"])
 
+            if "max_automation_actions" in capabilities:
+                value = capabilities["max_automation_actions"]
+                if value is not None and value < 0:
+                    raise ValueError("max_automation_actions cannot be negative")
+                _set_plan_attr("max_automation_actions", value)
+
+            if "max_automation_executions_per_month" in capabilities:
+                value = capabilities["max_automation_executions_per_month"]
+                if value is not None and value < 0:
+                    raise ValueError("max_automation_executions_per_month cannot be negative")
+                _set_plan_attr("max_automation_executions_per_month", value)
+
+            if "can_use_ai_chat_automation" in capabilities:
+                _set_plan_attr(
+                    "can_use_ai_chat_automation",
+                    capabilities["can_use_ai_chat_automation"],
+                )
+
+            if "can_use_lookup_chains" in capabilities:
+                _set_plan_attr(
+                    "can_use_lookup_chains",
+                    capabilities["can_use_lookup_chains"],
+                )
+
+            if "max_flows" in capabilities:
+                value = capabilities["max_flows"]
+                if value is not None and value < 0:
+                    raise ValueError("max_flows cannot be negative")
+                _set_plan_attr("max_flows", value)
+
+            if "max_nodes_per_flow" in capabilities:
+                value = capabilities["max_nodes_per_flow"]
+                if value is not None and value < 0:
+                    raise ValueError("max_nodes_per_flow cannot be negative")
+                _set_plan_attr("max_nodes_per_flow", value)
+
+            if "can_use_webhooks" in capabilities:
+                _set_plan_attr("can_use_webhooks", capabilities["can_use_webhooks"])
+
+            if "max_webhooks_per_flow" in capabilities:
+                value = capabilities["max_webhooks_per_flow"]
+                if value is not None and value < 0:
+                    raise ValueError("max_webhooks_per_flow cannot be negative")
+                _set_plan_attr("max_webhooks_per_flow", value)
+
         # Save changes
         _set_plan_attr("updated_at", datetime.utcnow())
         self.db.commit()

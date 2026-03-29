@@ -2,6 +2,7 @@
 
 import hashlib
 import hmac
+import json
 from typing import Any, cast
 from uuid import uuid4
 
@@ -17,14 +18,14 @@ from app.services.plan_service import PlanService
 class PaystackService:
     """Service for handling Paystack payment operations."""
 
-    # Paystack plan codes (actual codes from Paystack dashboard)
-    PLAN_CODES = {
-        "lite_monthly": "PLN_jyimgdb5eobje4a",
-        "lite_annual": "PLN_yeostwggamfwy3b",
-        "professional_monthly": "PLN_ev747ystsd08nhq",
-        "professional_annual": "PLN_pz9lyqt3q4uajn4",
-        "growth_monthly": "PLN_2poizrt6dhmf40e",
-        "growth_annual": "PLN_af25zpt8c6hdins",
+    # Fallback Paystack plan codes for older environments.
+    DEFAULT_PLAN_CODES = {
+        "lite_monthly": "PLN_skd2aqpks7mdfcm",
+        "lite_annual": "PLN_v8nn8nfmnqx5m1z",
+        "professional_monthly": "PLN_o7773e3msry7irw",
+        "professional_annual": "PLN_3n37oa3jgeu7rnf",
+        "growth_monthly": "PLN_gh2uycf1yg8juwo",
+        "growth_annual": "PLN_372yln228q6ngfs",
     }
 
     def __init__(self, db: Session):
@@ -35,6 +36,20 @@ class PaystackService:
         self.headers = {
             "Authorization": f"Bearer {self.secret_key}",
             "Content-Type": "application/json",
+        }
+        self.plan_codes = {
+            "lite_monthly": settings.PAYSTACK_PLAN_LITE_MONTHLY
+            or self.DEFAULT_PLAN_CODES["lite_monthly"],
+            "lite_annual": settings.PAYSTACK_PLAN_LITE_ANNUAL
+            or self.DEFAULT_PLAN_CODES["lite_annual"],
+            "professional_monthly": settings.PAYSTACK_PLAN_PROFESSIONAL_MONTHLY
+            or self.DEFAULT_PLAN_CODES["professional_monthly"],
+            "professional_annual": settings.PAYSTACK_PLAN_PROFESSIONAL_ANNUAL
+            or self.DEFAULT_PLAN_CODES["professional_annual"],
+            "growth_monthly": settings.PAYSTACK_PLAN_GROWTH_MONTHLY
+            or self.DEFAULT_PLAN_CODES["growth_monthly"],
+            "growth_annual": settings.PAYSTACK_PLAN_GROWTH_ANNUAL
+            or self.DEFAULT_PLAN_CODES["growth_annual"],
         }
 
     def get_amount(self, tier: str, billing_cycle: str) -> int:
@@ -80,10 +95,138 @@ class PaystackService:
             raise ValueError("Enterprise subscriptions require custom pricing")
 
         plan_key = f"{tier}_{billing_cycle}"
-        if plan_key not in self.PLAN_CODES:
+        if plan_key not in self.plan_codes:
             raise ValueError(f"No plan code for {tier} {billing_cycle}")
 
-        return self.PLAN_CODES[plan_key]
+        return self.plan_codes[plan_key]
+
+    @staticmethod
+    def _extract_response_json(response: httpx.Response) -> dict[str, Any]:
+        try:
+            payload = response.json()
+            return payload if isinstance(payload, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+
+    @staticmethod
+    def _is_interval_match(plan_interval: str, billing_cycle: str) -> bool:
+        normalized = plan_interval.strip().lower()
+        expected = {
+            "monthly": {"monthly", "month"},
+            "annual": {"annual", "annually", "yearly", "year"},
+        }
+        return normalized in expected.get(billing_cycle, {billing_cycle})
+
+    def _find_matching_plan_code(
+        self,
+        plans: list[dict[str, Any]],
+        *,
+        tier: str,
+        billing_cycle: str,
+        amount: int,
+        preferred_code: str,
+    ) -> str | None:
+        for plan in plans:
+            if str(plan.get("plan_code", "")).strip() == preferred_code:
+                return preferred_code
+
+        normalized_tier = tier.strip().lower()
+
+        for plan in plans:
+            plan_amount = plan.get("amount")
+            plan_interval = str(plan.get("interval", ""))
+            searchable_text = " ".join(
+                str(plan.get(field, ""))
+                for field in ("name", "description", "plan_code")
+            ).lower()
+
+            if plan_amount != amount:
+                continue
+            if not self._is_interval_match(plan_interval, billing_cycle):
+                continue
+            if normalized_tier not in searchable_text:
+                continue
+
+            candidate = str(plan.get("plan_code", "")).strip()
+            if candidate:
+                return candidate
+
+        return None
+
+    async def _list_plans(self) -> list[dict[str, Any]]:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{self.base_url}/plan",
+                headers=self.headers,
+                timeout=30.0,
+            )
+            response.raise_for_status()
+
+        result = self._extract_response_json(response)
+        plans = result.get("data", [])
+        if not result.get("status") or not isinstance(plans, list):
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Unable to validate subscription plans with the payment provider.",
+            )
+
+        return [plan for plan in plans if isinstance(plan, dict)]
+
+    async def resolve_plan_code(self, tier: str, billing_cycle: str, amount: int) -> str:
+        preferred_code = self.get_plan_code(tier, billing_cycle)
+
+        try:
+            plans = await self._list_plans()
+            matched_code = self._find_matching_plan_code(
+                plans,
+                tier=tier,
+                billing_cycle=billing_cycle,
+                amount=amount,
+                preferred_code=preferred_code,
+            )
+            if matched_code:
+                if matched_code != preferred_code:
+                    logger.warning(
+                        "Configured Paystack plan code {} did not match an active plan; "
+                        "falling back to discovered plan code {} for {}/{}",
+                        preferred_code,
+                        matched_code,
+                        tier,
+                        billing_cycle,
+                    )
+                return matched_code
+        except HTTPException as exc:
+            logger.warning(
+                "Unable to list Paystack plans before initialization for {}/{}: {}",
+                tier,
+                billing_cycle,
+                exc.detail,
+            )
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "Unable to list Paystack plans before initialization for {}/{}: {}",
+                tier,
+                billing_cycle,
+                exc,
+            )
+
+        return preferred_code
+
+    def _build_gateway_error_message(self, response: httpx.Response) -> str:
+        payload = self._extract_response_json(response)
+        raw_message = str(payload.get("message", "")).strip().lower()
+        error_code = str(payload.get("code", "")).strip().lower()
+
+        if raw_message == "plan not found." or error_code == "not_found":
+            return (
+                "The selected subscription plan is temporarily unavailable. "
+                "Please try again shortly or contact support."
+            )
+
+        return (
+            "We could not start payment right now. "
+            "Please try again shortly or contact support if the issue continues."
+        )
 
     async def initialize_subscription(
         self,
@@ -113,11 +256,10 @@ class PaystackService:
             HTTPException: If initialization fails
         """
         try:
-            # Get plan code for recurring subscription
-            plan_code = self.get_plan_code(tier, billing_cycle)
-
             # Get amount for display purposes
             amount = self.get_amount(tier, billing_cycle)
+            # Resolve a valid plan code for recurring subscription
+            plan_code = await self.resolve_plan_code(tier, billing_cycle, amount)
 
             # Generate unique reference
             reference = f"luran_sub_{tenant_id[:8]}_{uuid4().hex[:8]}"
@@ -187,16 +329,18 @@ class PaystackService:
                 }
 
         except httpx.HTTPStatusError as e:
-            logger.error(f"Paystack API error: {e.response.text}")
+            logger.error(f"Paystack API error during subscription initialization: {e.response.text}")
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Payment gateway error: {e.response.text}",
+                detail=self._build_gateway_error_message(e.response),
             ) from e
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"Failed to initialize subscription: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to initialize subscription: {str(e)}",
+                detail="Failed to initialize subscription.",
             ) from e
 
     async def verify_transaction(self, reference: str) -> dict:

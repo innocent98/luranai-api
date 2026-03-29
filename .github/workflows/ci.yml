@@ -43,6 +43,56 @@ jobs:
         run: |
           poetry run black --check app/
 
+  automation-flow-regression:
+    name: Automation/Flow Regression
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: 1.8.4
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Load cached venv
+        id: cached-poetry-dependencies-regression
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-root --with dev
+
+      - name: Run focused automation and flow regressions
+        env:
+          SERVER_HOST: http://localhost:8000
+          FRONTEND_URL: http://localhost:3000
+          FRONTEND_DOC_URL: http://localhost:3002
+          DATABASE_URL: sqlite:///:memory:
+          REDIS_URL: redis://localhost:6379/0
+          QDRANT_URL: http://localhost:6333
+          QDRANT_COLLECTION_NAME: test_collection
+          SECRET_KEY: test_secret_key_for_ci_testing_32chars_minimum
+          OPENAI_API_KEY: sk-test-ci-openai-key
+          PAYSTACK_SECRET_KEY: sk_test_ci_testing_key_12345
+          FIRST_SUPERUSER_EMAIL: ci_admin@test.com
+          FIRST_SUPERUSER_PASSWORD: CI_Test_P@ssw0rd_2026!
+          ENVIRONMENT: test
+        run: |
+          poetry run pytest \
+            tests/api/v1/test_chat_flow_router.py \
+            tests/api/v1/test_flow_action_call_regressions.py \
+            -q
+
   test:
     name: Run Tests
     runs-on: ubuntu-latest
@@ -126,7 +176,7 @@ jobs:
   build:
     name: Build Docker Images
     runs-on: ubuntu-latest
-    needs: [lint, test]
+    needs: [lint, test, automation-flow-regression]
 
     steps:
       - uses: actions/checkout@v4

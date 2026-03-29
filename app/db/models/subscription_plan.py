@@ -35,6 +35,10 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
     max_conversations_per_month = Column(Integer, nullable=True)  # None = unlimited
     max_team_members = Column(Integer, nullable=True)  # None = unlimited
     max_response_tokens = Column(Integer, nullable=False)
+    max_automation_actions = Column(Integer, nullable=True)  # None = unlimited
+    max_automation_executions_per_month = Column(Integer, nullable=True)  # None = unlimited
+    can_use_ai_chat_automation = Column(Boolean, nullable=False, default=False)
+    can_use_lookup_chains = Column(Boolean, nullable=False, default=False)
 
     # Flow capabilities
     max_flows = Column(Integer, nullable=True)  # None = unlimited
@@ -73,6 +77,10 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
                 "max_conversations_per_month": self.max_conversations_per_month,
                 "max_team_members": self.max_team_members,
                 "max_response_tokens": self.max_response_tokens,
+                "max_automation_actions": self.max_automation_actions,
+                "max_automation_executions_per_month": self.max_automation_executions_per_month,
+                "can_use_ai_chat_automation": self.can_use_ai_chat_automation,
+                "can_use_lookup_chains": self.can_use_lookup_chains,
                 "max_flows": self.max_flows,
                 "max_nodes_per_flow": self.max_nodes_per_flow,
                 "can_use_webhooks": self.can_use_webhooks,
@@ -99,6 +107,10 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
             "max_conversations_per_month": self.max_conversations_per_month,
             "max_team_members": self.max_team_members,
             "max_response_tokens": self.max_response_tokens,
+            "max_automation_actions": self.max_automation_actions,
+            "max_automation_executions_per_month": self.max_automation_executions_per_month,
+            "can_use_ai_chat_automation": self.can_use_ai_chat_automation,
+            "can_use_lookup_chains": self.can_use_lookup_chains,
             "max_flows": self.max_flows,
             "max_nodes_per_flow": self.max_nodes_per_flow,
             "can_use_webhooks": self.can_use_webhooks,

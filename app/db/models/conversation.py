@@ -68,6 +68,7 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
     __table_args__ = (
         Index("ix_conversation_sessions_tenant_status", "tenant_id", "status"),
         Index("ix_conversation_sessions_user", "tenant_id", "user_identifier"),
+        Index("ix_conversation_sessions_visitor", "visitor_id", "last_message_at"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -81,6 +82,18 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
         index=True,
         nullable=False,
         comment="Anonymous or authenticated user ID",
+    )
+    visitor_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("visitors.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Persistent visitor identity linked to this chat session",
+    )
+    visitor_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("visitor_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Most recent visitor browser session linked to this chat session",
     )
     status: Mapped[SessionStatus] = mapped_column(
         SQLEnum(SessionStatus, name="session_status"),

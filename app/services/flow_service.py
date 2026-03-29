@@ -5,6 +5,7 @@ from uuid import UUID
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
+from app.db.models.automation import TenantAction
 from app.db.models.flow import Flow, FlowStatus
 from app.db.models.subscription_plan import SubscriptionPlan
 from app.db.models.tenant import Tenant, TenantCapabilities
@@ -45,6 +46,7 @@ class FlowService:
         # Check for webhook nodes if webhooks not allowed
         if normalized_nodes:
             self._validate_webhook_usage(flow_data.tenant_id, normalized_nodes)
+            self._validate_action_call_usage(flow_data.tenant_id, normalized_nodes)
 
         # Create flow
         db_flow = Flow(
@@ -149,6 +151,7 @@ class FlowService:
             self._validate_nodes(update_data["nodes"])
             # Check webhook usage when updating nodes
             self._validate_webhook_usage(flow.tenant_id, update_data["nodes"])
+            self._validate_action_call_usage(flow.tenant_id, update_data["nodes"])
 
         # Update fields
         for field, value in update_data.items():
@@ -161,7 +164,7 @@ class FlowService:
 
     def delete_flow(self, flow_id: UUID) -> bool:
         """
-        Delete a flow (soft delete by setting status to archived).
+        Delete a flow permanently.
 
         Args:
             flow_id: Flow UUID
@@ -178,8 +181,7 @@ class FlowService:
         if not flow:
             raise ValueError("Flow not found")
 
-        flow.status = FlowStatus.ARCHIVED
-        flow.is_active = False
+        self.db.delete(flow)
         self.db.commit()
 
         return True
@@ -206,6 +208,8 @@ class FlowService:
         # Validate before activating
         if flow.nodes:
             self._validate_nodes(flow.nodes)
+            self._validate_webhook_usage(flow.tenant_id, flow.nodes)
+            self._validate_action_call_usage(flow.tenant_id, flow.nodes)
 
         flow.status = FlowStatus.ACTIVE
         flow.is_active = True
@@ -398,6 +402,25 @@ class FlowService:
                             f"CONDITION node '{node_id}' condition #{idx} must have 'next_node_id'"
                         )
 
+            # Validate ACTION_CALL nodes
+            elif node_type == "action_call":
+                has_any_route = any(
+                    config.get(route_key)
+                    for route_key in (
+                        "next_node_id",
+                        "on_success_next_node_id",
+                        "on_failure_next_node_id",
+                        "on_timeout_next_node_id",
+                        "on_policy_block_next_node_id",
+                        "on_approval_required_next_node_id",
+                    )
+                )
+                if not has_any_route:
+                    raise ValueError(
+                        f"ACTION_CALL node '{node_id}' must define at least one route.\n"
+                        "Add a default next step or one of the success/failure/approval routes."
+                    )
+
             # Validate linear flow nodes (MESSAGE, TEXT_INPUT, RAG_QUERY, WEBHOOK, etc.)
             else:
                 if "next_node_id" not in config:
@@ -477,11 +500,9 @@ class FlowService:
         Raises:
             ValueError: If webhooks are not allowed but webhook nodes are present
         """
-        # Check for webhook nodes
         node_list = nodes.get("nodes", [])
-        has_webhook = any(node.get("type") == "webhook" for node in node_list)
-
-        if not has_webhook:
+        webhook_nodes = [node for node in node_list if node.get("type") == "webhook"]
+        if not webhook_nodes:
             return
 
         limits = self._get_flow_limits(tenant_id)
@@ -493,6 +514,14 @@ class FlowService:
                 "Please upgrade to use webhook integrations."
             )
 
+        max_webhooks = limits.get("max_webhooks_per_flow")
+        if max_webhooks is not None and len(webhook_nodes) > max_webhooks:
+            raise ValueError(
+                f"Webhook node limit reached. Your plan allows {max_webhooks} webhook "
+                f"{'node' if max_webhooks == 1 else 'nodes'} per flow, but this flow has "
+                f"{len(webhook_nodes)}."
+            )
+
         # Check max_nodes_per_flow if it exists
         max_nodes = limits.get("max_nodes_per_flow")
         if max_nodes is not None:
@@ -501,6 +530,40 @@ class FlowService:
                 raise ValueError(
                     f"Flow exceeds maximum nodes limit. Your plan allows {max_nodes} nodes per flow, "
                     f"but this flow has {node_count} nodes."
+                )
+
+    def _validate_action_call_usage(self, tenant_id: UUID, nodes: dict) -> None:
+        """
+        Validate action_call node references and tenant scoping.
+
+        Args:
+            tenant_id: Tenant UUID
+            nodes: Flow nodes configuration
+
+        Raises:
+            ValueError: If action reference is missing/invalid.
+        """
+        node_list = nodes.get("nodes", [])
+        action_call_nodes = [node for node in node_list if node.get("type") == "action_call"]
+        if not action_call_nodes:
+            return
+
+        for node in action_call_nodes:
+            node_id = node.get("id")
+            config = node.get("config", {})
+            action_id = config.get("action_id")
+            if not action_id:
+                raise ValueError(f"ACTION_CALL node '{node_id}' must include 'action_id'.")
+
+            action = self.db.execute(
+                select(TenantAction).where(
+                    TenantAction.id == action_id,
+                    TenantAction.tenant_id == tenant_id,
+                )
+            ).scalar_one_or_none()
+            if not action:
+                raise ValueError(
+                    f"ACTION_CALL node '{node_id}' references unknown action_id: {action_id}"
                 )
 
     def _get_flow_limits(self, tenant_id: UUID) -> dict:
@@ -531,6 +594,7 @@ class FlowService:
             "max_flows": plan.max_flows,
             "max_nodes_per_flow": plan.max_nodes_per_flow,
             "can_use_webhooks": plan.can_use_webhooks,
+            "max_webhooks_per_flow": plan.max_webhooks_per_flow,
         }
 
         # Optional override path for deployments where these fields exist on capabilities.
@@ -541,11 +605,14 @@ class FlowService:
             override_max_flows = getattr(capabilities, "max_flows", None)
             override_max_nodes = getattr(capabilities, "max_nodes_per_flow", None)
             override_webhooks = getattr(capabilities, "can_use_webhooks", None)
+            override_max_webhooks = getattr(capabilities, "max_webhooks_per_flow", None)
             if override_max_flows is not None:
                 limits["max_flows"] = override_max_flows
             if override_max_nodes is not None:
                 limits["max_nodes_per_flow"] = override_max_nodes
             if override_webhooks is not None:
                 limits["can_use_webhooks"] = override_webhooks
+            if override_max_webhooks is not None:
+                limits["max_webhooks_per_flow"] = override_max_webhooks
 
         return limits

@@ -74,42 +74,28 @@ async def send_email(
         # Check response status
         status_code = getattr(response, "status_code", None)
 
-        logger.debug(f"SMTP response: status_code={status_code}, response={response}")
+        logger.debug(f"SMTP response received with status_code={status_code}")
 
         if status_code == 250:
-            logger.info(f"✓ Email sent successfully to {email_to}")
+            logger.info("Email sent successfully")
             return True
         elif status_code is None:
             # Check if response has error attribute
             error = getattr(response, "error", None)
             if error:
-                logger.error(f"✗ Email send failed to {email_to}: {error}")
+                logger.error("Email send failed without status code")
             else:
-                # Try to get more details from response
-                response_dict = {}
-                if hasattr(response, "__dict__"):
-                    response_dict = {
-                        k: v for k, v in response.__dict__.items() if not k.startswith("_")
-                    }
-                logger.error(
-                    f"✗ Email send failed to {email_to}: No status code returned. Response: {response_dict}"
-                )
-                logger.error(
-                    f"  SMTP Config: host={settings.SMTP_HOST}, port={settings.SMTP_PORT}, tls={settings.SMTP_TLS}, user={settings.SMTP_USER}"
-                )
+                logger.error("Email send failed without status code")
             return False
         else:
-            logger.warning(f"✗ Email send failed to {email_to} with status {status_code}")
+            logger.warning(f"Email send failed with status {status_code}")
             return False
 
     except ImportError:
         logger.error("✗ emails library not installed. Install with: pip install emails")
         return False
-    except Exception as e:
-        logger.error(f"✗ Exception while sending email to {email_to}: {type(e).__name__}: {e}")
-        import traceback
-
-        logger.error(f"Traceback: {traceback.format_exc()}")
+    except Exception:
+        logger.error("Exception while sending email")
         return False
 
 

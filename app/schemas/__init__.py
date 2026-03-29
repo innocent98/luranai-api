@@ -122,6 +122,14 @@ from app.schemas.user import (
     UserResponse,
     UserUpdate,
 )
+from app.schemas.visitor import (
+    PublicBusinessProfileResponse,
+    VisitorBootstrapRequest,
+    VisitorBootstrapResponse,
+    VisitorIdentitySummary,
+    VisitorEnrichmentUpdate,
+    VisitorProfileSummary,
+)
 from app.schemas.widget import (
     PublicWidgetConfigResponse,
     WidgetConfigResponse,
@@ -210,6 +218,12 @@ __all__ = [
     "WidgetConfigResponse",
     "PublicWidgetConfigResponse",
     "WidgetInstallCodeResponse",
+    "PublicBusinessProfileResponse",
+    "VisitorBootstrapRequest",
+    "VisitorBootstrapResponse",
+    "VisitorIdentitySummary",
+    "VisitorProfileSummary",
+    "VisitorEnrichmentUpdate",
     # Analytics schemas
     "AnalyticsOverviewResponse",
     "ConversationMetricsResponse",

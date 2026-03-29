@@ -6,6 +6,8 @@ from uuid import UUID
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.db.models.automation import TenantAction
+from app.db.models.flow import Flow, FlowStatus
 from app.db.models.knowledge import KnowledgeSource, SourceStatus
 from app.db.models.user import User
 from app.services.knowledge_service import KnowledgeService
@@ -65,6 +67,12 @@ class SubscriptionValidationService:
             violations.append(violation)
 
         if violation := self._check_url_sources(tenant_id, new_limits):
+            violations.append(violation)
+
+        if violation := self._check_flows(tenant_id, new_limits):
+            violations.append(violation)
+
+        if violation := self._check_automation_actions(tenant_id, new_limits):
             violations.append(violation)
 
         if warning := self._check_conversations(tenant_id, new_limits):
@@ -223,6 +231,63 @@ class SubscriptionValidationService:
                 allowed_value=0,
                 difference=url_count,
                 action_required=f"Delete {url_count} URL source{'s' if url_count > 1 else ''} (not supported in this tier)",
+            )
+
+        return None
+
+    def _check_flows(self, tenant_id: UUID, new_limits: dict) -> ValidationViolation | None:
+        """Check if current flow count exceeds the target tier limit."""
+        max_flows = new_limits.get("max_flows")
+
+        if max_flows is None:
+            return None
+
+        current_count = (
+            self.db.query(Flow)
+            .filter(
+                Flow.tenant_id == tenant_id,
+                Flow.status != FlowStatus.ARCHIVED,
+            )
+            .count()
+        )
+
+        if current_count > max_flows:
+            difference = current_count - max_flows
+            return ValidationViolation(
+                field="flows",
+                current_value=current_count,
+                allowed_value=max_flows,
+                difference=difference,
+                action_required=f"Archive {difference} flow{'s' if difference > 1 else ''} before downgrading",
+            )
+
+        return None
+
+    def _check_automation_actions(
+        self, tenant_id: UUID, new_limits: dict
+    ) -> ValidationViolation | None:
+        """Check if current automation action count exceeds the target tier limit."""
+        max_actions = new_limits.get("max_automation_actions")
+
+        if max_actions is None:
+            return None
+
+        current_count = (
+            self.db.query(TenantAction)
+            .filter(TenantAction.tenant_id == tenant_id)
+            .count()
+        )
+
+        if current_count > max_actions:
+            difference = current_count - max_actions
+            return ValidationViolation(
+                field="automation_actions",
+                current_value=current_count,
+                allowed_value=max_actions,
+                difference=difference,
+                action_required=(
+                    f"Delete {difference} automation action{'s' if difference > 1 else ''} before downgrading"
+                ),
             )
 
         return None

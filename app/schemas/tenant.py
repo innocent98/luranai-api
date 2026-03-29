@@ -17,7 +17,45 @@ class TenantBase(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=100, description="Unique identifier name")
     display_name: str = Field(..., min_length=1, max_length=255, description="Human-readable name")
-    description: str | None = Field(None, description="Brief description of the product/tenant")
+    description: str | None = Field(
+        None,
+        max_length=100,
+        description="Short description used in compact widget and support surfaces",
+    )
+    long_description: str | None = Field(
+        None,
+        max_length=3000,
+        description="Extended company and support description",
+    )
+    support_headline: str | None = Field(
+        None,
+        max_length=160,
+        description="Hosted support page headline",
+    )
+    support_subheadline: str | None = Field(
+        None,
+        max_length=255,
+        description="Hosted support page subheadline",
+    )
+    support_hours: str | None = Field(
+        None,
+        max_length=120,
+        description="Support availability note",
+    )
+    support_response_time: str | None = Field(
+        None,
+        max_length=120,
+        description="Typical support response time note",
+    )
+    support_footer_note: str | None = Field(
+        None,
+        max_length=255,
+        description="Small hosted support footer note",
+    )
+    is_publicly_listed: bool = Field(
+        default=False,
+        description="Whether the business appears in the public directory",
+    )
     status: TenantStatus = Field(default=TenantStatus.ACTIVE, description="Tenant status")
 
 
@@ -57,6 +95,18 @@ class TenantAIConfigBase(BaseModel):
         default=False,
         description="Require collecting customer email before escalating to human support",
     )
+    require_name_before_escalation: bool = Field(
+        default=False,
+        description="Require collecting customer name before escalating to human support",
+    )
+    collect_name_before_chat: bool = Field(
+        default=False,
+        description="Collect customer name before starting a new chat",
+    )
+    collect_email_before_chat: bool = Field(
+        default=False,
+        description="Collect customer email before starting a new chat",
+    )
     custom_instructions: str | None = Field(
         None,
         max_length=CUSTOM_INSTRUCTIONS_MAX_CHARS,
@@ -81,7 +131,28 @@ class TenantCapabilitiesBase(BaseModel):
     )
     can_use_url_sources: bool = Field(default=False, description="Can use URL sources")
     max_team_members: int | None = Field(None, ge=0, description="Maximum team members")
+    max_automation_actions: int | None = Field(
+        None, ge=0, description="Maximum automation actions allowed"
+    )
+    max_automation_executions_per_month: int | None = Field(
+        None, ge=0, description="Maximum automation executions allowed per month"
+    )
+    can_use_ai_chat_automation: bool = Field(
+        default=False,
+        description="Whether automation actions can be used directly from normal AI chat",
+    )
+    can_use_lookup_chains: bool = Field(
+        default=False,
+        description="Whether AI chat can resolve lookup-first automation chains",
+    )
+    can_use_webhooks: bool = Field(
+        default=False,
+        description="Whether flows can include webhook/direct API call nodes",
+    )
     max_flows: int | None = Field(None, ge=0, description="Maximum flows allowed")
+    max_webhooks_per_flow: int | None = Field(
+        None, ge=0, description="Maximum webhook nodes allowed per flow"
+    )
 
 
 # Create schemas
@@ -110,7 +181,15 @@ class TenantUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     display_name: str | None = Field(None, min_length=1, max_length=255)
-    description: str | None = None
+    description: str | None = Field(None, max_length=100)
+    long_description: str | None = Field(None, max_length=3000)
+    support_headline: str | None = Field(None, max_length=160)
+    support_subheadline: str | None = Field(None, max_length=255)
+    support_hours: str | None = Field(None, max_length=120)
+    support_response_time: str | None = Field(None, max_length=120)
+    support_footer_note: str | None = Field(None, max_length=255)
+    is_publicly_listed: bool | None = None
+    public_slug: str | None = Field(None, min_length=3, max_length=50)
     status: TenantStatus | None = None
 
 
@@ -129,6 +208,9 @@ class TenantAIConfigUpdate(BaseModel):
     low_confidence_action: Literal["answer", "clarify", "escalate", "refuse"] | None = None
     no_retrieval_action: Literal["answer", "clarify", "escalate", "refuse"] | None = None
     require_email_before_escalation: bool | None = None
+    require_name_before_escalation: bool | None = None
+    collect_name_before_chat: bool | None = None
+    collect_email_before_chat: bool | None = None
     custom_instructions: str | None = Field(None, max_length=CUSTOM_INSTRUCTIONS_MAX_CHARS)
 
 
@@ -145,7 +227,13 @@ class TenantCapabilitiesUpdate(BaseModel):
     max_knowledge_sources: int | None = Field(None, ge=0)
     can_use_url_sources: bool | None = None
     max_team_members: int | None = Field(None, ge=0)
+    max_automation_actions: int | None = Field(None, ge=0)
+    max_automation_executions_per_month: int | None = Field(None, ge=0)
+    can_use_ai_chat_automation: bool | None = None
+    can_use_lookup_chains: bool | None = None
+    can_use_webhooks: bool | None = None
     max_flows: int | None = Field(None, ge=0)
+    max_webhooks_per_flow: int | None = Field(None, ge=0)
 
 
 # Response schemas
@@ -177,6 +265,7 @@ class TenantResponse(TenantBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    public_slug: str | None = None
     api_key: str | None = Field(None, description="API key (only provided at creation)")
     subscription_tier: str
     subscription_status: str
@@ -196,6 +285,7 @@ class TenantListResponse(TenantBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    public_slug: str | None = None
     subscription_tier: str
     subscription_status: str
     billing_cycle: str | None = None

@@ -76,6 +76,13 @@ subscription_rate_limiter = RedisRateLimiter(
     window_seconds=60,
 )
 
+# Subscription reads (user-based, more permissive for dashboard navigation)
+subscription_read_rate_limiter = RedisRateLimiter(
+    key_prefix="http_subscription_read",
+    max_calls=60,
+    window_seconds=60,
+)
+
 # Platform admin operations (user-based)
 platform_admin_rate_limiter = RedisRateLimiter(
     key_prefix="http_platform_admin",
@@ -189,6 +196,9 @@ webhook_rate_limit = create_rate_limit_dependency(webhook_rate_limiter, "ip")
 # Authenticated endpoints
 payment_rate_limit = create_rate_limit_dependency(payment_rate_limiter, "user")
 subscription_rate_limit = create_rate_limit_dependency(subscription_rate_limiter, "user")
+subscription_read_rate_limit = create_rate_limit_dependency(
+    subscription_read_rate_limiter, "user"
+)
 platform_admin_rate_limit = create_rate_limit_dependency(platform_admin_rate_limiter, "user")
 platform_analytics_rate_limit = create_rate_limit_dependency(
     platform_analytics_rate_limiter, "user"

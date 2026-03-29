@@ -156,6 +156,12 @@ class Settings(BaseSettings):
     # Paystack Payment Gateway
     PAYSTACK_SECRET_KEY: str
     PAYSTACK_PUBLIC_KEY: str | None = None
+    PAYSTACK_PLAN_LITE_MONTHLY: str | None = None
+    PAYSTACK_PLAN_LITE_ANNUAL: str | None = None
+    PAYSTACK_PLAN_PROFESSIONAL_MONTHLY: str | None = None
+    PAYSTACK_PLAN_PROFESSIONAL_ANNUAL: str | None = None
+    PAYSTACK_PLAN_GROWTH_MONTHLY: str | None = None
+    PAYSTACK_PLAN_GROWTH_ANNUAL: str | None = None
     # DEPRECATED: Paystack uses PAYSTACK_SECRET_KEY for webhook verification
     # See: https://paystack.com/docs/payments/webhooks/#verify-webhook-signature
     PAYSTACK_WEBHOOK_SECRET: str | None = None  # Not used - kept for backwards compatibility
@@ -194,6 +200,9 @@ class Settings(BaseSettings):
     SUBSCRIPTION_RENEWAL_REMINDER_DAYS: str = "7,3,1"
     # Optional comma-separated extra stopwords for rerank keyword overlap.
     RAG_EXTRA_STOPWORDS: str = ""
+    # Optional explicit allowlist for automation outbound hosts (comma-separated).
+    # Use with caution; empty by default for safer SSRF posture.
+    AUTOMATION_OUTBOUND_HOST_ALLOWLIST: str = ""
 
     def get_trial_expiry_reminder_days(self) -> list[int]:
         """Parse and validate reminder windows from env setting."""
@@ -234,6 +243,14 @@ class Settings(BaseSettings):
             raise ValueError("SUBSCRIPTION_RENEWAL_REMINDER_DAYS cannot contain negative values")
 
         return sorted(set(values))
+
+    def get_automation_outbound_host_allowlist(self) -> set[str]:
+        """Parse outbound automation host allowlist."""
+        return {
+            item.strip().lower()
+            for item in self.AUTOMATION_OUTBOUND_HOST_ALLOWLIST.split(",")
+            if item.strip()
+        }
 
     model_config = SettingsConfigDict(
         case_sensitive=True,
