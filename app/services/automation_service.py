@@ -56,7 +56,11 @@ class AutomationService:
         return action
 
     def count_actions(self, tenant_id: UUID) -> int:
-        stmt = select(func.count()).select_from(TenantAction).where(TenantAction.tenant_id == tenant_id)
+        stmt = (
+            select(func.count())
+            .select_from(TenantAction)
+            .where(TenantAction.tenant_id == tenant_id)
+        )
         return int(self.db.execute(stmt).scalar() or 0)
 
     def _check_action_limit(self, tenant_id: UUID) -> None:

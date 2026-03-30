@@ -74,8 +74,12 @@ class VisitorService:
             widget_accent_color=tenant.widget_accent_color,
             widget_logo_url=tenant.widget_logo_url,
             widget_greeting_message=tenant.widget_greeting_message,
-            collect_name_before_chat=bool(getattr(tenant.ai_config, "collect_name_before_chat", False)),
-            collect_email_before_chat=bool(getattr(tenant.ai_config, "collect_email_before_chat", False)),
+            collect_name_before_chat=bool(
+                getattr(tenant.ai_config, "collect_name_before_chat", False)
+            ),
+            collect_email_before_chat=bool(
+                getattr(tenant.ai_config, "collect_email_before_chat", False)
+            ),
         )
 
     def list_public_businesses(
@@ -106,9 +110,7 @@ class VisitorService:
         normalized_page = max(1, page)
         normalized_page_size = max(1, min(page_size, 100))
 
-        total = self.db.execute(
-            select(func.count()).select_from(stmt.subquery())
-        ).scalar_one()
+        total = self.db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
 
         stmt = (
             stmt.order_by(Tenant.display_name.asc())
@@ -207,9 +209,13 @@ class VisitorService:
             user_agent=user_agent,
             ip_address=str(metadata.get("ip_address")) if metadata.get("ip_address") else None,
             device_type=self._derive_device_type(user_agent),
-            browser_name=str(metadata.get("browser_name")) if metadata.get("browser_name") else None,
+            browser_name=(
+                str(metadata.get("browser_name")) if metadata.get("browser_name") else None
+            ),
             os_name=str(metadata.get("os_name")) if metadata.get("os_name") else None,
-            referrer_url=str(metadata.get("referrer_url")) if metadata.get("referrer_url") else None,
+            referrer_url=(
+                str(metadata.get("referrer_url")) if metadata.get("referrer_url") else None
+            ),
             landing_url=str(metadata.get("landing_url")) if metadata.get("landing_url") else None,
             locale=str(metadata.get("locale")) if metadata.get("locale") else None,
             created_at=now,
@@ -331,8 +337,12 @@ class VisitorService:
                 widget_accent_color=tenant.widget_accent_color,
                 widget_logo_url=tenant.widget_logo_url,
                 widget_greeting_message=tenant.widget_greeting_message,
-                collect_name_before_chat=bool(getattr(tenant.ai_config, "collect_name_before_chat", False)),
-                collect_email_before_chat=bool(getattr(tenant.ai_config, "collect_email_before_chat", False)),
+                collect_name_before_chat=bool(
+                    getattr(tenant.ai_config, "collect_name_before_chat", False)
+                ),
+                collect_email_before_chat=bool(
+                    getattr(tenant.ai_config, "collect_email_before_chat", False)
+                ),
             ),
             visitor_token=visitor.public_token,
             session_token=visitor_session.session_token,

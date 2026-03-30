@@ -273,9 +273,7 @@ class SubscriptionValidationService:
             return None
 
         current_count = (
-            self.db.query(TenantAction)
-            .filter(TenantAction.tenant_id == tenant_id)
-            .count()
+            self.db.query(TenantAction).filter(TenantAction.tenant_id == tenant_id).count()
         )
 
         if current_count > max_actions:

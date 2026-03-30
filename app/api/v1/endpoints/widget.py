@@ -435,9 +435,7 @@ def get_public_widget_config(
         position=tenant.widget_position or "bottom-right",
         show_unread_badge=tenant.widget_show_unread_badge,
         allow_file_upload=tenant.widget_allow_file_upload,
-        collect_name_before_chat=bool(
-            getattr(tenant.ai_config, "collect_name_before_chat", False)
-        ),
+        collect_name_before_chat=bool(getattr(tenant.ai_config, "collect_name_before_chat", False)),
         collect_email_before_chat=bool(
             getattr(tenant.ai_config, "collect_email_before_chat", False)
         ),

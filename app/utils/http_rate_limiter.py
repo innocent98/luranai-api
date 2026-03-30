@@ -196,9 +196,7 @@ webhook_rate_limit = create_rate_limit_dependency(webhook_rate_limiter, "ip")
 # Authenticated endpoints
 payment_rate_limit = create_rate_limit_dependency(payment_rate_limiter, "user")
 subscription_rate_limit = create_rate_limit_dependency(subscription_rate_limiter, "user")
-subscription_read_rate_limit = create_rate_limit_dependency(
-    subscription_read_rate_limiter, "user"
-)
+subscription_read_rate_limit = create_rate_limit_dependency(subscription_read_rate_limiter, "user")
 platform_admin_rate_limit = create_rate_limit_dependency(platform_admin_rate_limiter, "user")
 platform_analytics_rate_limit = create_rate_limit_dependency(
     platform_analytics_rate_limiter, "user"
