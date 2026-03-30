@@ -552,7 +552,9 @@ async def send_message(
                             "message": f"Monthly conversation limit of {capabilities.max_conversations_per_month} reached.",
                             "current_count": monthly_count,
                             "limit": capabilities.max_conversations_per_month,
-                            "resets_at": (month_start + timedelta(days=32)).replace(day=1).isoformat(),
+                            "resets_at": (month_start + timedelta(days=32))
+                            .replace(day=1)
+                            .isoformat(),
                         },
                     )
 
@@ -1278,9 +1280,7 @@ async def send_message(
                                     customer_contact_email=contact_email,
                                 )
                                 if email_sent:
-                                    logger.info(
-                                        "Flow escalation email sent"
-                                    )
+                                    logger.info("Flow escalation email sent")
                             except Exception:
                                 logger.error("Flow escalation email delivery failed")
 
@@ -1392,7 +1392,9 @@ async def send_message(
         session_meta["pending_contact_capture"] = bool(remaining_fields)
         if isinstance(contact_capture_context, dict):
             contact_capture_context["required_fields"] = remaining_fields
-            session_meta["contact_capture_context"] = contact_capture_context if remaining_fields else {}
+            session_meta["contact_capture_context"] = (
+                contact_capture_context if remaining_fields else {}
+            )
         else:
             session_meta["contact_capture_context"] = {}
         conversation_service.update_session_meta(session_id, session_meta)

@@ -34,7 +34,9 @@ class TenantService:
         """Initialize tenant service with database session."""
         self.db = db
 
-    def _get_unique_public_slug(self, base_value: str, exclude_tenant_id: UUID | None = None) -> str:
+    def _get_unique_public_slug(
+        self, base_value: str, exclude_tenant_id: UUID | None = None
+    ) -> str:
         """Generate a globally unique public slug."""
         base_slug = normalize_public_slug(base_value)
         if len(base_slug) < PUBLIC_SLUG_MIN_LENGTH:

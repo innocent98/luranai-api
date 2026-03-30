@@ -136,8 +136,7 @@ class PaystackService:
             plan_amount = plan.get("amount")
             plan_interval = str(plan.get("interval", ""))
             searchable_text = " ".join(
-                str(plan.get(field, ""))
-                for field in ("name", "description", "plan_code")
+                str(plan.get(field, "")) for field in ("name", "description", "plan_code")
             ).lower()
 
             if plan_amount != amount:
@@ -329,7 +328,9 @@ class PaystackService:
                 }
 
         except httpx.HTTPStatusError as e:
-            logger.error(f"Paystack API error during subscription initialization: {e.response.text}")
+            logger.error(
+                f"Paystack API error during subscription initialization: {e.response.text}"
+            )
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=self._build_gateway_error_message(e.response),

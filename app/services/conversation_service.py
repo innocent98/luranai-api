@@ -30,7 +30,9 @@ class ConversationService:
         if not visitor_id:
             return None
 
-        visitor = self.db.execute(select(Visitor).where(Visitor.id == visitor_id)).scalar_one_or_none()
+        visitor = self.db.execute(
+            select(Visitor).where(Visitor.id == visitor_id)
+        ).scalar_one_or_none()
         if not visitor:
             return None
 

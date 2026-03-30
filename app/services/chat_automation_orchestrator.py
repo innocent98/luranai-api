@@ -837,9 +837,7 @@ class ChatAutomationOrchestrator:
             response_text, _, is_api_error = await asyncio.wait_for(
                 rag_service.generate_ai_response(
                     prompt=prompt,
-                    max_tokens=min(
-                        getattr(tenant_ai_config, "max_response_tokens", 220), 220
-                    ),
+                    max_tokens=min(getattr(tenant_ai_config, "max_response_tokens", 220), 220),
                 ),
                 timeout=self.LLM_REPLY_TIMEOUT_SECONDS,
             )

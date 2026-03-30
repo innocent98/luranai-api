@@ -7,6 +7,8 @@ It creates three tenant admins with known capabilities:
 - quota tenant with execution quota exhausted
 """
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import sys
@@ -165,7 +167,9 @@ def _ensure_user(db, tenant: Tenant, *, email: str, full_name: str) -> User:
 def _ensure_secret(db, tenant: Tenant) -> None:
     secret = (
         db.query(ActionSecret)
-        .filter(ActionSecret.tenant_id == tenant.id, ActionSecret.key_name == "sandbox_bearer_token")
+        .filter(
+            ActionSecret.tenant_id == tenant.id, ActionSecret.key_name == "sandbox_bearer_token"
+        )
         .one_or_none()
     )
     if not secret:
@@ -333,7 +337,17 @@ def _ensure_action(db, tenant: Tenant, user: User, payload: dict) -> TenantActio
 
 
 def _ensure_actions(db, tenant: Tenant, user: User, *, count: int) -> list[TenantAction]:
-    actions = [_ensure_action(db, tenant, user, payload) for payload in _action_payloads("http://host.docker.internal:8000/api/v1/automation-sandbox")]
+    actions = [
+        _ensure_action(
+            db,
+            tenant,
+            user,
+            payload,
+        )
+        for payload in _action_payloads(
+            "http://host.docker.internal:8000/api/v1/automation-sandbox"
+        )
+    ]
     filler_index = 1
     while len(actions) < count:
         filler_slug = f"staging_filler_action_{filler_index}"
@@ -354,6 +368,7 @@ def _ensure_actions(db, tenant: Tenant, user: User, *, count: int) -> list[Tenan
         }
         actions.append(_ensure_action(db, tenant, user, payload))
         filler_index += 1
+    db.flush()
     return actions[:count]
 
 
@@ -389,7 +404,9 @@ def _build_action_call_nodes(action: TenantAction) -> dict:
             {
                 "id": "done",
                 "type": "end",
-                "config": {"message": "Flow saved status {{final_order_status}} with ETA {{final_eta_date}}."},
+                "config": {
+                    "message": "Flow saved status {{final_order_status}} with ETA {{final_eta_date}}."
+                },
             },
             {
                 "id": "failure",
@@ -429,7 +446,9 @@ def _ensure_flow(
     return flow
 
 
-def _ensure_flows(db, tenant: Tenant, user: User, *, required_count: int, order_action: TenantAction) -> None:
+def _ensure_flows(
+    db, tenant: Tenant, user: User, *, required_count: int, order_action: TenantAction
+) -> None:
     _ensure_flow(
         db,
         tenant,
@@ -555,22 +574,22 @@ def main() -> None:
         pro_actions = _ensure_actions(db, pro_tenant, pro_user, count=6)
         _ensure_flows(db, pro_tenant, pro_user, required_count=4, order_action=pro_actions[0])
 
-        _ensure_actions(db, lite_tenant, lite_user, count=5)
+        lite_actions = _ensure_actions(db, lite_tenant, lite_user, count=5)
         _ensure_flows(
             db,
             lite_tenant,
             lite_user,
             required_count=1,
-            order_action=_ensure_actions(db, lite_tenant, lite_user, count=5)[0],
+            order_action=lite_actions[0],
         )
 
-        _ensure_actions(db, quota_tenant, quota_user, count=3)
+        quota_actions = _ensure_actions(db, quota_tenant, quota_user, count=3)
         _ensure_flows(
             db,
             quota_tenant,
             quota_user,
             required_count=1,
-            order_action=_ensure_actions(db, quota_tenant, quota_user, count=3)[0],
+            order_action=quota_actions[0],
         )
 
         db.commit()

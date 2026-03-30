@@ -942,7 +942,9 @@ class FlowEngine:
                         "query": user_query,
                         "chunks_count": len(chunks),
                         "avg_similarity": sum(scores) / len(scores) if scores else 0,
-                        "chunks": [{"id": str(chunk.id), "content": chunk.content} for chunk in chunks],
+                        "chunks": [
+                            {"id": str(chunk.id), "content": chunk.content} for chunk in chunks
+                        ],
                         "scores": scores,
                     },
                 )
