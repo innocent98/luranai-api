@@ -18,17 +18,31 @@ def setup_logging() -> Any:
     if settings.LOG_TO_FILE:
         log_dir = os.path.dirname(settings.LOG_FILE_PATH) or "."
         os.makedirs(log_dir, exist_ok=True)
-        logger.add(
-            settings.LOG_FILE_PATH,
-            rotation=f"{settings.LOG_FILE_ROTATION_MB} MB",
-            retention=f"{settings.LOG_FILE_RETENTION_DAYS} days",
-            compression=settings.LOG_FILE_COMPRESSION or None,
-            level=log_level,
-            enqueue=True,
-            backtrace=False,
-            diagnose=False,
-            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
-        )
+        try:
+            logger.add(
+                settings.LOG_FILE_PATH,
+                rotation=f"{settings.LOG_FILE_ROTATION_MB} MB",
+                retention=f"{settings.LOG_FILE_RETENTION_DAYS} days",
+                compression=settings.LOG_FILE_COMPRESSION or None,
+                level=log_level,
+                enqueue=True,
+                backtrace=False,
+                diagnose=False,
+                format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
+            )
+        except OSError as exc:
+            logger.add(
+                sys.stderr,
+                level="WARNING",
+                enqueue=True,
+                backtrace=False,
+                diagnose=False,
+            )
+            logger.warning(
+                "File logging disabled because {} is not writable: {}",
+                settings.LOG_FILE_PATH,
+                exc,
+            )
 
     if settings.ENVIRONMENT == "development":
         # Development: Human-readable colored output
