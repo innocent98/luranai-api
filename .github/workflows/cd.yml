@@ -85,8 +85,21 @@ jobs:
             docker compose -f docker-compose.prod.yml run --rm api python /app/scripts/seed_data.py
             docker compose -f docker-compose.prod.yml run --rm api python /app/scripts/seed_staging_e2e.py
             docker compose -f docker-compose.prod.yml up -d
-            sleep 12
-            curl -f "http://localhost:${{ secrets.API_PORT || 8000 }}/api/v1/health"
+            HEALTH_URL="http://localhost:${{ secrets.API_PORT || 8000 }}/api/v1/health"
+            for attempt in $(seq 1 12); do
+              if curl --fail --silent --show-error "$HEALTH_URL" >/dev/null; then
+                echo "Staging API is healthy."
+                break
+              fi
+              if [ "$attempt" -eq 12 ]; then
+                echo "Staging API failed health check after waiting." >&2
+                docker compose -f docker-compose.prod.yml ps >&2 || true
+                docker compose -f docker-compose.prod.yml logs --tail=200 api worker pgbouncer db redis qdrant >&2 || true
+                exit 1
+              fi
+              echo "Waiting for staging API health ($attempt/12)..."
+              sleep 10
+            done
             docker compose -f docker-compose.prod.yml ps
             rm -f api-image.tar.gz
 
@@ -331,8 +344,21 @@ jobs:
             docker compose -f docker-compose.prod.yml pull db redis qdrant pgbouncer
             docker compose -f docker-compose.prod.yml run --rm api alembic upgrade head
             docker compose -f docker-compose.prod.yml up -d
-            sleep 12
-            curl -f "http://localhost:${{ secrets.API_PORT || 8000 }}/api/v1/health"
+            HEALTH_URL="http://localhost:${{ secrets.API_PORT || 8000 }}/api/v1/health"
+            for attempt in $(seq 1 12); do
+              if curl --fail --silent --show-error "$HEALTH_URL" >/dev/null; then
+                echo "Production API is healthy."
+                break
+              fi
+              if [ "$attempt" -eq 12 ]; then
+                echo "Production API failed health check after waiting." >&2
+                docker compose -f docker-compose.prod.yml ps >&2 || true
+                docker compose -f docker-compose.prod.yml logs --tail=200 api worker pgbouncer db redis qdrant >&2 || true
+                exit 1
+              fi
+              echo "Waiting for production API health ($attempt/12)..."
+              sleep 10
+            done
             docker compose -f docker-compose.prod.yml ps
             docker image prune -f
             rm -f api-image.tar.gz
