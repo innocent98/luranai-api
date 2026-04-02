@@ -7,22 +7,25 @@
 # Supports: Local storage, AWS S3, Google Drive, Dropbox
 # ============================================================================
 
-set -e  # Exit on error
+set -euo pipefail  # Exit on error and fail on unset vars
 
 # ============================================================================
 # Load Environment Variables
 # ============================================================================
 # Load .env file if it exists
 if [ -f .env ]; then
-    # Export variables from .env (ignore comments and empty lines)
-    export $(grep -v '^#' .env | grep -v '^$' | xargs)
+    set -a
+    # shellcheck disable=SC1091
+    . ./.env
+    set +a
 fi
 
 # ============================================================================
 # Configuration
 # ============================================================================
 BACKUP_DIR="./backups"
-DB_CONTAINER="luran_db"
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-luran}"
+DB_CONTAINER="${DB_CONTAINER:-${COMPOSE_PROJECT_NAME}_db}"
 DB_USER="${POSTGRES_USER}"  # From .env file
 DB_NAME="${POSTGRES_DB}"    # From .env file
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
@@ -31,7 +34,7 @@ BACKUP_FILE="luran_backup_${TIMESTAMP}.sql"
 BACKUP_PATH="${BACKUP_DIR}/${BACKUP_FILE}"
 
 # Retention settings (keep backups for N days)
-RETENTION_DAYS=30
+RETENTION_DAYS="${RETENTION_DAYS:-30}"
 
 # Cloud storage settings (from environment variables)
 ENABLE_CLOUD_BACKUP=${ENABLE_CLOUD_BACKUP:-false}
@@ -74,6 +77,7 @@ echo "🗄️  Luran Database Backup"
 echo "🗄️  ============================================"
 log_info "Timestamp: ${TIMESTAMP}"
 log_info "Database: ${DB_NAME}"
+log_info "Container: ${DB_CONTAINER}"
 echo ""
 
 # Create backups directory if it doesn't exist
@@ -85,9 +89,14 @@ if ! docker ps | grep -q ${DB_CONTAINER}; then
     exit 1
 fi
 
+if [ -z "${DB_USER:-}" ] || [ -z "${DB_NAME:-}" ]; then
+    log_error "POSTGRES_USER and POSTGRES_DB must be set in .env"
+    exit 1
+fi
+
 # Create backup using pg_dump inside Docker container
 log_info "Creating backup: ${BACKUP_FILE}"
-if docker exec -t ${DB_CONTAINER} pg_dump -U ${DB_USER} -d ${DB_NAME} > "${BACKUP_PATH}"; then
+if docker exec ${DB_CONTAINER} pg_dump -U ${DB_USER} -d ${DB_NAME} > "${BACKUP_PATH}"; then
     log_success "Backup created successfully"
 else
     log_error "Failed to create backup!"

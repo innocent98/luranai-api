@@ -11,6 +11,17 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
+if [ -f .env ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . ./.env
+    set +a
+fi
+
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-luran}"
+DB_CONTAINER="${DB_CONTAINER:-${COMPOSE_PROJECT_NAME}_db}"
+GDRIVE_FOLDER="${GDRIVE_FOLDER:-LuranBackups}"
+
 echo ""
 echo "🗄️  ============================================"
 echo "🗄️  Luran Backup Status"
@@ -45,12 +56,13 @@ echo ""
 echo -e "${BLUE}☁️  Google Drive Backups:${NC}"
 if command -v rclone &> /dev/null; then
     if rclone listremotes | grep -q "gdrive:"; then
-        GDRIVE_COUNT=$(rclone ls gdrive:LuranBackups/ 2>/dev/null | wc -l | tr -d ' ')
+        GDRIVE_COUNT=$(rclone ls "gdrive:${GDRIVE_FOLDER}/" 2>/dev/null | wc -l | tr -d ' ')
         if [ "$GDRIVE_COUNT" -gt 0 ]; then
             echo -e "${GREEN}✅ ${GDRIVE_COUNT} backups in Google Drive${NC}"
             echo ""
             echo "Recent cloud backups:"
-            rclone ls gdrive:LuranBackups/2026/01/ 2>/dev/null | tail -3 | awk '{printf "  %s (%.0f KB)\n", $2, $1/1024}'
+            CURRENT_DATE_PATH=$(date +"%Y/%m")
+            rclone ls "gdrive:${GDRIVE_FOLDER}/${CURRENT_DATE_PATH}/" 2>/dev/null | tail -3 | awk '{printf "  %s (%.0f KB)\n", $2, $1/1024}'
         else
             echo -e "${YELLOW}⚠️  No backups in Google Drive yet${NC}"
         fi
@@ -74,15 +86,19 @@ echo ""
 
 # Next backup time
 echo -e "${BLUE}⏰ Next Scheduled Backup:${NC}"
-if crontab -l 2>/dev/null | grep -q "2 \* \* \*"; then
-    CURRENT_HOUR=$(date +%H)
-    if [ "$CURRENT_HOUR" -lt 2 ]; then
-        echo "  Today at 2:00 AM"
-    else
-        echo "  Tomorrow at 2:00 AM"
-    fi
+if crontab -l 2>/dev/null | grep -q "backup_db.sh"; then
+    CRON_LINE=$(crontab -l | grep "backup_db.sh" | head -1)
+    echo "  ${CRON_LINE}"
 else
     echo "  (No schedule configured)"
+fi
+echo ""
+
+echo -e "${BLUE}🐳 Database Container:${NC}"
+if docker ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$"; then
+    echo -e "${GREEN}✅ ${DB_CONTAINER} is running${NC}"
+else
+    echo -e "${YELLOW}⚠️  Expected container ${DB_CONTAINER} is not running${NC}"
 fi
 echo ""
 
