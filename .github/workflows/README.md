@@ -19,7 +19,7 @@ This directory contains GitHub Actions workflows for Continuous Integration and 
 
 ### 2. CD Workflow (`cd.yml`)
 
-**Trigger:** Push to `develop`/`main`, tags, or manual dispatch
+**Trigger:** CI success on `develop`/`main`, or manual dispatch
 
 **Jobs:**
 - **Deploy staging stack**
@@ -210,7 +210,7 @@ For first-time staging bootstrap, do the same from `/opt/luran-staging` after th
 - Staging seeds deterministic E2E fixtures
 - Playwright runs against the deployed Vercel dashboard URL, not a dashboard process on the VPS
 - Production deploy is hard-blocked until staging API and dashboard E2E succeed
-- Uses `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
+- Uses `docker compose -f docker-compose.prod.yml up -d`
 - Runs migration before service refresh
 - Validates deployment with health check
 

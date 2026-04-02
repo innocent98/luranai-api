@@ -1,17 +1,27 @@
 services:
   api:
-    build: !reset null
-    deploy: !reset {}
-    volumes: !reset
-      - ./logs:/app/logs
+    image: ${API_IMAGE:-luran-api:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-luran}_api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    env_file:
+      - .env
     depends_on:
       - pgbouncer
       - redis
       - qdrant
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
+      REDIS_URL: ${REDIS_URL}
+      QDRANT_URL: ${QDRANT_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL}
+      OPENAI_LLM_MODEL: ${OPENAI_LLM_MODEL}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
       API_WORKERS: ${API_WORKERS:-4}
-    mem_limit: 1400m
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     healthcheck:
       test:
         [
@@ -20,36 +30,116 @@ services:
           "-c",
           "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=5)",
         ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    mem_limit: ${API_MEM_LIMIT:-900m}
+    volumes:
+      - ./logs:/app/logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   worker:
-    build: !reset null
-    deploy: !reset {}
-    volumes: !reset
-      - ./logs:/app/logs
+    image: ${API_IMAGE:-luran-api:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:-luran}_worker
+    command: python worker.py
+    env_file:
+      - .env
     depends_on:
       - pgbouncer
       - redis
       - qdrant
+    restart: unless-stopped
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
-    mem_limit: 900m
+      REDIS_URL: ${REDIS_URL}
+      QDRANT_URL: ${QDRANT_URL}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL}
+      OPENAI_LLM_MODEL: ${OPENAI_LLM_MODEL}
+      EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    mem_limit: ${WORKER_MEM_LIMIT:-700m}
+    volumes:
+      - ./logs:/app/logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   db:
-    deploy: !reset {}
-    ports: !reset []
-    mem_limit: 1400m
+    image: postgres:15-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-luran}_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=${POSTGRES_SHARED_BUFFERS:-256MB}"
+      - "-c"
+      - "max_connections=${POSTGRES_MAX_CONNECTIONS:-100}"
+      - "-c"
+      - "work_mem=${POSTGRES_WORK_MEM:-8MB}"
+      - "-c"
+      - "effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-512MB}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    restart: unless-stopped
+    mem_limit: ${DB_MEM_LIMIT:-1200m}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
-    deploy: !reset {}
-    ports: !reset []
-    mem_limit: 512m
+    image: redis:7-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-luran}_redis
+    command: redis-server --maxmemory ${REDIS_MAXMEMORY:-256mb} --maxmemory-policy allkeys-lru --save 60 1000
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    mem_limit: ${REDIS_MEM_LIMIT:-256m}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
 
   qdrant:
-    deploy: !reset {}
-    ports: !reset []
-    mem_limit: 1400m
-    healthcheck:
-      disable: true
+    image: qdrant/qdrant:latest
+    container_name: ${COMPOSE_PROJECT_NAME:-luran}_qdrant
+    restart: unless-stopped
+    environment:
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__STORAGE__OPTIMIZERS__DEFAULT_SEGMENT_NUMBER=${QDRANT_DEFAULT_SEGMENT_NUMBER:-4}
+    volumes:
+      - qdrant_data:/qdrant/storage
+    mem_limit: ${QDRANT_MEM_LIMIT:-900m}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   pgbouncer:
     image: edoburu/pgbouncer:latest@sha256:85d1e38593617af1b5f7f285e97d407e56c29939683cc7cfe4c8f6dc19f1268b
@@ -71,4 +161,9 @@ services:
       AUTH_TYPE: scram-sha-256
     expose:
       - "5432"
-    mem_limit: 256m
+    mem_limit: ${PGBOUNCER_MEM_LIMIT:-128m}
+
+volumes:
+  postgres_data:
+  redis_data:
+  qdrant_data:
