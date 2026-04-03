@@ -42,6 +42,10 @@ from app.db.models.knowledge import (
 )
 from app.db.models.payment import PaymentTransaction
 from app.db.models.platform_admin import PlatformAdmin, PlatformAdminRole
+from app.db.models.platform_email_campaign import (
+    PlatformEmailCampaign,
+    PlatformEmailCampaignRecipient,
+)
 from app.db.models.review import FeedbackCategory, PlatformFeedback, SessionRating
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.subscription_plan import SubscriptionPlan
@@ -83,6 +87,8 @@ __all__ = [
     # Platform admin models
     "PlatformAdmin",
     "PlatformAdminRole",
+    "PlatformEmailCampaign",
+    "PlatformEmailCampaignRecipient",
     # API Key models
     "APIKey",
     "APIKeyType",

@@ -149,6 +149,7 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: str | None = None
     CLOUDINARY_API_SECRET: str | None = None
     CLOUDINARY_FOLDER: str = "luran/widget_logos"
+    CLOUDINARY_PLATFORM_EMAIL_FOLDER: str = "luran/platform_email_images"
 
     # Paystack Payment Gateway
     PAYSTACK_SECRET_KEY: str

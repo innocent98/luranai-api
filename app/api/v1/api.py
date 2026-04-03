@@ -25,6 +25,7 @@ from app.api.v1.endpoints import (
 )
 from app.api.v1.endpoints.platform import analytics as platform_analytics
 from app.api.v1.endpoints.platform import audit as platform_audit
+from app.api.v1.endpoints.platform import emails as platform_emails
 from app.api.v1.endpoints.platform import financials as platform_financials
 from app.api.v1.endpoints.platform import health as platform_health
 from app.api.v1.endpoints.platform import pricing as platform_pricing
@@ -137,6 +138,13 @@ api_router.include_router(
     platform_users.router,
     prefix="/platform/users",
     tags=["platform-users"],
+)
+
+# Platform admin email campaign endpoints
+api_router.include_router(
+    platform_emails.router,
+    prefix="/platform/emails",
+    tags=["platform-emails"],
 )
 
 # Platform admin pricing management endpoints
