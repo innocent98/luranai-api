@@ -268,6 +268,7 @@ class EmailService:
         email: str,
         user_name: str,
         reset_token: str,
+        frontend_url: str | None = None,
     ) -> bool:
         """
         Send password reset email.
@@ -282,7 +283,8 @@ class EmailService:
         """
         try:
             template = self.jinja_env.get_template("password_reset.html")
-            reset_link = f"{settings.FRONTEND_URL}/reset-password?token={reset_token}"
+            app_url = frontend_url or settings.FRONTEND_URL
+            reset_link = f"{app_url}/reset-password?token={reset_token}"
 
             html_content = template.render(
                 user_name=user_name,
@@ -332,6 +334,7 @@ class EmailService:
         email: str,
         user_name: str,
         verification_token: str,
+        frontend_url: str | None = None,
     ) -> bool:
         """
         Send email verification link.
@@ -346,7 +349,8 @@ class EmailService:
         """
         try:
             template = self.jinja_env.get_template("email_verification.html")
-            verification_link = f"{settings.FRONTEND_URL}/verify-email?token={verification_token}"
+            app_url = frontend_url or settings.FRONTEND_URL
+            verification_link = f"{app_url}/verify-email?token={verification_token}"
 
             html_content = template.render(
                 user_name=user_name,

@@ -8,6 +8,9 @@ from app.api.v1.endpoints import (
     auth,
     chat,
     company_registration,
+    customer_auth,
+    customer_engagement,
+    customer_conversations,
     flows,
     health,
     jobs,
@@ -17,6 +20,7 @@ from app.api.v1.endpoints import (
     reviews,
     subscription,
     tenant,
+    tenant_channels,
     tickets,
     users,
     webhooks,
@@ -54,6 +58,27 @@ api_router.include_router(
     company_registration.router,
     prefix="/auth",
     tags=["registration"],
+)
+
+# Customer-facing authentication endpoints
+api_router.include_router(
+    customer_auth.router,
+    prefix="/customer/auth",
+    tags=["customer-auth"],
+)
+
+# Customer-facing conversation endpoints
+api_router.include_router(
+    customer_conversations.router,
+    prefix="/customer",
+    tags=["customer-conversations"],
+)
+
+# Customer follow and channels endpoints
+api_router.include_router(
+    customer_engagement.router,
+    prefix="/customer",
+    tags=["customer-engagement"],
 )
 
 # User management endpoints (team members)
@@ -159,6 +184,13 @@ api_router.include_router(
     tenant.router,
     prefix="/tenant",
     tags=["tenant"],
+)
+
+# Tenant channel publishing endpoints
+api_router.include_router(
+    tenant_channels.router,
+    prefix="/tenant/channels",
+    tags=["tenant-channels"],
 )
 
 # Tenant automation endpoints

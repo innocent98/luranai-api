@@ -23,6 +23,12 @@ from app.db.models.conversation import (
     TicketPriority,
     TicketStatus,
 )
+from app.db.models.customer_engagement import (
+    ChannelPostStatus,
+    CustomerBusinessFollow,
+    TenantChannelPost,
+)
+from app.db.models.customer_user import CustomerUser
 from app.db.models.email_notification import EmailNotification
 from app.db.models.flow import (
     Flow,
@@ -84,6 +90,10 @@ __all__ = [
     # User models
     "User",
     "UserRole",
+    "CustomerUser",
+    "CustomerBusinessFollow",
+    "TenantChannelPost",
+    "ChannelPostStatus",
     # Platform admin models
     "PlatformAdmin",
     "PlatformAdminRole",

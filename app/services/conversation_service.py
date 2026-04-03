@@ -75,6 +75,7 @@ class ConversationService:
             user_identifier=session_data.user_identifier,
             visitor_id=session_data.visitor_id,
             visitor_session_id=session_data.visitor_session_id,
+            customer_user_id=session_data.customer_user_id,
             status=SessionStatus.ACTIVE,
             meta=session_data.meta or {},
             last_message_at=utcnow_naive(),
@@ -171,6 +172,39 @@ class ConversationService:
         if not session:
             return None
 
+        return self._to_session_response(session)
+
+    def get_latest_session_for_customer(
+        self,
+        tenant_id: UUID,
+        customer_user_id: UUID,
+        allowed_statuses: list[SessionStatus] | None = None,
+    ) -> SessionResponse | None:
+        stmt = select(ConversationSession).where(
+            ConversationSession.tenant_id == tenant_id,
+            ConversationSession.customer_user_id == customer_user_id,
+        )
+        if allowed_statuses:
+            stmt = stmt.where(ConversationSession.status.in_(allowed_statuses))
+        stmt = stmt.order_by(desc(ConversationSession.last_message_at))
+        session = self.db.execute(stmt).scalar_one_or_none()
+        if not session:
+            return None
+        return self._to_session_response(session)
+
+    def assign_customer_to_session(
+        self,
+        session_id: UUID,
+        customer_user_id: UUID,
+    ) -> SessionResponse:
+        stmt = select(ConversationSession).where(ConversationSession.id == session_id)
+        session = self.db.execute(stmt).scalar_one_or_none()
+        if not session:
+            raise ValueError("Session not found")
+
+        session.customer_user_id = customer_user_id
+        self.db.commit()
+        self.db.refresh(session)
         return self._to_session_response(session)
 
     def update_session(
