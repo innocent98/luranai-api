@@ -1,5 +1,6 @@
 """Conversation service for managing chat sessions and messages."""
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import desc, select
@@ -376,6 +377,40 @@ class ConversationService:
             messages = list(self.db.execute(stmt).scalars().all())
 
         return [MessageResponse.model_validate(msg) for msg in messages]
+
+    def get_session_messages_paginated(
+        self,
+        session_id: UUID,
+        limit: int = 50,
+        before: datetime | None = None,
+    ) -> tuple[list[MessageResponse], bool]:
+        """
+        Get paginated messages for a session, newest last.
+
+        Args:
+            session_id: Session UUID
+            limit: Max messages to return
+            before: Only return messages created before this timestamp (cursor)
+
+        Returns:
+            Tuple of (messages ordered oldest->newest, has_more bool)
+        """
+        stmt = select(Message).where(Message.session_id == session_id)
+        if before:
+            stmt = stmt.where(Message.created_at < before)
+
+        # Get limit+1 to determine has_more, ordered newest first
+        stmt = stmt.order_by(desc(Message.created_at)).limit(limit + 1)
+        results = list(self.db.execute(stmt).scalars().all())
+
+        has_more = len(results) > limit
+        if has_more:
+            results = results[:limit]
+
+        # Reverse to oldest->newest for display order
+        results.reverse()
+
+        return [MessageResponse.model_validate(msg) for msg in results], has_more
 
     def get_recent_context(self, session_id: UUID, max_turns: int = 10) -> list[MessageResponse]:
         """

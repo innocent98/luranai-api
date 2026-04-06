@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc, or_, select
 from sqlalchemy.orm import Session
 
@@ -115,6 +115,8 @@ async def mark_conversation_read(
 )
 def get_customer_conversation(
     session_id: UUID,
+    limit: int = Query(default=50, ge=1, le=200),
+    before: str | None = Query(default=None, description="ISO timestamp cursor for pagination"),
     db: Session = Depends(get_db),
     current_customer: CustomerUserResponse = Depends(get_current_customer),
 ):
@@ -129,9 +131,28 @@ def get_customer_conversation(
         db.refresh(session_model)
 
     conversation_service = ConversationService(db)
-    detail = conversation_service.get_session(session_id, include_messages=True)
-    if not detail or not isinstance(detail, SessionDetailResponse):
+
+    # Parse before cursor
+    parsed_before = None
+    if before:
+        from datetime import datetime as dt
+
+        parsed_before = dt.fromisoformat(before)
+
+    # Get session (without messages)
+    session_resp = conversation_service.get_session(session_id, include_messages=False)
+    if not session_resp:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
+    # Get paginated messages
+    messages, has_more = conversation_service.get_session_messages_paginated(
+        session_id, limit=limit, before=parsed_before,
+    )
+
+    # Build detail response with paginated messages
+    detail_dict = session_resp.model_dump()
+    detail_dict["messages"] = [m.model_dump() for m in messages]
+    detail = SessionDetailResponse.model_validate(detail_dict)
 
     tenant = db.execute(select(Tenant).where(Tenant.id == session_model.tenant_id)).scalar_one_or_none()
     return CustomerConversationDetail(
@@ -143,7 +164,38 @@ def get_customer_conversation(
         business_widget_accent_color=tenant.widget_accent_color if tenant else None,
         business_widget_greeting_message=tenant.widget_greeting_message if tenant else None,
         conversation=detail,
+        has_more_messages=has_more,
     )
+
+
+@router.get(
+    "/conversations/{session_id}/messages",
+    status_code=status.HTTP_200_OK,
+)
+def get_conversation_messages(
+    session_id: UUID,
+    limit: int = Query(default=50, ge=1, le=200),
+    before: str | None = Query(default=None, description="ISO timestamp cursor"),
+    db: Session = Depends(get_db),
+    current_customer: CustomerUserResponse = Depends(get_current_customer),
+):
+    session_model = db.execute(
+        select(ConversationSession).where(ConversationSession.id == session_id)
+    ).scalar_one_or_none()
+    _assert_customer_session_access(session_model, current_customer)
+
+    parsed_before = None
+    if before:
+        from datetime import datetime as dt
+
+        parsed_before = dt.fromisoformat(before)
+
+    service = ConversationService(db)
+    messages, has_more = service.get_session_messages_paginated(
+        session_id, limit=limit, before=parsed_before,
+    )
+
+    return {"messages": messages, "has_more": has_more}
 
 
 @router.post(
