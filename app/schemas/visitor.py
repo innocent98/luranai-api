@@ -41,6 +41,7 @@ class PublicBusinessDirectoryItem(BaseModel):
     support_headline: str | None = None
     support_subheadline: str | None = None
     widget_logo_url: str | None = None
+    is_featured: bool = False
 
 
 class PublicBusinessDirectoryResponse(BaseModel):

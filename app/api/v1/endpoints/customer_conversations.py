@@ -80,11 +80,32 @@ def list_customer_conversations(
                 status=session.status.value,
                 last_message_at=session.last_message_at.isoformat(),
                 latest_message_preview=latest_message.content if latest_message else None,
+                has_unread=(
+                    session.last_message_at is not None
+                    and (
+                        session.customer_last_read_at is None
+                        or session.last_message_at > session.customer_last_read_at
+                    )
+                ),
             )
         )
 
     db.commit()
     return summaries
+
+
+@router.post("/conversations/{session_id}/read")
+async def mark_conversation_read(
+    session_id: UUID,
+    db: Session = Depends(get_db),
+    current_customer: CustomerUserResponse = Depends(get_current_customer),
+):
+    """Mark a conversation as read by the customer."""
+    service = ConversationService(db)
+    success = service.mark_conversation_read(session_id, current_customer.id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "ok"}
 
 
 @router.get(

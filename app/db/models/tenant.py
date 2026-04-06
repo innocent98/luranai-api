@@ -87,6 +87,13 @@ class Tenant(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Whether this tenant should appear in the public business directory",
     )
+    is_featured: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        index=True,
+        comment="Featured businesses appear first in the public directory",
+    )
     public_slug: Mapped[str | None] = mapped_column(
         String(50),
         unique=True,

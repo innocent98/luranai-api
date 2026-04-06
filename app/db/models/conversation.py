@@ -140,6 +140,12 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
         default=datetime.utcnow,
         comment="Timestamp of last message in conversation",
     )
+    customer_last_read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+        comment="When the customer last viewed this conversation",
+    )
 
     # Relationships
     messages: Mapped[list["Message"]] = relationship(

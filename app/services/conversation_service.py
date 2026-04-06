@@ -470,3 +470,17 @@ class ConversationService:
         self.db.refresh(session)
 
         return self._to_session_response(session)
+
+    def mark_conversation_read(self, session_id: UUID, customer_user_id: UUID) -> bool:
+        """Mark a conversation as read by the customer."""
+        from datetime import datetime, timezone
+
+        session = self.db.query(ConversationSession).filter(
+            ConversationSession.id == session_id,
+            ConversationSession.customer_user_id == customer_user_id,
+        ).first()
+        if not session:
+            return False
+        session.customer_last_read_at = datetime.now(timezone.utc)
+        self.db.commit()
+        return True

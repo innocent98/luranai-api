@@ -20,6 +20,7 @@ class CustomerConversationSummary(BaseModel):
     status: str
     last_message_at: str
     latest_message_preview: str | None = None
+    has_unread: bool = False
 
 
 class CustomerConversationDetail(BaseModel):
