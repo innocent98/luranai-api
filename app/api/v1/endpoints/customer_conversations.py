@@ -39,25 +39,40 @@ def _assert_customer_session_access(
 
 @router.get(
     "/conversations",
-    response_model=list[CustomerConversationSummary],
+    response_model=None,
     status_code=status.HTTP_200_OK,
 )
 def list_customer_conversations(
+    limit: int = Query(default=30, ge=1, le=100),
+    before: str | None = Query(default=None, description="ISO timestamp cursor - last_message_at of last item"),
     db: Session = Depends(get_db),
     current_customer: CustomerUserResponse = Depends(get_current_customer),
 ):
+    parsed_before = None
+    if before:
+        from datetime import datetime as dt
+
+        parsed_before = dt.fromisoformat(before)
+
+    stmt = select(ConversationSession).where(
+        or_(
+            ConversationSession.customer_user_id == current_customer.id,
+            ConversationSession.user_identifier == current_customer.chat_user_key,
+        )
+    )
+    if parsed_before:
+        stmt = stmt.where(ConversationSession.last_message_at < parsed_before)
+
     sessions = list(
         db.execute(
-            select(ConversationSession)
-            .where(
-                or_(
-                    ConversationSession.customer_user_id == current_customer.id,
-                    ConversationSession.user_identifier == current_customer.chat_user_key,
-                )
-            )
-            .order_by(desc(ConversationSession.last_message_at))
+            stmt.order_by(desc(ConversationSession.last_message_at))
+            .limit(limit + 1)
         ).scalars()
     )
+
+    has_more = len(sessions) > limit
+    if has_more:
+        sessions = sessions[:limit]
 
     summaries: list[CustomerConversationSummary] = []
     for session in sessions:
@@ -91,7 +106,7 @@ def list_customer_conversations(
         )
 
     db.commit()
-    return summaries
+    return {"conversations": summaries, "has_more": has_more}
 
 
 @router.post("/conversations/{session_id}/read")

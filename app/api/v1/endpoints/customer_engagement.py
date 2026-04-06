@@ -109,39 +109,49 @@ def unfollow_business(
     )
 
 
-@router.get("/channels", response_model=list[CustomerChannelPostSummary], status_code=status.HTTP_200_OK)
+@router.get("/channels", status_code=status.HTTP_200_OK)
 def list_customer_channels(
     following_only: bool = Query(True),
     tenant_id: UUID | None = Query(None),
     limit: int = Query(30, ge=1, le=100),
+    before: str | None = Query(None, description="ISO timestamp cursor for pagination"),
     db: Session = Depends(get_db),
     current_customer: CustomerUserResponse = Depends(get_current_customer),
 ):
+    parsed_before = None
+    if before:
+        from datetime import datetime as dt
+        parsed_before = dt.fromisoformat(before)
+
     service = CustomerEngagementService(db)
-    rows = service.list_customer_feed(
+    rows, has_more = service.list_customer_feed(
         customer_user_id=current_customer.id,
         following_only=following_only,
         tenant_id=tenant_id,
         limit=limit,
+        before=parsed_before,
     )
-    return [
-        CustomerChannelPostSummary(
-            id=post.id,
-            tenant_id=post.tenant_id,
-            business_name=tenant.display_name,
-            business_slug=tenant.public_slug,
-            business_logo_url=tenant.widget_logo_url,
-            title=post.title,
-            excerpt=post.excerpt,
-            cover_image_url=post.cover_image_url,
-            cta_label=post.cta_label,
-            cta_url=post.cta_url,
-            is_pinned=post.is_pinned,
-            is_following=is_following,
-            published_at=post.published_at,
-        )
-        for post, tenant, is_following in rows
-    ]
+    return {
+        "posts": [
+            CustomerChannelPostSummary(
+                id=post.id,
+                tenant_id=post.tenant_id,
+                business_name=tenant.display_name,
+                business_slug=tenant.public_slug,
+                business_logo_url=tenant.widget_logo_url,
+                title=post.title,
+                excerpt=post.excerpt,
+                cover_image_url=post.cover_image_url,
+                cta_label=post.cta_label,
+                cta_url=post.cta_url,
+                is_pinned=post.is_pinned,
+                is_following=is_following,
+                published_at=post.published_at,
+            )
+            for post, tenant, is_following in rows
+        ],
+        "has_more": has_more,
+    }
 
 
 @router.get(

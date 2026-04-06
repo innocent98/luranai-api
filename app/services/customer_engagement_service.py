@@ -115,7 +115,8 @@ class CustomerEngagementService:
         following_only: bool = True,
         tenant_id: UUID | None = None,
         limit: int = 30,
-    ) -> list[tuple[TenantChannelPost, Tenant, bool]]:
+        before: datetime | None = None,
+    ) -> tuple[list[tuple[TenantChannelPost, Tenant, bool]], bool]:
         follow_subquery = (
             select(CustomerBusinessFollow.tenant_id)
             .where(CustomerBusinessFollow.customer_user_id == customer_user_id)
@@ -145,14 +146,21 @@ class CustomerEngagementService:
         else:
             stmt = stmt.where(or_(Tenant.is_publicly_listed.is_(True), CustomerBusinessFollow.id.is_not(None)))
 
+        if before:
+            stmt = stmt.where(TenantChannelPost.published_at < before)
+
         rows = self.db.execute(
             stmt.order_by(
                 desc(TenantChannelPost.is_pinned),
                 desc(TenantChannelPost.published_at),
-            ).limit(limit)
+            ).limit(limit + 1)
         ).all()
 
-        return [(row[0], row[1], bool(row[2])) for row in rows]
+        has_more = len(rows) > limit
+        if has_more:
+            rows = rows[:limit]
+
+        return [(row[0], row[1], bool(row[2])) for row in rows], has_more
 
     def get_customer_post(
         self,
