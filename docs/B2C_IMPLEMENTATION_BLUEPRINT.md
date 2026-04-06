@@ -88,6 +88,12 @@ Interaction thesis:
 - stable inbox continuity
 - subtle transitions and strong hierarchy, not heavy chrome
 
+## Environment Notes
+
+- `FRONTEND_URL` should remain the B2B/business app base URL used by `luran-dashboard`.
+- `CUSTOMER_FRONTEND_URL` should point to the B2C/customer app base URL used by `luran-chat`.
+- Customer verification and reset emails should always build links from `CUSTOMER_FRONTEND_URL` so they land on `/verify-email` and `/reset-password` inside `luran-chat`.
+
 ## Guardrails
 
 - Do not mix customer auth with tenant staff auth.

@@ -110,7 +110,11 @@ class TenantChannelPost(Base, UUIDMixin, TimestampMixin):
         comment="Pinned items surface first in feeds",
     )
     status: Mapped[ChannelPostStatus] = mapped_column(
-        SQLEnum(ChannelPostStatus, name="channel_post_status"),
+        SQLEnum(
+            ChannelPostStatus,
+            name="channel_post_status",
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         default=ChannelPostStatus.DRAFT,
         nullable=False,
         index=True,

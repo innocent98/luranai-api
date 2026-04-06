@@ -118,6 +118,9 @@ def get_customer_conversation(
         business_slug=tenant.public_slug if tenant else None,
         business_logo_url=tenant.widget_logo_url if tenant else None,
         business_description=tenant.description if tenant else None,
+        business_widget_primary_color=tenant.widget_primary_color if tenant else None,
+        business_widget_accent_color=tenant.widget_accent_color if tenant else None,
+        business_widget_greeting_message=tenant.widget_greeting_message if tenant else None,
         conversation=detail,
     )
 

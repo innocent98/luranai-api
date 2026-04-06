@@ -31,4 +31,7 @@ class CustomerConversationDetail(BaseModel):
     business_slug: str | None = None
     business_logo_url: str | None = None
     business_description: str | None = None
+    business_widget_primary_color: str | None = None
+    business_widget_accent_color: str | None = None
+    business_widget_greeting_message: str | None = None
     conversation: SessionDetailResponse
