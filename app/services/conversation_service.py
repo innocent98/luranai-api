@@ -512,9 +512,12 @@ class ConversationService:
 
         session = self.db.query(ConversationSession).filter(
             ConversationSession.id == session_id,
-            ConversationSession.customer_user_id == customer_user_id,
         ).first()
         if not session:
+            return False
+        if session.customer_user_id is None:
+            session.customer_user_id = customer_user_id
+        elif session.customer_user_id != customer_user_id:
             return False
         session.customer_last_read_at = datetime.now(timezone.utc)
         self.db.commit()

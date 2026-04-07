@@ -1,5 +1,6 @@
 """Authenticated customer conversation endpoints."""
 
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -44,24 +45,21 @@ def _assert_customer_session_access(
 )
 def list_customer_conversations(
     limit: int = Query(default=30, ge=1, le=100),
-    before: str | None = Query(default=None, description="ISO timestamp cursor - last_message_at of last item"),
+    before: datetime | None = Query(
+        default=None,
+        description="ISO timestamp cursor - last_message_at of last item",
+    ),
     db: Session = Depends(get_db),
     current_customer: CustomerUserResponse = Depends(get_current_customer),
 ):
-    parsed_before = None
-    if before:
-        from datetime import datetime as dt
-
-        parsed_before = dt.fromisoformat(before)
-
     stmt = select(ConversationSession).where(
         or_(
             ConversationSession.customer_user_id == current_customer.id,
             ConversationSession.user_identifier == current_customer.chat_user_key,
         )
     )
-    if parsed_before:
-        stmt = stmt.where(ConversationSession.last_message_at < parsed_before)
+    if before:
+        stmt = stmt.where(ConversationSession.last_message_at < before)
 
     sessions = list(
         db.execute(
@@ -131,7 +129,7 @@ async def mark_conversation_read(
 def get_customer_conversation(
     session_id: UUID,
     limit: int = Query(default=50, ge=1, le=200),
-    before: str | None = Query(default=None, description="ISO timestamp cursor for pagination"),
+    before: datetime | None = Query(default=None, description="ISO timestamp cursor for pagination"),
     db: Session = Depends(get_db),
     current_customer: CustomerUserResponse = Depends(get_current_customer),
 ):
@@ -147,13 +145,6 @@ def get_customer_conversation(
 
     conversation_service = ConversationService(db)
 
-    # Parse before cursor
-    parsed_before = None
-    if before:
-        from datetime import datetime as dt
-
-        parsed_before = dt.fromisoformat(before)
-
     # Get session (without messages)
     session_resp = conversation_service.get_session(session_id, include_messages=False)
     if not session_resp:
@@ -161,7 +152,7 @@ def get_customer_conversation(
 
     # Get paginated messages
     messages, has_more = conversation_service.get_session_messages_paginated(
-        session_id, limit=limit, before=parsed_before,
+        session_id, limit=limit, before=before,
     )
 
     # Build detail response with paginated messages
@@ -190,7 +181,7 @@ def get_customer_conversation(
 def get_conversation_messages(
     session_id: UUID,
     limit: int = Query(default=50, ge=1, le=200),
-    before: str | None = Query(default=None, description="ISO timestamp cursor"),
+    before: datetime | None = Query(default=None, description="ISO timestamp cursor"),
     db: Session = Depends(get_db),
     current_customer: CustomerUserResponse = Depends(get_current_customer),
 ):
@@ -199,15 +190,9 @@ def get_conversation_messages(
     ).scalar_one_or_none()
     _assert_customer_session_access(session_model, current_customer)
 
-    parsed_before = None
-    if before:
-        from datetime import datetime as dt
-
-        parsed_before = dt.fromisoformat(before)
-
     service = ConversationService(db)
     messages, has_more = service.get_session_messages_paginated(
-        session_id, limit=limit, before=parsed_before,
+        session_id, limit=limit, before=before,
     )
 
     return {"messages": messages, "has_more": has_more}

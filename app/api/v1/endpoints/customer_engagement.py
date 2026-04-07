@@ -1,5 +1,6 @@
 """Customer follow and channels endpoints."""
 
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -114,22 +115,17 @@ def list_customer_channels(
     following_only: bool = Query(True),
     tenant_id: UUID | None = Query(None),
     limit: int = Query(30, ge=1, le=100),
-    before: str | None = Query(None, description="ISO timestamp cursor for pagination"),
+    before: datetime | None = Query(None, description="ISO timestamp cursor for pagination"),
     db: Session = Depends(get_db),
     current_customer: CustomerUserResponse = Depends(get_current_customer),
 ):
-    parsed_before = None
-    if before:
-        from datetime import datetime as dt
-        parsed_before = dt.fromisoformat(before)
-
     service = CustomerEngagementService(db)
     rows, has_more = service.list_customer_feed(
         customer_user_id=current_customer.id,
         following_only=following_only,
         tenant_id=tenant_id,
         limit=limit,
-        before=parsed_before,
+        before=before,
     )
     return {
         "posts": [
