@@ -63,8 +63,7 @@ def list_customer_conversations(
 
     sessions = list(
         db.execute(
-            stmt.order_by(desc(ConversationSession.last_message_at))
-            .limit(limit + 1)
+            stmt.order_by(desc(ConversationSession.last_message_at)).limit(limit + 1)
         ).scalars()
     )
 
@@ -76,7 +75,9 @@ def list_customer_conversations(
     for session in sessions:
         if session.customer_user_id is None:
             session.customer_user_id = current_customer.id
-        tenant = db.execute(select(Tenant).where(Tenant.id == session.tenant_id)).scalar_one_or_none()
+        tenant = db.execute(
+            select(Tenant).where(Tenant.id == session.tenant_id)
+        ).scalar_one_or_none()
         latest_message = db.execute(
             select(Message)
             .where(Message.session_id == session.id)
@@ -129,7 +130,9 @@ async def mark_conversation_read(
 def get_customer_conversation(
     session_id: UUID,
     limit: int = Query(default=50, ge=1, le=200),
-    before: datetime | None = Query(default=None, description="ISO timestamp cursor for pagination"),
+    before: datetime | None = Query(
+        default=None, description="ISO timestamp cursor for pagination"
+    ),
     db: Session = Depends(get_db),
     current_customer: CustomerUserResponse = Depends(get_current_customer),
 ):
@@ -152,7 +155,9 @@ def get_customer_conversation(
 
     # Get paginated messages
     messages, has_more = conversation_service.get_session_messages_paginated(
-        session_id, limit=limit, before=before,
+        session_id,
+        limit=limit,
+        before=before,
     )
 
     # Build detail response with paginated messages
@@ -160,7 +165,9 @@ def get_customer_conversation(
     detail_dict["messages"] = [m.model_dump() for m in messages]
     detail = SessionDetailResponse.model_validate(detail_dict)
 
-    tenant = db.execute(select(Tenant).where(Tenant.id == session_model.tenant_id)).scalar_one_or_none()
+    tenant = db.execute(
+        select(Tenant).where(Tenant.id == session_model.tenant_id)
+    ).scalar_one_or_none()
     return CustomerConversationDetail(
         business_name=tenant.display_name if tenant else "Business",
         business_slug=tenant.public_slug if tenant else None,
@@ -192,7 +199,9 @@ def get_conversation_messages(
 
     service = ConversationService(db)
     messages, has_more = service.get_session_messages_paginated(
-        session_id, limit=limit, before=before,
+        session_id,
+        limit=limit,
+        before=before,
     )
 
     return {"messages": messages, "has_more": has_more}

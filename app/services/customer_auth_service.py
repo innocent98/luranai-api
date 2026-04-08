@@ -111,9 +111,7 @@ class CustomerAuthService:
             message="Account created. Please check your email to verify your account."
         )
 
-    def verify_email(
-        self, payload: CustomerEmailVerificationRequest
-    ) -> CustomerActionResponse:
+    def verify_email(self, payload: CustomerEmailVerificationRequest) -> CustomerActionResponse:
         token_data = token_service.verify_customer_email_token(payload.token)
         if not token_data:
             raise ValueError("Invalid or expired verification token")

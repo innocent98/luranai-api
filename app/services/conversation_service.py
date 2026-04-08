@@ -510,9 +510,13 @@ class ConversationService:
         """Mark a conversation as read by the customer."""
         from datetime import UTC
 
-        session = self.db.query(ConversationSession).filter(
-            ConversationSession.id == session_id,
-        ).first()
+        session = (
+            self.db.query(ConversationSession)
+            .filter(
+                ConversationSession.id == session_id,
+            )
+            .first()
+        )
         if not session:
             return False
         if session.customer_user_id is None:

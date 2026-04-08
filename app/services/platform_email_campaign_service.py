@@ -164,13 +164,17 @@ class PlatformEmailCampaignService:
                 "description": "Tenant admins on active paid plans",
             }
         elif request.audience_type == "trial_tenant_admins":
-            recipients = self._resolve_tenant_admins_by_status(subscription_statuses={"trial", "trialing"})
+            recipients = self._resolve_tenant_admins_by_status(
+                subscription_statuses={"trial", "trialing"}
+            )
             audience_summary = {
                 "mode": "trial_tenant_admins",
                 "description": "Tenant admins currently on trial",
             }
         elif request.audience_type == "trial_expired_tenant_admins":
-            recipients = self._resolve_tenant_admins_by_status(subscription_statuses={"trial_expired"})
+            recipients = self._resolve_tenant_admins_by_status(
+                subscription_statuses={"trial_expired"}
+            )
             audience_summary = {
                 "mode": "trial_expired_tenant_admins",
                 "description": "Tenant admins whose trial has expired",

@@ -81,7 +81,9 @@ class CustomerEngagementService:
             or 0
         )
 
-    def list_follows(self, customer_user_id: UUID) -> list[tuple[CustomerBusinessFollow, Tenant, TenantChannelPost | None]]:
+    def list_follows(
+        self, customer_user_id: UUID
+    ) -> list[tuple[CustomerBusinessFollow, Tenant, TenantChannelPost | None]]:
         follow_rows = self.db.execute(
             select(CustomerBusinessFollow, Tenant)
             .join(Tenant, Tenant.id == CustomerBusinessFollow.tenant_id)
@@ -144,7 +146,9 @@ class CustomerEngagementService:
         if following_only:
             stmt = stmt.where(TenantChannelPost.tenant_id.in_(select(follow_subquery.c.tenant_id)))
         else:
-            stmt = stmt.where(or_(Tenant.is_publicly_listed.is_(True), CustomerBusinessFollow.id.is_not(None)))
+            stmt = stmt.where(
+                or_(Tenant.is_publicly_listed.is_(True), CustomerBusinessFollow.id.is_not(None))
+            )
 
         if before:
             stmt = stmt.where(TenantChannelPost.published_at < before)
@@ -237,7 +241,9 @@ class CustomerEngagementService:
         self.db.refresh(post)
         return post
 
-    def get_tenant_post(self, current_user: UserResponse, post_id: UUID) -> TenantChannelPost | None:
+    def get_tenant_post(
+        self, current_user: UserResponse, post_id: UUID
+    ) -> TenantChannelPost | None:
         self._assert_manage_permission(current_user)
         return self.db.execute(
             select(TenantChannelPost).where(

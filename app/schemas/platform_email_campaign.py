@@ -7,7 +7,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
-
 CampaignAudienceType = Literal[
     "all_tenant_admins",
     "active_paid_tenant_admins",
@@ -53,7 +52,9 @@ class PlatformEmailCampaignCreateRequest(BaseModel):
     @classmethod
     def normalize_body(cls, value: str) -> str:
         cleaned = value.strip()
-        if not cleaned or (len(_strip_html(cleaned)) < 3 and not _contains_meaningful_media(cleaned)):
+        if not cleaned or (
+            len(_strip_html(cleaned)) < 3 and not _contains_meaningful_media(cleaned)
+        ):
             raise ValueError("Body is required")
         return cleaned
 
@@ -98,7 +99,9 @@ class PlatformEmailCampaignTestSendRequest(BaseModel):
     @classmethod
     def normalize_test_body(cls, value: str) -> str:
         cleaned = value.strip()
-        if not cleaned or (len(_strip_html(cleaned)) < 3 and not _contains_meaningful_media(cleaned)):
+        if not cleaned or (
+            len(_strip_html(cleaned)) < 3 and not _contains_meaningful_media(cleaned)
+        ):
             raise ValueError("Body is required")
         return cleaned
 

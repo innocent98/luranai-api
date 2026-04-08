@@ -83,7 +83,11 @@ def update_tenant_channel_post(
         return service.update_tenant_post(current_user, post_id, payload)
     except ValueError as exc:
         message = str(exc)
-        status_code = status.HTTP_404_NOT_FOUND if "not found" in message.lower() else status.HTTP_403_FORBIDDEN
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if "not found" in message.lower()
+            else status.HTTP_403_FORBIDDEN
+        )
         raise HTTPException(status_code=status_code, detail=message) from exc
 
 
@@ -102,7 +106,11 @@ def publish_tenant_channel_post(
         return service.publish_tenant_post(current_user, post_id)
     except ValueError as exc:
         message = str(exc)
-        status_code = status.HTTP_404_NOT_FOUND if "not found" in message.lower() else status.HTTP_403_FORBIDDEN
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if "not found" in message.lower()
+            else status.HTTP_403_FORBIDDEN
+        )
         raise HTTPException(status_code=status_code, detail=message) from exc
 
 
@@ -121,5 +129,9 @@ def archive_tenant_channel_post(
         return service.archive_tenant_post(current_user, post_id)
     except ValueError as exc:
         message = str(exc)
-        status_code = status.HTTP_404_NOT_FOUND if "not found" in message.lower() else status.HTTP_403_FORBIDDEN
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if "not found" in message.lower()
+            else status.HTTP_403_FORBIDDEN
+        )
         raise HTTPException(status_code=status_code, detail=message) from exc

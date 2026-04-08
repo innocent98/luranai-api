@@ -18,9 +18,7 @@ class CustomerUser(Base, UUIDMixin, TimestampMixin):
     """Logged-in customer account for the B2C experience."""
 
     __tablename__ = "customer_users"
-    __table_args__ = (
-        Index("ix_customer_users_email_active", "email", "is_active"),
-    )
+    __table_args__ = (Index("ix_customer_users_email_active", "email", "is_active"),)
 
     full_name: Mapped[str] = mapped_column(
         String(255),
