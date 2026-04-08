@@ -55,16 +55,16 @@ jobs:
           docker build -t luran-api:$IMAGE_TAG .
           docker save luran-api:$IMAGE_TAG | gzip > api-image.tar.gz
 
-      - name: Decrypt .env for deployment
+      - name: Decrypt staging .env
         env:
           ENV_ENCRYPTION_KEY: ${{ secrets.ENV_ENCRYPTION_KEY }}
         run: |
-          if [ -f .env.enc ] && [ -n "$ENV_ENCRYPTION_KEY" ]; then
+          if [ -f .env.staging.enc ] && [ -n "$ENV_ENCRYPTION_KEY" ]; then
             openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 \
-              -in .env.enc -out .env -pass "pass:$ENV_ENCRYPTION_KEY"
-            echo "Decrypted .env successfully"
+              -in .env.staging.enc -out .env -pass "pass:$ENV_ENCRYPTION_KEY"
+            echo "Decrypted staging .env successfully"
           else
-            echo "No .env.enc or key — skipping (server .env must exist)"
+            echo "No .env.staging.enc or key — server .env must already exist"
           fi
 
       - name: Copy files to staging stack directory
@@ -328,16 +328,16 @@ jobs:
           docker build -t luran-api:$IMAGE_TAG .
           docker save luran-api:$IMAGE_TAG | gzip > api-image.tar.gz
 
-      - name: Decrypt .env for deployment
+      - name: Decrypt production .env
         env:
           ENV_ENCRYPTION_KEY: ${{ secrets.ENV_ENCRYPTION_KEY }}
         run: |
-          if [ -f .env.enc ] && [ -n "$ENV_ENCRYPTION_KEY" ]; then
+          if [ -f .env.production.enc ] && [ -n "$ENV_ENCRYPTION_KEY" ]; then
             openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 \
-              -in .env.enc -out .env -pass "pass:$ENV_ENCRYPTION_KEY"
-            echo "Decrypted .env successfully"
+              -in .env.production.enc -out .env -pass "pass:$ENV_ENCRYPTION_KEY"
+            echo "Decrypted production .env successfully"
           else
-            echo "No .env.enc or key — skipping (server .env must exist)"
+            echo "No .env.production.enc or key — server .env must already exist"
           fi
 
       - name: Copy files to production stack directory

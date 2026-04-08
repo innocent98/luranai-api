@@ -41,11 +41,13 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
-# Environments
+# Environments (plaintext — never commit)
 .env
 .env.local
 .env.key
+.env.staging
 .env.production
+# NOTE: .env.staging.enc and .env.production.enc ARE safe to commit (encrypted)
 .venv
 env/
 venv/
