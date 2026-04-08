@@ -12,12 +12,12 @@
 #
 # This script is self-contained:
 #   - Uses absolute paths (no cd needed)
-#   - Loads .env from known location
+#   - Loads .env safely via grep (no sourcing)
 #   - Uses full path to docker binary
 #   - Handles all errors with logging
 # ============================================================
 
-set -euo pipefail
+set -uo pipefail
 
 # ---- Configuration ----
 DEPLOY_DIR="/opt/luran"
@@ -28,23 +28,30 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 BACKUP_FILE="luran_backup_${TIMESTAMP}.sql"
 RETENTION_DAYS=30
 
-# ---- Load .env ----
+# ---- Load .env safely (no sourcing — avoids special char issues) ----
 if [ ! -f "$ENV_FILE" ]; then
     echo "[$(date -u +%FT%TZ)] ERROR: $ENV_FILE not found"
     exit 1
 fi
 
-set -a
-# shellcheck disable=SC1090
-. "$ENV_FILE"
-set +a
+_env_val() { grep "^${1}=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- || echo ""; }
 
+COMPOSE_PROJECT_NAME="$(_env_val COMPOSE_PROJECT_NAME)"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-luran}"
 DB_CONTAINER="${COMPOSE_PROJECT_NAME}_db"
-DB_USER="${POSTGRES_USER:?POSTGRES_USER not set in .env}"
-DB_NAME="${POSTGRES_DB:?POSTGRES_DB not set in .env}"
+DB_USER="$(_env_val POSTGRES_USER)"
+DB_NAME="$(_env_val POSTGRES_DB)"
+ENABLE_CLOUD_BACKUP="$(_env_val ENABLE_CLOUD_BACKUP)"
+CLOUD_PROVIDER="$(_env_val CLOUD_PROVIDER)"
+GDRIVE_FOLDER="$(_env_val GDRIVE_FOLDER)"
+AWS_S3_BUCKET="$(_env_val AWS_S3_BUCKET)"
 
 # ---- Pre-flight checks ----
+if [ -z "$DB_USER" ] || [ -z "$DB_NAME" ]; then
+    echo "[$(date -u +%FT%TZ)] ERROR: POSTGRES_USER or POSTGRES_DB not set in .env"
+    exit 1
+fi
+
 if ! $DOCKER ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$"; then
     echo "[$(date -u +%FT%TZ)] ERROR: Container ${DB_CONTAINER} is not running"
     exit 1
@@ -71,9 +78,7 @@ echo "[$(date -u +%FT%TZ)] Compressed: ${BACKUP_FILE}.gz (${BACKUP_SIZE})"
 
 # ---- Cleanup old backups ----
 DELETED=$(find "$BACKUP_DIR" -name "luran_backup_*.sql.gz" -mtime +"$RETENTION_DAYS" -delete -print | wc -l | tr -d ' ')
-if [ "$DELETED" -gt 0 ]; then
-    echo "[$(date -u +%FT%TZ)] Cleaned up ${DELETED} backup(s) older than ${RETENTION_DAYS} days"
-fi
+[ "$DELETED" -gt 0 ] && echo "[$(date -u +%FT%TZ)] Cleaned up ${DELETED} backup(s) older than ${RETENTION_DAYS} days"
 
 # ---- Cloud upload (optional) ----
 if [ "${ENABLE_CLOUD_BACKUP:-false}" = "true" ]; then
@@ -82,10 +87,12 @@ if [ "${ENABLE_CLOUD_BACKUP:-false}" = "true" ]; then
         gdrive)
             if command -v rclone &>/dev/null; then
                 rclone mkdir "gdrive:${GDRIVE_FOLDER:-LuranBackups}/${DATE_PATH}" 2>/dev/null || true
-                rclone copy "${BACKUP_DIR}/${BACKUP_FILE}.gz" \
-                    "gdrive:${GDRIVE_FOLDER:-LuranBackups}/${DATE_PATH}/" 2>/dev/null \
-                    && echo "[$(date -u +%FT%TZ)] Uploaded to Google Drive" \
-                    || echo "[$(date -u +%FT%TZ)] WARNING: Google Drive upload failed"
+                if rclone copy "${BACKUP_DIR}/${BACKUP_FILE}.gz" \
+                    "gdrive:${GDRIVE_FOLDER:-LuranBackups}/${DATE_PATH}/" --verbose 2>&1; then
+                    echo "[$(date -u +%FT%TZ)] Uploaded to Google Drive"
+                else
+                    echo "[$(date -u +%FT%TZ)] WARNING: Google Drive upload failed"
+                fi
             else
                 echo "[$(date -u +%FT%TZ)] WARNING: rclone not installed, skipping cloud upload"
             fi
