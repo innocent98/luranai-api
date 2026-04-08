@@ -75,7 +75,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
           port: ${{ secrets.VPS_PORT || 22 }}
-          source: "api-image.tar.gz,docker-compose.prod.yml,alembic.ini,alembic/,.env"
+          source: "api-image.tar.gz,docker-compose.prod.yml,alembic.ini,alembic/,.env,scripts/backup_cron.sh"
           target: ${{ secrets.DEPLOY_PATH }}
 
       - name: Deploy API to staging
@@ -114,6 +114,10 @@ jobs:
             done
             docker compose -f docker-compose.prod.yml ps
             rm -f api-image.tar.gz
+            # Ensure backup cron is installed (idempotent)
+            chmod +x scripts/backup_cron.sh 2>/dev/null || true
+            (crontab -l 2>/dev/null | grep -v "backup_cron.sh"; echo "0 2 * * * ${{ secrets.DEPLOY_PATH }}/scripts/backup_cron.sh >> ${{ secrets.DEPLOY_PATH }}/backups/backup.log 2>&1") | crontab -
+            echo "Backup cron installed: daily at 2 AM"
 
       - name: Capture staging deployment context
         run: |
@@ -348,7 +352,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
           port: ${{ secrets.VPS_PORT || 22 }}
-          source: "api-image.tar.gz,docker-compose.prod.yml,alembic.ini,alembic/,.env"
+          source: "api-image.tar.gz,docker-compose.prod.yml,alembic.ini,alembic/,.env,scripts/backup_cron.sh"
           target: ${{ secrets.DEPLOY_PATH }}
 
       - name: Deploy to production
@@ -386,6 +390,10 @@ jobs:
             docker compose -f docker-compose.prod.yml ps
             docker image prune -f
             rm -f api-image.tar.gz
+            # Ensure backup cron is installed (idempotent)
+            chmod +x scripts/backup_cron.sh 2>/dev/null || true
+            (crontab -l 2>/dev/null | grep -v "backup_cron.sh"; echo "0 2 * * * ${{ secrets.DEPLOY_PATH }}/scripts/backup_cron.sh >> ${{ secrets.DEPLOY_PATH }}/backups/backup.log 2>&1") | crontab -
+            echo "Backup cron installed: daily at 2 AM"
 
       - name: Notify deployment status
         if: always()
