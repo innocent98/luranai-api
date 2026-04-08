@@ -3,13 +3,28 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, get_password_hash
 from app.db.models.customer_user import CustomerUser
+from app.main import app
 from app.services.email_service import email_service
 from app.services.token_service import token_service
+from app.utils.http_rate_limiter import auth_rate_limit
+
+
+@pytest.fixture(autouse=True)
+def _bypass_auth_rate_limit():
+    """Disable auth rate limiting for all tests in this module."""
+
+    async def _noop():
+        pass
+
+    app.dependency_overrides[auth_rate_limit] = _noop
+    yield
+    app.dependency_overrides.pop(auth_rate_limit, None)
 
 
 def _create_customer(

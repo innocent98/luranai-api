@@ -508,7 +508,7 @@ class ConversationService:
 
     def mark_conversation_read(self, session_id: UUID, customer_user_id: UUID) -> bool:
         """Mark a conversation as read by the customer."""
-        from datetime import datetime, timezone
+        from datetime import UTC
 
         session = self.db.query(ConversationSession).filter(
             ConversationSession.id == session_id,
@@ -519,6 +519,6 @@ class ConversationService:
             session.customer_user_id = customer_user_id
         elif session.customer_user_id != customer_user_id:
             return False
-        session.customer_last_read_at = datetime.now(timezone.utc)
+        session.customer_last_read_at = datetime.now(UTC)
         self.db.commit()
         return True
