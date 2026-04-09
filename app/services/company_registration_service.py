@@ -103,6 +103,7 @@ class CompanyRegistrationService:
                 public_slug=self._generate_unique_public_slug(tenant_name),
                 status=TenantStatus.ACTIVE,  # Active immediately, but user needs to verify email
                 api_key_hash=api_key_hash,
+                is_publicly_listed=True,  # Visible in customer directory by default
                 subscription_tier="trial",
                 subscription_status="trialing",
                 trial_ends_at=trial_ends_at,

@@ -179,6 +179,35 @@ class EmailService:
             },
         )
 
+    def send_channel_update_notification(
+        self,
+        recipient_email: str,
+        recipient_name: str,
+        business_name: str,
+        post_title: str,
+        post_excerpt: str,
+        post_url: str,
+    ) -> bool:
+        """Send a channel update notification email to a follower."""
+        try:
+            from datetime import datetime
+
+            template = self.jinja_env.get_template("channel_update.html")
+            html_content = template.render(
+                business_name=business_name,
+                post_title=post_title,
+                post_excerpt=post_excerpt,
+                post_url=post_url,
+                current_year=datetime.now().year,
+            )
+
+            subject = f"New update from {business_name}"
+            return self._send_email(recipient_email, subject, html_content)
+
+        except Exception as e:
+            logger.error(f"Failed to send channel update notification to {recipient_email}: {e}")
+            return False
+
     def send_welcome_email(
         self,
         company_name: str,

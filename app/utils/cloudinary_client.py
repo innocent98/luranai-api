@@ -210,6 +210,46 @@ class CloudinaryManager:
             logger.error(f"Platform email image upload failed: {e}")
             return None, f"Image upload failed: {str(e)}"
 
+    def upload_channel_image(
+        self,
+        file_content: bytes,
+        tenant_id: UUID,
+        filename: str = "channel_image",
+    ) -> tuple[str | None, str | None]:
+        """Upload a channel post image to Cloudinary."""
+        if not self.enabled:
+            return None, "Cloudinary is not configured. Please add credentials to .env"
+
+        try:
+            is_valid, error = self.validate_image(file_content, max_size_mb=5)
+            if not is_valid:
+                return None, error
+
+            folder = f"{settings.CLOUDINARY_FOLDER or 'luran'}/channels/{tenant_id}"
+            public_id = f"{folder}/{filename}_{int(__import__('time').time())}"
+
+            result = cloudinary.uploader.upload(
+                file_content,
+                public_id=public_id,
+                folder=None,
+                overwrite=True,
+                resource_type="image",
+                transformation=[
+                    {
+                        "width": 1200,
+                        "height": 630,
+                        "crop": "limit",
+                        "quality": "auto",
+                        "fetch_format": "auto",
+                    }
+                ],
+            )
+            return result.get("secure_url"), None
+
+        except Exception as e:
+            logger.error(f"Channel image upload failed: {e}")
+            return None, f"Upload failed: {str(e)}"
+
 
 # Global instance
 cloudinary_manager = CloudinaryManager()

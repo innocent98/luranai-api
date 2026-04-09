@@ -13,7 +13,6 @@ from app.schemas.auth import (
 from app.schemas.user import (
     CurrentUserResponse,
     LoginRequest,
-    Token,
     UserPasswordUpdate,
     UserResponse,
 )
@@ -132,7 +131,7 @@ def reset_password(
     try:
         return auth_service.reset_password(payload.token, payload.new_password)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
 @router.post(
@@ -149,4 +148,4 @@ def force_change_password(
     try:
         return auth_service.force_change_password(current_user.id, payload.new_password)
     except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
