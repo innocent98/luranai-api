@@ -301,6 +301,23 @@ class CustomerEngagementService:
         self.db.refresh(post)
         return post
 
+    def get_followers_with_notifications(self, tenant_id: UUID) -> list[tuple]:
+        """Get all followers of a tenant who have notifications enabled."""
+        from app.db.models.customer_user import CustomerUser
+
+        rows = self.db.execute(
+            select(CustomerUser, CustomerBusinessFollow)
+            .join(
+                CustomerBusinessFollow,
+                CustomerBusinessFollow.customer_user_id == CustomerUser.id,
+            )
+            .where(
+                CustomerBusinessFollow.tenant_id == tenant_id,
+                CustomerBusinessFollow.notifications_enabled.is_(True),
+            )
+        ).all()
+        return [(row[0], row[1]) for row in rows]
+
     def tenant_overview(self, current_user: UserResponse) -> dict[str, int]:
         self._assert_manage_permission(current_user)
         counts = self.db.execute(

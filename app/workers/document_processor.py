@@ -919,6 +919,75 @@ async def aggregate_daily_metrics(ctx: dict) -> dict:
         db.close()
 
 
+async def send_channel_post_notifications(ctx: dict, post_id: str) -> None:
+    """Send email notifications to all followers when a channel post is published."""
+    from uuid import UUID
+
+    from sqlalchemy import select
+
+    from app.db.models.customer_engagement import TenantChannelPost
+    from app.db.models.tenant import Tenant
+    from app.services.customer_engagement_service import CustomerEngagementService
+    from app.services.email_service import email_service
+
+    logger.info(f"Sending channel post notifications for post {post_id}")
+
+    db = ctx.get("db")
+    if not db:
+        from app.db.session import SessionLocal
+
+        db = SessionLocal()
+
+    try:
+        post = db.execute(
+            select(TenantChannelPost).where(TenantChannelPost.id == UUID(post_id))
+        ).scalar_one_or_none()
+
+        if not post:
+            logger.warning(f"Channel post {post_id} not found")
+            return
+
+        tenant = db.execute(select(Tenant).where(Tenant.id == post.tenant_id)).scalar_one_or_none()
+
+        if not tenant:
+            logger.warning(f"Tenant not found for post {post_id}")
+            return
+
+        service = CustomerEngagementService(db)
+        followers = service.get_followers_with_notifications(post.tenant_id)
+
+        if not followers:
+            logger.info(f"No followers with notifications for tenant {tenant.id}")
+            return
+
+        customer_frontend_url = settings.CUSTOMER_FRONTEND_URL or settings.FRONTEND_URL
+        post_url = f"{customer_frontend_url}/app/channels/{post.id}"
+
+        sent_count = 0
+        for customer_user, _follow in followers:
+            success = email_service.send_channel_update_notification(
+                recipient_email=customer_user.email,
+                recipient_name=customer_user.full_name,
+                business_name=tenant.display_name,
+                post_title=post.title,
+                post_excerpt=post.excerpt or "",
+                post_url=post_url,
+            )
+            if success:
+                sent_count += 1
+
+        logger.info(
+            f"Channel post notifications: sent {sent_count}/{len(followers)} "
+            f"emails for post {post_id} ({tenant.display_name})"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to send channel post notifications: {e}")
+    finally:
+        if "db" not in ctx:
+            db.close()
+
+
 # ARQ worker settings
 def get_redis_settings():
     """Get Redis settings from environment at runtime."""
@@ -949,6 +1018,7 @@ class WorkerSettings:
         send_payment_failure_emails,
         send_scheduled_platform_email_campaigns,
         aggregate_daily_metrics,
+        send_channel_post_notifications,
     ]
     redis_settings = get_redis_settings()
 
