@@ -103,6 +103,7 @@ class CompanyRegistrationService:
                 public_slug=self._generate_unique_public_slug(tenant_name),
                 status=TenantStatus.ACTIVE,  # Active immediately, but user needs to verify email
                 api_key_hash=api_key_hash,
+                is_publicly_listed=True,  # Visible in customer directory by default
                 subscription_tier="trial",
                 subscription_status="trialing",
                 trial_ends_at=trial_ends_at,
@@ -245,6 +246,7 @@ class CompanyRegistrationService:
         # Update user password and activate account
         user.hashed_password = get_password_hash(temp_password)
         user.is_active = True
+        user.must_change_password = True
 
         # Get tenant information for welcome email
         tenant_stmt = select(Tenant).where(Tenant.id == user.tenant_id)

@@ -4,10 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
+from app.schemas.auth import (
+    PasswordResetRequest,
+    PasswordResetConfirm,
+    LoginResponse,
+    ForcePasswordChangeRequest,
+)
 from app.schemas.user import (
     CurrentUserResponse,
     LoginRequest,
-    Token,
     UserPasswordUpdate,
     UserResponse,
 )
@@ -19,7 +24,7 @@ router = APIRouter()
 
 @router.post(
     "/login",
-    response_model=Token,
+    response_model=LoginResponse,
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(auth_rate_limit)],
 )
@@ -96,3 +101,51 @@ def update_password(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+
+
+@router.post(
+    "/forgot-password",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(auth_rate_limit)],
+)
+def forgot_password(
+    payload: PasswordResetRequest,
+    db: Session = Depends(get_db),
+):
+    """Request a password reset link."""
+    auth_service = AuthService(db)
+    return auth_service.request_password_reset(payload.email)
+
+
+@router.post(
+    "/reset-password",
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(auth_rate_limit)],
+)
+def reset_password(
+    payload: PasswordResetConfirm,
+    db: Session = Depends(get_db),
+):
+    """Reset password using a reset token."""
+    auth_service = AuthService(db)
+    try:
+        return auth_service.reset_password(payload.token, payload.new_password)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post(
+    "/force-change-password",
+    status_code=status.HTTP_200_OK,
+)
+def force_change_password(
+    payload: ForcePasswordChangeRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Change password for users with must_change_password flag."""
+    auth_service = AuthService(db)
+    try:
+        return auth_service.force_change_password(current_user.id, payload.new_password)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
