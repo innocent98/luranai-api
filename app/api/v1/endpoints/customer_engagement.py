@@ -116,6 +116,7 @@ def list_customer_channels(
     tenant_id: UUID | None = Query(None),
     limit: int = Query(30, ge=1, le=100),
     before: datetime | None = Query(None, description="ISO timestamp cursor for pagination"),
+    search: str | None = Query(None, description="Search by business name"),
     db: Session = Depends(get_db),
     current_customer: CustomerUserResponse = Depends(get_current_customer),
 ):
@@ -126,6 +127,7 @@ def list_customer_channels(
         tenant_id=tenant_id,
         limit=limit,
         before=before,
+        search=search,
     )
     return {
         "posts": [
