@@ -10,6 +10,8 @@ from app.core.config import settings
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.db.models.user import User, UserRole
 from app.schemas.user import LoginRequest, Token, TokenData, UserCreate, UserResponse
+from app.services.token_service import token_service
+from app.services.email_service import email_service
 
 
 class AuthService:
@@ -73,10 +75,13 @@ class AuthService:
             },
         )
 
-        return Token(
+        from app.schemas.auth import LoginResponse
+
+        return LoginResponse(
             access_token=access_token,
             token_type="bearer",
             expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            must_change_password=user.must_change_password,
         )
 
     def create_user(self, user_data: UserCreate) -> UserResponse:
@@ -247,3 +252,80 @@ class AuthService:
         users = self.db.execute(stmt).scalars().all()
 
         return [UserResponse.model_validate(user) for user in users]
+
+    def request_password_reset(self, email: str) -> dict:
+        """Request a password reset link for a B2B user."""
+        normalized_email = email.lower().strip()
+        user = self.db.execute(
+            select(User).where(User.email == normalized_email)
+        ).scalar_one_or_none()
+
+        # Only send reset for active (verified) users
+        if user and user.is_active:
+            reset_token = token_service.create_password_reset_token(
+                user_id=user.id,
+                email=user.email,
+            )
+            email_service.send_password_reset_email(
+                email=user.email,
+                user_name=user.full_name,
+                reset_token=reset_token,
+                frontend_url=settings.FRONTEND_URL,
+            )
+
+        # Always return generic message (prevent email enumeration)
+        return {
+            "message": "If an account exists for that email, a password reset link has been sent."
+        }
+
+    def reset_password(self, token: str, new_password: str) -> dict:
+        """Reset a B2B user's password using a reset token."""
+        token_data = token_service.verify_password_reset_token(token)
+        if not token_data:
+            raise ValueError("Invalid or expired reset token")
+
+        user = self.db.execute(
+            select(User).where(User.id == token_data["user_id"])
+        ).scalar_one_or_none()
+
+        if not user or user.email != token_data["email"]:
+            raise ValueError("User not found")
+
+        user.hashed_password = get_password_hash(new_password)
+        user.must_change_password = False
+        self.db.commit()
+
+        email_service.send_password_changed_email(
+            email=user.email,
+            user_name=user.full_name,
+        )
+
+        return {
+            "message": "Password reset successfully. You can now sign in with your new password."
+        }
+
+    def force_change_password(self, user_id, new_password: str) -> dict:
+        """Force change password for a user who has must_change_password flag set."""
+        from uuid import UUID
+
+        if isinstance(user_id, str):
+            user_id = UUID(user_id)
+
+        user = self.db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+
+        if not user:
+            raise ValueError("User not found")
+
+        if not user.must_change_password:
+            raise ValueError("Password change not required")
+
+        user.hashed_password = get_password_hash(new_password)
+        user.must_change_password = False
+        self.db.commit()
+
+        email_service.send_password_changed_email(
+            email=user.email,
+            user_name=user.full_name,
+        )
+
+        return {"message": "Password changed successfully."}

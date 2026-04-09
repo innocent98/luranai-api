@@ -75,6 +75,13 @@ class User(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         comment="Last successful login timestamp",
     )
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default="false",
+        nullable=False,
+        comment="Whether user must change password on next login (temp password)",
+    )
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email}, role={self.role})>"
