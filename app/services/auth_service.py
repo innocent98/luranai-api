@@ -30,14 +30,14 @@ class AuthService:
         Returns:
             User object if authentication successful, None otherwise
         """
-        stmt = select(User).where(User.email == email, User.is_active.is_(True))
+        stmt = select(User).where(User.email == email)
         user = self.db.execute(stmt).scalar_one_or_none()
 
-        if not user:
+        if not user or not verify_password(password, user.hashed_password):
             return None
 
-        if not verify_password(password, user.hashed_password):
-            return None
+        if not user.is_active:
+            raise ValueError("Please verify your email before signing in")
 
         # Update last login timestamp
         user.last_login_at = datetime.utcnow()
