@@ -245,6 +245,7 @@ class CompanyRegistrationService:
         # Update user password and activate account
         user.hashed_password = get_password_hash(temp_password)
         user.is_active = True
+        user.must_change_password = True
 
         # Get tenant information for welcome email
         tenant_stmt = select(Tenant).where(Tenant.id == user.tenant_id)
