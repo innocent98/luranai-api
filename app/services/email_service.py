@@ -6,6 +6,7 @@ from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
+from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from loguru import logger
@@ -87,6 +88,96 @@ class EmailService:
         except Exception:
             logger.error("Failed to send email")
             return False
+
+    def render_template(self, template_name: str, **context: Any) -> str:
+        """Render a Jinja email template."""
+        template = self.jinja_env.get_template(template_name)
+        return template.render(**context)
+
+    def send_templated_email(
+        self,
+        to_email: str,
+        subject: str,
+        template_name: str,
+        context: dict[str, Any],
+        text_content: str | None = None,
+    ) -> bool:
+        """Render and send a templated email."""
+        html_content = self.render_template(template_name, **context)
+        return self._send_email(
+            to_email=to_email,
+            subject=subject,
+            html_content=html_content,
+            text_content=text_content,
+        )
+
+    def send_platform_broadcast_email(
+        self,
+        *,
+        recipient_email: str,
+        recipient_name: str,
+        template_key: str,
+        subject: str,
+        heading: str,
+        body_html: str,
+        preheader: str | None = None,
+        cta_label: str | None = None,
+        cta_url: str | None = None,
+    ) -> bool:
+        """Send a platform-admin broadcast email."""
+        template_meta = {
+            "announcement": {
+                "banner_label": "Platform Announcement",
+                "accent_color": "#1d4ed8",
+            },
+            "feature_update": {
+                "banner_label": "Feature Update",
+                "accent_color": "#0f766e",
+            },
+            "general": {
+                "banner_label": "Message from Luran",
+                "accent_color": "#7c3aed",
+            },
+            "maintenance": {
+                "banner_label": "Maintenance Notice",
+                "accent_color": "#c2410c",
+            },
+            "security": {
+                "banner_label": "Security Update",
+                "accent_color": "#b91c1c",
+            },
+            "billing": {
+                "banner_label": "Billing Update",
+                "accent_color": "#7c2d12",
+            },
+            "onboarding": {
+                "banner_label": "Getting Started",
+                "accent_color": "#2563eb",
+            },
+        }.get(
+            template_key,
+            {
+                "banner_label": "Message from Luran",
+                "accent_color": "#1d4ed8",
+            },
+        )
+
+        return self.send_templated_email(
+            to_email=recipient_email,
+            subject=subject,
+            template_name="platform_broadcast.html",
+            context={
+                "recipient_name": recipient_name,
+                "subject": subject,
+                "preheader": preheader,
+                "heading": heading,
+                "body_html": body_html,
+                "cta_label": cta_label,
+                "cta_url": cta_url,
+                "current_year": datetime.now().year,
+                **template_meta,
+            },
+        )
 
     def send_welcome_email(
         self,
@@ -177,6 +268,7 @@ class EmailService:
         email: str,
         user_name: str,
         reset_token: str,
+        frontend_url: str | None = None,
     ) -> bool:
         """
         Send password reset email.
@@ -191,7 +283,8 @@ class EmailService:
         """
         try:
             template = self.jinja_env.get_template("password_reset.html")
-            reset_link = f"{settings.FRONTEND_URL}/reset-password?token={reset_token}"
+            app_url = frontend_url or settings.FRONTEND_URL
+            reset_link = f"{app_url}/reset-password?token={reset_token}"
 
             html_content = template.render(
                 user_name=user_name,
@@ -241,6 +334,7 @@ class EmailService:
         email: str,
         user_name: str,
         verification_token: str,
+        frontend_url: str | None = None,
     ) -> bool:
         """
         Send email verification link.
@@ -255,7 +349,8 @@ class EmailService:
         """
         try:
             template = self.jinja_env.get_template("email_verification.html")
-            verification_link = f"{settings.FRONTEND_URL}/verify-email?token={verification_token}"
+            app_url = frontend_url or settings.FRONTEND_URL
+            verification_link = f"{app_url}/verify-email?token={verification_token}"
 
             html_content = template.render(
                 user_name=user_name,

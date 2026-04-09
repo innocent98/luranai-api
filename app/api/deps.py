@@ -13,9 +13,11 @@ from app.db.models.platform_admin import PlatformAdminRole
 from app.db.models.tenant import Tenant
 from app.db.models.user import UserRole
 from app.db.session import get_db
+from app.schemas.customer_auth import CustomerUserResponse
 from app.schemas.platform_admin import PlatformAdminResponse
 from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
+from app.services.customer_auth_service import CustomerAuthService
 from app.services.platform_admin_auth_service import PlatformAdminAuthService
 from app.utils.datetime import ensure_utc_aware
 
@@ -81,6 +83,33 @@ async def get_current_active_user(
 ) -> UserResponse:
     """Get current active user (alias for clarity)."""
     return current_user
+
+
+async def get_current_customer(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+) -> CustomerUserResponse:
+    """Get current authenticated B2C customer from JWT token."""
+    token = credentials.credentials
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate customer credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        auth_service = CustomerAuthService(db)
+        token_data = auth_service.verify_token_data(payload)
+        if not token_data:
+            raise credentials_exception
+
+        customer = auth_service.get_customer_by_id(token_data.customer_user_id)
+        if not customer or not customer.is_active:
+            raise credentials_exception
+        return customer
+    except JWTError as err:
+        raise credentials_exception from err
 
 
 async def get_current_tenant_admin(

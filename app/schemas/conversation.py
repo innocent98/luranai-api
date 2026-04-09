@@ -31,6 +31,7 @@ class ConversationSessionCreate(ConversationSessionBase):
     tenant_id: UUID
     visitor_id: UUID | None = None
     visitor_session_id: UUID | None = None
+    customer_user_id: UUID | None = None
 
 
 class MessageCreate(MessageBase):
@@ -94,6 +95,7 @@ class SessionResponse(ConversationSessionBase):
     tenant_id: UUID
     visitor_id: UUID | None = None
     visitor_session_id: UUID | None = None
+    customer_user_id: UUID | None = None
     visitor: VisitorIdentitySummary | None = None
     status: SessionStatus
     escalation_reason: str | None = None

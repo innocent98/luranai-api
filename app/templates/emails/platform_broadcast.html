@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}{{ subject }}{% endblock %}
+
+{% block content %}
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">
+    {{ preheader or heading }}
+</div>
+
+<div style="display:inline-block;padding:8px 12px;border-radius:999px;background-color:{{ accent_color }}1A;color:{{ accent_color }};font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">
+    {{ banner_label }}
+</div>
+
+<h1 style="margin-top:20px;">{{ heading }}</h1>
+
+<p style="margin:0 0 16px;">Hello {{ recipient_name }},</p>
+
+<div class="email-content" style="font-size:16px;color:#374151;">
+    {{ body_html | safe }}
+</div>
+
+<style>
+    .email-content img {
+        display: block;
+        max-width: 100%;
+        width: auto;
+        height: auto;
+        margin: 16px 0;
+        border-radius: 14px;
+    }
+    .email-content p:last-child {
+        margin-bottom: 0;
+    }
+</style>
+
+{% if cta_label and cta_url %}
+<p style="margin-top:24px;">
+    <a href="{{ cta_url }}" class="button">{{ cta_label }}</a>
+</p>
+{% endif %}
+{% endblock %}

@@ -1,7 +1,7 @@
 """Cloudinary client utility for image upload and management."""
 
 import io
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import cloudinary
 import cloudinary.uploader
@@ -160,6 +160,55 @@ class CloudinaryManager:
         except Exception as e:
             logger.error(f"Cloudinary delete failed: {e}")
             return False, f"Failed to delete logo: {str(e)}"
+
+    def upload_platform_email_image(
+        self,
+        file_content: bytes,
+        admin_id: UUID,
+        filename: str,
+    ) -> tuple[str | None, str | None]:
+        """
+        Upload a platform email image to Cloudinary.
+
+        Args:
+            file_content: Image file bytes
+            admin_id: Platform admin UUID for tracing uploads
+            filename: Original filename
+
+        Returns:
+            Tuple of (cloudinary_url, error_message)
+        """
+        if not self.enabled:
+            return None, "Cloudinary is not configured. Please add credentials to .env"
+
+        is_valid, error = self.validate_image(file_content, max_size_mb=8)
+        if not is_valid:
+            return None, error
+
+        safe_filename = filename.rsplit(".", 1)[0].strip().replace(" ", "_") or "campaign_image"
+        public_id = f"{admin_id}_{safe_filename}_{uuid4().hex[:12]}"
+
+        try:
+            upload_result = cloudinary.uploader.upload(
+                file_content,
+                folder=settings.CLOUDINARY_PLATFORM_EMAIL_FOLDER,
+                public_id=public_id,
+                overwrite=False,
+                resource_type="image",
+                transformation=[
+                    {"width": 1600, "height": 1600, "crop": "limit"},
+                    {"quality": "auto:good"},
+                    {"fetch_format": "auto"},
+                ],
+                tags=[str(admin_id), "platform_email_image"],
+            )
+
+            secure_url = upload_result.get("secure_url")
+            logger.info(f"Uploaded platform email image for admin {admin_id}: {secure_url}")
+            return secure_url, None
+        except Exception as e:
+            logger.error(f"Platform email image upload failed: {e}")
+            return None, f"Image upload failed: {str(e)}"
 
 
 # Global instance

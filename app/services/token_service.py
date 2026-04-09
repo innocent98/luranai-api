@@ -89,6 +89,40 @@ class TokenService:
             logger.error(f"Failed to verify email token: {e}")
             return None
 
+    def create_customer_email_verification_token(
+        self,
+        customer_user_id: UUID,
+        email: str,
+        expiry_hours: int = 24,
+    ) -> str:
+        token = self._generate_token()
+        key = f"customer_email_verification:{token}"
+
+        data = {
+            "customer_user_id": str(customer_user_id),
+            "email": email,
+        }
+
+        self.redis_client.hset(key, mapping=data)
+        self.redis_client.expire(key, expiry_hours * 3600)
+        return token
+
+    def verify_customer_email_token(self, token: str) -> dict | None:
+        key = f"customer_email_verification:{token}"
+
+        try:
+            data = self.redis_client.hgetall(key)
+            if not data:
+                return None
+            self.redis_client.delete(key)
+            return {
+                "customer_user_id": UUID(data["customer_user_id"]),
+                "email": data["email"],
+            }
+        except Exception as e:
+            logger.error(f"Failed to verify customer email token: {e}")
+            return None
+
     # Password reset tokens
     def create_password_reset_token(
         self,
@@ -151,6 +185,38 @@ class TokenService:
             }
         except Exception as e:
             logger.error(f"Failed to verify password reset token: {e}")
+            return None
+
+    def create_customer_password_reset_token(
+        self,
+        customer_user_id: UUID,
+        email: str,
+        expiry_minutes: int = 15,
+    ) -> str:
+        token = self._generate_token()
+        key = f"customer_password_reset:{token}"
+        data = {
+            "customer_user_id": str(customer_user_id),
+            "email": email,
+        }
+        self.redis_client.hset(key, mapping=data)
+        self.redis_client.expire(key, expiry_minutes * 60)
+        return token
+
+    def verify_customer_password_reset_token(self, token: str) -> dict | None:
+        key = f"customer_password_reset:{token}"
+
+        try:
+            data = self.redis_client.hgetall(key)
+            if not data:
+                return None
+            self.redis_client.delete(key)
+            return {
+                "customer_user_id": UUID(data["customer_user_id"]),
+                "email": data["email"],
+            }
+        except Exception as e:
+            logger.error(f"Failed to verify customer password reset token: {e}")
             return None
 
     # Platform admin password reset tokens

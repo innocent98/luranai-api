@@ -10,6 +10,7 @@ from loguru import logger
 from app.core.config import settings
 from app.core.websocket import connection_manager
 from app.db.models.conversation import ConversationSession, MessageRole
+from app.db.models.customer_user import CustomerUser
 from app.db.models.tenant import Tenant
 from app.db.models.user import UserRole
 from app.db.session import SessionLocal
@@ -31,6 +32,30 @@ def _is_subscription_inactive(tenant: Tenant | None) -> bool:
             return True
 
     return tenant.subscription_status in {"trial_expired", "canceled", "past_due"}
+
+
+def _authenticate_customer_socket_token(token: str) -> CustomerUser | None:
+    """Validate customer JWT and return active customer model."""
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if payload.get("auth_type") != "customer":
+            return None
+
+        customer_id = payload.get("sub")
+        if not customer_id:
+            return None
+
+        db = SessionLocal()
+        try:
+            customer = db.query(CustomerUser).filter(CustomerUser.id == UUID(customer_id)).first()
+            if not customer or not customer.is_active:
+                return None
+            db.expunge(customer)
+            return customer
+        finally:
+            db.close()
+    except (JWTError, ValueError):
+        return None
 
 
 @router.websocket("/chat/{session_id}")
@@ -184,6 +209,140 @@ async def customer_websocket(
 
     except Exception:
         logger.error("Error in customer WebSocket")
+        connection_manager.disconnect(websocket)
+
+
+@router.websocket("/customer/{session_id}")
+async def authenticated_customer_websocket(
+    websocket: WebSocket,
+    session_id: UUID,
+    token: str = Query(..., description="Customer JWT authentication token"),
+):
+    """WebSocket endpoint for authenticated customer chat."""
+    customer = _authenticate_customer_socket_token(token)
+    if not customer:
+        await websocket.close(code=4003, reason="Invalid token")
+        return
+
+    db = SessionLocal()
+    try:
+        conversation_service = ConversationService(db)
+        session = conversation_service.get_session(session_id)
+
+        if not session:
+            await websocket.close(code=4004, reason="Session not found")
+            return
+
+        customer_matches = session.customer_user_id == customer.id
+        legacy_matches = session.user_identifier == customer.chat_user_key
+        if not customer_matches and not legacy_matches:
+            await websocket.close(code=4003, reason="Unauthorized")
+            return
+
+        tenant = db.query(Tenant).filter(Tenant.id == session.tenant_id).first()
+        if _is_subscription_inactive(tenant):
+            await websocket.close(code=4003, reason="Subscription inactive")
+            return
+    finally:
+        db.close()
+
+    await connection_manager.connect_customer(
+        websocket=websocket,
+        session_id=session_id,
+        user_identifier=customer.chat_user_key,
+    )
+
+    replay_db = SessionLocal()
+    try:
+        replay_service = ConversationService(replay_db)
+        recent_messages = replay_service.get_session_messages(session_id, limit=50)
+        for msg in recent_messages:
+            if msg.role != MessageRole.HUMAN_AGENT:
+                continue
+            meta = msg.meta or {}
+            await websocket.send_json(
+                {
+                    "type": "agent_message",
+                    "message_id": str(msg.id),
+                    "content": msg.content,
+                    "agent_name": meta.get("agent_name"),
+                    "agent_id": meta.get("agent_id"),
+                    "timestamp": msg.created_at.isoformat(),
+                }
+            )
+    except Exception as replay_error:
+        logger.warning(f"Failed to replay recent authenticated customer messages: {replay_error}")
+    finally:
+        replay_db.close()
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            message_type = data.get("type")
+
+            if message_type == "message":
+                content = data.get("content", "").strip()
+                if not content:
+                    continue
+
+                db = SessionLocal()
+                try:
+                    active_session = (
+                        db.query(ConversationSession)
+                        .filter(ConversationSession.id == session_id)
+                        .first()
+                    )
+                    tenant = (
+                        db.query(Tenant).filter(Tenant.id == active_session.tenant_id).first()
+                        if active_session
+                        else None
+                    )
+                    if _is_subscription_inactive(tenant):
+                        await websocket.close(code=4003, reason="Subscription inactive")
+                        return
+
+                    conversation_service = ConversationService(db)
+                    message = conversation_service.add_message(
+                        session_id=session_id,
+                        role=MessageRole.USER,
+                        content=content,
+                    )
+                    db.commit()
+                    message_id = str(message.id)
+                    message_timestamp = message.created_at.isoformat()
+                finally:
+                    db.close()
+
+                await connection_manager.fanout_event(
+                    session_id=session_id,
+                    message={
+                        "type": "customer_message",
+                        "message_id": message_id,
+                        "content": content,
+                        "user_identifier": customer.chat_user_key,
+                        "timestamp": message_timestamp,
+                    },
+                    to_customer=False,
+                    to_agents=True,
+                )
+
+            elif message_type == "typing":
+                is_typing = data.get("is_typing", False)
+                await connection_manager.send_typing_indicator(
+                    session_id=session_id,
+                    is_typing=is_typing,
+                    user_name=customer.full_name or "Customer",
+                    to_customer=False,
+                )
+            elif message_type == "ping":
+                await websocket.send_json(
+                    {"type": "pong", "timestamp": datetime.now(UTC).isoformat()}
+                )
+    except WebSocketDisconnect:
+        logger.info("Authenticated customer disconnected from session")
+        connection_manager.disconnect(websocket)
+    except Exception:
+        logger.error("Error in authenticated customer WebSocket")
         connection_manager.disconnect(websocket)
 
 

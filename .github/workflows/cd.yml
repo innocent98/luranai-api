@@ -55,6 +55,18 @@ jobs:
           docker build -t luran-api:$IMAGE_TAG .
           docker save luran-api:$IMAGE_TAG | gzip > api-image.tar.gz
 
+      - name: Decrypt staging .env
+        env:
+          ENV_ENCRYPTION_KEY: ${{ secrets.ENV_ENCRYPTION_KEY }}
+        run: |
+          if [ -f .env.staging.enc ] && [ -n "$ENV_ENCRYPTION_KEY" ]; then
+            openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 \
+              -in .env.staging.enc -out .env -pass "pass:$ENV_ENCRYPTION_KEY"
+            echo "Decrypted staging .env successfully"
+          else
+            echo "No .env.staging.enc or key — server .env must already exist"
+          fi
+
       - name: Copy files to staging stack directory
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -63,7 +75,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
           port: ${{ secrets.VPS_PORT || 22 }}
-          source: "api-image.tar.gz,docker-compose.prod.yml,alembic.ini,alembic/"
+          source: "api-image.tar.gz,docker-compose.prod.yml,alembic.ini,alembic/,.env,scripts/backup_cron.sh"
           target: ${{ secrets.DEPLOY_PATH }}
 
       - name: Deploy API to staging
@@ -102,6 +114,10 @@ jobs:
             done
             docker compose -f docker-compose.prod.yml ps
             rm -f api-image.tar.gz
+            # Ensure backup cron is installed (idempotent)
+            chmod +x scripts/backup_cron.sh 2>/dev/null || true
+            (crontab -l 2>/dev/null | grep -v "backup_cron.sh"; echo "0 2 * * * ${{ secrets.DEPLOY_PATH }}/scripts/backup_cron.sh >> ${{ secrets.DEPLOY_PATH }}/backups/backup.log 2>&1") | crontab -
+            echo "Backup cron installed: daily at 2 AM"
 
       - name: Capture staging deployment context
         run: |
@@ -316,6 +332,18 @@ jobs:
           docker build -t luran-api:$IMAGE_TAG .
           docker save luran-api:$IMAGE_TAG | gzip > api-image.tar.gz
 
+      - name: Decrypt production .env
+        env:
+          ENV_ENCRYPTION_KEY: ${{ secrets.ENV_ENCRYPTION_KEY }}
+        run: |
+          if [ -f .env.production.enc ] && [ -n "$ENV_ENCRYPTION_KEY" ]; then
+            openssl enc -aes-256-cbc -d -pbkdf2 -iter 100000 \
+              -in .env.production.enc -out .env -pass "pass:$ENV_ENCRYPTION_KEY"
+            echo "Decrypted production .env successfully"
+          else
+            echo "No .env.production.enc or key — server .env must already exist"
+          fi
+
       - name: Copy files to production stack directory
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -324,7 +352,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
           port: ${{ secrets.VPS_PORT || 22 }}
-          source: "api-image.tar.gz,docker-compose.prod.yml,alembic.ini,alembic/"
+          source: "api-image.tar.gz,docker-compose.prod.yml,alembic.ini,alembic/,.env,scripts/backup_cron.sh"
           target: ${{ secrets.DEPLOY_PATH }}
 
       - name: Deploy to production
@@ -362,6 +390,10 @@ jobs:
             docker compose -f docker-compose.prod.yml ps
             docker image prune -f
             rm -f api-image.tar.gz
+            # Ensure backup cron is installed (idempotent)
+            chmod +x scripts/backup_cron.sh 2>/dev/null || true
+            (crontab -l 2>/dev/null | grep -v "backup_cron.sh"; echo "0 2 * * * ${{ secrets.DEPLOY_PATH }}/scripts/backup_cron.sh >> ${{ secrets.DEPLOY_PATH }}/backups/backup.log 2>&1") | crontab -
+            echo "Backup cron installed: daily at 2 AM"
 
       - name: Notify deployment status
         if: always()

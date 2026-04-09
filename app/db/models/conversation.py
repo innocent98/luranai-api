@@ -69,6 +69,7 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
         Index("ix_conversation_sessions_tenant_status", "tenant_id", "status"),
         Index("ix_conversation_sessions_user", "tenant_id", "user_identifier"),
         Index("ix_conversation_sessions_visitor", "visitor_id", "last_message_at"),
+        Index("ix_conversation_sessions_customer", "customer_user_id", "last_message_at"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -94,6 +95,12 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         index=True,
         comment="Most recent visitor browser session linked to this chat session",
+    )
+    customer_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("customer_users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        comment="Authenticated B2C customer linked to this conversation",
     )
     status: Mapped[SessionStatus] = mapped_column(
         SQLEnum(SessionStatus, name="session_status"),
@@ -132,6 +139,12 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         default=datetime.utcnow,
         comment="Timestamp of last message in conversation",
+    )
+    customer_last_read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+        comment="When the customer last viewed this conversation",
     )
 
     # Relationships

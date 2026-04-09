@@ -23,6 +23,12 @@ from app.db.models.conversation import (
     TicketPriority,
     TicketStatus,
 )
+from app.db.models.customer_engagement import (
+    ChannelPostStatus,
+    CustomerBusinessFollow,
+    TenantChannelPost,
+)
+from app.db.models.customer_user import CustomerUser
 from app.db.models.email_notification import EmailNotification
 from app.db.models.flow import (
     Flow,
@@ -42,6 +48,10 @@ from app.db.models.knowledge import (
 )
 from app.db.models.payment import PaymentTransaction
 from app.db.models.platform_admin import PlatformAdmin, PlatformAdminRole
+from app.db.models.platform_email_campaign import (
+    PlatformEmailCampaign,
+    PlatformEmailCampaignRecipient,
+)
 from app.db.models.review import FeedbackCategory, PlatformFeedback, SessionRating
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.subscription_plan import SubscriptionPlan
@@ -80,9 +90,15 @@ __all__ = [
     # User models
     "User",
     "UserRole",
+    "CustomerUser",
+    "CustomerBusinessFollow",
+    "TenantChannelPost",
+    "ChannelPostStatus",
     # Platform admin models
     "PlatformAdmin",
     "PlatformAdminRole",
+    "PlatformEmailCampaign",
+    "PlatformEmailCampaignRecipient",
     # API Key models
     "APIKey",
     "APIKeyType",

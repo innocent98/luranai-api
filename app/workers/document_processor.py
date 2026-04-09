@@ -768,6 +768,42 @@ async def send_payment_failure_emails(ctx: dict) -> dict:
         db.close()
 
 
+async def send_scheduled_platform_email_campaigns(ctx: dict) -> dict:
+    """
+    Send platform email campaigns that are due for delivery.
+
+    Scheduled: Every 5 minutes
+    """
+    from app.services.platform_email_campaign_service import PlatformEmailCampaignService
+
+    logger.info("Running scheduled platform email campaign job")
+
+    db = SessionLocal()
+    campaigns_processed = 0
+
+    try:
+        service = PlatformEmailCampaignService(db)
+        campaigns_processed = service.send_due_campaigns()
+
+        logger.info(
+            f"Scheduled platform email campaign job complete. Processed {campaigns_processed} campaign(s)"
+        )
+
+        return {
+            "status": "success",
+            "campaigns_processed": campaigns_processed,
+        }
+    except Exception as e:
+        logger.error(f"Error in scheduled platform email campaign job: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "campaigns_processed": campaigns_processed,
+        }
+    finally:
+        db.close()
+
+
 async def aggregate_daily_metrics(ctx: dict) -> dict:
     """
     Aggregate platform-wide metrics for analytics dashboard.
@@ -911,6 +947,7 @@ class WorkerSettings:
         check_subscription_renewal_reminders,
         send_subscription_confirmations,
         send_payment_failure_emails,
+        send_scheduled_platform_email_campaigns,
         aggregate_daily_metrics,
     ]
     redis_settings = get_redis_settings()
@@ -965,6 +1002,12 @@ class WorkerSettings:
         cron(
             send_payment_failure_emails,
             minute={0, 30},
+            run_at_startup=False,
+        ),
+        # Send scheduled platform email campaigns - every 5 minutes
+        cron(
+            send_scheduled_platform_email_campaigns,
+            minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
             run_at_startup=False,
         ),
         # Aggregate daily metrics - daily at 1 AM UTC

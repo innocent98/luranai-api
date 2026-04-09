@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     SERVER_HOST: str
     SERVER_PORT: int = 8000
     FRONTEND_URL: str  # Frontend application URL for email links
+    CUSTOMER_FRONTEND_URL: str | None = None  # B2C/customer application URL for email links
     FRONTEND_DOC_URL: str  # Documentation/marketing site URL
 
     # Security
@@ -152,6 +153,7 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: str | None = None
     CLOUDINARY_API_SECRET: str | None = None
     CLOUDINARY_FOLDER: str = "luran/widget_logos"
+    CLOUDINARY_PLATFORM_EMAIL_FOLDER: str = "luran/platform_email_images"
 
     # Paystack Payment Gateway
     PAYSTACK_SECRET_KEY: str

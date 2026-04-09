@@ -1,0 +1,113 @@
+#!/bin/bash
+# ============================================================
+# Luran Database Backup — Cron-Safe Version
+#
+# Designed to run from cron on the VPS server.
+# Runs pg_dump INSIDE the Docker container, outputs to the
+# mounted ./backups/ volume. No host-side dependencies.
+#
+# Setup on server:
+#   crontab -e
+#   0 2 * * * /opt/luran/scripts/backup_cron.sh >> /opt/luran/backups/backup.log 2>&1
+#
+# This script is self-contained:
+#   - Uses absolute paths (no cd needed)
+#   - Loads .env safely via grep (no sourcing)
+#   - Uses full path to docker binary
+#   - Handles all errors with logging
+# ============================================================
+
+set -uo pipefail
+
+# ---- Configuration ----
+DEPLOY_DIR="/opt/luran"
+BACKUP_DIR="${DEPLOY_DIR}/backups"
+ENV_FILE="${DEPLOY_DIR}/.env"
+DOCKER="/usr/bin/docker"
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+BACKUP_FILE="luran_backup_${TIMESTAMP}.sql"
+RETENTION_DAYS=30
+
+# ---- Load .env safely (no sourcing — avoids special char issues) ----
+if [ ! -f "$ENV_FILE" ]; then
+    echo "[$(date -u +%FT%TZ)] ERROR: $ENV_FILE not found"
+    exit 1
+fi
+
+_env_val() { grep "^${1}=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- || echo ""; }
+
+COMPOSE_PROJECT_NAME="$(_env_val COMPOSE_PROJECT_NAME)"
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-luran}"
+DB_CONTAINER="${COMPOSE_PROJECT_NAME}_db"
+DB_USER="$(_env_val POSTGRES_USER)"
+DB_NAME="$(_env_val POSTGRES_DB)"
+ENABLE_CLOUD_BACKUP="$(_env_val ENABLE_CLOUD_BACKUP)"
+CLOUD_PROVIDER="$(_env_val CLOUD_PROVIDER)"
+GDRIVE_FOLDER="$(_env_val GDRIVE_FOLDER)"
+AWS_S3_BUCKET="$(_env_val AWS_S3_BUCKET)"
+
+# ---- Pre-flight checks ----
+if [ -z "$DB_USER" ] || [ -z "$DB_NAME" ]; then
+    echo "[$(date -u +%FT%TZ)] ERROR: POSTGRES_USER or POSTGRES_DB not set in .env"
+    exit 1
+fi
+
+if ! $DOCKER ps --format '{{.Names}}' | grep -q "^${DB_CONTAINER}$"; then
+    echo "[$(date -u +%FT%TZ)] ERROR: Container ${DB_CONTAINER} is not running"
+    exit 1
+fi
+
+mkdir -p "$BACKUP_DIR"
+
+# ---- Create backup ----
+echo "[$(date -u +%FT%TZ)] Starting backup: ${BACKUP_FILE}"
+
+if $DOCKER exec "$DB_CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" \
+    > "${BACKUP_DIR}/${BACKUP_FILE}"; then
+    echo "[$(date -u +%FT%TZ)] pg_dump completed"
+else
+    echo "[$(date -u +%FT%TZ)] ERROR: pg_dump failed"
+    rm -f "${BACKUP_DIR}/${BACKUP_FILE}"
+    exit 1
+fi
+
+# ---- Compress ----
+gzip "${BACKUP_DIR}/${BACKUP_FILE}"
+BACKUP_SIZE=$(du -h "${BACKUP_DIR}/${BACKUP_FILE}.gz" | cut -f1)
+echo "[$(date -u +%FT%TZ)] Compressed: ${BACKUP_FILE}.gz (${BACKUP_SIZE})"
+
+# ---- Cleanup old backups ----
+DELETED=$(find "$BACKUP_DIR" -name "luran_backup_*.sql.gz" -mtime +"$RETENTION_DAYS" -delete -print | wc -l | tr -d ' ')
+[ "$DELETED" -gt 0 ] && echo "[$(date -u +%FT%TZ)] Cleaned up ${DELETED} backup(s) older than ${RETENTION_DAYS} days"
+
+# ---- Cloud upload (optional) ----
+if [ "${ENABLE_CLOUD_BACKUP:-false}" = "true" ]; then
+    DATE_PATH=$(date +"%Y/%m")
+    case "${CLOUD_PROVIDER:-}" in
+        gdrive)
+            if command -v rclone &>/dev/null; then
+                rclone mkdir "gdrive:${GDRIVE_FOLDER:-LuranBackups}/${DATE_PATH}" 2>/dev/null || true
+                if rclone copy "${BACKUP_DIR}/${BACKUP_FILE}.gz" \
+                    "gdrive:${GDRIVE_FOLDER:-LuranBackups}/${DATE_PATH}/" --verbose 2>&1; then
+                    echo "[$(date -u +%FT%TZ)] Uploaded to Google Drive"
+                else
+                    echo "[$(date -u +%FT%TZ)] WARNING: Google Drive upload failed"
+                fi
+            else
+                echo "[$(date -u +%FT%TZ)] WARNING: rclone not installed, skipping cloud upload"
+            fi
+            ;;
+        s3)
+            if command -v aws &>/dev/null; then
+                aws s3 cp "${BACKUP_DIR}/${BACKUP_FILE}.gz" \
+                    "s3://${AWS_S3_BUCKET:-luran-backups}/backups/${DATE_PATH}/${BACKUP_FILE}.gz" 2>/dev/null \
+                    && echo "[$(date -u +%FT%TZ)] Uploaded to S3" \
+                    || echo "[$(date -u +%FT%TZ)] WARNING: S3 upload failed"
+            fi
+            ;;
+    esac
+fi
+
+# ---- Summary ----
+TOTAL_BACKUPS=$(ls -1 "${BACKUP_DIR}"/luran_backup_*.sql.gz 2>/dev/null | wc -l | tr -d ' ')
+echo "[$(date -u +%FT%TZ)] Backup complete. ${TOTAL_BACKUPS} local backup(s) retained."

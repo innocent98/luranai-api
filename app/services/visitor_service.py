@@ -113,7 +113,10 @@ class VisitorService:
         total = self.db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
 
         stmt = (
-            stmt.order_by(Tenant.display_name.asc())
+            stmt.order_by(
+                Tenant.is_featured.desc(),
+                Tenant.display_name.asc(),
+            )
             .offset((normalized_page - 1) * normalized_page_size)
             .limit(normalized_page_size)
         )
@@ -129,6 +132,7 @@ class VisitorService:
                     support_headline=tenant.support_headline,
                     support_subheadline=tenant.support_subheadline,
                     widget_logo_url=tenant.widget_logo_url,
+                    is_featured=tenant.is_featured,
                 )
                 for tenant in tenants
             ],

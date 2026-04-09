@@ -8,6 +8,9 @@ from app.api.v1.endpoints import (
     auth,
     chat,
     company_registration,
+    customer_auth,
+    customer_engagement,
+    customer_conversations,
     flows,
     health,
     jobs,
@@ -17,6 +20,7 @@ from app.api.v1.endpoints import (
     reviews,
     subscription,
     tenant,
+    tenant_channels,
     tickets,
     users,
     webhooks,
@@ -25,6 +29,7 @@ from app.api.v1.endpoints import (
 )
 from app.api.v1.endpoints.platform import analytics as platform_analytics
 from app.api.v1.endpoints.platform import audit as platform_audit
+from app.api.v1.endpoints.platform import emails as platform_emails
 from app.api.v1.endpoints.platform import financials as platform_financials
 from app.api.v1.endpoints.platform import health as platform_health
 from app.api.v1.endpoints.platform import pricing as platform_pricing
@@ -53,6 +58,27 @@ api_router.include_router(
     company_registration.router,
     prefix="/auth",
     tags=["registration"],
+)
+
+# Customer-facing authentication endpoints
+api_router.include_router(
+    customer_auth.router,
+    prefix="/customer/auth",
+    tags=["customer-auth"],
+)
+
+# Customer-facing conversation endpoints
+api_router.include_router(
+    customer_conversations.router,
+    prefix="/customer",
+    tags=["customer-conversations"],
+)
+
+# Customer follow and channels endpoints
+api_router.include_router(
+    customer_engagement.router,
+    prefix="/customer",
+    tags=["customer-engagement"],
 )
 
 # User management endpoints (team members)
@@ -139,6 +165,13 @@ api_router.include_router(
     tags=["platform-users"],
 )
 
+# Platform admin email campaign endpoints
+api_router.include_router(
+    platform_emails.router,
+    prefix="/platform/emails",
+    tags=["platform-emails"],
+)
+
 # Platform admin pricing management endpoints
 api_router.include_router(
     platform_pricing.router,
@@ -151,6 +184,13 @@ api_router.include_router(
     tenant.router,
     prefix="/tenant",
     tags=["tenant"],
+)
+
+# Tenant channel publishing endpoints
+api_router.include_router(
+    tenant_channels.router,
+    prefix="/tenant/channels",
+    tags=["tenant-channels"],
 )
 
 # Tenant automation endpoints

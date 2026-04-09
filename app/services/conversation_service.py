@@ -1,5 +1,6 @@
 """Conversation service for managing chat sessions and messages."""
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import desc, select
@@ -75,6 +76,7 @@ class ConversationService:
             user_identifier=session_data.user_identifier,
             visitor_id=session_data.visitor_id,
             visitor_session_id=session_data.visitor_session_id,
+            customer_user_id=session_data.customer_user_id,
             status=SessionStatus.ACTIVE,
             meta=session_data.meta or {},
             last_message_at=utcnow_naive(),
@@ -171,6 +173,39 @@ class ConversationService:
         if not session:
             return None
 
+        return self._to_session_response(session)
+
+    def get_latest_session_for_customer(
+        self,
+        tenant_id: UUID,
+        customer_user_id: UUID,
+        allowed_statuses: list[SessionStatus] | None = None,
+    ) -> SessionResponse | None:
+        stmt = select(ConversationSession).where(
+            ConversationSession.tenant_id == tenant_id,
+            ConversationSession.customer_user_id == customer_user_id,
+        )
+        if allowed_statuses:
+            stmt = stmt.where(ConversationSession.status.in_(allowed_statuses))
+        stmt = stmt.order_by(desc(ConversationSession.last_message_at))
+        session = self.db.execute(stmt).scalar_one_or_none()
+        if not session:
+            return None
+        return self._to_session_response(session)
+
+    def assign_customer_to_session(
+        self,
+        session_id: UUID,
+        customer_user_id: UUID,
+    ) -> SessionResponse:
+        stmt = select(ConversationSession).where(ConversationSession.id == session_id)
+        session = self.db.execute(stmt).scalar_one_or_none()
+        if not session:
+            raise ValueError("Session not found")
+
+        session.customer_user_id = customer_user_id
+        self.db.commit()
+        self.db.refresh(session)
         return self._to_session_response(session)
 
     def update_session(
@@ -343,6 +378,40 @@ class ConversationService:
 
         return [MessageResponse.model_validate(msg) for msg in messages]
 
+    def get_session_messages_paginated(
+        self,
+        session_id: UUID,
+        limit: int = 50,
+        before: datetime | None = None,
+    ) -> tuple[list[MessageResponse], bool]:
+        """
+        Get paginated messages for a session, newest last.
+
+        Args:
+            session_id: Session UUID
+            limit: Max messages to return
+            before: Only return messages created before this timestamp (cursor)
+
+        Returns:
+            Tuple of (messages ordered oldest->newest, has_more bool)
+        """
+        stmt = select(Message).where(Message.session_id == session_id)
+        if before:
+            stmt = stmt.where(Message.created_at < before)
+
+        # Get limit+1 to determine has_more, ordered newest first
+        stmt = stmt.order_by(desc(Message.created_at)).limit(limit + 1)
+        results = list(self.db.execute(stmt).scalars().all())
+
+        has_more = len(results) > limit
+        if has_more:
+            results = results[:limit]
+
+        # Reverse to oldest->newest for display order
+        results.reverse()
+
+        return [MessageResponse.model_validate(msg) for msg in results], has_more
+
     def get_recent_context(self, session_id: UUID, max_turns: int = 10) -> list[MessageResponse]:
         """
         Get recent conversation context (last N turns).
@@ -436,3 +505,24 @@ class ConversationService:
         self.db.refresh(session)
 
         return self._to_session_response(session)
+
+    def mark_conversation_read(self, session_id: UUID, customer_user_id: UUID) -> bool:
+        """Mark a conversation as read by the customer."""
+        from datetime import UTC
+
+        session = (
+            self.db.query(ConversationSession)
+            .filter(
+                ConversationSession.id == session_id,
+            )
+            .first()
+        )
+        if not session:
+            return False
+        if session.customer_user_id is None:
+            session.customer_user_id = customer_user_id
+        elif session.customer_user_id != customer_user_id:
+            return False
+        session.customer_last_read_at = datetime.now(UTC)
+        self.db.commit()
+        return True

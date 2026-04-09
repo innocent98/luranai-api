@@ -375,6 +375,21 @@ def _resolve_bootstrapped_visitor_context(
     return visitor.id, visitor_session_id
 
 
+def _resolve_customer_user_id(metadata: dict[str, Any] | None) -> UUID | None:
+    """Resolve authenticated customer ID from trusted wrapper metadata."""
+    if not isinstance(metadata, dict):
+        return None
+
+    raw_customer_user_id = metadata.get("customer_user_id")
+    if not isinstance(raw_customer_user_id, str) or not raw_customer_user_id.strip():
+        return None
+
+    try:
+        return UUID(raw_customer_user_id)
+    except (ValueError, TypeError):
+        return None
+
+
 def _persist_contact_email_to_visitor(
     visitor_service: VisitorService,
     session_id: UUID,
@@ -436,11 +451,13 @@ async def create_session(
         session_data.tenant_id,
         session_data.metadata,
     )
+    customer_user_id = _resolve_customer_user_id(session_data.metadata)
     session_create = ConversationSessionCreate(
         tenant_id=session_data.tenant_id,
         user_identifier=session_data.user_identifier,
         visitor_id=visitor_id,
         visitor_session_id=visitor_session_id,
+        customer_user_id=customer_user_id,
         meta=session_data.metadata or {},
     )
 
@@ -502,11 +519,22 @@ async def send_message(
             message_data.tenant_id,
             message_data.metadata,
         )
+        customer_user_id = _resolve_customer_user_id(message_data.metadata)
 
         # If this public/browser visitor already has an active or escalated thread,
         # continue that thread instead of opening a parallel conversation.
         reused_session: SessionResponse | None = None
-        if visitor_id:
+        if customer_user_id:
+            reused_session = conversation_service.get_latest_session_for_customer(
+                tenant_id=message_data.tenant_id,
+                customer_user_id=customer_user_id,
+                allowed_statuses=[
+                    SessionStatus.ACTIVE,
+                    SessionStatus.ESCALATED,
+                    SessionStatus.RESOLVED,
+                ],
+            )
+        elif visitor_id:
             reused_session = conversation_service.get_latest_session_for_visitor(
                 tenant_id=message_data.tenant_id,
                 visitor_id=visitor_id,
@@ -564,6 +592,7 @@ async def send_message(
                 user_identifier=message_data.user_identifier,
                 visitor_id=visitor_id,
                 visitor_session_id=visitor_session_id,
+                customer_user_id=customer_user_id,
                 meta=message_data.metadata or {},
             )
             session = conversation_service.create_session(session_create)
