@@ -13,6 +13,13 @@ class CustomerFollowStatusResponse(BaseModel):
     is_following: bool
     follower_count: int
     published_post_count: int
+    notifications_enabled: bool | None = None
+
+
+class CustomerFollowNotificationsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    notifications_enabled: bool
 
 
 class CustomerFollowResponse(BaseModel):
