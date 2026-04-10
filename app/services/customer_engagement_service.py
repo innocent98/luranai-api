@@ -53,6 +53,17 @@ class CustomerEngagementService:
         self.db.refresh(follow)
         return follow
 
+    def set_follow_notifications(
+        self, customer_user_id: UUID, tenant_id: UUID, enabled: bool
+    ) -> CustomerBusinessFollow:
+        follow = self.get_follow(customer_user_id, tenant_id)
+        if not follow:
+            raise ValueError("You are not following this business")
+        follow.notifications_enabled = enabled
+        self.db.commit()
+        self.db.refresh(follow)
+        return follow
+
     def unfollow_business(self, customer_user_id: UUID, tenant_id: UUID) -> None:
         follow = self.get_follow(customer_user_id, tenant_id)
         if not follow:
@@ -118,6 +129,7 @@ class CustomerEngagementService:
         tenant_id: UUID | None = None,
         limit: int = 30,
         before: datetime | None = None,
+        search: str | None = None,
     ) -> tuple[list[tuple[TenantChannelPost, Tenant, bool]], bool]:
         follow_subquery = (
             select(CustomerBusinessFollow.tenant_id)
@@ -152,6 +164,10 @@ class CustomerEngagementService:
 
         if before:
             stmt = stmt.where(TenantChannelPost.published_at < before)
+
+        if search and search.strip():
+            search_term = f"%{search.strip().lower()}%"
+            stmt = stmt.where(func.lower(Tenant.display_name).like(search_term))
 
         rows = self.db.execute(
             stmt.order_by(
@@ -220,6 +236,10 @@ class CustomerEngagementService:
     ) -> TenantChannelPost:
         self._assert_manage_permission(current_user)
 
+        # Auto-unpin previous post if this one is pinned
+        if payload.is_pinned:
+            self._auto_unpin_previous(current_user.tenant_id)
+
         post = TenantChannelPost(
             tenant_id=current_user.tenant_id,
             created_by_user_id=current_user.id,
@@ -241,6 +261,21 @@ class CustomerEngagementService:
         self.db.refresh(post)
         return post
 
+    def _auto_unpin_previous(self, tenant_id: UUID, exclude_post_id: UUID | None = None) -> None:
+        """Unpin all currently pinned posts for a tenant (max 1 pinned at a time)."""
+        stmt = select(TenantChannelPost).where(
+            TenantChannelPost.tenant_id == tenant_id,
+            TenantChannelPost.is_pinned.is_(True),
+        )
+        if exclude_post_id:
+            stmt = stmt.where(TenantChannelPost.id != exclude_post_id)
+
+        pinned_posts = self.db.execute(stmt).scalars().all()
+        for p in pinned_posts:
+            p.is_pinned = False
+        if pinned_posts:
+            self.db.flush()
+
     def get_tenant_post(
         self, current_user: UserResponse, post_id: UUID
     ) -> TenantChannelPost | None:
@@ -261,6 +296,10 @@ class CustomerEngagementService:
         post = self.get_tenant_post(current_user, post_id)
         if not post:
             raise ValueError("Channel post not found")
+
+        # Auto-unpin previous post if this one is being pinned
+        if payload.is_pinned is True and not post.is_pinned:
+            self._auto_unpin_previous(current_user.tenant_id, exclude_post_id=post.id)
 
         for field in (
             "title",
@@ -300,6 +339,23 @@ class CustomerEngagementService:
         self.db.commit()
         self.db.refresh(post)
         return post
+
+    def get_followers_with_notifications(self, tenant_id: UUID) -> list[tuple]:
+        """Get all followers of a tenant who have notifications enabled."""
+        from app.db.models.customer_user import CustomerUser
+
+        rows = self.db.execute(
+            select(CustomerUser, CustomerBusinessFollow)
+            .join(
+                CustomerBusinessFollow,
+                CustomerBusinessFollow.customer_user_id == CustomerUser.id,
+            )
+            .where(
+                CustomerBusinessFollow.tenant_id == tenant_id,
+                CustomerBusinessFollow.notifications_enabled.is_(True),
+            )
+        ).all()
+        return [(row[0], row[1]) for row in rows]
 
     def tenant_overview(self, current_user: UserResponse) -> dict[str, int]:
         self._assert_manage_permission(current_user)

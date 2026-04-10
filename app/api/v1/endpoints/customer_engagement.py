@@ -11,6 +11,7 @@ from app.schemas.customer_auth import CustomerUserResponse
 from app.schemas.customer_engagement import (
     CustomerChannelPostDetail,
     CustomerChannelPostSummary,
+    CustomerFollowNotificationsUpdate,
     CustomerFollowResponse,
     CustomerFollowStatusResponse,
 )
@@ -63,6 +64,7 @@ def get_follow_status(
         is_following=follow is not None,
         follower_count=service.follower_count(tenant_id),
         published_post_count=service.published_post_count(tenant_id),
+        notifications_enabled=follow.notifications_enabled if follow else None,
     )
 
 
@@ -78,7 +80,7 @@ def follow_business(
 ):
     service = CustomerEngagementService(db)
     try:
-        service.follow_business(current_customer.id, tenant_id)
+        follow = service.follow_business(current_customer.id, tenant_id)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
@@ -87,6 +89,35 @@ def follow_business(
         is_following=True,
         follower_count=service.follower_count(tenant_id),
         published_post_count=service.published_post_count(tenant_id),
+        notifications_enabled=follow.notifications_enabled,
+    )
+
+
+@router.patch(
+    "/follows/{tenant_id}/notifications",
+    response_model=CustomerFollowStatusResponse,
+    status_code=status.HTTP_200_OK,
+)
+def update_follow_notifications(
+    tenant_id: UUID,
+    payload: CustomerFollowNotificationsUpdate,
+    db: Session = Depends(get_db),
+    current_customer: CustomerUserResponse = Depends(get_current_customer),
+):
+    service = CustomerEngagementService(db)
+    try:
+        follow = service.set_follow_notifications(
+            current_customer.id, tenant_id, payload.notifications_enabled
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    return CustomerFollowStatusResponse(
+        tenant_id=tenant_id,
+        is_following=True,
+        follower_count=service.follower_count(tenant_id),
+        published_post_count=service.published_post_count(tenant_id),
+        notifications_enabled=follow.notifications_enabled,
     )
 
 
@@ -107,6 +138,7 @@ def unfollow_business(
         is_following=False,
         follower_count=service.follower_count(tenant_id),
         published_post_count=service.published_post_count(tenant_id),
+        notifications_enabled=None,
     )
 
 
@@ -116,6 +148,7 @@ def list_customer_channels(
     tenant_id: UUID | None = Query(None),
     limit: int = Query(30, ge=1, le=100),
     before: datetime | None = Query(None, description="ISO timestamp cursor for pagination"),
+    search: str | None = Query(None, description="Search by business name"),
     db: Session = Depends(get_db),
     current_customer: CustomerUserResponse = Depends(get_current_customer),
 ):
@@ -126,6 +159,7 @@ def list_customer_channels(
         tenant_id=tenant_id,
         limit=limit,
         before=before,
+        search=search,
     )
     return {
         "posts": [

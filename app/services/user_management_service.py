@@ -700,6 +700,7 @@ class UserManagementService:
 
             # Update user password
             user.hashed_password = get_password_hash(temp_password)
+            user.must_change_password = True
             user.updated_at = datetime.utcnow()
 
             self.db.commit()

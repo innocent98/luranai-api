@@ -98,3 +98,16 @@ class PasswordResetConfirmResponse(BaseModel):
         ...,
         description="Whether password was successfully changed",
     )
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int = Field(..., description="Token expiration in seconds")
+    must_change_password: bool = Field(
+        default=False, description="Whether user must change password on next login"
+    )
+
+
+class ForcePasswordChangeRequest(BaseModel):
+    new_password: str = Field(..., min_length=8, max_length=100, description="New password to set")
