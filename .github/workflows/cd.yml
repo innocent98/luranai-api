@@ -269,27 +269,21 @@ jobs:
           [ -n "${GH_TOKEN:-}" ] || { echo "Missing CROSS_REPO_GITHUB_TOKEN secret."; exit 1; }
           [ -n "${DASHBOARD_REPO:-}" ] || { echo "Missing DASHBOARD_REPO variable/secret."; exit 1; }
           for attempt in $(seq 1 60); do
-            RESPONSE=$(curl --fail-with-body -sS \
+            RESPONSE_FILE="$RUNNER_TEMP/dashboard-runs-$attempt.json"
+            curl --fail-with-body -sS \
               -H "Accept: application/vnd.github+json" \
               -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/$DASHBOARD_REPO/actions/workflows/staging-e2e.yml/runs?event=workflow_dispatch&per_page=10")
-            STATUS=$(RESPONSE="$RESPONSE" python3 - <<'PY'
-          import json, os
-          from datetime import datetime
-
-          response = json.loads(os.environ["RESPONSE"])
-          dispatched_at = datetime.fromisoformat(os.environ["DISPATCHED_AT"].replace("Z", "+00:00"))
-          for run in response.get("workflow_runs", []):
-              created_at = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
-              if created_at >= dispatched_at:
-                  status = run.get("status")
-                  conclusion = run.get("conclusion") or ""
-                  print(f"{status}:{conclusion}:{run.get('html_url', '')}")
-                  break
-          else:
-              print("missing::")
-          PY
-          )
+              -o "$RESPONSE_FILE" \
+              "https://api.github.com/repos/$DASHBOARD_REPO/actions/workflows/staging-e2e.yml/runs?event=workflow_dispatch&per_page=10"
+            STATUS=$(jq -r --arg dispatched "$DISPATCHED_AT" '
+              (.workflow_runs // [])
+              | map(select(.created_at >= $dispatched))
+              | first
+              | if . == null then "missing::"
+                else "\(.status):\(.conclusion // ""):\(.html_url // "")"
+                end
+            ' "$RESPONSE_FILE")
+            rm -f "$RESPONSE_FILE"
             echo "$STATUS"
             RUN_STATUS=$(printf '%s' "$STATUS" | cut -d: -f1)
             RUN_CONCLUSION=$(printf '%s' "$STATUS" | cut -d: -f2)
