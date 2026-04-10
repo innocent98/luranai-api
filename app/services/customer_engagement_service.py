@@ -53,6 +53,17 @@ class CustomerEngagementService:
         self.db.refresh(follow)
         return follow
 
+    def set_follow_notifications(
+        self, customer_user_id: UUID, tenant_id: UUID, enabled: bool
+    ) -> CustomerBusinessFollow:
+        follow = self.get_follow(customer_user_id, tenant_id)
+        if not follow:
+            raise ValueError("You are not following this business")
+        follow.notifications_enabled = enabled
+        self.db.commit()
+        self.db.refresh(follow)
+        return follow
+
     def unfollow_business(self, customer_user_id: UUID, tenant_id: UUID) -> None:
         follow = self.get_follow(customer_user_id, tenant_id)
         if not follow:
