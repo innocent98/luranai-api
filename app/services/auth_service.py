@@ -217,16 +217,16 @@ class AuthService:
         """
         try:
             user_id = UUID(token_data.get("sub"))
-            email = token_data.get("email")
+            email = token_data.get("email")  # Optional — removed from new tokens for PII reduction
             role = UserRole(token_data.get("role"))
             tenant_id_raw = token_data.get("tenant_id")
-            if not email or not tenant_id_raw:
+            if not tenant_id_raw:
                 return None
             tenant_id = UUID(tenant_id_raw)
 
             return TokenData(
                 user_id=user_id,
-                email=str(email),
+                email=str(email) if email else "",
                 role=role,
                 tenant_id=tenant_id,
             )
