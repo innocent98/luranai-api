@@ -72,6 +72,37 @@ def hash_for_lookup(value: str) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+class EncryptedJSON(TypeDecorator):
+    """SQLAlchemy column type that encrypts JSON data as a Fernet-encrypted string.
+
+    Serializes to JSON string before encrypting, deserializes after decrypting.
+    """
+
+    impl = Text
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        import json
+        return encrypt_field(json.dumps(value))
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        import json
+        if _is_migration_mode():
+            decrypted = try_decrypt_field(value)
+        else:
+            decrypted = decrypt_field(value)
+        if isinstance(decrypted, str):
+            try:
+                return json.loads(decrypted)
+            except json.JSONDecodeError:
+                return decrypted
+        return decrypted
+
+
 class EncryptedString(TypeDecorator):
     """SQLAlchemy column type that transparently encrypts/decrypts string values."""
 
