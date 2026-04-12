@@ -7,6 +7,7 @@ from sqlalchemy import JSON, Boolean, ForeignKey, Index, Integer, String, Text
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.encryption import EncryptedString
 from app.db.base import Base, TimestampMixin, UUIDMixin
 
 
@@ -152,8 +153,7 @@ class ActionSecret(Base, UUIDMixin, TimestampMixin):
     )
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     key_name: Mapped[str] = mapped_column(String(120), nullable=False)
-    # NOTE: v1 stores plaintext; production hardening should encrypt or vault this.
-    secret_value: Mapped[str] = mapped_column(Text, nullable=False)
+    secret_value: Mapped[str] = mapped_column(EncryptedString, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
 
 
