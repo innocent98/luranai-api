@@ -215,4 +215,4 @@ def test_customer_login_rejects_unverified_user(client: TestClient, db: Session)
 
 def test_customer_profile_requires_authentication(client: TestClient):
     response = client.get("/api/v1/customer/auth/me")
-    assert response.status_code == 403
+    assert response.status_code == 401

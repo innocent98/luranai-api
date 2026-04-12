@@ -2,7 +2,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, status
+import redis as redis_lib
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel
@@ -21,7 +22,37 @@ from app.services.customer_auth_service import CustomerAuthService
 from app.services.platform_admin_auth_service import PlatformAdminAuthService
 from app.utils.datetime import ensure_utc_aware
 
-security = HTTPBearer()
+
+def _get_redis() -> redis_lib.Redis:
+    """Lazy Redis client for jti revocation checks."""
+    return redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
+
+
+def extract_token(request: Request) -> str | None:
+    """Extract JWT from cookie first, then Authorization header."""
+    token = request.cookies.get("access_token")
+    if token:
+        return token
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:]
+    return None
+
+
+def is_token_revoked(jti: str) -> bool:
+    """Check if a jti has been revoked via Redis."""
+    try:
+        return bool(_get_redis().exists(f"revoked:{jti}"))
+    except Exception:
+        return False
+
+
+def revoke_token(jti: str, ttl_seconds: int) -> None:
+    """Add a jti to the revocation set with auto-expiring TTL."""
+    try:
+        _get_redis().setex(f"revoked:{jti}", ttl_seconds, "1")
+    except Exception:
+        pass
 
 
 class AuthContext(BaseModel):
@@ -38,11 +69,17 @@ class AuthContext(BaseModel):
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
     db: Session = Depends(get_db),
 ) -> UserResponse:
     """Get current authenticated user from JWT token."""
-    token = credentials.credentials
+    token = extract_token(request)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -52,6 +89,10 @@ async def get_current_user(
     try:
         # Decode JWT token
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+
+        jti = payload.get("jti")
+        if jti and is_token_revoked(jti):
+            raise credentials_exception
 
         # Verify token data
         auth_service = AuthService(db)
@@ -86,11 +127,17 @@ async def get_current_active_user(
 
 
 async def get_current_customer(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
     db: Session = Depends(get_db),
 ) -> CustomerUserResponse:
     """Get current authenticated B2C customer from JWT token."""
-    token = credentials.credentials
+    token = extract_token(request)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate customer credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate customer credentials",
@@ -99,6 +146,10 @@ async def get_current_customer(
 
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+
+        jti = payload.get("jti")
+        if jti and is_token_revoked(jti):
+            raise credentials_exception
         auth_service = CustomerAuthService(db)
         token_data = auth_service.verify_token_data(payload)
         if not token_data:
@@ -255,7 +306,7 @@ async def verify_conversation_limit(
 
 
 async def get_current_user_or_platform_admin(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
     db: Session = Depends(get_db),
 ) -> AuthContext:
     """
@@ -267,7 +318,13 @@ async def get_current_user_or_platform_admin(
     Raises:
         HTTPException 401: If both auth attempts fail
     """
-    token = credentials.credentials
+    token = extract_token(request)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -276,6 +333,10 @@ async def get_current_user_or_platform_admin(
 
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+
+        jti = payload.get("jti")
+        if jti and is_token_revoked(jti):
+            raise credentials_exception
 
         # Try tenant user auth first
         try:
@@ -341,11 +402,17 @@ def verify_tenant_access(tenant_id: UUID, current_user: UserResponse) -> bool:
 
 # Platform admin dependencies
 async def get_current_platform_admin(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    request: Request,
     db: Session = Depends(get_db),
 ) -> PlatformAdminResponse:
     """Get current authenticated platform admin from JWT token."""
-    token = credentials.credentials
+    token = extract_token(request)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -355,6 +422,10 @@ async def get_current_platform_admin(
     try:
         # Decode JWT token
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+
+        jti = payload.get("jti")
+        if jti and is_token_revoked(jti):
+            raise credentials_exception
 
         # Verify token data
         admin_service = PlatformAdminAuthService(db)
