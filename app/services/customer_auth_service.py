@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.encryption import hash_for_lookup
 from app.core.security import create_access_token, create_refresh_token, get_password_hash, verify_password
 from app.db.models.customer_user import CustomerUser
 from app.db.models.refresh_token import RefreshToken
@@ -97,7 +98,7 @@ class CustomerAuthService:
             raise ValueError("Terms must be accepted")
 
         existing_customer = self.db.execute(
-            select(CustomerUser).where(CustomerUser.email == payload.email.lower().strip())
+            select(CustomerUser).where(CustomerUser.email_hash == hash_for_lookup(payload.email.lower().strip()))
         ).scalar_one_or_none()
         if existing_customer:
             raise ValueError("A customer with this email already exists")
@@ -105,6 +106,7 @@ class CustomerAuthService:
         customer = CustomerUser(
             full_name=payload.full_name.strip(),
             email=payload.email.lower().strip(),
+            email_hash=hash_for_lookup(payload.email.lower().strip()),
             hashed_password=get_password_hash(payload.password),
             is_active=False,
         )
@@ -149,7 +151,7 @@ class CustomerAuthService:
         self, payload: CustomerResendVerificationRequest
     ) -> CustomerActionResponse:
         customer = self.db.execute(
-            select(CustomerUser).where(CustomerUser.email == payload.email.lower().strip())
+            select(CustomerUser).where(CustomerUser.email_hash == hash_for_lookup(payload.email.lower().strip()))
         ).scalar_one_or_none()
         if not customer:
             raise ValueError("Customer not found")
@@ -170,7 +172,7 @@ class CustomerAuthService:
 
     def login(self, payload: CustomerLoginRequest) -> dict:
         customer = self.db.execute(
-            select(CustomerUser).where(CustomerUser.email == payload.email.lower().strip())
+            select(CustomerUser).where(CustomerUser.email_hash == hash_for_lookup(payload.email.lower().strip()))
         ).scalar_one_or_none()
         if not customer or not verify_password(payload.password, customer.hashed_password):
             raise ValueError("Incorrect email or password")
@@ -238,7 +240,7 @@ class CustomerAuthService:
         self, payload: CustomerForgotPasswordRequest
     ) -> CustomerActionResponse:
         customer = self.db.execute(
-            select(CustomerUser).where(CustomerUser.email == payload.email.lower().strip())
+            select(CustomerUser).where(CustomerUser.email_hash == hash_for_lookup(payload.email.lower().strip()))
         ).scalar_one_or_none()
         if customer:
             reset_token = token_service.create_customer_password_reset_token(
