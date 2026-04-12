@@ -18,7 +18,8 @@ class Settings(BaseSettings):
 
     # Security
     SECRET_KEY: str
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15  # Short-lived; refresh token handles longevity
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ALGORITHM: str = "HS256"
 
     # Encryption at rest
