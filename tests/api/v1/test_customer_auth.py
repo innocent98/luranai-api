@@ -130,9 +130,10 @@ def test_customer_register_verify_login_and_profile_flow(
     assert login_response.status_code == 200
     auth_payload = login_response.json()
     assert auth_payload["customer"]["email"] == "ada.customer@example.com"
-    assert auth_payload["token"]["token_type"] == "bearer"
+    assert auth_payload["token_type"] == "bearer"
+    assert "access_token" in auth_payload
 
-    headers = {"Authorization": f"Bearer {auth_payload['token']['access_token']}"}
+    headers = {"Authorization": f"Bearer {auth_payload['access_token']}"}
     me_response = client.get("/api/v1/customer/auth/me", headers=headers)
     assert me_response.status_code == 200
     assert me_response.json()["full_name"] == "Ada Customer"

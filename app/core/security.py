@@ -52,6 +52,7 @@ def set_auth_cookies(
     response: Any,
     access_token: str,
     refresh_token: str,
+    refresh_path: str = "/api/v1/auth/refresh",
 ) -> None:
     """Set HttpOnly Secure auth cookies on a FastAPI Response."""
     response.set_cookie(
@@ -70,14 +71,14 @@ def set_auth_cookies(
         secure=True,
         samesite="lax",
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
-        path="/api/v1/auth/refresh",
+        path=refresh_path,
     )
 
 
-def clear_auth_cookies(response: Any) -> None:
+def clear_auth_cookies(response: Any, refresh_path: str = "/api/v1/auth/refresh") -> None:
     """Clear auth cookies on a FastAPI Response."""
     response.delete_cookie(key="access_token", path="/")
-    response.delete_cookie(key="refresh_token", path="/api/v1/auth/refresh")
+    response.delete_cookie(key="refresh_token", path=refresh_path)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
