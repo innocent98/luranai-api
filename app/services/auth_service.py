@@ -261,6 +261,8 @@ class AuthService:
         user.hashed_password = get_password_hash(new_password)
         self.db.commit()
 
+        self._revoke_all_user_tokens(user_id)
+
         return True
 
     def deactivate_user(self, user_id: UUID) -> bool:
@@ -327,6 +329,21 @@ class AuthService:
             "message": "If an account exists for that email, a password reset link has been sent."
         }
 
+    def _revoke_all_user_tokens(self, user_id: UUID) -> None:
+        """Revoke all refresh tokens for a user (on password change/reset)."""
+        records = self.db.execute(
+            select(RefreshToken).where(
+                RefreshToken.user_id == user_id,
+                RefreshToken.user_type == "tenant_user",
+                RefreshToken.revoked_at.is_(None),
+            )
+        ).scalars().all()
+
+        now = datetime.now(timezone.utc)
+        for record in records:
+            record.revoked_at = now
+        self.db.commit()
+
     def reset_password(self, token: str, new_password: str) -> dict:
         """Reset a B2B user's password using a reset token."""
         token_data = token_service.verify_password_reset_token(token)
@@ -343,6 +360,8 @@ class AuthService:
         user.hashed_password = get_password_hash(new_password)
         user.must_change_password = False
         self.db.commit()
+
+        self._revoke_all_user_tokens(user.id)
 
         email_service.send_password_changed_email(
             email=user.email,
@@ -371,6 +390,8 @@ class AuthService:
         user.hashed_password = get_password_hash(new_password)
         user.must_change_password = False
         self.db.commit()
+
+        self._revoke_all_user_tokens(user.id)
 
         email_service.send_password_changed_email(
             email=user.email,

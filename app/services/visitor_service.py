@@ -9,6 +9,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.encryption import hash_for_lookup
 from app.db.models.conversation import Message, SessionStatus
 from app.db.models.tenant import Tenant, TenantStatus
 from app.db.models.visitor import DeviceType, Visitor, VisitorSession, VisitorSource
@@ -212,6 +213,7 @@ class VisitorService:
             entry_point=entry_point,
             user_agent=user_agent,
             ip_address=str(metadata.get("ip_address")) if metadata.get("ip_address") else None,
+            ip_hash=hash_for_lookup(str(metadata.get("ip_address"))) if metadata.get("ip_address") else None,
             device_type=self._derive_device_type(user_agent),
             browser_name=(
                 str(metadata.get("browser_name")) if metadata.get("browser_name") else None
@@ -253,7 +255,9 @@ class VisitorService:
         if payload_name := metadata.get("contact_name"):
             visitor.name = str(payload_name).strip()
         if payload_email := metadata.get("contact_email"):
-            visitor.email = str(payload_email).strip().lower()
+            email_val = str(payload_email).strip().lower()
+            visitor.email = email_val
+            visitor.email_hash = hash_for_lookup(email_val)
         return visitor
 
     def _resolve_or_create_visitor_session(

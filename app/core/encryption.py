@@ -18,10 +18,20 @@ from sqlalchemy import Text
 from sqlalchemy.types import TypeDecorator
 
 
+_fernet_cache: MultiFernet | None = None
+_fernet_cache_keys: tuple[str, str] = ("", "")
+
+
 def _build_fernet() -> MultiFernet:
-    """Build a MultiFernet from environment keys."""
+    """Build a MultiFernet from environment keys. Cached for performance."""
+    global _fernet_cache, _fernet_cache_keys
+
     current_key = os.environ.get("ENCRYPTION_KEY", "")
     previous_key = os.environ.get("ENCRYPTION_KEY_PREVIOUS", "")
+
+    # Return cached instance if keys haven't changed
+    if _fernet_cache is not None and _fernet_cache_keys == (current_key, previous_key):
+        return _fernet_cache
 
     if not current_key:
         raise RuntimeError(
@@ -38,7 +48,9 @@ def _build_fernet() -> MultiFernet:
             "the previous key to decrypt data encrypted under the old key."
         )
 
-    return MultiFernet(keys)
+    _fernet_cache = MultiFernet(keys)
+    _fernet_cache_keys = (current_key, previous_key)
+    return _fernet_cache
 
 
 def _is_migration_mode() -> bool:
