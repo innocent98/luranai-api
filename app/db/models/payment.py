@@ -9,10 +9,21 @@ from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.encryption import EncryptedString
 from app.db.base import Base
 
 if TYPE_CHECKING:
     from app.db.models.tenant import Tenant
+
+PAYSTACK_DATA_ALLOWED_KEYS = frozenset({
+    "reference", "amount", "currency", "status", "plan_code",
+    "paid_at", "channel", "transaction_date",
+})
+
+
+def strip_paystack_data(data: dict) -> dict:
+    """Strip Paystack response to only allowed fields."""
+    return {k: v for k, v in data.items() if k in PAYSTACK_DATA_ALLOWED_KEYS}
 
 
 class PaymentTransaction(Base):
@@ -104,9 +115,9 @@ class PaymentTransaction(Base):
         comment="Paystack subscription code (for recurring)",
     )
     authorization_code: Mapped[str | None] = mapped_column(
-        String(100),
+        EncryptedString,
         nullable=True,
-        comment="Paystack authorization code (for recurring)",
+        comment="Paystack authorization code (for recurring) — encrypted at rest",
     )
 
     # Paystack raw data
@@ -114,6 +125,11 @@ class PaymentTransaction(Base):
         JSON,
         nullable=True,
         comment="Raw Paystack response data",
+    )
+    paystack_data_encrypted: Mapped[str | None] = mapped_column(
+        EncryptedString,
+        nullable=True,
+        comment="Stripped and encrypted Paystack response data",
     )
 
     # Error tracking
