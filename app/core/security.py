@@ -1,3 +1,8 @@
+"""Security utilities: JWT tokens, password hashing, cookie auth, token revocation."""
+
+import hashlib
+import secrets
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -19,14 +24,60 @@ def create_access_token(
     else:
         expire = datetime.now(UTC) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    to_encode = {"exp": expire, "sub": str(subject)}
+    to_encode: dict[str, Any] = {
+        "exp": expire,
+        "sub": str(subject),
+        "jti": str(uuid.uuid4()),
+    }
 
-    # Add any additional claims
     if additional_claims:
         to_encode.update(additional_claims)
 
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return str(encoded_jwt)
+
+
+def create_refresh_token() -> tuple[str, str]:
+    """Generate a refresh token and its SHA-256 hash.
+
+    Returns:
+        (raw_token, token_hash) — store token_hash in DB, send raw_token to client.
+    """
+    raw_token = secrets.token_urlsafe(48)
+    token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+    return raw_token, token_hash
+
+
+def set_auth_cookies(
+    response: Any,
+    access_token: str,
+    refresh_token: str,
+) -> None:
+    """Set HttpOnly Secure auth cookies on a FastAPI Response."""
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        path="/api/v1/auth/refresh",
+    )
+
+
+def clear_auth_cookies(response: Any) -> None:
+    """Clear auth cookies on a FastAPI Response."""
+    response.delete_cookie(key="access_token", path="/")
+    response.delete_cookie(key="refresh_token", path="/api/v1/auth/refresh")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
