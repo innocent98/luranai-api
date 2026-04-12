@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
     ALGORITHM: str = "HS256"
 
+    # Encryption at rest
+    ENCRYPTION_KEY: str = ""
+    ENCRYPTION_KEY_PREVIOUS: str = ""
+    ENCRYPTION_MIGRATION_MODE: bool = True
+
     # CORS
     BACKEND_CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
