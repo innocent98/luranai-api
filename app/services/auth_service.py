@@ -1,13 +1,15 @@
 """Authentication service for user management and JWT tokens."""
 
-from datetime import datetime
+import hashlib
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.security import create_access_token, create_refresh_token, get_password_hash, verify_password
+from app.db.models.refresh_token import RefreshToken
 from app.db.models.user import User, UserRole
 from app.schemas.user import LoginRequest, Token, TokenData, UserCreate, UserResponse
 from app.services.token_service import token_service
@@ -47,42 +49,89 @@ class AuthService:
 
         return user
 
-    def login(self, login_data: LoginRequest) -> Token:
-        """
-        Login user and generate JWT token.
-
-        Args:
-            login_data: Login credentials
-
-        Returns:
-            Token with access token and expiration
-
-        Raises:
-            ValueError: If authentication fails
-        """
+    def login(self, login_data: LoginRequest) -> dict:
+        """Login user and generate JWT access + refresh tokens."""
         user = self.authenticate_user(login_data.email, login_data.password)
 
         if not user:
             raise ValueError("Incorrect email or password")
 
-        # Generate access token with user ID as subject and additional claims
         access_token = create_access_token(
             subject=str(user.id),
             additional_claims={
-                "email": user.email,
                 "role": user.role.value,
                 "tenant_id": str(user.tenant_id) if user.tenant_id else None,
             },
         )
 
-        from app.schemas.auth import LoginResponse
+        raw_refresh, refresh_hash = create_refresh_token()
 
-        return LoginResponse(
-            access_token=access_token,
-            token_type="bearer",
-            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-            must_change_password=user.must_change_password,
+        refresh_record = RefreshToken(
+            user_id=user.id,
+            user_type="tenant_user",
+            token_hash=refresh_hash,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            created_at=datetime.now(timezone.utc),
         )
+        self.db.add(refresh_record)
+        self.db.commit()
+
+        return {
+            "access_token": access_token,
+            "refresh_token": raw_refresh,
+            "token_type": "bearer",
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            "must_change_password": user.must_change_password,
+        }
+
+    def refresh(self, raw_refresh_token: str) -> dict:
+        """Validate refresh token, rotate it, return new access + refresh tokens."""
+        token_hash = hashlib.sha256(raw_refresh_token.encode()).hexdigest()
+
+        record = self.db.execute(
+            select(RefreshToken).where(
+                RefreshToken.token_hash == token_hash,
+                RefreshToken.revoked_at.is_(None),
+            )
+        ).scalar_one_or_none()
+
+        if not record or record.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+            raise ValueError("Invalid or expired refresh token")
+
+        # Revoke old refresh token (rotation)
+        record.revoked_at = datetime.now(timezone.utc)
+
+        # Load user
+        user = self.db.execute(select(User).where(User.id == record.user_id)).scalar_one_or_none()
+        if not user or not user.is_active:
+            raise ValueError("User not found or inactive")
+
+        # Issue new tokens
+        access_token = create_access_token(
+            subject=str(user.id),
+            additional_claims={
+                "role": user.role.value,
+                "tenant_id": str(user.tenant_id) if user.tenant_id else None,
+            },
+        )
+
+        new_raw_refresh, new_refresh_hash = create_refresh_token()
+        new_record = RefreshToken(
+            user_id=user.id,
+            user_type="tenant_user",
+            token_hash=new_refresh_hash,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            created_at=datetime.now(timezone.utc),
+        )
+        self.db.add(new_record)
+        self.db.commit()
+
+        return {
+            "access_token": access_token,
+            "refresh_token": new_raw_refresh,
+            "token_type": "bearer",
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        }
 
     def create_user(self, user_data: UserCreate) -> UserResponse:
         """
