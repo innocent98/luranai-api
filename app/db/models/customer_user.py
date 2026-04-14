@@ -35,7 +35,7 @@ class CustomerUser(Base, UUIDMixin, TimestampMixin):
         String(64),
         unique=True,
         index=True,
-        nullable=True,  # Nullable initially for migration, set non-nullable after backfill
+        nullable=False,
         comment="SHA-256 hash of email for lookups",
     )
     hashed_password: Mapped[str] = mapped_column(
