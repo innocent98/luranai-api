@@ -1,21 +1,25 @@
 """Authentication service for platform admin management and JWT tokens."""
 
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import create_access_token, create_refresh_token, get_password_hash, verify_password
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    get_password_hash,
+    verify_password,
+)
 from app.db.models.platform_admin import PlatformAdmin, PlatformAdminRole
 from app.db.models.refresh_token import RefreshToken
 from app.schemas.platform_admin import (
     PlatformAdminCreate,
     PlatformAdminLoginRequest,
     PlatformAdminResponse,
-    PlatformAdminToken,
     PlatformAdminTokenData,
 )
 
@@ -88,8 +92,8 @@ class PlatformAdminAuthService:
             user_id=admin.id,
             user_type="platform_admin",
             token_hash=refresh_hash,
-            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            created_at=datetime.now(UTC),
         )
         self.db.add(refresh_record)
         self.db.commit()
@@ -113,11 +117,11 @@ class PlatformAdminAuthService:
             )
         ).scalar_one_or_none()
 
-        if not record or record.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        if not record or record.expires_at.replace(tzinfo=UTC) < datetime.now(UTC):
             raise ValueError("Invalid or expired refresh token")
 
         # Revoke old refresh token (rotation)
-        record.revoked_at = datetime.now(timezone.utc)
+        record.revoked_at = datetime.now(UTC)
 
         # Load admin
         admin = self.db.execute(
@@ -140,8 +144,8 @@ class PlatformAdminAuthService:
             user_id=admin.id,
             user_type="platform_admin",
             token_hash=new_refresh_hash,
-            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            created_at=datetime.now(UTC),
         )
         self.db.add(new_record)
         self.db.commit()

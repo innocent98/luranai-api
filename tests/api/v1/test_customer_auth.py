@@ -101,7 +101,13 @@ def test_customer_register_verify_login_and_profile_flow(
     )
     assert register_response.status_code == 201
 
-    created_customer = db.query(CustomerUser).filter_by(email="ada.customer@example.com").one()
+    from app.core.encryption import hash_for_lookup
+
+    created_customer = (
+        db.query(CustomerUser)
+        .filter_by(email_hash=hash_for_lookup("ada.customer@example.com"))
+        .one()
+    )
     created_customer_id = created_customer.id
     created_customer_email = created_customer.email
     sent_verification["customer_user_id"] = created_customer_id

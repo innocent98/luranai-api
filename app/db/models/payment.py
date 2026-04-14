@@ -15,10 +15,18 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.db.models.tenant import Tenant
 
-PAYSTACK_DATA_ALLOWED_KEYS = frozenset({
-    "reference", "amount", "currency", "status", "plan_code",
-    "paid_at", "channel", "transaction_date",
-})
+PAYSTACK_DATA_ALLOWED_KEYS = frozenset(
+    {
+        "reference",
+        "amount",
+        "currency",
+        "status",
+        "plan_code",
+        "paid_at",
+        "channel",
+        "transaction_date",
+    }
+)
 
 
 def strip_paystack_data(data: dict) -> dict:

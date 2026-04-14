@@ -1,17 +1,22 @@
 """Authentication service for user management and JWT tokens."""
 
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import create_access_token, create_refresh_token, get_password_hash, verify_password
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    get_password_hash,
+    verify_password,
+)
 from app.db.models.refresh_token import RefreshToken
 from app.db.models.user import User, UserRole
-from app.schemas.user import LoginRequest, Token, TokenData, UserCreate, UserResponse
+from app.schemas.user import LoginRequest, TokenData, UserCreate, UserResponse
 from app.services.token_service import token_service
 from app.services.email_service import email_service
 
@@ -70,8 +75,8 @@ class AuthService:
             user_id=user.id,
             user_type="tenant_user",
             token_hash=refresh_hash,
-            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            created_at=datetime.now(UTC),
         )
         self.db.add(refresh_record)
         self.db.commit()
@@ -95,11 +100,11 @@ class AuthService:
             )
         ).scalar_one_or_none()
 
-        if not record or record.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        if not record or record.expires_at.replace(tzinfo=UTC) < datetime.now(UTC):
             raise ValueError("Invalid or expired refresh token")
 
         # Revoke old refresh token (rotation)
-        record.revoked_at = datetime.now(timezone.utc)
+        record.revoked_at = datetime.now(UTC)
 
         # Load user
         user = self.db.execute(select(User).where(User.id == record.user_id)).scalar_one_or_none()
@@ -120,8 +125,8 @@ class AuthService:
             user_id=user.id,
             user_type="tenant_user",
             token_hash=new_refresh_hash,
-            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            created_at=datetime.now(UTC),
         )
         self.db.add(new_record)
         self.db.commit()
@@ -331,15 +336,19 @@ class AuthService:
 
     def _revoke_all_user_tokens(self, user_id: UUID) -> None:
         """Revoke all refresh tokens for a user (on password change/reset)."""
-        records = self.db.execute(
-            select(RefreshToken).where(
-                RefreshToken.user_id == user_id,
-                RefreshToken.user_type == "tenant_user",
-                RefreshToken.revoked_at.is_(None),
+        records = (
+            self.db.execute(
+                select(RefreshToken).where(
+                    RefreshToken.user_id == user_id,
+                    RefreshToken.user_type == "tenant_user",
+                    RefreshToken.revoked_at.is_(None),
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for record in records:
             record.revoked_at = now
         self.db.commit()

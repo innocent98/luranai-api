@@ -2,6 +2,16 @@
 
 Complete guide for backing up and restoring your Luran database with support for local and cloud storage.
 
+## Which script does what?
+
+| Script | Audience | Where it runs |
+|--------|----------|---------------|
+| `backup_db.sh` | **Developers** — manual/ad-hoc backups during local dev | Your laptop / dev machine |
+| `backup_cron.sh` | **Production** — automated daily backups installed by CD | VPS host (via cron, 2 AM daily) |
+| `backup_status.sh` | Operators — check last backup status | Either environment |
+
+The production backup cron is installed automatically by the CD pipeline (`.github/workflows/cd.yml`) — you don't need to set it up manually. This document covers the developer workflow (`backup_db.sh`).
+
 ---
 
 ## 📋 Table of Contents

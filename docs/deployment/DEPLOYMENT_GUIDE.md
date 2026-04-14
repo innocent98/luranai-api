@@ -196,41 +196,42 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api \
 python /app/scripts/seed_flow_templates.py
 ```
 
-### 4. Setup Automatic Database Backups
+### 4. Automatic Database Backups (installed by CD)
 
-**IMPORTANT:** Set this up right after deployment!
+> **Production backups are installed automatically** by the CD pipeline
+> (`.github/workflows/cd.yml`) — you don't need to set them up manually on
+> the VPS. The `backup_cron.sh` script is scp'd to `/opt/luran/scripts/`
+> on every deploy, and the cron entry is installed via:
+>
+> ```bash
+> 0 2 * * * /opt/luran/scripts/backup_cron.sh >> /opt/luran/backups/backup.log 2>&1
+> ```
+
+**Verify the cron is installed on the VPS:**
 
 ```bash
-# Make backup script executable
-chmod +x scripts/backup_db.sh
-
-# Test the backup script
-./scripts/backup_db.sh
-
-# Verify backup was created
-ls -lh backups/
-
-# Setup crontab for automatic daily backups at 2:00 AM
-crontab -e
-
-# Add this line to crontab (adjust path to your installation):
-0 2 * * * cd /opt/luran && ./scripts/backup_db.sh >> ./backups/backup.log 2>&1
-
-# Save and exit (Ctrl+X, then Y, then Enter)
+crontab -l | grep backup_cron
+# Should show: 0 2 * * * /opt/luran/scripts/backup_cron.sh >> /opt/luran/backups/backup.log 2>&1
 ```
 
-**What this does:**
-- ✅ Runs backup automatically every day at 2:00 AM
+**Run a manual backup on the VPS (to test):**
+
+```bash
+ssh <vps>
+/opt/luran/scripts/backup_cron.sh
+ls -lh /opt/luran/backups/
+```
+
+**Developer note:** For local/dev backups on your laptop, use `./scripts/backup_db.sh`
+instead — it's a simpler wrapper that loads `.env` from the current directory.
+See `scripts/README_BACKUPS.md` for details.
+
+**What the cron does:**
+- ✅ Runs every day at 2:00 AM
 - ✅ Creates compressed backup: `luran_backup_YYYYMMDD_HHMMSS.sql.gz`
-- ✅ Deletes backups older than 30 days (configurable in script)
-- ✅ Logs everything to `backups/backup.log`
-- ✅ Zero manual intervention needed!
-
-**Verify crontab is set:**
-```bash
-crontab -l | grep luran
-# Should show: 0 2 * * * cd /opt/luran && ./scripts/backup_db.sh >> ./backups/backup.log 2>&1
-```
+- ✅ Deletes backups older than 30 days
+- ✅ Logs everything to `/opt/luran/backups/backup.log`
+- ✅ Optional: uploads to Google Drive or S3 if `ENABLE_CLOUD_BACKUP=true` in `.env`
 
 **Check backup logs:**
 ```bash
@@ -258,9 +259,9 @@ GDRIVE_FOLDER=luran-backups  # Folder name in Google Drive
 sudo apt install rclone
 rclone config  # Follow prompts to connect Google Drive
 
-# Test cloud backup
-./scripts/backup_db.sh
-# Should upload to Google Drive
+# Test cloud backup on the VPS
+/opt/luran/scripts/backup_cron.sh
+# Should upload to Google Drive (check backup.log)
 ```
 
 ### 5. Setup Nginx (Optional but Recommended)

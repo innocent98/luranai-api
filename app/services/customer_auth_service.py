@@ -1,7 +1,7 @@
 """Customer authentication and profile management."""
 
 import hashlib
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import select
@@ -9,12 +9,16 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.encryption import hash_for_lookup
-from app.core.security import create_access_token, create_refresh_token, get_password_hash, verify_password
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    get_password_hash,
+    verify_password,
+)
 from app.db.models.customer_user import CustomerUser
 from app.db.models.refresh_token import RefreshToken
 from app.schemas.customer_auth import (
     CustomerActionResponse,
-    CustomerAuthResponse,
     CustomerEmailVerificationRequest,
     CustomerForgotPasswordRequest,
     CustomerLoginRequest,
@@ -26,7 +30,6 @@ from app.schemas.customer_auth import (
     CustomerTokenData,
     CustomerUserResponse,
 )
-from app.schemas.user import Token
 from app.services.email_service import email_service
 from app.services.token_service import token_service
 
@@ -57,8 +60,8 @@ class CustomerAuthService:
             user_id=customer.id,
             user_type="customer",
             token_hash=refresh_hash,
-            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            created_at=datetime.now(UTC),
         )
         self.db.add(refresh_record)
         self.db.commit()
@@ -98,7 +101,9 @@ class CustomerAuthService:
             raise ValueError("Terms must be accepted")
 
         existing_customer = self.db.execute(
-            select(CustomerUser).where(CustomerUser.email_hash == hash_for_lookup(payload.email.lower().strip()))
+            select(CustomerUser).where(
+                CustomerUser.email_hash == hash_for_lookup(payload.email.lower().strip())
+            )
         ).scalar_one_or_none()
         if existing_customer:
             raise ValueError("A customer with this email already exists")
@@ -151,7 +156,9 @@ class CustomerAuthService:
         self, payload: CustomerResendVerificationRequest
     ) -> CustomerActionResponse:
         customer = self.db.execute(
-            select(CustomerUser).where(CustomerUser.email_hash == hash_for_lookup(payload.email.lower().strip()))
+            select(CustomerUser).where(
+                CustomerUser.email_hash == hash_for_lookup(payload.email.lower().strip())
+            )
         ).scalar_one_or_none()
         if not customer:
             raise ValueError("Customer not found")
@@ -172,7 +179,9 @@ class CustomerAuthService:
 
     def login(self, payload: CustomerLoginRequest) -> dict:
         customer = self.db.execute(
-            select(CustomerUser).where(CustomerUser.email_hash == hash_for_lookup(payload.email.lower().strip()))
+            select(CustomerUser).where(
+                CustomerUser.email_hash == hash_for_lookup(payload.email.lower().strip())
+            )
         ).scalar_one_or_none()
         if not customer or not verify_password(payload.password, customer.hashed_password):
             raise ValueError("Incorrect email or password")
@@ -196,11 +205,11 @@ class CustomerAuthService:
             )
         ).scalar_one_or_none()
 
-        if not record or record.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+        if not record or record.expires_at.replace(tzinfo=UTC) < datetime.now(UTC):
             raise ValueError("Invalid or expired refresh token")
 
         # Revoke old refresh token (rotation)
-        record.revoked_at = datetime.now(timezone.utc)
+        record.revoked_at = datetime.now(UTC)
 
         # Load customer
         customer = self.db.execute(
@@ -223,8 +232,8 @@ class CustomerAuthService:
             user_id=customer.id,
             user_type="customer",
             token_hash=new_refresh_hash,
-            expires_at=datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
-            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            created_at=datetime.now(UTC),
         )
         self.db.add(new_record)
         self.db.commit()
@@ -240,7 +249,9 @@ class CustomerAuthService:
         self, payload: CustomerForgotPasswordRequest
     ) -> CustomerActionResponse:
         customer = self.db.execute(
-            select(CustomerUser).where(CustomerUser.email_hash == hash_for_lookup(payload.email.lower().strip()))
+            select(CustomerUser).where(
+                CustomerUser.email_hash == hash_for_lookup(payload.email.lower().strip())
+            )
         ).scalar_one_or_none()
         if customer:
             reset_token = token_service.create_customer_password_reset_token(

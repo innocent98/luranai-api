@@ -16,7 +16,6 @@ from app.schemas.platform_admin import (
     PlatformAdminLoginRequest,
     PlatformAdminPasswordUpdate,
     PlatformAdminResponse,
-    PlatformAdminToken,
 )
 from app.services.platform_admin_auth_service import PlatformAdminAuthService
 from app.utils.http_rate_limiter import platform_admin_auth_rate_limit, platform_admin_rate_limit

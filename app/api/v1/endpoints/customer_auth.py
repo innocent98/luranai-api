@@ -11,7 +11,6 @@ from app.core.config import settings
 from app.core.security import set_auth_cookies, clear_auth_cookies
 from app.schemas.customer_auth import (
     CustomerActionResponse,
-    CustomerAuthResponse,
     CustomerEmailVerificationRequest,
     CustomerForgotPasswordRequest,
     CustomerLoginRequest,
@@ -83,7 +82,9 @@ def resend_customer_verification(
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(auth_rate_limit)],
 )
-def login_customer(payload: CustomerLoginRequest, response: Response, db: Session = Depends(get_db)):
+def login_customer(
+    payload: CustomerLoginRequest, response: Response, db: Session = Depends(get_db)
+):
     """Login customer — sets HttpOnly auth cookies and returns token + customer data."""
     service = CustomerAuthService(db)
     try:

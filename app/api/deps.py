@@ -4,7 +4,6 @@ from uuid import UUID
 
 import redis as redis_lib
 from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlalchemy.orm import Session

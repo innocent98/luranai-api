@@ -213,7 +213,11 @@ class VisitorService:
             entry_point=entry_point,
             user_agent=user_agent,
             ip_address=str(metadata.get("ip_address")) if metadata.get("ip_address") else None,
-            ip_hash=hash_for_lookup(str(metadata.get("ip_address"))) if metadata.get("ip_address") else None,
+            ip_hash=(
+                hash_for_lookup(str(metadata.get("ip_address")))
+                if metadata.get("ip_address")
+                else None
+            ),
             device_type=self._derive_device_type(user_agent),
             browser_name=(
                 str(metadata.get("browser_name")) if metadata.get("browser_name") else None

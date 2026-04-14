@@ -1,8 +1,11 @@
 # 📝 Database Backup Quick Reference
 
+> **Developer ref** — this covers `backup_db.sh` for local/manual backups.
+> Production uses `backup_cron.sh` via cron (installed by CD, no manual setup needed).
+
 ## 🚀 Quick Commands
 
-### Create Backup
+### Create Backup (local/dev)
 ```bash
 ./scripts/backup_db.sh
 ```

@@ -97,12 +97,14 @@ class EncryptedJSON(TypeDecorator):
         if value is None:
             return None
         import json
+
         return encrypt_field(json.dumps(value))
 
     def process_result_value(self, value, dialect):
         if value is None:
             return None
         import json
+
         if _is_migration_mode():
             decrypted = try_decrypt_field(value)
         else:

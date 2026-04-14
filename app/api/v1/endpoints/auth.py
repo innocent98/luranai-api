@@ -12,7 +12,6 @@ from app.core.security import set_auth_cookies, clear_auth_cookies
 from app.schemas.auth import (
     PasswordResetRequest,
     PasswordResetConfirm,
-    LoginResponse,
     ForcePasswordChangeRequest,
 )
 from app.schemas.user import (
