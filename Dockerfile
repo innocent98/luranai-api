@@ -47,8 +47,13 @@ COPY ./scripts/create_luran_support_flows.py /app/scripts/create_luran_support_f
 COPY ./scripts/create_luran_support_flows_part2.py /app/scripts/create_luran_support_flows_part2.py
 COPY ./scripts/smoke_automation_and_flows.py /app/scripts/smoke_automation_and_flows.py
 COPY ./scripts/e2e_real_tenant_enforcement.py /app/scripts/e2e_real_tenant_enforcement.py
-COPY ./scripts/backup_db.sh /app/scripts/backup_db.sh
 COPY ./scripts/backup_status.sh /app/scripts/backup_status.sh
+COPY ./scripts/generate_encryption_key.py /app/scripts/generate_encryption_key.py
+COPY ./scripts/backfill_encrypt_secrets.py /app/scripts/backfill_encrypt_secrets.py
+COPY ./scripts/backfill_encrypt_payments.py /app/scripts/backfill_encrypt_payments.py
+COPY ./scripts/backfill_encrypt_messages.py /app/scripts/backfill_encrypt_messages.py
+COPY ./scripts/backfill_encrypt_pii.py /app/scripts/backfill_encrypt_pii.py
+COPY ./scripts/backfill_encrypt_user_admin.py /app/scripts/backfill_encrypt_user_admin.py
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app

@@ -240,8 +240,8 @@ class TestAnalyticsEndpoints:
         """Test overview metrics without authentication."""
         response = client.get("/api/v1/analytics/overview")
 
-        # Expecting 403 because FastAPI security dependency returns 403 when no credentials provided
-        assert response.status_code == 403
+        # Expecting 401 because no token is provided (cookie or header)
+        assert response.status_code == 401
 
     def test_get_overview_analytics_disabled(
         self, db: Session, client: TestClient, test_tenant_without_analytics: Tenant

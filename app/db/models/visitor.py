@@ -6,9 +6,10 @@ from datetime import datetime
 
 from sqlalchemy import JSON, Boolean, DateTime
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import ForeignKey, Index, String, Text
+from sqlalchemy import ForeignKey, Index, String, Text, event
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.encryption import EncryptedString, hash_for_lookup
 from app.db.base import Base, TimestampMixin, UUIDMixin
 
 
@@ -54,19 +55,31 @@ class Visitor(Base, UUIDMixin, TimestampMixin):
         comment="Opaque browser-stored token used to resolve the visitor",
     )
     name: Mapped[str | None] = mapped_column(
-        String(255),
+        EncryptedString,
         nullable=True,
-        comment="Optional visitor name captured during support flow",
+        comment="Optional visitor name — encrypted at rest",
     )
     email: Mapped[str | None] = mapped_column(
-        String(255),
+        EncryptedString,
         nullable=True,
-        comment="Optional visitor email captured during support flow",
+        comment="Optional visitor email — encrypted at rest",
+    )
+    email_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        comment="SHA-256 hash of email for lookups",
     )
     phone: Mapped[str | None] = mapped_column(
-        String(50),
+        EncryptedString,
         nullable=True,
-        comment="Optional visitor phone captured during support flow",
+        comment="Optional visitor phone — encrypted at rest",
+    )
+    phone_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        index=True,
+        comment="SHA-256 hash of phone for lookups",
     )
     first_seen_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -164,14 +177,20 @@ class VisitorSession(Base, UUIDMixin):
         comment="Entry point used for this visitor session",
     )
     user_agent: Mapped[str | None] = mapped_column(
-        Text,
+        EncryptedString,
         nullable=True,
-        comment="Raw user-agent string from the browser",
+        comment="Raw user-agent string — encrypted at rest",
     )
     ip_address: Mapped[str | None] = mapped_column(
+        EncryptedString,
+        nullable=True,
+        comment="IP address — encrypted at rest",
+    )
+    ip_hash: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
-        comment="IP address captured for abuse protection and debugging",
+        index=True,
+        comment="SHA-256 hash of IP address for lookups",
     )
     device_type: Mapped[DeviceType | None] = mapped_column(
         SQLEnum(
@@ -217,3 +236,27 @@ class VisitorSession(Base, UUIDMixin):
 
     def __repr__(self) -> str:
         return f"<VisitorSession(id={self.id}, visitor_id={self.visitor_id})>"
+
+
+@event.listens_for(Visitor, "before_insert")
+@event.listens_for(Visitor, "before_update")
+def _populate_visitor_hashes(mapper, connection, target):
+    """Auto-populate email_hash and phone_hash from email/phone."""
+    if target.email:
+        target.email_hash = hash_for_lookup(target.email)
+    elif target.email is None:
+        target.email_hash = None
+    if target.phone:
+        target.phone_hash = hash_for_lookup(target.phone)
+    elif target.phone is None:
+        target.phone_hash = None
+
+
+@event.listens_for(VisitorSession, "before_insert")
+@event.listens_for(VisitorSession, "before_update")
+def _populate_visitor_session_hashes(mapper, connection, target):
+    """Auto-populate ip_hash from ip_address."""
+    if target.ip_address:
+        target.ip_hash = hash_for_lookup(target.ip_address)
+    elif target.ip_address is None:
+        target.ip_hash = None

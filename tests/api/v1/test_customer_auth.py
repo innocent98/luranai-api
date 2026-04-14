@@ -101,7 +101,13 @@ def test_customer_register_verify_login_and_profile_flow(
     )
     assert register_response.status_code == 201
 
-    created_customer = db.query(CustomerUser).filter_by(email="ada.customer@example.com").one()
+    from app.core.encryption import hash_for_lookup
+
+    created_customer = (
+        db.query(CustomerUser)
+        .filter_by(email_hash=hash_for_lookup("ada.customer@example.com"))
+        .one()
+    )
     created_customer_id = created_customer.id
     created_customer_email = created_customer.email
     sent_verification["customer_user_id"] = created_customer_id
@@ -130,9 +136,10 @@ def test_customer_register_verify_login_and_profile_flow(
     assert login_response.status_code == 200
     auth_payload = login_response.json()
     assert auth_payload["customer"]["email"] == "ada.customer@example.com"
-    assert auth_payload["token"]["token_type"] == "bearer"
+    assert auth_payload["token_type"] == "bearer"
+    assert "access_token" in auth_payload
 
-    headers = {"Authorization": f"Bearer {auth_payload['token']['access_token']}"}
+    headers = {"Authorization": f"Bearer {auth_payload['access_token']}"}
     me_response = client.get("/api/v1/customer/auth/me", headers=headers)
     assert me_response.status_code == 200
     assert me_response.json()["full_name"] == "Ada Customer"
@@ -215,4 +222,4 @@ def test_customer_login_rejects_unverified_user(client: TestClient, db: Session)
 
 def test_customer_profile_requires_authentication(client: TestClient):
     response = client.get("/api/v1/customer/auth/me")
-    assert response.status_code == 403
+    assert response.status_code == 401

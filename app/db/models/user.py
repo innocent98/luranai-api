@@ -6,9 +6,10 @@ from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import ForeignKey, Index, String
+from sqlalchemy import ForeignKey, Index, String, event
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.encryption import EncryptedString, hash_for_lookup
 from app.db.base import Base, TimestampMixin, UUIDMixin
 
 
@@ -31,15 +32,20 @@ class User(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "users"
     __table_args__ = (
         Index("ix_users_tenant_role", "tenant_id", "role"),
-        Index("ix_users_email_active", "email", "is_active"),
+        Index("ix_users_email_hash_active", "email_hash", "is_active"),
     )
 
     email: Mapped[str] = mapped_column(
-        String(255),
+        EncryptedString,
+        nullable=False,
+        comment="User email address — encrypted at rest",
+    )
+    email_hash: Mapped[str] = mapped_column(
+        String(64),
         unique=True,
         index=True,
-        nullable=False,
-        comment="User email address (unique across platform)",
+        nullable=True,  # Nullable during migration; tightened post-backfill
+        comment="SHA-256 hash of email for lookups",
     )
     hashed_password: Mapped[str] = mapped_column(
         String(255),
@@ -47,9 +53,9 @@ class User(Base, UUIDMixin, TimestampMixin):
         comment="Bcrypt hashed password",
     )
     full_name: Mapped[str] = mapped_column(
-        String(255),
+        EncryptedString,
         nullable=False,
-        comment="Full name of the user",
+        comment="Full name of the user — encrypted at rest",
     )
     role: Mapped[UserRole] = mapped_column(
         SQLEnum(UserRole, name="user_role"),
@@ -85,3 +91,11 @@ class User(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, email={self.email}, role={self.role})>"
+
+
+@event.listens_for(User, "before_insert")
+@event.listens_for(User, "before_update")
+def _populate_user_email_hash(mapper, connection, target):
+    """Auto-populate email_hash from email before every insert/update."""
+    if target.email:
+        target.email_hash = hash_for_lookup(target.email)

@@ -9,6 +9,7 @@ from sqlalchemy import Enum as SQLEnum
 from sqlalchemy import ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.encryption import EncryptedJSON, EncryptedString
 from app.db.base import Base, TimestampMixin, UUIDMixin
 
 
@@ -189,9 +190,9 @@ class Message(Base, UUIDMixin):
         comment="Who sent this message (user/assistant/system/human_agent)",
     )
     content: Mapped[str] = mapped_column(
-        Text,
+        EncryptedString,
         nullable=False,
-        comment="Message content",
+        comment="Message content — encrypted at rest",
     )
     retrieved_chunk_ids: Mapped[list | None] = mapped_column(
         JSON,
@@ -204,9 +205,9 @@ class Message(Base, UUIDMixin):
         comment="Number of tokens in this message",
     )
     meta: Mapped[dict | None] = mapped_column(
-        JSON,
+        EncryptedJSON,
         nullable=True,
-        comment="Additional data: {model_version, processing_time, etc.}",
+        comment="Additional data — encrypted at rest",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

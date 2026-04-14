@@ -3,9 +3,10 @@
 import secrets
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Index, String
+from sqlalchemy import Boolean, DateTime, Index, String, event
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.encryption import EncryptedString, hash_for_lookup
 from app.db.base import Base, TimestampMixin, UUIDMixin
 
 
@@ -18,19 +19,24 @@ class CustomerUser(Base, UUIDMixin, TimestampMixin):
     """Logged-in customer account for the B2C experience."""
 
     __tablename__ = "customer_users"
-    __table_args__ = (Index("ix_customer_users_email_active", "email", "is_active"),)
+    __table_args__ = (Index("ix_customer_users_email_hash_active", "email_hash", "is_active"),)
 
     full_name: Mapped[str] = mapped_column(
-        String(255),
+        EncryptedString,
         nullable=False,
-        comment="Customer full name",
+        comment="Customer full name — encrypted at rest",
     )
     email: Mapped[str] = mapped_column(
-        String(255),
+        EncryptedString,
+        nullable=False,
+        comment="Customer email address — encrypted at rest",
+    )
+    email_hash: Mapped[str] = mapped_column(
+        String(64),
         unique=True,
         index=True,
         nullable=False,
-        comment="Customer email address",
+        comment="SHA-256 hash of email for lookups",
     )
     hashed_password: Mapped[str] = mapped_column(
         String(255),
@@ -70,3 +76,14 @@ class CustomerUser(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<CustomerUser(id={self.id}, email={self.email})>"
+
+
+@event.listens_for(CustomerUser, "before_insert")
+@event.listens_for(CustomerUser, "before_update")
+def _populate_customer_email_hash(mapper, connection, target):
+    """Auto-populate email_hash from email before every insert/update.
+
+    Callers never need to set email_hash manually — it's derived from email.
+    """
+    if target.email:
+        target.email_hash = hash_for_lookup(target.email)

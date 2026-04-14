@@ -1,3 +1,13 @@
+import os
+
+# Set encryption key BEFORE any app imports so SQLAlchemy models with
+# EncryptedString columns can encrypt/decrypt during tests.
+if not os.environ.get("ENCRYPTION_KEY"):
+    from cryptography.fernet import Fernet
+
+    os.environ["ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+    os.environ.setdefault("ENCRYPTION_MIGRATION_MODE", "true")
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine

@@ -1,13 +1,17 @@
 """Authentication endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from datetime import UTC, datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
+from app.core.config import settings
+from app.core.security import set_auth_cookies, clear_auth_cookies
 from app.schemas.auth import (
     PasswordResetRequest,
     PasswordResetConfirm,
-    LoginResponse,
     ForcePasswordChangeRequest,
 )
 from app.schemas.user import (
@@ -24,29 +28,22 @@ router = APIRouter()
 
 @router.post(
     "/login",
-    response_model=LoginResponse,
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(auth_rate_limit)],
 )
-def login(login_data: LoginRequest, db: Session = Depends(get_db)):
-    """
-    Login endpoint to authenticate users and generate JWT token.
-
-    Args:
-        login_data: Email and password
-        db: Database session
-
-    Returns:
-        JWT token with expiration
-
-    Raises:
-        HTTPException: 401 if authentication fails
-    """
+def login(login_data: LoginRequest, response: Response, db: Session = Depends(get_db)):
+    """Login endpoint — sets HttpOnly auth cookies and returns token in body."""
     auth_service = AuthService(db)
 
     try:
-        token = auth_service.login(login_data)
-        return token
+        result = auth_service.login(login_data)
+        set_auth_cookies(response, result["access_token"], result["refresh_token"])
+        return {
+            "access_token": result["access_token"],
+            "token_type": result["token_type"],
+            "expires_in": result["expires_in"],
+            "must_change_password": result["must_change_password"],
+        }
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -149,3 +146,61 @@ def force_change_password(
         return auth_service.force_change_password(current_user.id, payload.new_password)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.post("/refresh", status_code=status.HTTP_200_OK)
+def refresh_token(request: Request, response: Response, db: Session = Depends(get_db)):
+    """Refresh access token using refresh token cookie."""
+    raw_refresh = request.cookies.get("refresh_token")
+    if not raw_refresh:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No refresh token")
+
+    auth_service = AuthService(db)
+    try:
+        result = auth_service.refresh(raw_refresh)
+        set_auth_cookies(response, result["access_token"], result["refresh_token"])
+        return {
+            "access_token": result["access_token"],
+            "token_type": "bearer",
+            "expires_in": result["expires_in"],
+        }
+    except ValueError as e:
+        clear_auth_cookies(response)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(e)) from e
+
+
+@router.post("/logout", status_code=status.HTTP_200_OK)
+def logout(request: Request, response: Response, db: Session = Depends(get_db)):
+    """Logout — revoke tokens and clear cookies."""
+    import hashlib
+
+    from app.api.deps import extract_token, revoke_token
+    from app.db.models.refresh_token import RefreshToken
+    from jose import jwt as jose_jwt
+
+    # Revoke current access token's jti
+    token = extract_token(request)
+    if token:
+        try:
+            payload = jose_jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+            jti = payload.get("jti")
+            exp = payload.get("exp", 0)
+            if jti:
+                remaining = max(int(exp - datetime.now(UTC).timestamp()), 0)
+                revoke_token(jti, remaining)
+        except Exception:
+            pass
+
+    # Revoke refresh token
+    raw_refresh = request.cookies.get("refresh_token")
+    if raw_refresh:
+        token_hash = hashlib.sha256(raw_refresh.encode()).hexdigest()
+        record = db.execute(
+            select(RefreshToken).where(RefreshToken.token_hash == token_hash)
+        ).scalar_one_or_none()
+        if record:
+            record.revoked_at = datetime.now(UTC)
+            db.commit()
+
+    clear_auth_cookies(response)
+    return {"message": "Logged out"}

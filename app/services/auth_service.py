@@ -1,15 +1,23 @@
 """Authentication service for user management and JWT tokens."""
 
-from datetime import datetime
+import hashlib
+from datetime import datetime, timedelta, UTC
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.encryption import hash_for_lookup
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    get_password_hash,
+    verify_password,
+)
+from app.db.models.refresh_token import RefreshToken
 from app.db.models.user import User, UserRole
-from app.schemas.user import LoginRequest, Token, TokenData, UserCreate, UserResponse
+from app.schemas.user import LoginRequest, TokenData, UserCreate, UserResponse
 from app.services.token_service import token_service
 from app.services.email_service import email_service
 
@@ -32,7 +40,7 @@ class AuthService:
         Returns:
             User object if authentication successful, None otherwise
         """
-        stmt = select(User).where(User.email == email)
+        stmt = select(User).where(User.email_hash == hash_for_lookup(email))
         user = self.db.execute(stmt).scalar_one_or_none()
 
         if not user or not verify_password(password, user.hashed_password):
@@ -47,42 +55,89 @@ class AuthService:
 
         return user
 
-    def login(self, login_data: LoginRequest) -> Token:
-        """
-        Login user and generate JWT token.
-
-        Args:
-            login_data: Login credentials
-
-        Returns:
-            Token with access token and expiration
-
-        Raises:
-            ValueError: If authentication fails
-        """
+    def login(self, login_data: LoginRequest) -> dict:
+        """Login user and generate JWT access + refresh tokens."""
         user = self.authenticate_user(login_data.email, login_data.password)
 
         if not user:
             raise ValueError("Incorrect email or password")
 
-        # Generate access token with user ID as subject and additional claims
         access_token = create_access_token(
             subject=str(user.id),
             additional_claims={
-                "email": user.email,
                 "role": user.role.value,
                 "tenant_id": str(user.tenant_id) if user.tenant_id else None,
             },
         )
 
-        from app.schemas.auth import LoginResponse
+        raw_refresh, refresh_hash = create_refresh_token()
 
-        return LoginResponse(
-            access_token=access_token,
-            token_type="bearer",
-            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-            must_change_password=user.must_change_password,
+        refresh_record = RefreshToken(
+            user_id=user.id,
+            user_type="tenant_user",
+            token_hash=refresh_hash,
+            expires_at=datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            created_at=datetime.now(UTC),
         )
+        self.db.add(refresh_record)
+        self.db.commit()
+
+        return {
+            "access_token": access_token,
+            "refresh_token": raw_refresh,
+            "token_type": "bearer",
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            "must_change_password": user.must_change_password,
+        }
+
+    def refresh(self, raw_refresh_token: str) -> dict:
+        """Validate refresh token, rotate it, return new access + refresh tokens."""
+        token_hash = hashlib.sha256(raw_refresh_token.encode()).hexdigest()
+
+        record = self.db.execute(
+            select(RefreshToken).where(
+                RefreshToken.token_hash == token_hash,
+                RefreshToken.revoked_at.is_(None),
+            )
+        ).scalar_one_or_none()
+
+        if not record or record.expires_at.replace(tzinfo=UTC) < datetime.now(UTC):
+            raise ValueError("Invalid or expired refresh token")
+
+        # Revoke old refresh token (rotation)
+        record.revoked_at = datetime.now(UTC)
+
+        # Load user
+        user = self.db.execute(select(User).where(User.id == record.user_id)).scalar_one_or_none()
+        if not user or not user.is_active:
+            raise ValueError("User not found or inactive")
+
+        # Issue new tokens
+        access_token = create_access_token(
+            subject=str(user.id),
+            additional_claims={
+                "role": user.role.value,
+                "tenant_id": str(user.tenant_id) if user.tenant_id else None,
+            },
+        )
+
+        new_raw_refresh, new_refresh_hash = create_refresh_token()
+        new_record = RefreshToken(
+            user_id=user.id,
+            user_type="tenant_user",
+            token_hash=new_refresh_hash,
+            expires_at=datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            created_at=datetime.now(UTC),
+        )
+        self.db.add(new_record)
+        self.db.commit()
+
+        return {
+            "access_token": access_token,
+            "refresh_token": new_raw_refresh,
+            "token_type": "bearer",
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        }
 
     def create_user(self, user_data: UserCreate) -> UserResponse:
         """
@@ -98,7 +153,7 @@ class AuthService:
             ValueError: If user with email already exists
         """
         # Check if user exists
-        stmt = select(User).where(User.email == user_data.email)
+        stmt = select(User).where(User.email_hash == hash_for_lookup(user_data.email))
         existing_user = self.db.execute(stmt).scalar_one_or_none()
 
         if existing_user:
@@ -148,7 +203,7 @@ class AuthService:
         Returns:
             User response if found, None otherwise
         """
-        stmt = select(User).where(User.email == email)
+        stmt = select(User).where(User.email_hash == hash_for_lookup(email))
         user = self.db.execute(stmt).scalar_one_or_none()
 
         if not user:
@@ -168,16 +223,16 @@ class AuthService:
         """
         try:
             user_id = UUID(token_data.get("sub"))
-            email = token_data.get("email")
+            email = token_data.get("email")  # Optional — removed from new tokens for PII reduction
             role = UserRole(token_data.get("role"))
             tenant_id_raw = token_data.get("tenant_id")
-            if not email or not tenant_id_raw:
+            if not tenant_id_raw:
                 return None
             tenant_id = UUID(tenant_id_raw)
 
             return TokenData(
                 user_id=user_id,
-                email=str(email),
+                email=str(email) if email else "",
                 role=role,
                 tenant_id=tenant_id,
             )
@@ -211,6 +266,8 @@ class AuthService:
         # Update password
         user.hashed_password = get_password_hash(new_password)
         self.db.commit()
+
+        self._revoke_all_user_tokens(user_id)
 
         return True
 
@@ -257,7 +314,7 @@ class AuthService:
         """Request a password reset link for a B2B user."""
         normalized_email = email.lower().strip()
         user = self.db.execute(
-            select(User).where(User.email == normalized_email)
+            select(User).where(User.email_hash == hash_for_lookup(normalized_email))
         ).scalar_one_or_none()
 
         # Only send reset for active (verified) users
@@ -278,6 +335,25 @@ class AuthService:
             "message": "If an account exists for that email, a password reset link has been sent."
         }
 
+    def _revoke_all_user_tokens(self, user_id: UUID) -> None:
+        """Revoke all refresh tokens for a user (on password change/reset)."""
+        records = (
+            self.db.execute(
+                select(RefreshToken).where(
+                    RefreshToken.user_id == user_id,
+                    RefreshToken.user_type == "tenant_user",
+                    RefreshToken.revoked_at.is_(None),
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        now = datetime.now(UTC)
+        for record in records:
+            record.revoked_at = now
+        self.db.commit()
+
     def reset_password(self, token: str, new_password: str) -> dict:
         """Reset a B2B user's password using a reset token."""
         token_data = token_service.verify_password_reset_token(token)
@@ -294,6 +370,8 @@ class AuthService:
         user.hashed_password = get_password_hash(new_password)
         user.must_change_password = False
         self.db.commit()
+
+        self._revoke_all_user_tokens(user.id)
 
         email_service.send_password_changed_email(
             email=user.email,
@@ -322,6 +400,8 @@ class AuthService:
         user.hashed_password = get_password_hash(new_password)
         user.must_change_password = False
         self.db.commit()
+
+        self._revoke_all_user_tokens(user.id)
 
         email_service.send_password_changed_email(
             email=user.email,

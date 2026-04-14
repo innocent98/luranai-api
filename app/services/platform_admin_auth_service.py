@@ -1,19 +1,26 @@
 """Authentication service for platform admin management and JWT tokens."""
 
-from datetime import datetime
+import hashlib
+from datetime import datetime, timedelta, UTC
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.encryption import hash_for_lookup
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    get_password_hash,
+    verify_password,
+)
 from app.db.models.platform_admin import PlatformAdmin, PlatformAdminRole
+from app.db.models.refresh_token import RefreshToken
 from app.schemas.platform_admin import (
     PlatformAdminCreate,
     PlatformAdminLoginRequest,
     PlatformAdminResponse,
-    PlatformAdminToken,
     PlatformAdminTokenData,
 )
 
@@ -37,7 +44,8 @@ class PlatformAdminAuthService:
             PlatformAdmin object if authentication successful, None otherwise
         """
         stmt = select(PlatformAdmin).where(
-            PlatformAdmin.email == email, PlatformAdmin.is_active.is_(True)
+            PlatformAdmin.email_hash == hash_for_lookup(email),
+            PlatformAdmin.is_active.is_(True),
         )
         admin = self.db.execute(stmt).scalar_one_or_none()
 
@@ -53,15 +61,15 @@ class PlatformAdminAuthService:
 
         return admin
 
-    def login(self, login_data: PlatformAdminLoginRequest) -> PlatformAdminToken:
+    def login(self, login_data: PlatformAdminLoginRequest) -> dict:
         """
-        Login platform admin and generate JWT token.
+        Login platform admin and generate JWT access + refresh tokens.
 
         Args:
             login_data: Login credentials
 
         Returns:
-            Token with access token and expiration
+            Dict with access_token, refresh_token, token_type, expires_in
 
         Raises:
             ValueError: If authentication fails
@@ -71,21 +79,85 @@ class PlatformAdminAuthService:
         if not admin:
             raise ValueError("Incorrect email or password")
 
-        # Generate access token with admin ID as subject and additional claims
+        # Generate access token with admin ID as subject — NO email in claims
         access_token = create_access_token(
             subject=str(admin.id),
             additional_claims={
-                "email": admin.email,
                 "role": admin.role.value,
-                "admin_type": "platform_admin",  # Distinguish from regular users
+                "admin_type": "platform_admin",
             },
         )
 
-        return PlatformAdminToken(
-            access_token=access_token,
-            token_type="bearer",
-            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        raw_refresh, refresh_hash = create_refresh_token()
+
+        refresh_record = RefreshToken(
+            user_id=admin.id,
+            user_type="platform_admin",
+            token_hash=refresh_hash,
+            expires_at=datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            created_at=datetime.now(UTC),
         )
+        self.db.add(refresh_record)
+        self.db.commit()
+
+        return {
+            "access_token": access_token,
+            "refresh_token": raw_refresh,
+            "token_type": "bearer",
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        }
+
+    def refresh(self, raw_refresh_token: str) -> dict:
+        """Validate refresh token, rotate it, return new access + refresh tokens."""
+        token_hash = hashlib.sha256(raw_refresh_token.encode()).hexdigest()
+
+        record = self.db.execute(
+            select(RefreshToken).where(
+                RefreshToken.token_hash == token_hash,
+                RefreshToken.user_type == "platform_admin",
+                RefreshToken.revoked_at.is_(None),
+            )
+        ).scalar_one_or_none()
+
+        if not record or record.expires_at.replace(tzinfo=UTC) < datetime.now(UTC):
+            raise ValueError("Invalid or expired refresh token")
+
+        # Revoke old refresh token (rotation)
+        record.revoked_at = datetime.now(UTC)
+
+        # Load admin
+        admin = self.db.execute(
+            select(PlatformAdmin).where(PlatformAdmin.id == record.user_id)
+        ).scalar_one_or_none()
+        if not admin or not admin.is_active:
+            raise ValueError("Admin not found or inactive")
+
+        # Issue new tokens
+        access_token = create_access_token(
+            subject=str(admin.id),
+            additional_claims={
+                "role": admin.role.value,
+                "admin_type": "platform_admin",
+            },
+        )
+
+        new_raw_refresh, new_refresh_hash = create_refresh_token()
+        new_record = RefreshToken(
+            user_id=admin.id,
+            user_type="platform_admin",
+            token_hash=new_refresh_hash,
+            expires_at=datetime.now(UTC) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+            created_at=datetime.now(UTC),
+        )
+        self.db.add(new_record)
+        self.db.commit()
+
+        return {
+            "access_token": access_token,
+            "refresh_token": new_raw_refresh,
+            "token_type": "bearer",
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        }
 
     def create_admin(self, admin_data: PlatformAdminCreate) -> PlatformAdminResponse:
         """
@@ -101,7 +173,9 @@ class PlatformAdminAuthService:
             ValueError: If admin with email already exists
         """
         # Check if admin exists
-        stmt = select(PlatformAdmin).where(PlatformAdmin.email == admin_data.email)
+        stmt = select(PlatformAdmin).where(
+            PlatformAdmin.email_hash == hash_for_lookup(admin_data.email)
+        )
         existing_admin = self.db.execute(stmt).scalar_one_or_none()
 
         if existing_admin:
@@ -150,7 +224,7 @@ class PlatformAdminAuthService:
         Returns:
             Admin response if found, None otherwise
         """
-        stmt = select(PlatformAdmin).where(PlatformAdmin.email == email)
+        stmt = select(PlatformAdmin).where(PlatformAdmin.email_hash == hash_for_lookup(email))
         admin = self.db.execute(stmt).scalar_one_or_none()
 
         if not admin:
@@ -174,14 +248,12 @@ class PlatformAdminAuthService:
                 return None
 
             admin_id = UUID(token_data.get("sub"))
-            email = token_data.get("email")
-            if not email:
-                return None
+            email = token_data.get("email")  # Optional — removed from new tokens for PII reduction
             role = PlatformAdminRole(token_data.get("role"))
 
             return PlatformAdminTokenData(
                 admin_id=admin_id,
-                email=str(email),
+                email=str(email) if email else "",
                 role=role,
             )
         except (ValueError, KeyError, TypeError):
