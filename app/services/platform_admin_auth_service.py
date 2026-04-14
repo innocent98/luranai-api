@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.encryption import hash_for_lookup
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -43,7 +44,8 @@ class PlatformAdminAuthService:
             PlatformAdmin object if authentication successful, None otherwise
         """
         stmt = select(PlatformAdmin).where(
-            PlatformAdmin.email == email, PlatformAdmin.is_active.is_(True)
+            PlatformAdmin.email_hash == hash_for_lookup(email),
+            PlatformAdmin.is_active.is_(True),
         )
         admin = self.db.execute(stmt).scalar_one_or_none()
 
@@ -171,7 +173,9 @@ class PlatformAdminAuthService:
             ValueError: If admin with email already exists
         """
         # Check if admin exists
-        stmt = select(PlatformAdmin).where(PlatformAdmin.email == admin_data.email)
+        stmt = select(PlatformAdmin).where(
+            PlatformAdmin.email_hash == hash_for_lookup(admin_data.email)
+        )
         existing_admin = self.db.execute(stmt).scalar_one_or_none()
 
         if existing_admin:
@@ -220,7 +224,7 @@ class PlatformAdminAuthService:
         Returns:
             Admin response if found, None otherwise
         """
-        stmt = select(PlatformAdmin).where(PlatformAdmin.email == email)
+        stmt = select(PlatformAdmin).where(PlatformAdmin.email_hash == hash_for_lookup(email))
         admin = self.db.execute(stmt).scalar_one_or_none()
 
         if not admin:

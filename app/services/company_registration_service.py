@@ -6,6 +6,7 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.encryption import hash_for_lookup
 from app.core.security import get_password_hash
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
 from app.db.models.user import User, UserRole
@@ -77,7 +78,9 @@ class CompanyRegistrationService:
             raise ValueError(f"Company with name '{registration_data.company_name}' already exists")
 
         # Check if admin email already exists
-        user_stmt = select(User).where(User.email == registration_data.admin_email)
+        user_stmt = select(User).where(
+            User.email_hash == hash_for_lookup(registration_data.admin_email)
+        )
         existing_user = self.db.execute(user_stmt).scalar_one_or_none()
         if existing_user:
             raise ValueError(f"User with email {registration_data.admin_email} already exists")
@@ -295,7 +298,7 @@ class CompanyRegistrationService:
             ValueError: If user not found or already verified
         """
         # Get user
-        user_stmt = select(User).where(User.email == email)
+        user_stmt = select(User).where(User.email_hash == hash_for_lookup(email))
         user = self.db.execute(user_stmt).scalar_one_or_none()
 
         if not user:

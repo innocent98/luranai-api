@@ -8,6 +8,7 @@ from loguru import logger
 from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
 
+from app.core.encryption import hash_for_lookup
 from app.db.models.audit import AuditLog
 from app.db.models.subscription_plan import SubscriptionPlan
 from app.db.models.tenant import Tenant, TenantCapabilities
@@ -418,7 +419,9 @@ class UserManagementService:
                     )
 
             # Check if user already exists
-            existing_query = select(User).where(User.email == invite_data.email)
+            existing_query = select(User).where(
+                User.email_hash == hash_for_lookup(invite_data.email)
+            )
             existing_result = self.db.execute(existing_query)
             existing_user = existing_result.scalars().first()
 

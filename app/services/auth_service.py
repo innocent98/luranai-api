@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.encryption import hash_for_lookup
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -39,7 +40,7 @@ class AuthService:
         Returns:
             User object if authentication successful, None otherwise
         """
-        stmt = select(User).where(User.email == email)
+        stmt = select(User).where(User.email_hash == hash_for_lookup(email))
         user = self.db.execute(stmt).scalar_one_or_none()
 
         if not user or not verify_password(password, user.hashed_password):
@@ -152,7 +153,7 @@ class AuthService:
             ValueError: If user with email already exists
         """
         # Check if user exists
-        stmt = select(User).where(User.email == user_data.email)
+        stmt = select(User).where(User.email_hash == hash_for_lookup(user_data.email))
         existing_user = self.db.execute(stmt).scalar_one_or_none()
 
         if existing_user:
@@ -202,7 +203,7 @@ class AuthService:
         Returns:
             User response if found, None otherwise
         """
-        stmt = select(User).where(User.email == email)
+        stmt = select(User).where(User.email_hash == hash_for_lookup(email))
         user = self.db.execute(stmt).scalar_one_or_none()
 
         if not user:
@@ -313,7 +314,7 @@ class AuthService:
         """Request a password reset link for a B2B user."""
         normalized_email = email.lower().strip()
         user = self.db.execute(
-            select(User).where(User.email == normalized_email)
+            select(User).where(User.email_hash == hash_for_lookup(normalized_email))
         ).scalar_one_or_none()
 
         # Only send reset for active (verified) users

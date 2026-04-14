@@ -53,6 +53,7 @@ COPY ./scripts/backfill_encrypt_secrets.py /app/scripts/backfill_encrypt_secrets
 COPY ./scripts/backfill_encrypt_payments.py /app/scripts/backfill_encrypt_payments.py
 COPY ./scripts/backfill_encrypt_messages.py /app/scripts/backfill_encrypt_messages.py
 COPY ./scripts/backfill_encrypt_pii.py /app/scripts/backfill_encrypt_pii.py
+COPY ./scripts/backfill_encrypt_user_admin.py /app/scripts/backfill_encrypt_user_admin.py
 
 # Create non-root user
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
