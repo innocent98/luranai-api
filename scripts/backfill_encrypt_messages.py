@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
 from app.db.models.conversation import Message
@@ -36,9 +37,9 @@ def main():
             break
 
         for msg in messages:
-            msg.content = msg.content
+            flag_modified(msg, "content")
             if msg.meta is not None:
-                msg.meta = msg.meta
+                flag_modified(msg, "meta")
             total += 1
 
         session.commit()

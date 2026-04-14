@@ -93,6 +93,13 @@ jobs:
             docker load < api-image.tar.gz
             export API_IMAGE="luran-api:${{ github.event.workflow_run.head_sha || github.sha }}"
             docker compose -f docker-compose.prod.yml pull db redis qdrant pgbouncer
+            # Two-phase migration: schema migrations up to (but not including) the NOT NULL
+            # constraint, then idempotent backfills, then remaining migrations.
+            docker compose -f docker-compose.prod.yml run --rm api alembic upgrade 145bebe88ecb
+            docker compose -f docker-compose.prod.yml run --rm api python /app/scripts/backfill_encrypt_secrets.py
+            docker compose -f docker-compose.prod.yml run --rm api python /app/scripts/backfill_encrypt_payments.py
+            docker compose -f docker-compose.prod.yml run --rm api python /app/scripts/backfill_encrypt_messages.py
+            docker compose -f docker-compose.prod.yml run --rm api python /app/scripts/backfill_encrypt_pii.py
             docker compose -f docker-compose.prod.yml run --rm api alembic upgrade head
             docker compose -f docker-compose.prod.yml run --rm api python /app/scripts/seed_data.py
             docker compose -f docker-compose.prod.yml run --rm api python /app/scripts/seed_staging_e2e.py
@@ -364,6 +371,13 @@ jobs:
             docker load < api-image.tar.gz
             export API_IMAGE="luran-api:${{ github.event.workflow_run.head_sha || github.sha }}"
             docker compose -f docker-compose.prod.yml pull db redis qdrant pgbouncer
+            # Two-phase migration: schema migrations up to (but not including) the NOT NULL
+            # constraint, then idempotent backfills, then remaining migrations.
+            docker compose -f docker-compose.prod.yml run --rm api alembic upgrade 145bebe88ecb
+            docker compose -f docker-compose.prod.yml run --rm api python /app/scripts/backfill_encrypt_secrets.py
+            docker compose -f docker-compose.prod.yml run --rm api python /app/scripts/backfill_encrypt_payments.py
+            docker compose -f docker-compose.prod.yml run --rm api python /app/scripts/backfill_encrypt_messages.py
+            docker compose -f docker-compose.prod.yml run --rm api python /app/scripts/backfill_encrypt_pii.py
             docker compose -f docker-compose.prod.yml run --rm api alembic upgrade head
             docker compose -f docker-compose.prod.yml up -d
             HEALTH_URL="http://localhost:${{ secrets.API_PORT || 8000 }}/api/v1/health"

@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
 from app.db.models.automation import ActionSecret
@@ -31,8 +32,10 @@ def main():
     count = 0
 
     for secret in secrets:
-        current_value = secret.secret_value
-        secret.secret_value = current_value
+        # flag_modified forces SQLAlchemy to issue an UPDATE even though
+        # the Python value is identical — this triggers EncryptedString's
+        # process_bind_param to re-encrypt the value.
+        flag_modified(secret, "secret_value")
         count += 1
 
     session.commit()

@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
 from app.db.models.payment import PaymentTransaction, strip_paystack_data
@@ -33,7 +34,7 @@ def main():
         changed = False
 
         if txn.authorization_code:
-            txn.authorization_code = txn.authorization_code
+            flag_modified(txn, "authorization_code")
             changed = True
 
         if txn.paystack_data and not txn.paystack_data_encrypted:
