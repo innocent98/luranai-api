@@ -21,6 +21,7 @@ from loguru import logger
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+from app.core.encryption import hash_for_lookup
 from app.core.security import get_password_hash
 from app.db.models.automation import (
     ActionSecret,
@@ -141,7 +142,7 @@ def _ensure_capabilities(
 
 
 def _ensure_user(db, tenant: Tenant, *, email: str, full_name: str) -> User:
-    user = db.query(User).filter(User.email == email).one_or_none()
+    user = db.query(User).filter(User.email_hash == hash_for_lookup(email)).one_or_none()
     if user:
         user.full_name = full_name
         user.tenant_id = tenant.id
