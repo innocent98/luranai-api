@@ -27,12 +27,8 @@ class Settings(BaseSettings):
     ENCRYPTION_KEY_PREVIOUS: str = ""
     ENCRYPTION_MIGRATION_MODE: bool = True
 
-    # CORS
-    BACKEND_CORS_ORIGINS: list[str] = [
-        "http://localhost:3000",
-        "http://localhost:3000",
-        "http://localhost:8000",
-    ]
+    # CORS — configured exclusively via .env (comma-separated origins)
+    BACKEND_CORS_ORIGINS: list[str] = []
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")
     @classmethod
