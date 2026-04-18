@@ -64,12 +64,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 
+_enable_docs = settings.ENVIRONMENT not in ("production", "staging")
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    docs_url=f"{settings.API_V1_STR}/docs",
-    redoc_url=f"{settings.API_V1_STR}/redoc",
+    openapi_url=f"{settings.API_V1_STR}/openapi.json" if _enable_docs else None,
+    docs_url=f"{settings.API_V1_STR}/docs" if _enable_docs else None,
+    redoc_url=f"{settings.API_V1_STR}/redoc" if _enable_docs else None,
 )
 
 # CORS middleware - environment-based configuration
