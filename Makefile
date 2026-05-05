@@ -12,9 +12,9 @@ help:
 	@echo "  make lint          - Run linting"
 	@echo "  make format        - Format code"
 	@echo "  make clean         - Clean up generated files"
-	@echo "  make docker-build  - Build Docker image"
-	@echo "  make docker-up     - Start Docker containers"
-	@echo "  make docker-down   - Stop Docker containers"
+	@echo "  make build  - Build Docker image"
+	@echo "  make up     - Start Docker containers"
+	@echo "  make down   - Stop Docker containers"
 	@echo "  make migrate       - Run database migrations"
 	@echo "  make shell         - Activate poetry shell"
 	@echo "  make smoke-automation-flows - Run live automation/flow smoke regression"
@@ -56,13 +56,13 @@ clean:
 	find . -type d -name "*.egg-info" -exec rm -rf {} +
 	rm -rf .pytest_cache .coverage htmlcov/ .mypy_cache/ .ruff_cache/
 
-docker-build:
+build:
 	docker-compose build
 
-docker-up:
+up:
 	docker-compose up -d
 
-docker-down:
+down:
 	docker-compose down
 
 migrate:

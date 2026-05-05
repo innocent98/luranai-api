@@ -8,7 +8,7 @@
 Use both files in production:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml up -d
 ```
 
 Why `docker-compose.prod.yml` is shorter:
@@ -169,30 +169,30 @@ echo "API_WORKERS=4" >> .env
 
 ```bash
 # Build and start production stack
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml up -d
 
 # Check status
-docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml ps
 
 # Run migrations
-docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api alembic upgrade head
+docker compose -f docker-compose.prod.yml exec api alembic upgrade head
 
 # Test health
 curl http://localhost:8000/api/v1/health
 
 # Seed database (create subscription plans + platform admin)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api python scripts/seed_data.py
+docker compose -f docker-compose.prod.yml exec api python scripts/seed_data.py
 
 # Seed database (create Luran support flows)
 # Run part 1
-docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api \
+docker compose -f docker-compose.prod.yml exec api \
 python /app/scripts/create_luran_support_flows.py --tenant-name <TENANT_NAME>
 # Run part 2
-docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api \
+docker compose -f docker-compose.prod.yml exec api \
 python /app/scripts/create_luran_support_flows_part2.py --tenant-name <TENANT_NAME>
 
 # Seed database (create flows templates)
-docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api \
+docker compose -f docker-compose.prod.yml exec api \
 python /app/scripts/seed_flow_templates.py
 ```
 
@@ -419,11 +419,11 @@ docker compose restart db
 git pull origin main
 
 # Rebuild and restart
-docker compose -f docker-compose.yml -f docker-compose.prod.yml build
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml build
+docker compose -f docker-compose.prod.yml up -d
 
 # Run migrations
-docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api alembic upgrade head
+docker compose -f docker-compose.prod.yml exec api alembic upgrade head
 
 # Check health
 curl http://localhost:8000/api/v1/health
