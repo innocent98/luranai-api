@@ -1,7 +1,9 @@
+"""Schemas for the customer-facing explore surface (categories + attribution)."""
+
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TenantCategory(str, Enum):
@@ -42,23 +44,23 @@ class SourceMeta(BaseModel):
 
 class PersonalBusinessRelationship(BaseModel):
     is_followed: bool
-    followed_at: datetime | None
-    last_chat_at: datetime | None
+    followed_at: datetime | None = None
+    last_chat_at: datetime | None = None
     last_activity_at: datetime
 
 
 class PersonalBusinessItem(BaseModel):
     public_slug: str
     display_name: str
-    description: str | None
-    support_headline: str | None
-    support_subheadline: str | None
-    widget_logo_url: str | None
+    description: str | None = None
+    support_headline: str | None = None
+    support_subheadline: str | None = None
+    widget_logo_url: str | None = None
     is_featured: bool
-    category: TenantCategory | None
+    category: TenantCategory | None = None
     created_at: datetime
     relationship: PersonalBusinessRelationship
 
 
 class PersonalBusinessesResponse(BaseModel):
-    businesses: list[PersonalBusinessItem]
+    businesses: list[PersonalBusinessItem] = Field(default_factory=list)
