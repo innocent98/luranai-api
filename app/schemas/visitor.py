@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from app.db.models.conversation import MessageRole, SessionStatus
 from app.db.models.visitor import VisitorSource
+from app.schemas.explore import TenantCategory
 
 
 class PublicBusinessProfileResponse(BaseModel):
@@ -42,6 +43,8 @@ class PublicBusinessDirectoryItem(BaseModel):
     support_subheadline: str | None = None
     widget_logo_url: str | None = None
     is_featured: bool = False
+    category: TenantCategory | None = None
+    created_at: datetime
 
 
 class PublicBusinessDirectoryResponse(BaseModel):
