@@ -1,7 +1,7 @@
 """Service layer for visitor identity and visitor session bootstrap."""
 
 import secrets
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from math import ceil
 from typing import Any
 from uuid import UUID
