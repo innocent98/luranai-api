@@ -1,7 +1,5 @@
 from datetime import datetime
 from enum import Enum
-from typing import Optional
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
@@ -36,28 +34,28 @@ class SourceMeta(BaseModel):
 
     model_config = ConfigDict(extra="ignore")  # forward-compat: drop unknown keys
 
-    category_filter: Optional[TenantCategory] = None
-    search_query_present: Optional[bool] = None
-    position: Optional[int] = None
-    page: Optional[int] = None
+    category_filter: TenantCategory | None = None
+    search_query_present: bool | None = None
+    position: int | None = None
+    page: int | None = None
 
 
 class PersonalBusinessRelationship(BaseModel):
     is_followed: bool
-    followed_at: Optional[datetime]
-    last_chat_at: Optional[datetime]
+    followed_at: datetime | None
+    last_chat_at: datetime | None
     last_activity_at: datetime
 
 
 class PersonalBusinessItem(BaseModel):
     public_slug: str
     display_name: str
-    description: Optional[str]
-    support_headline: Optional[str]
-    support_subheadline: Optional[str]
-    widget_logo_url: Optional[str]
+    description: str | None
+    support_headline: str | None
+    support_subheadline: str | None
+    widget_logo_url: str | None
     is_featured: bool
-    category: Optional[TenantCategory]
+    category: TenantCategory | None
     created_at: datetime
     relationship: PersonalBusinessRelationship
 
