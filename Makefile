@@ -12,9 +12,11 @@ help:
 	@echo "  make lint          - Run linting"
 	@echo "  make format        - Format code"
 	@echo "  make clean         - Clean up generated files"
-	@echo "  make build  - Build Docker image"
-	@echo "  make up     - Start Docker containers"
-	@echo "  make down   - Stop Docker containers"
+	@echo "  make build  		- Build Docker image"
+	@echo "  make up     		- Start Docker containers"
+	@echo "  make down   		- Stop Docker containers"
+	@echo "  make restart  		- Restart Docker containers"
+	@echo "  make logs   		- View Docker container logs"
 	@echo "  make migrate       - Run database migrations"
 	@echo "  make shell         - Activate poetry shell"
 	@echo "  make smoke-automation-flows - Run live automation/flow smoke regression"
@@ -64,6 +66,12 @@ up:
 
 down:
 	docker-compose down
+
+restart:
+	docker-compose restart
+
+logs:
+	docker-compose logs -f
 
 migrate:
 	poetry run alembic upgrade head
