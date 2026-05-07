@@ -1,3 +1,5 @@
+import uuid
+
 from app.db.models.tenant import Tenant
 
 
@@ -9,7 +11,7 @@ def test_tenant_has_nullable_category_column():
 
 def test_tenant_category_defaults_to_none(db):
     tenant = Tenant(
-        name="test_category_default",
+        name=f"test_category_default_{uuid.uuid4().hex[:8]}",
         display_name="Test Co",
         api_key_hash="hash_abc123",
     )
@@ -21,7 +23,7 @@ def test_tenant_category_defaults_to_none(db):
 
 def test_tenant_category_accepts_string_value(db):
     tenant = Tenant(
-        name="test_category_set",
+        name=f"test_category_set_{uuid.uuid4().hex[:8]}",
         display_name="Retail Co",
         api_key_hash="hash_def456",
         category="retail_ecommerce",
