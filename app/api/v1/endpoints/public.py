@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.schemas.explore import TenantCategory
 from app.schemas.visitor import (
     PublicBusinessDirectoryResponse,
     PublicBusinessProfileResponse,
@@ -24,11 +25,14 @@ def list_public_businesses(
     q: str | None = Query(default=None, max_length=120),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=24, ge=1, le=100),
+    category: TenantCategory | None = Query(default=None),
     db: Session = Depends(get_db),
 ):
     """List publicly discoverable businesses for the customer support directory."""
     visitor_service = VisitorService(db)
-    return visitor_service.list_public_businesses(query=q, page=page, page_size=page_size)
+    return visitor_service.list_public_businesses(
+        query=q, page=page, page_size=page_size, category=category,
+    )
 
 
 @router.get(
