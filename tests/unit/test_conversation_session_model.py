@@ -12,9 +12,8 @@ def test_conversation_session_has_nullable_source():
 def test_conversation_session_has_nullable_source_meta_jsonb():
     col = ConversationSession.__table__.columns["source_meta"]
     assert col.nullable is True
-    # Type is JSONB on Postgres, JSON on SQLite — both expose .python_type == dict
-    # So just assert it's *some* JSON-y type by checking it's not VARCHAR
-    assert "JSON" in str(col.type).upper() or "TEXT" in str(col.type).upper()
+    # JSONB on Postgres, JSON on SQLite — both render as "JSON" in str()
+    assert "JSON" in str(col.type).upper()
 
 
 def test_conversation_session_source_defaults_to_none(db):

@@ -110,6 +110,7 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         comment="Attribution source — validated against ConversationSource enum at API boundary",
     )
+    # JSONB on Postgres (GIN-indexable, containment operators) — JSON on SQLite for tests
     source_meta: Mapped[dict | None] = mapped_column(
         JSONB().with_variant(JSON(), "sqlite"),
         nullable=True,
