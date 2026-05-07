@@ -8,7 +8,7 @@ Adds:
 - tenants.category (String(40), nullable) — industry category for browse filter
 - conversation_sessions.source (String(32), nullable) — attribution source
 - conversation_sessions.source_meta (JSONB, nullable) — attribution context
-- ix_tenants_listed_category — partial index on (is_publicly_listed, category)
+- ix_tenants_listed_category — partial index on (category) WHERE is_publicly_listed = true
 - ix_conversation_sessions_source_created — composite index on (source, created_at)
 """
 from alembic import op
@@ -17,8 +17,8 @@ from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
-revision = 'db9f7c863585'
-down_revision = '4f2a9b6c5d13'
+revision = "db9f7c863585"
+down_revision = "4f2a9b6c5d13"
 branch_labels = None
 depends_on = None
 
@@ -32,7 +32,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_tenants_listed_category",
         "tenants",
-        ["is_publicly_listed", "category"],
+        ["category"],
         postgresql_where=sa.text("is_publicly_listed = true"),
     )
 
