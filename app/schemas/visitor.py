@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from app.db.models.conversation import MessageRole, SessionStatus
 from app.db.models.visitor import VisitorSource
-from app.schemas.explore import TenantCategory
+from app.schemas.explore import SourceMeta, TenantCategory
 
 
 class PublicBusinessProfileResponse(BaseModel):
@@ -71,6 +71,8 @@ class VisitorBootstrapRequest(BaseModel):
     email: EmailStr | None = None
     entry_point: VisitorSource = VisitorSource.WIDGET
     metadata: dict[str, Any] | None = None
+    source: str | None = None
+    source_meta: SourceMeta | None = None
 
     @model_validator(mode="after")
     def validate_workspace_reference(self) -> "VisitorBootstrapRequest":

@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.models.conversation import MessageRole, SessionStatus
+from app.schemas.explore import SourceMeta
 from app.schemas.visitor import VisitorIdentitySummary
 
 
@@ -32,6 +33,8 @@ class ConversationSessionCreate(ConversationSessionBase):
     visitor_id: UUID | None = None
     visitor_session_id: UUID | None = None
     customer_user_id: UUID | None = None
+    source: str | None = None
+    source_meta: SourceMeta | None = None
 
 
 class MessageCreate(MessageBase):
