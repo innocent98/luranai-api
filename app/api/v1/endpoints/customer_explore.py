@@ -1,6 +1,6 @@
 """Customer-facing explore endpoints."""
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_customer, get_db
@@ -14,7 +14,6 @@ router = APIRouter()
 @router.get(
     "/personal-businesses",
     response_model=PersonalBusinessesResponse,
-    status_code=status.HTTP_200_OK,
 )
 def list_personal_businesses(
     response: Response,

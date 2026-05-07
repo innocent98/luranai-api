@@ -100,3 +100,4 @@ def test_response_includes_relationship_block(db, client):
     assert "relationship" in item
     assert "is_followed" in item["relationship"]
     assert "last_activity_at" in item["relationship"]
+    assert resp.headers["cache-control"] == "private, max-age=120, stale-while-revalidate=300"
