@@ -11,6 +11,7 @@ from app.api.v1.endpoints import (
     customer_auth,
     customer_engagement,
     customer_conversations,
+    customer_explore,
     flows,
     health,
     jobs,
@@ -79,6 +80,13 @@ api_router.include_router(
     customer_engagement.router,
     prefix="/customer",
     tags=["customer-engagement"],
+)
+
+# Customer explore endpoints (personal businesses feed)
+api_router.include_router(
+    customer_explore.router,
+    prefix="/customer/explore",
+    tags=["customer-explore"],
 )
 
 # User management endpoints (team members)
