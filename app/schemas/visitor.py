@@ -71,6 +71,9 @@ class VisitorBootstrapRequest(BaseModel):
     email: EmailStr | None = None
     entry_point: VisitorSource = VisitorSource.WIDGET
     metadata: dict[str, Any] | None = None
+    # Accepted here to avoid 422 on clients that send them; bootstrap doesn't create
+    # a ConversationSession, so these are stored only when a session is later created
+    # via the chat route. Forward-compat — keep until clients are guaranteed not to send.
     source: str | None = None
     source_meta: SourceMeta | None = None
 
