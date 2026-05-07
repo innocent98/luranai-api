@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.models.tenant import TenantStatus
+from app.schemas.explore import TenantCategory
 
 CUSTOM_INSTRUCTIONS_MAX_CHARS = 500
 
@@ -191,6 +192,7 @@ class TenantUpdate(BaseModel):
     is_publicly_listed: bool | None = None
     public_slug: str | None = Field(None, min_length=3, max_length=50)
     status: TenantStatus | None = None
+    category: TenantCategory | None = None
 
 
 class TenantAIConfigUpdate(BaseModel):
@@ -277,6 +279,7 @@ class TenantResponse(TenantBase):
     updated_at: datetime
     ai_config: TenantAIConfigResponse | None = None
     capabilities: TenantCapabilitiesResponse | None = None
+    category: TenantCategory | None = None
 
 
 class TenantListResponse(TenantBase):
@@ -292,3 +295,4 @@ class TenantListResponse(TenantBase):
     trial_ends_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+    category: TenantCategory | None = None
