@@ -13,9 +13,9 @@ from app.db.models.conversation import ConversationSession
 from app.db.models.customer_engagement import CustomerBusinessFollow
 from app.db.models.tenant import Tenant
 from app.schemas.explore import (
+    PersonalBusinessesResponse,
     PersonalBusinessItem,
     PersonalBusinessRelationship,
-    PersonalBusinessesResponse,
 )
 
 PERSONAL_BLOCK_LIMIT = 8

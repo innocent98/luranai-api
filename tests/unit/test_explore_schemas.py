@@ -5,9 +5,9 @@ from pydantic import ValidationError
 
 from app.schemas.explore import (
     ConversationSource,
+    PersonalBusinessesResponse,
     PersonalBusinessItem,
     PersonalBusinessRelationship,
-    PersonalBusinessesResponse,
     SourceMeta,
     TenantCategory,
 )
@@ -16,10 +16,19 @@ from app.schemas.explore import (
 class TestTenantCategory:
     def test_all_thirteen_values_are_defined(self):
         expected = {
-            "retail_ecommerce", "software_saas", "food_beverage",
-            "health_wellness", "beauty_personal_care", "education_coaching",
-            "professional_services", "financial_insurance", "travel_hospitality",
-            "real_estate", "media_arts_entertainment", "nonprofit", "other",
+            "retail_ecommerce",
+            "software_saas",
+            "food_beverage",
+            "health_wellness",
+            "beauty_personal_care",
+            "education_coaching",
+            "professional_services",
+            "financial_insurance",
+            "travel_hospitality",
+            "real_estate",
+            "media_arts_entertainment",
+            "nonprofit",
+            "other",
         }
         assert {c.value for c in TenantCategory} == expected
 
@@ -32,8 +41,12 @@ class TestTenantCategory:
 class TestConversationSource:
     def test_all_six_values_are_defined(self):
         expected = {
-            "widget", "explore_personal", "explore_browse",
-            "explore_search", "direct", "unknown",
+            "widget",
+            "explore_personal",
+            "explore_browse",
+            "explore_search",
+            "direct",
+            "unknown",
         }
         assert {s.value for s in ConversationSource} == expected
 

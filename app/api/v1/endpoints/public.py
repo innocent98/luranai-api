@@ -31,7 +31,10 @@ def list_public_businesses(
     """List publicly discoverable businesses for the customer support directory."""
     visitor_service = VisitorService(db)
     return visitor_service.list_public_businesses(
-        query=q, page=page, page_size=page_size, category=category,
+        query=q,
+        page=page,
+        page_size=page_size,
+        category=category,
     )
 
 

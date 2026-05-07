@@ -1,4 +1,5 @@
 """Unit tests for app.utils.attribution helpers."""
+
 from app.utils.attribution import coerce_source, normalize_source_meta
 
 
@@ -28,7 +29,9 @@ class TestNormalizeSourceMeta:
         assert "totally_made_up" not in result
 
     def test_dict_only_known_keys_preserved(self):
-        result = normalize_source_meta({"position": 1, "page": 3, "category_filter": "retail_ecommerce"})
+        result = normalize_source_meta(
+            {"position": 1, "page": 3, "category_filter": "retail_ecommerce"}
+        )
         assert result is not None
         assert result["position"] == 1
         assert result["page"] == 3
@@ -36,6 +39,7 @@ class TestNormalizeSourceMeta:
 
     def test_sourcemeta_instance_passes_through(self):
         from app.schemas.explore import SourceMeta
+
         meta = SourceMeta(position=5)
         result = normalize_source_meta(meta)
         assert result is not None

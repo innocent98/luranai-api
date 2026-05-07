@@ -38,13 +38,16 @@ class TestListPublicBusinesses:
         # Able:    featured,     old (60d)  → tier 2 (sorts before Charlie alphabetically)
         # Charlie: featured,     old (60d)  → tier 2
         # Delta:   featured,     new (5d)   → tier 1
-        _seed_tenants(db, [
-            ("Alpha",   False, None, 60),
-            ("Bravo",   False, None,  5),
-            ("Able",    True,  None, 60),
-            ("Charlie", True,  None, 60),
-            ("Delta",   True,  None,  5),
-        ])
+        _seed_tenants(
+            db,
+            [
+                ("Alpha", False, None, 60),
+                ("Bravo", False, None, 5),
+                ("Able", True, None, 60),
+                ("Charlie", True, None, 60),
+                ("Delta", True, None, 5),
+            ],
+        )
 
         svc = VisitorService(db)
         resp = svc.list_public_businesses(query=None, page=1, page_size=24, category=None)
@@ -55,21 +58,27 @@ class TestListPublicBusinesses:
         assert names == ["Delta", "Able", "Charlie", "Bravo", "Alpha"]
 
     def test_category_filter_returns_only_matching(self, db):
-        _seed_tenants(db, [
-            ("RetailCo", False, "retail_ecommerce", 5),
-            ("SoftCo",   False, "software_saas",    5),
-            ("FoodCo",   False, "food_beverage",    5),
-        ])
+        _seed_tenants(
+            db,
+            [
+                ("RetailCo", False, "retail_ecommerce", 5),
+                ("SoftCo", False, "software_saas", 5),
+                ("FoodCo", False, "food_beverage", 5),
+            ],
+        )
         svc = VisitorService(db)
         resp = svc.list_public_businesses(category="retail_ecommerce")
         assert [b.display_name for b in resp.businesses] == ["RetailCo"]
 
     def test_category_filter_combined_with_search(self, db):
-        _seed_tenants(db, [
-            ("Lagos Retail", False, "retail_ecommerce", 5),
-            ("Abuja Retail", False, "retail_ecommerce", 5),
-            ("Lagos Tech",   False, "software_saas",    5),
-        ])
+        _seed_tenants(
+            db,
+            [
+                ("Lagos Retail", False, "retail_ecommerce", 5),
+                ("Abuja Retail", False, "retail_ecommerce", 5),
+                ("Lagos Tech", False, "software_saas", 5),
+            ],
+        )
         svc = VisitorService(db)
         resp = svc.list_public_businesses(query="lagos", category="retail_ecommerce")
         assert {b.display_name for b in resp.businesses} == {"Lagos Retail"}

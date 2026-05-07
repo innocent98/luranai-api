@@ -1,4 +1,5 @@
 """Helpers for normalizing conversation attribution fields (source, source_meta)."""
+
 from __future__ import annotations
 
 from app.schemas.explore import ConversationSource, SourceMeta
