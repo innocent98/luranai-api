@@ -25,6 +25,7 @@ from app.schemas.visitor import (
     VisitorEnrichmentUpdate,
     VisitorProfileSummary,
 )
+from app.utils.categories import coerce_tenant_category
 from app.utils.datetime import utcnow_aware
 
 
@@ -152,7 +153,7 @@ class VisitorService:
                     support_subheadline=tenant.support_subheadline,
                     widget_logo_url=tenant.widget_logo_url,
                     is_featured=tenant.is_featured,
-                    category=tenant.category,
+                    category=coerce_tenant_category(tenant.category),
                     created_at=tenant.created_at,
                 )
                 for tenant in tenants

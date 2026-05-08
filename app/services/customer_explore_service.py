@@ -17,6 +17,7 @@ from app.schemas.explore import (
     PersonalBusinessItem,
     PersonalBusinessRelationship,
 )
+from app.utils.categories import coerce_tenant_category
 
 PERSONAL_BLOCK_LIMIT = 8
 RECENT_CHAT_WINDOW_DAYS = 30
@@ -85,16 +86,16 @@ class CustomerExploreService:
                 last_viewed_channel_at=r.last_viewed_channel_at,
                 last_chat_at=None,
             )
-        for r in recent_chat_rows:
-            if r.tenant_id in entries:
-                entries[r.tenant_id].last_chat_at = r.last_chat_at
+        for chat_row in recent_chat_rows:
+            if chat_row.tenant_id in entries:
+                entries[chat_row.tenant_id].last_chat_at = chat_row.last_chat_at
             else:
-                entries[r.tenant_id] = _Entry(
-                    tenant_id=r.tenant_id,
+                entries[chat_row.tenant_id] = _Entry(
+                    tenant_id=chat_row.tenant_id,
                     is_followed=False,
                     followed_at=None,
                     last_viewed_channel_at=None,
-                    last_chat_at=r.last_chat_at,
+                    last_chat_at=chat_row.last_chat_at,
                 )
 
         if not entries:
@@ -129,14 +130,16 @@ class CustomerExploreService:
                 continue
             items.append(
                 PersonalBusinessItem(
-                    public_slug=t.public_slug,
+                    # Personal block only surfaces publicly-listed tenants, which always
+                    # have a slug — but the DB column is nullable, so coerce defensively.
+                    public_slug=t.public_slug or "",
                     display_name=t.display_name,
                     description=t.description,
                     support_headline=t.support_headline,
                     support_subheadline=t.support_subheadline,
                     widget_logo_url=t.widget_logo_url,
                     is_featured=t.is_featured,
-                    category=t.category,
+                    category=coerce_tenant_category(t.category),
                     created_at=t.created_at,
                     relationship=PersonalBusinessRelationship(
                         is_followed=e.is_followed,
