@@ -62,9 +62,7 @@ class ProcessingJob(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Timing
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )  # When worker picked it up

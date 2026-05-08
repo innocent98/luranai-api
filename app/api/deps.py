@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 import redis as redis_lib
@@ -24,7 +24,8 @@ from app.utils.datetime import ensure_utc_aware
 
 def _get_redis() -> redis_lib.Redis:
     """Lazy Redis client for jti revocation checks."""
-    return redis_lib.from_url(settings.REDIS_URL, decode_responses=True)
+    # redis-py's from_url is generic; the cast pins it to our annotated return.
+    return cast(redis_lib.Redis, redis_lib.from_url(settings.REDIS_URL, decode_responses=True))
 
 
 def extract_token(request: Request) -> str | None:

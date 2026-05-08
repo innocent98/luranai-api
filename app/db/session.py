@@ -1,11 +1,12 @@
 from collections.abc import Generator
+from typing import Any
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 
-engine_kwargs = {
+engine_kwargs: dict[str, Any] = {
     "echo": settings.ENVIRONMENT == "development",
 }
 

@@ -55,6 +55,7 @@ class ConversationService:
         include_messages: bool = False,
     ) -> SessionResponse | SessionDetailResponse:
         """Convert DB session model to API response with visitor identity."""
+        response: SessionResponse | SessionDetailResponse
         if include_messages:
             response = SessionDetailResponse.model_validate(session)
         else:

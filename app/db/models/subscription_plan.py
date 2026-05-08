@@ -48,9 +48,7 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
     max_automation_executions_per_month: Mapped[int | None] = mapped_column(
         Integer, nullable=True
     )  # None = unlimited
-    can_use_ai_chat_automation: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False
-    )
+    can_use_ai_chat_automation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     can_use_lookup_chains: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Flow capabilities
