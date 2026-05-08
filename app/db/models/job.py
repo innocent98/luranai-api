@@ -1,13 +1,13 @@
 """Background job models for async processing."""
 
 from datetime import datetime
-from typing import Any
 from enum import Enum as PyEnum
-from uuid import uuid4
+from typing import Any
+from uuid import UUID, uuid4
 
-from sqlalchemy import JSON, Column, DateTime, Enum, ForeignKey, Integer, Text
+from sqlalchemy import JSON, DateTime, Enum, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
@@ -40,30 +40,42 @@ class ProcessingJob(Base):
 
     __tablename__ = "processing_jobs"
 
-    id = Column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(PGUUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True)
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True
+    )
 
     # Job metadata
-    job_type: Any = Column(Enum(JobType), nullable=False, index=True)
-    status: Any = Column(Enum(JobStatus), nullable=False, default=JobStatus.QUEUED, index=True)
+    job_type: Mapped[JobType] = mapped_column(Enum(JobType), nullable=False, index=True)
+    status: Mapped[JobStatus] = mapped_column(
+        Enum(JobStatus), nullable=False, default=JobStatus.QUEUED, index=True
+    )
 
     # Progress tracking
-    total_items = Column(Integer, nullable=True)  # Total chunks, documents, etc.
-    processed_items = Column(Integer, default=0)  # Items completed so far
-    failed_items = Column(Integer, default=0)  # Items that failed
+    total_items: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    processed_items: Mapped[int] = mapped_column(Integer, default=0)
+    failed_items: Mapped[int] = mapped_column(Integer, default=0)
 
     # Job details
-    input_data = Column(JSON, nullable=False)  # Input parameters (document_name, file_path, etc.)
-    result_data = Column(JSON, nullable=True)  # Output data (source_id, chunk_ids, etc.)
-    error_message = Column(Text, nullable=True)  # Error details if failed
+    input_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    result_data: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # Timing
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    started_at = Column(DateTime, nullable=True)  # When worker picked it up
-    completed_at = Column(DateTime, nullable=True)  # When finished (success or failure)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )
+    started_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )  # When worker picked it up
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )  # When finished (success or failure)
 
     # User tracking
-    created_by = Column(PGUUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id"), nullable=True
+    )
 
     # Relationships
     tenant = relationship("Tenant", back_populates="processing_jobs")
