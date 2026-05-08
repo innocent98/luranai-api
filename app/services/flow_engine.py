@@ -1117,20 +1117,20 @@ class FlowEngine:
         if validation.get("required") is True and (not input_value or input_value.strip() == ""):
             return {"valid": False, "error": custom_error or "This field is required."}
 
-        if isinstance(validation.get("min_length"), int):
-            min_len = validation.get("min_length")
-            if len(input_value) < min_len:
+        min_len_raw = validation.get("min_length")
+        if isinstance(min_len_raw, int):
+            if len(input_value) < min_len_raw:
                 return {
                     "valid": False,
-                    "error": custom_error or f"Input must be at least {min_len} characters.",
+                    "error": custom_error or f"Input must be at least {min_len_raw} characters.",
                 }
 
-        if isinstance(validation.get("max_length"), int):
-            max_len = validation.get("max_length")
-            if len(input_value) > max_len:
+        max_len_raw = validation.get("max_length")
+        if isinstance(max_len_raw, int):
+            if len(input_value) > max_len_raw:
                 return {
                     "valid": False,
-                    "error": custom_error or f"Input must be at most {max_len} characters.",
+                    "error": custom_error or f"Input must be at most {max_len_raw} characters.",
                 }
 
         if validation_type == "required":
