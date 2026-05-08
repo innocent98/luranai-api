@@ -143,6 +143,6 @@ class VisitorEnrichmentUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str | None = Field(None, max_length=255)
-    email: str | None = Field(None, max_length=255)
-    phone: str | None = Field(None, max_length=50)
+    name: str | None = Field(default=None, max_length=255)
+    email: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=50)

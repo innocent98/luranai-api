@@ -42,7 +42,7 @@ from app.schemas.conversation import (
     SessionDetailResponse,
     SessionResponse,
 )
-from app.schemas.rag import ResponseQuality
+from app.schemas.rag import EscalationDecision, ResponseQuality
 from app.schemas.ticket import TicketAssign, TicketCreate
 from app.schemas.tenant import TenantResponse
 from app.schemas.user import UserResponse
@@ -793,7 +793,7 @@ async def send_message(
             )
 
         elif effective_message_lower == TALK_TO_HUMAN_TOKEN:
-            escalation_reason = "User selected talk to human from start menu"
+            router_escalation_reason = "User selected talk to human from start menu"
             session_meta = dict(session_model.meta or {})
             contact_name = _resolve_customer_name(
                 session_meta,
@@ -816,7 +816,7 @@ async def send_message(
                     conversation_service=conversation_service,
                     session_id=session_id,
                     session_meta=session_meta,
-                    escalation_reason=escalation_reason,
+                    escalation_reason=router_escalation_reason,
                     customer_query=message_data.message,
                     required_fields=missing_contact_fields,
                 )
@@ -836,7 +836,9 @@ async def send_message(
                     escalation_reason=None,
                     ticket_id=None,
                 )
-            conversation_service.escalate_session(session_id=session_id, reason=escalation_reason)
+            conversation_service.escalate_session(
+                session_id=session_id, reason=router_escalation_reason
+            )
             ticket_id = None
             try:
 
@@ -872,7 +874,7 @@ async def send_message(
                             user_name=recipient.full_name,
                             tenant_name=tenant_name,
                             ticket_number=ticket.ticket_number,
-                            escalation_reason=escalation_reason,
+                            escalation_reason=router_escalation_reason,
                             customer_query=message_data.message,
                             ticket_priority=TicketPriority.HIGH.value.upper(),
                             ticket_id=str(ticket.id),
@@ -894,7 +896,7 @@ async def send_message(
                 session_id=session_id,
                 message=assistant_message,
                 should_escalate=True,
-                escalation_reason=escalation_reason,
+                escalation_reason=router_escalation_reason,
                 ticket_id=ticket_id,
             )
 
@@ -1343,7 +1345,7 @@ async def send_message(
     else:
         # No flow matched - check if this is a welcome/start trigger
         # If so, return default welcome message without storing trigger word
-        welcome_triggers = ["start", "hello", "hi", "hey", "welcome", "__init__", "__welcome__"]
+        welcome_triggers = {"start", "hello", "hi", "hey", "welcome", "__init__", "__welcome__"}
         message_lower = effective_message_lower
 
         if message_lower in welcome_triggers:
@@ -1447,7 +1449,7 @@ async def send_message(
                 ticket_id=None,
             )
 
-        escalation_reason = (
+        capture_escalation_reason = (
             contact_capture_context.get("reason")
             if isinstance(contact_capture_context, dict)
             else None
@@ -1458,7 +1460,9 @@ async def send_message(
             else None
         ) or message_data.message
 
-        conversation_service.escalate_session(session_id=session_id, reason=escalation_reason)
+        conversation_service.escalate_session(
+            session_id=session_id, reason=capture_escalation_reason
+        )
 
         assistant_message = conversation_service.add_message(
             session_id=session_id,
@@ -1478,13 +1482,13 @@ async def send_message(
 
             summary = _generate_ticket_summary(
                 conversation_history=conversation_history,
-                escalation_reason=escalation_reason,
+                escalation_reason=capture_escalation_reason,
                 user_query=customer_query,
             )
 
             priority = _determine_ticket_priority(
                 user_query=customer_query,
-                escalation_reason=escalation_reason,
+                escalation_reason=capture_escalation_reason,
             )
 
             ticket_data = TicketCreate(
@@ -1518,7 +1522,7 @@ async def send_message(
                         user_name=recipient.full_name,
                         tenant_name=tenant_name,
                         ticket_number=ticket.ticket_number,
-                        escalation_reason=escalation_reason,
+                        escalation_reason=capture_escalation_reason,
                         customer_query=customer_query,
                         ticket_priority=priority.value.upper(),
                         ticket_id=str(ticket.id),
@@ -1533,7 +1537,7 @@ async def send_message(
             session_id=session_id,
             message=assistant_message,
             should_escalate=True,
-            escalation_reason=escalation_reason,
+            escalation_reason=capture_escalation_reason,
             ticket_id=ticket_id,
         )
 
@@ -1848,7 +1852,7 @@ async def send_message(
         if not scope_allowed:
             policy_action = "refuse"
             policy_reason = f"scope_policy_{scope_reason}"
-            escalation_decision = SimpleNamespace(
+            escalation_decision = EscalationDecision(
                 action=EscalationAction.NO_ESCALATION,
                 reason=scope_reason,
                 skip_quality_check=True,
@@ -1882,7 +1886,7 @@ async def send_message(
                 pending_contact_capture_reason = auto_escalation_reason
                 pending_contact_capture_query = message_data.message
                 pending_contact_capture_fields = missing_contact_fields
-                escalation_decision = SimpleNamespace(
+                escalation_decision = EscalationDecision(
                     action=EscalationAction.NO_ESCALATION,
                     reason="awaiting_contact_details_for_escalation",
                     skip_quality_check=True,
@@ -2030,10 +2034,11 @@ async def send_message(
         )
 
         # Step 8: Save assistant message
+        # Store as strings to keep JSON serialization safe (JSON column doesn't
+        # serialize UUIDs natively).
         retrieved_chunk_ids: list[str] = []
         for chunk in retrieved_chunks:
             try:
-                # Store as strings to keep JSON serialization safe.
                 retrieved_chunk_ids.append(str(chunk.id))
             except Exception:
                 continue
@@ -2063,13 +2068,14 @@ async def send_message(
                 "token_breakdown": {
                     "prompt_tokens": (
                         prompt_components.prompt_tokens
-                        if hasattr(prompt_components, "prompt_tokens")
+                        if prompt_components is not None
+                        and prompt_components.prompt_tokens is not None
                         else 0
                     ),
                     "completion_tokens": (
                         token_count - prompt_components.prompt_tokens
                         if token_count
-                        and hasattr(prompt_components, "prompt_tokens")
+                        and prompt_components is not None
                         and prompt_components.prompt_tokens
                         else 0
                     ),

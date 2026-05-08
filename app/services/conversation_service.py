@@ -304,7 +304,7 @@ class ConversationService:
         session_id: UUID,
         role: MessageRole,
         content: str,
-        retrieved_chunk_ids: list[UUID] | None = None,
+        retrieved_chunk_ids: list[UUID] | list[str] | None = None,
         token_count: int | None = None,
         meta: dict | None = None,
     ) -> MessageResponse:
