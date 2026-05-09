@@ -8,6 +8,8 @@ from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant, TenantCapabilities
 from app.services.promotional_grant_service import (
     PromotionalGrantService,
+    PromoGrantNotFoundError,
+    PromoGrantStateError,
     PromoGrantValidationError,
 )
 
@@ -212,3 +214,86 @@ def test_create_grant_auto_signup_uses_synthetic_snapshot(db_session):
     # Synthetic: previous_trial_ends_at is set near "now" so revert hits the wall immediately
     assert grant.previous_trial_ends_at is not None
     assert abs((datetime.now(UTC) - grant.previous_trial_ends_at).total_seconds()) < 5
+
+
+def test_revoke_grant_reverts_state_and_writes_history(db_session, super_admin_user):
+    tenant = _make_tenant(db_session, status="trial_expired", tier="trial")
+    service = PromotionalGrantService(db_session)
+    grant = service.create_grant(
+        tenant_id=tenant.id,
+        campaign_code="WINBACK_TEST",
+        campaign_name=None,
+        granted_tier="professional",
+        duration_days=90,
+        source="admin_single",
+        granted_by_admin_id=super_admin_user.id,
+        granted_by_admin_name=super_admin_user.email,
+        reason="setup for revoke test",
+    )
+
+    result = service.revoke_grant(
+        grant_id=grant.id,
+        reason="customer requested cancellation",
+        admin_id=super_admin_user.id,
+        admin_name=super_admin_user.email,
+    )
+
+    db_session.refresh(tenant)
+    db_session.refresh(grant)
+    assert grant.status == "revoked"
+    assert grant.revoked_at is not None
+    assert grant.revoke_reason == "customer requested cancellation"
+    assert tenant.subscription_tier == "trial"
+    assert tenant.subscription_status == "trial_expired"
+    assert result["reverted_to_tier"] == "trial"
+    assert result["reverted_to_status"] == "trial_expired"
+
+    history = (
+        db_session.query(SubscriptionHistory)
+        .filter(
+            SubscriptionHistory.tenant_id == tenant.id,
+            SubscriptionHistory.action == "promo_revoked",
+        )
+        .first()
+    )
+    assert history is not None
+
+
+def test_revoke_grant_already_inactive_raises(db_session, super_admin_user):
+    tenant = _make_tenant(db_session)
+    service = PromotionalGrantService(db_session)
+    grant = service.create_grant(
+        tenant_id=tenant.id,
+        campaign_code="WINBACK_TEST",
+        campaign_name=None,
+        granted_tier="professional",
+        duration_days=90,
+        source="admin_single",
+        granted_by_admin_id=super_admin_user.id,
+        granted_by_admin_name=super_admin_user.email,
+        reason="setup for revoke test",
+    )
+    service.revoke_grant(
+        grant_id=grant.id,
+        reason="first revoke",
+        admin_id=super_admin_user.id,
+        admin_name=super_admin_user.email,
+    )
+    with pytest.raises(PromoGrantStateError):
+        service.revoke_grant(
+            grant_id=grant.id,
+            reason="second revoke should fail",
+            admin_id=super_admin_user.id,
+            admin_name=super_admin_user.email,
+        )
+
+
+def test_revoke_grant_not_found(db_session, super_admin_user):
+    service = PromotionalGrantService(db_session)
+    with pytest.raises(PromoGrantNotFoundError):
+        service.revoke_grant(
+            grant_id=uuid4(),
+            reason="not found in db",
+            admin_id=super_admin_user.id,
+            admin_name=super_admin_user.email,
+        )
