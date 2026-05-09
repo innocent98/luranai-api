@@ -297,3 +297,107 @@ def test_revoke_grant_not_found(db_session, super_admin_user):
             admin_id=super_admin_user.id,
             admin_name=super_admin_user.email,
         )
+
+
+def test_expire_grants_reverts_only_past_active_grants(db_session, super_admin_user):
+    # Active future-ending grant — should NOT expire
+    t1 = _make_tenant(db_session, status="trial_expired", tier="trial")
+    # Active past-ending grant — SHOULD expire
+    t2 = _make_tenant(db_session, status="trial_expired", tier="trial")
+
+    service = PromotionalGrantService(db_session)
+    g1 = service.create_grant(
+        tenant_id=t1.id,
+        campaign_code="WINBACK_TEST",
+        campaign_name=None,
+        granted_tier="professional",
+        duration_days=90,
+        source="admin_single",
+        granted_by_admin_id=super_admin_user.id,
+        granted_by_admin_name=super_admin_user.email,
+        reason="future grant",
+    )
+    g2 = service.create_grant(
+        tenant_id=t2.id,
+        campaign_code="WINBACK_TEST",
+        campaign_name=None,
+        granted_tier="professional",
+        duration_days=90,
+        source="admin_single",
+        granted_by_admin_id=super_admin_user.id,
+        granted_by_admin_name=super_admin_user.email,
+        reason="will be expired",
+    )
+    # Force g2 to be past-ending
+    g2.grant_ends_at = datetime.now(UTC) - timedelta(hours=1)
+    db_session.commit()
+
+    expired_ids = service.expire_grants_due()
+
+    db_session.refresh(g1)
+    db_session.refresh(g2)
+    db_session.refresh(t2)
+    assert expired_ids == [g2.id]
+    assert g1.status == "active"
+    assert g2.status == "expired"
+    assert g2.expired_at is not None
+    assert t2.subscription_tier == "trial"
+    assert t2.subscription_status == "trial_expired"
+
+
+def test_expire_grants_idempotent(db_session, super_admin_user):
+    tenant = _make_tenant(db_session)
+    service = PromotionalGrantService(db_session)
+    _grant = service.create_grant(
+        tenant_id=tenant.id,
+        campaign_code="WINBACK_TEST",
+        campaign_name=None,
+        granted_tier="professional",
+        duration_days=90,
+        source="admin_single",
+        granted_by_admin_id=super_admin_user.id,
+        granted_by_admin_name=super_admin_user.email,
+        reason="setup for idempotency test",
+    )
+    _grant.grant_ends_at = datetime.now(UTC) - timedelta(hours=1)
+    db_session.commit()
+
+    first = service.expire_grants_due()
+    second = service.expire_grants_due()
+    assert len(first) == 1
+    assert second == []
+
+
+def test_mark_converted_blocks_future_revert(db_session, super_admin_user):
+    tenant = _make_tenant(db_session)
+    service = PromotionalGrantService(db_session)
+    service.create_grant(
+        tenant_id=tenant.id,
+        campaign_code="WINBACK_TEST",
+        campaign_name=None,
+        granted_tier="professional",
+        duration_days=90,
+        source="admin_single",
+        granted_by_admin_id=super_admin_user.id,
+        granted_by_admin_name=super_admin_user.email,
+        reason="setup for conversion test",
+    )
+
+    # Simulate Paystack webhook: tenant pays
+    tenant.subscription_tier = "professional"
+    tenant.subscription_status = "active"
+    tenant.billing_cycle = "monthly"
+    db_session.commit()
+
+    converted = service.mark_converted_for_tenant(
+        tenant_id=tenant.id, paid_tier="professional", paid_billing_cycle="monthly"
+    )
+    assert converted is not None
+    assert converted.status == "converted"
+    assert converted.converted_at is not None
+
+    # Force end_at to past, expire pass should NOT revert
+    converted.grant_ends_at = datetime.now(UTC) - timedelta(hours=1)
+    db_session.commit()
+    expired_ids = service.expire_grants_due()
+    assert expired_ids == []

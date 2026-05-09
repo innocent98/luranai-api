@@ -228,3 +228,102 @@ class PromotionalGrantService:
             "reverted_to_tier": grant.previous_tier,
             "reverted_to_status": grant.previous_status,
         }
+
+    # ------------------------------------------------------------------
+    # Expire (worker pass)
+    # ------------------------------------------------------------------
+
+    def find_grants_due_for_expiry(self) -> list[PromotionalGrant]:
+        """Return all active grants whose end-time has passed."""
+        now = datetime.now(UTC)
+        return (
+            self.db.query(PromotionalGrant)
+            .filter(
+                PromotionalGrant.status == "active",
+                PromotionalGrant.grant_ends_at < now,
+            )
+            .all()
+        )
+
+    def expire_grants_due(self) -> list[UUID]:
+        """Process all grants that have hit their end_at. Idempotent.
+
+        Returns the list of grant IDs expired in this pass (so the caller
+        — typically the worker — can dispatch a per-grant 'expired' email).
+        """
+        due = self.find_grants_due_for_expiry()
+        expired_ids: list[UUID] = []
+        for grant in due:
+            try:
+                self._revert_tenant_to_snapshot(grant)
+                grant.status = "expired"
+                grant.expired_at = datetime.now(UTC)
+                self.db.add(SubscriptionHistory(
+                    tenant_id=grant.tenant_id,
+                    action="promo_expired",
+                    previous_tier=grant.granted_tier,
+                    new_tier=grant.previous_tier,
+                    previous_status="active",
+                    new_status=grant.previous_status,
+                    changed_by_type="system",
+                    changed_by_name="promo_lifecycle_worker",
+                    reason=f"Grant ended after {grant.duration_days} days",
+                    event_metadata={
+                        "grant_id": str(grant.id),
+                        "campaign_code": grant.campaign_code,
+                    },
+                ))
+                self.db.commit()
+                expired_ids.append(grant.id)
+            except Exception:
+                self.db.rollback()
+                # logged at the worker layer; continue to next grant
+                raise
+        return expired_ids
+
+    # ------------------------------------------------------------------
+    # Convert (Paystack webhook integration point)
+    # ------------------------------------------------------------------
+
+    def mark_converted_for_tenant(
+        self,
+        *,
+        tenant_id: UUID,
+        paid_tier: str,
+        paid_billing_cycle: str | None,
+    ) -> PromotionalGrant | None:
+        """Mark the active grant for tenant_id as converted. No-op if no active grant.
+
+        Caller (the Paystack webhook) is expected to have already mutated the
+        tenant's subscription to the paid state.
+        """
+        active = (
+            self.db.query(PromotionalGrant)
+            .filter(
+                PromotionalGrant.tenant_id == tenant_id,
+                PromotionalGrant.status == "active",
+            )
+            .first()
+        )
+        if active is None:
+            return None
+        active.status = "converted"
+        active.converted_at = datetime.now(UTC)
+        self.db.add(SubscriptionHistory(
+            tenant_id=tenant_id,
+            action="promo_converted",
+            previous_tier=active.granted_tier,
+            new_tier=paid_tier,
+            previous_status="active",
+            new_status="active",
+            changed_by_type="webhook",
+            changed_by_name="paystack",
+            reason=f"Tenant converted to paid {paid_tier} during {active.campaign_code}",
+            event_metadata={
+                "grant_id": str(active.id),
+                "campaign_code": active.campaign_code,
+                "paid_billing_cycle": paid_billing_cycle,
+            },
+        ))
+        self.db.commit()
+        return active
