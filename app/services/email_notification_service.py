@@ -726,3 +726,211 @@ class EmailNotificationService:
         except Exception as e:
             logger.error(f"Error in send_subscription_renewal_reminder: {e}")
             return False
+
+    async def send_promo_expiration_reminder(
+        self, grant_id: uuid.UUID, days_remaining: int
+    ) -> bool:
+        """Send a 'promo expiring in N days' email. Idempotent within 20h."""
+        from app.db.models.promotional_grant import PromotionalGrant
+
+        try:
+            notification_type = f"promo_expiring_{days_remaining}d"
+
+            grant_query = select(PromotionalGrant).where(PromotionalGrant.id == grant_id)
+            grant_result = await self._execute(grant_query)
+            grant = grant_result.scalars().first()
+            if grant is None or grant.status != "active":
+                return False
+
+            if await self._check_if_already_sent(grant.tenant_id, notification_type, hours=20):
+                logger.info(
+                    f"Promo expiring email already sent for tenant {grant.tenant_id} "
+                    f"window {days_remaining}d"
+                )
+                return True
+
+            tenant_query = select(Tenant).where(Tenant.id == grant.tenant_id)
+            tenant_result = await self._execute(tenant_query)
+            tenant = tenant_result.scalars().first()
+            if tenant is None:
+                return False
+
+            admin = await self._get_tenant_admin(grant.tenant_id)
+            if not admin:
+                logger.warning(f"No admin found for tenant {grant.tenant_id}; skipping reminder")
+                return False
+
+            template_data = {
+                "admin_name": admin.full_name,
+                "tenant_display_name": tenant.display_name,
+                "granted_tier_display": grant.granted_tier.title(),
+                "days_remaining": days_remaining,
+                "campaign_name": grant.campaign_name or grant.campaign_code,
+                "grant_ends_at_display": grant.grant_ends_at.strftime("%B %d, %Y"),
+                "subscribe_url": f"{settings.FRONTEND_URL}/dashboard/billing?tier={grant.granted_tier}",
+                "current_year": datetime.now().year,
+            }
+            subject = (
+                f"Your {grant.granted_tier.title()} access ends in {days_remaining} "
+                f"day{'s' if days_remaining != 1 else ''} - {tenant.display_name}"
+            )
+
+            try:
+                template = self.email_service.jinja_env.get_template("promo_expiring.html")
+                html_content = template.render(**template_data)
+                success = self.email_service._send_email(
+                    to_email=admin.email, subject=subject, html_content=html_content
+                )
+                await self._record_notification(
+                    tenant_id=grant.tenant_id,
+                    notification_type=notification_type,
+                    recipient_email=admin.email,
+                    subject=subject,
+                    template_data=template_data,
+                    status="sent" if success else "failed",
+                    error_message=None if success else "SMTP send failed",
+                )
+                return success
+            except Exception as e:
+                logger.error(f"Failed to send promo expiring reminder for grant {grant_id}: {e}")
+                await self._record_notification(
+                    tenant_id=grant.tenant_id,
+                    notification_type=notification_type,
+                    recipient_email=admin.email if admin else "",
+                    subject=subject,
+                    template_data=template_data,
+                    status="failed",
+                    error_message=str(e),
+                )
+                return False
+        except Exception as e:
+            logger.error(f"Error in send_promo_expiration_reminder: {e}")
+            return False
+
+    async def send_promo_expired_email(self, grant_id: uuid.UUID) -> bool:
+        """Send 'your promo has ended' email after revert. Idempotent within 20h."""
+        from app.db.models.promotional_grant import PromotionalGrant
+
+        try:
+            notification_type = "promo_expired"
+
+            grant_query = select(PromotionalGrant).where(PromotionalGrant.id == grant_id)
+            grant = (await self._execute(grant_query)).scalars().first()
+            if grant is None:
+                return False
+
+            if await self._check_if_already_sent(grant.tenant_id, notification_type, hours=20):
+                return True
+
+            tenant = (
+                (await self._execute(select(Tenant).where(Tenant.id == grant.tenant_id)))
+                .scalars()
+                .first()
+            )
+            if tenant is None:
+                return False
+            admin = await self._get_tenant_admin(grant.tenant_id)
+            if not admin:
+                return False
+
+            template_data = {
+                "admin_name": admin.full_name,
+                "tenant_display_name": tenant.display_name,
+                "granted_tier_display": grant.granted_tier.title(),
+                "campaign_name": grant.campaign_name or grant.campaign_code,
+                "subscribe_url": f"{settings.FRONTEND_URL}/dashboard/billing",
+                "current_year": datetime.now().year,
+            }
+            subject = f"Your {grant.granted_tier.title()} access has ended - {tenant.display_name}"
+
+            try:
+                template = self.email_service.jinja_env.get_template("promo_expired.html")
+                html_content = template.render(**template_data)
+                success = self.email_service._send_email(
+                    to_email=admin.email, subject=subject, html_content=html_content
+                )
+                await self._record_notification(
+                    tenant_id=grant.tenant_id,
+                    notification_type=notification_type,
+                    recipient_email=admin.email,
+                    subject=subject,
+                    template_data=template_data,
+                    status="sent" if success else "failed",
+                    error_message=None if success else "SMTP send failed",
+                )
+                return success
+            except Exception as e:
+                logger.error(f"Failed to send promo expired email for grant {grant_id}: {e}")
+                return False
+        except Exception as e:
+            logger.error(f"Error in send_promo_expired_email: {e}")
+            return False
+
+    async def send_promo_granted_email(self, grant_id: uuid.UUID) -> bool:
+        """Send 'welcome back, here's N days of Pro' email for admin_bulk grants.
+
+        Auto-signup grants do not call this — the standard tenant welcome email
+        covers their case. Idempotent over a 7-day window so re-running a
+        campaign on the same tenant doesn't double-send.
+        """
+        from app.db.models.promotional_grant import PromotionalGrant
+
+        try:
+            notification_type = "promo_granted"
+
+            grant_query = select(PromotionalGrant).where(PromotionalGrant.id == grant_id)
+            grant = (await self._execute(grant_query)).scalars().first()
+            if grant is None or grant.status != "active":
+                return False
+
+            if await self._check_if_already_sent(grant.tenant_id, notification_type, hours=24 * 7):
+                return True
+
+            tenant = (
+                (await self._execute(select(Tenant).where(Tenant.id == grant.tenant_id)))
+                .scalars()
+                .first()
+            )
+            if tenant is None:
+                return False
+            admin = await self._get_tenant_admin(grant.tenant_id)
+            if not admin:
+                return False
+
+            template_data = {
+                "admin_name": admin.full_name,
+                "tenant_display_name": tenant.display_name,
+                "granted_tier_display": grant.granted_tier.title(),
+                "duration_days": grant.duration_days,
+                "campaign_name": grant.campaign_name or grant.campaign_code,
+                "grant_ends_at_display": grant.grant_ends_at.strftime("%B %d, %Y"),
+                "dashboard_url": settings.FRONTEND_URL,
+                "current_year": datetime.now().year,
+            }
+            subject = (
+                f"We've added {grant.duration_days} days of "
+                f"{grant.granted_tier.title()} to your account - {tenant.display_name}"
+            )
+
+            try:
+                template = self.email_service.jinja_env.get_template("promo_granted.html")
+                html_content = template.render(**template_data)
+                success = self.email_service._send_email(
+                    to_email=admin.email, subject=subject, html_content=html_content
+                )
+                await self._record_notification(
+                    tenant_id=grant.tenant_id,
+                    notification_type=notification_type,
+                    recipient_email=admin.email,
+                    subject=subject,
+                    template_data=template_data,
+                    status="sent" if success else "failed",
+                    error_message=None if success else "SMTP send failed",
+                )
+                return success
+            except Exception as e:
+                logger.error(f"Failed to send promo granted email for grant {grant_id}: {e}")
+                return False
+        except Exception as e:
+            logger.error(f"Error in send_promo_granted_email: {e}")
+            return False
