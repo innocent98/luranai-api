@@ -3,9 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-import pytest
 
-from app.db.models.promotional_grant import PromotionalGrant
 from app.db.models.tenant import Tenant, TenantCapabilities
 from app.services.promotional_grant_service import PromotionalGrantService
 
@@ -98,6 +96,6 @@ def test_webhook_handler_calls_mark_converted(db_session, super_admin_user):
         "_handle_charge_success must call mark_converted_for_tenant "
         "after upgrading the tenant subscription."
     )
-    assert "PromotionalGrantService" in source, (
-        "_handle_charge_success must import/use PromotionalGrantService."
-    )
+    assert (
+        "PromotionalGrantService" in source
+    ), "_handle_charge_success must import/use PromotionalGrantService."

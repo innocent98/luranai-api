@@ -450,6 +450,7 @@ def test_preview_token_expires(db_session, monkeypatch):
     tenant_ids = [uuid4()]
     token = service.encode_preview_token(tenant_ids, ttl_seconds=1)
     import time
+
     time.sleep(2)
     with pytest.raises(PromoGrantValidationError):
         service.decode_preview_token(token)

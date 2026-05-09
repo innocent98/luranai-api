@@ -24,9 +24,7 @@ def test_create_tenant_with_auto_signup_disabled_no_grant(db_session):
     tenant_id = result.id if hasattr(result, "id") else result["id"]
 
     grants = (
-        db_session.query(PromotionalGrant)
-        .filter(PromotionalGrant.tenant_id == tenant_id)
-        .all()
+        db_session.query(PromotionalGrant).filter(PromotionalGrant.tenant_id == tenant_id).all()
     )
     assert len(grants) == 0
 
@@ -50,9 +48,7 @@ def test_create_tenant_with_auto_signup_enabled_creates_grant(db_session, super_
     tenant_id = result.id if hasattr(result, "id") else result["id"]
 
     grants = (
-        db_session.query(PromotionalGrant)
-        .filter(PromotionalGrant.tenant_id == tenant_id)
-        .all()
+        db_session.query(PromotionalGrant).filter(PromotionalGrant.tenant_id == tenant_id).all()
     )
     assert len(grants) == 1
     assert grants[0].source == "auto_signup"

@@ -260,21 +260,23 @@ class PromotionalGrantService:
                 self._revert_tenant_to_snapshot(grant)
                 grant.status = "expired"
                 grant.expired_at = datetime.now(UTC)
-                self.db.add(SubscriptionHistory(
-                    tenant_id=grant.tenant_id,
-                    action="promo_expired",
-                    previous_tier=grant.granted_tier,
-                    new_tier=grant.previous_tier,
-                    previous_status="active",
-                    new_status=grant.previous_status,
-                    changed_by_type="system",
-                    changed_by_name="promo_lifecycle_worker",
-                    reason=f"Grant ended after {grant.duration_days} days",
-                    event_metadata={
-                        "grant_id": str(grant.id),
-                        "campaign_code": grant.campaign_code,
-                    },
-                ))
+                self.db.add(
+                    SubscriptionHistory(
+                        tenant_id=grant.tenant_id,
+                        action="promo_expired",
+                        previous_tier=grant.granted_tier,
+                        new_tier=grant.previous_tier,
+                        previous_status="active",
+                        new_status=grant.previous_status,
+                        changed_by_type="system",
+                        changed_by_name="promo_lifecycle_worker",
+                        reason=f"Grant ended after {grant.duration_days} days",
+                        event_metadata={
+                            "grant_id": str(grant.id),
+                            "campaign_code": grant.campaign_code,
+                        },
+                    )
+                )
                 self.db.commit()
                 expired_ids.append(grant.id)
             except Exception:
@@ -311,22 +313,24 @@ class PromotionalGrantService:
             return None
         active.status = "converted"
         active.converted_at = datetime.now(UTC)
-        self.db.add(SubscriptionHistory(
-            tenant_id=tenant_id,
-            action="promo_converted",
-            previous_tier=active.granted_tier,
-            new_tier=paid_tier,
-            previous_status="active",
-            new_status="active",
-            changed_by_type="webhook",
-            changed_by_name="paystack",
-            reason=f"Tenant converted to paid {paid_tier} during {active.campaign_code}",
-            event_metadata={
-                "grant_id": str(active.id),
-                "campaign_code": active.campaign_code,
-                "paid_billing_cycle": paid_billing_cycle,
-            },
-        ))
+        self.db.add(
+            SubscriptionHistory(
+                tenant_id=tenant_id,
+                action="promo_converted",
+                previous_tier=active.granted_tier,
+                new_tier=paid_tier,
+                previous_status="active",
+                new_status="active",
+                changed_by_type="webhook",
+                changed_by_name="paystack",
+                reason=f"Tenant converted to paid {paid_tier} during {active.campaign_code}",
+                event_metadata={
+                    "grant_id": str(active.id),
+                    "campaign_code": active.campaign_code,
+                    "paid_billing_cycle": paid_billing_cycle,
+                },
+            )
+        )
         self.db.commit()
         return active
 
@@ -371,9 +375,7 @@ class PromotionalGrantService:
     # Preview token (signed, TTL'd cohort handle)
     # ------------------------------------------------------------------
 
-    def encode_preview_token(
-        self, tenant_ids: list[UUID], *, ttl_seconds: int = 1800
-    ) -> str:
+    def encode_preview_token(self, tenant_ids: list[UUID], *, ttl_seconds: int = 1800) -> str:
         """Sign a list of tenant IDs with SECRET_KEY + a TTL.
 
         The TTL is embedded in the payload so decode_preview_token can enforce
@@ -448,14 +450,16 @@ class PromotionalGrantService:
                     "auto_signup": sum(1 for g in grants if g.source == "auto_signup"),
                 },
             }
-            campaigns.append({
-                "campaign_code": code,
-                "campaign_name": head.campaign_name,
-                "granted_tier": head.granted_tier,
-                "duration_days": head.duration_days,
-                "first_grant_at": head.created_at,
-                "stats": stats,
-            })
+            campaigns.append(
+                {
+                    "campaign_code": code,
+                    "campaign_name": head.campaign_name,
+                    "granted_tier": head.granted_tier,
+                    "duration_days": head.duration_days,
+                    "first_grant_at": head.created_at,
+                    "stats": stats,
+                }
+            )
         campaigns.sort(key=lambda c: c["first_grant_at"], reverse=True)
         return campaigns
 

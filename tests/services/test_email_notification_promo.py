@@ -65,9 +65,7 @@ def _make_grant(db_session, tenant_id, *, status="active", days_until_end=7):
 
 
 @pytest.mark.asyncio
-async def test_send_promo_expiration_reminder_returns_true_on_success(
-    db_session, monkeypatch
-):
+async def test_send_promo_expiration_reminder_returns_true_on_success(db_session, monkeypatch):
     tenant, _admin = _make_tenant_with_admin(db_session)
     grant = _make_grant(db_session, tenant.id, days_until_end=7)
 
@@ -77,30 +75,22 @@ async def test_send_promo_expiration_reminder_returns_true_on_success(
     )
 
     service = EmailNotificationService(db_session)
-    result = await service.send_promo_expiration_reminder(
-        grant_id=grant.id, days_remaining=7
-    )
+    result = await service.send_promo_expiration_reminder(grant_id=grant.id, days_remaining=7)
     assert result is True
 
 
 @pytest.mark.asyncio
-async def test_send_promo_expiration_reminder_inactive_grant_returns_false(
-    db_session, monkeypatch
-):
+async def test_send_promo_expiration_reminder_inactive_grant_returns_false(db_session, monkeypatch):
     tenant, _admin = _make_tenant_with_admin(db_session)
     grant = _make_grant(db_session, tenant.id, status="expired")
 
     service = EmailNotificationService(db_session)
-    result = await service.send_promo_expiration_reminder(
-        grant_id=grant.id, days_remaining=7
-    )
+    result = await service.send_promo_expiration_reminder(grant_id=grant.id, days_remaining=7)
     assert result is False
 
 
 @pytest.mark.asyncio
-async def test_send_promo_expired_email_returns_true_on_success(
-    db_session, monkeypatch
-):
+async def test_send_promo_expired_email_returns_true_on_success(db_session, monkeypatch):
     tenant, _admin = _make_tenant_with_admin(db_session)
     # send_promo_expired_email does NOT check grant.status — any grant qualifies
     grant = _make_grant(db_session, tenant.id, status="expired", days_until_end=-1)
@@ -116,9 +106,7 @@ async def test_send_promo_expired_email_returns_true_on_success(
 
 
 @pytest.mark.asyncio
-async def test_send_promo_granted_email_returns_true_on_success(
-    db_session, monkeypatch
-):
+async def test_send_promo_granted_email_returns_true_on_success(db_session, monkeypatch):
     tenant, _admin = _make_tenant_with_admin(db_session)
     grant = _make_grant(db_session, tenant.id)
 
@@ -133,9 +121,7 @@ async def test_send_promo_granted_email_returns_true_on_success(
 
 
 @pytest.mark.asyncio
-async def test_send_promo_granted_email_inactive_grant_returns_false(
-    db_session, monkeypatch
-):
+async def test_send_promo_granted_email_inactive_grant_returns_false(db_session, monkeypatch):
     tenant, _admin = _make_tenant_with_admin(db_session)
     grant = _make_grant(db_session, tenant.id, status="expired")
 

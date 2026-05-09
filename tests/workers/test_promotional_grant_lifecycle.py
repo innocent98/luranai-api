@@ -3,7 +3,6 @@
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-import pytest
 
 from app.db.models.promotional_grant import PromotionalGrant
 from app.db.models.tenant import Tenant, TenantCapabilities

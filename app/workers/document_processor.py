@@ -1052,7 +1052,9 @@ async def process_promotional_grant_lifecycle(ctx: dict) -> dict:
 
         logger.info(
             "Promo lifecycle complete. reminders={} expired={} errors={}",
-            reminders_sent, expired, errors,
+            reminders_sent,
+            expired,
+            errors,
         )
     finally:
         db.close()

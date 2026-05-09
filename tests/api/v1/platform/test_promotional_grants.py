@@ -100,9 +100,7 @@ def test_bulk_create_rejects_enterprise_tier(pg_client, super_admin_token, churn
     assert response.status_code == 422  # Pydantic Literal violation
 
 
-def test_revoke_endpoint_reverts_tenant(
-    pg_client, super_admin_token, churned_tenants_factory
-):
+def test_revoke_endpoint_reverts_tenant(pg_client, super_admin_token, churned_tenants_factory):
     churned_tenants_factory(count=1, status="trial_expired", churned_days_ago=30)
     preview = pg_client.post(
         "/api/v1/platform/promotional-grants/preview",
@@ -138,9 +136,7 @@ def test_revoke_endpoint_reverts_tenant(
     assert body["grant_id"] == grant_id
 
 
-def test_list_grants_for_tenant(
-    pg_client, super_admin_token, churned_tenants_factory
-):
+def test_list_grants_for_tenant(pg_client, super_admin_token, churned_tenants_factory):
     tenants = churned_tenants_factory(count=1, status="trial_expired", churned_days_ago=30)
     tenant_id = str(tenants[0].id)
 
@@ -236,7 +232,9 @@ def test_put_auto_signup_config_enables_with_full_config(pg_client, super_admin_
     assert response.json()["campaign_code"] == "LAUNCH_2026"
 
 
-def test_put_auto_signup_config_rejects_enable_without_required_fields(pg_client, super_admin_token):
+def test_put_auto_signup_config_rejects_enable_without_required_fields(
+    pg_client, super_admin_token
+):
     response = pg_client.put(
         "/api/v1/platform/promotional-grants/config/auto-signup",
         json={
