@@ -401,3 +401,91 @@ def test_mark_converted_blocks_future_revert(db_session, super_admin_user):
     db_session.commit()
     expired_ids = service.expire_grants_due()
     assert expired_ids == []
+
+
+def test_build_cohort_query_filters_status_and_age(db_session):
+    # 1 trial_expired recently, 1 trial_expired old, 1 canceled recently, 1 trialing
+    now = datetime.now(UTC)
+    recent_expired = _make_tenant(db_session, status="trial_expired", tier="trial")
+    recent_expired.trial_ends_at = now - timedelta(days=10)
+    old_expired = _make_tenant(db_session, status="trial_expired", tier="trial")
+    old_expired.trial_ends_at = now - timedelta(days=400)
+    canceled = _make_tenant(db_session, status="canceled", tier="lite")
+    canceled.subscription_ends_at = now - timedelta(days=20)
+    active = _make_tenant(db_session, status="trialing", tier="trial")
+    db_session.commit()
+
+    service = PromotionalGrantService(db_session)
+    matched = service.build_cohort(
+        subscription_statuses=["trial_expired", "canceled"],
+        churned_within_days=90,
+        exclude_already_granted=True,
+    )
+    matched_ids = {t.id for t in matched}
+    assert recent_expired.id in matched_ids
+    assert canceled.id in matched_ids
+    assert old_expired.id not in matched_ids
+    assert active.id not in matched_ids
+
+
+def test_preview_token_round_trip(db_session):
+    service = PromotionalGrantService(db_session)
+    tenant_ids = [uuid4() for _ in range(5)]
+    token = service.encode_preview_token(tenant_ids)
+    decoded = service.decode_preview_token(token)
+    assert set(decoded) == set(tenant_ids)
+
+
+def test_preview_token_rejects_tampered_payload(db_session):
+    service = PromotionalGrantService(db_session)
+    tenant_ids = [uuid4() for _ in range(2)]
+    token = service.encode_preview_token(tenant_ids)
+    tampered = token[:-2] + "xx"
+    with pytest.raises(PromoGrantValidationError):
+        service.decode_preview_token(tampered)
+
+
+def test_preview_token_expires(db_session, monkeypatch):
+    service = PromotionalGrantService(db_session)
+    tenant_ids = [uuid4()]
+    token = service.encode_preview_token(tenant_ids, ttl_seconds=1)
+    import time
+    time.sleep(2)
+    with pytest.raises(PromoGrantValidationError):
+        service.decode_preview_token(token)
+
+
+def test_bulk_create_grants_idempotent_skip_already_granted(db_session, super_admin_user):
+    t1 = _make_tenant(db_session)
+    t2 = _make_tenant(db_session)
+    service = PromotionalGrantService(db_session)
+
+    # First bulk
+    res1 = service.bulk_create_grants(
+        tenant_ids=[t1.id, t2.id],
+        campaign_code="WINBACK_TEST",
+        campaign_name="Test",
+        granted_tier="professional",
+        duration_days=90,
+        granted_by_admin_id=super_admin_user.id,
+        granted_by_admin_name=super_admin_user.email,
+        reason="bulk run 1 setup",
+        force_replace_active=False,
+    )
+    assert res1["granted"] == 2
+    assert res1["skipped_already_granted"] == 0
+
+    # Second bulk with same campaign — both skipped
+    res2 = service.bulk_create_grants(
+        tenant_ids=[t1.id, t2.id],
+        campaign_code="WINBACK_TEST",
+        campaign_name="Test",
+        granted_tier="professional",
+        duration_days=90,
+        granted_by_admin_id=super_admin_user.id,
+        granted_by_admin_name=super_admin_user.email,
+        reason="bulk run 2 repeat",
+        force_replace_active=False,
+    )
+    assert res2["granted"] == 0
+    assert res2["skipped_already_granted"] == 2

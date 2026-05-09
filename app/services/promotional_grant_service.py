@@ -3,6 +3,8 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models.promotional_grant import PromotionalGrant
@@ -327,3 +329,166 @@ class PromotionalGrantService:
         ))
         self.db.commit()
         return active
+
+    # ------------------------------------------------------------------
+    # Cohort selection
+    # ------------------------------------------------------------------
+
+    def build_cohort(
+        self,
+        *,
+        subscription_statuses: list[str],
+        churned_within_days: int | None,
+        exclude_already_granted: bool,
+    ) -> list[Tenant]:
+        if not subscription_statuses:
+            return []
+
+        query = self.db.query(Tenant).filter(Tenant.subscription_status.in_(subscription_statuses))
+
+        if churned_within_days is not None:
+            cutoff = datetime.now(UTC) - timedelta(days=churned_within_days)
+            # 'churned at' is approximated by trial_ends_at for trial_expired,
+            # subscription_ends_at for canceled / past_due
+            query = query.filter(
+                or_(
+                    Tenant.trial_ends_at >= cutoff,
+                    Tenant.subscription_ends_at >= cutoff,
+                )
+            )
+
+        if exclude_already_granted:
+            granted_subq = (
+                self.db.query(PromotionalGrant.tenant_id)
+                .filter(PromotionalGrant.status == "active")
+                .subquery()
+            )
+            query = query.filter(~Tenant.id.in_(self.db.query(granted_subq.c.tenant_id)))
+
+        return query.all()
+
+    # ------------------------------------------------------------------
+    # Preview token (signed, TTL'd cohort handle)
+    # ------------------------------------------------------------------
+
+    def encode_preview_token(
+        self, tenant_ids: list[UUID], *, ttl_seconds: int = 1800
+    ) -> str:
+        """Sign a list of tenant IDs with SECRET_KEY + a TTL.
+
+        The TTL is embedded in the payload so decode_preview_token can enforce
+        the same expiry without the caller having to re-specify it.
+
+        Returns a URL-safe token.
+        """
+        from itsdangerous import TimestampSigner
+
+        from app.core.config import settings
+
+        signer = TimestampSigner(settings.SECRET_KEY, salt="promo-preview")
+        ids_str = ",".join(str(tid) for tid in tenant_ids)
+        # Format: "<ttl_seconds>|<id1>,<id2>,..."  — TTL is stored so decode can enforce it
+        payload = f"{ttl_seconds}|{ids_str}"
+        return signer.sign(payload).decode("utf-8")
+
+    def decode_preview_token(self, token: str, *, ttl_seconds: int | None = None) -> list[UUID]:
+        from itsdangerous import BadSignature, SignatureExpired, TimestampSigner
+
+        from app.core.config import settings
+
+        signer = TimestampSigner(settings.SECRET_KEY, salt="promo-preview")
+        try:
+            raw = signer.unsign(token, max_age=None).decode("utf-8")
+        except BadSignature as e:
+            raise PromoGrantValidationError("preview_token invalid") from e
+
+        # Parse the embedded TTL and IDs
+        try:
+            ttl_str, ids_str = raw.split("|", 1)
+            effective_ttl = ttl_seconds if ttl_seconds is not None else int(ttl_str)
+        except ValueError as e:
+            raise PromoGrantValidationError("preview_token malformed") from e
+
+        # Re-verify with the correct max_age now that we have the embedded TTL
+        try:
+            signer.unsign(token, max_age=effective_ttl)
+        except SignatureExpired as e:
+            raise PromoGrantValidationError("preview_token expired") from e
+        except BadSignature as e:
+            raise PromoGrantValidationError("preview_token invalid") from e
+
+        return [UUID(s) for s in ids_str.split(",") if s]
+
+    # ------------------------------------------------------------------
+    # Bulk create
+    # ------------------------------------------------------------------
+
+    def bulk_create_grants(
+        self,
+        *,
+        tenant_ids: list[UUID],
+        campaign_code: str,
+        campaign_name: str | None,
+        granted_tier: str,
+        duration_days: int,
+        granted_by_admin_id: UUID,
+        granted_by_admin_name: str,
+        reason: str,
+        force_replace_active: bool,
+    ) -> dict:
+        granted = 0
+        skipped = 0
+        failed = 0
+        sample_ids: list[UUID] = []
+
+        for tenant_id in tenant_ids:
+            # Use a nested transaction (SAVEPOINT) per tenant so that a rollback
+            # on IntegrityError only undoes the failed attempt, not prior successes.
+            sp = self.db.begin_nested()
+            try:
+                if force_replace_active:
+                    # Revoke any existing active grant first (different campaign)
+                    existing = (
+                        self.db.query(PromotionalGrant)
+                        .filter(
+                            PromotionalGrant.tenant_id == tenant_id,
+                            PromotionalGrant.status == "active",
+                        )
+                        .first()
+                    )
+                    if existing is not None:
+                        self.revoke_grant(
+                            grant_id=existing.id,
+                            reason=f"Replaced by bulk grant from campaign {campaign_code}",
+                            admin_id=granted_by_admin_id,
+                            admin_name=granted_by_admin_name,
+                        )
+                grant = self.create_grant(
+                    tenant_id=tenant_id,
+                    campaign_code=campaign_code,
+                    campaign_name=campaign_name,
+                    granted_tier=granted_tier,
+                    duration_days=duration_days,
+                    source="admin_bulk",
+                    granted_by_admin_id=granted_by_admin_id,
+                    granted_by_admin_name=granted_by_admin_name,
+                    reason=reason,
+                )
+                # create_grant calls db.commit() internally, which releases the
+                # savepoint; no explicit sp.commit() needed here.
+                granted += 1
+                if len(sample_ids) < 10:
+                    sample_ids.append(grant.id)
+            except IntegrityError:
+                sp.rollback()
+                skipped += 1
+            except (PromoGrantValidationError, PromoGrantNotFoundError):
+                sp.rollback()
+                failed += 1
+
+        return {
+            "granted": granted,
+            "skipped_already_granted": skipped,
+            "failed": failed,
+            "grant_ids_sample": sample_ids,
+        }
