@@ -420,6 +420,46 @@ class PromotionalGrantService:
         return [UUID(s) for s in ids_str.split(",") if s]
 
     # ------------------------------------------------------------------
+    # Campaign aggregates
+    # ------------------------------------------------------------------
+
+    def list_campaigns_with_stats(self) -> list[dict]:
+        """Aggregate stats per campaign code.
+
+        Tables stay small for v1 — this is a simple per-campaign group + tally.
+        """
+        all_grants = self.db.query(PromotionalGrant).order_by(PromotionalGrant.created_at).all()
+        by_campaign: dict[str, list[PromotionalGrant]] = {}
+        for grant in all_grants:
+            by_campaign.setdefault(grant.campaign_code, []).append(grant)
+
+        campaigns = []
+        for code, grants in by_campaign.items():
+            head = grants[0]
+            stats = {
+                "total": len(grants),
+                "active": sum(1 for g in grants if g.status == "active"),
+                "converted": sum(1 for g in grants if g.status == "converted"),
+                "expired": sum(1 for g in grants if g.status == "expired"),
+                "revoked": sum(1 for g in grants if g.status == "revoked"),
+                "by_source": {
+                    "admin_bulk": sum(1 for g in grants if g.source == "admin_bulk"),
+                    "admin_single": sum(1 for g in grants if g.source == "admin_single"),
+                    "auto_signup": sum(1 for g in grants if g.source == "auto_signup"),
+                },
+            }
+            campaigns.append({
+                "campaign_code": code,
+                "campaign_name": head.campaign_name,
+                "granted_tier": head.granted_tier,
+                "duration_days": head.duration_days,
+                "first_grant_at": head.created_at,
+                "stats": stats,
+            })
+        campaigns.sort(key=lambda c: c["first_grant_at"], reverse=True)
+        return campaigns
+
+    # ------------------------------------------------------------------
     # Bulk create
     # ------------------------------------------------------------------
 

@@ -172,3 +172,37 @@ def test_list_grants_for_tenant(
     body = response.json()
     assert isinstance(body, list)
     assert len(body) >= 1
+
+
+def test_list_campaigns_aggregates_stats(pg_client, super_admin_token, churned_tenants_factory):
+    churned_tenants_factory(count=2, status="trial_expired", churned_days_ago=30)
+    preview = pg_client.post(
+        "/api/v1/platform/promotional-grants/preview",
+        json={"filters": {"subscription_statuses": ["trial_expired"], "churned_within_days": 90}},
+        headers={"Authorization": f"Bearer {super_admin_token}"},
+    ).json()
+    pg_client.post(
+        "/api/v1/platform/promotional-grants/",
+        json={
+            "preview_token": preview["preview_token"],
+            "campaign_code": "WINBACK_STATS",
+            "campaign_name": "Stats Test",
+            "granted_tier": "professional",
+            "duration_days": 90,
+            "force_replace_active": False,
+            "reason": "setup for stats test",
+        },
+        headers={"Authorization": f"Bearer {super_admin_token}"},
+    )
+    response = pg_client.get(
+        "/api/v1/platform/promotional-grants/campaigns",
+        headers={"Authorization": f"Bearer {super_admin_token}"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert "campaigns" in body
+    target = next((c for c in body["campaigns"] if c["campaign_code"] == "WINBACK_STATS"), None)
+    assert target is not None
+    assert target["stats"]["total"] >= 2
+    assert target["stats"]["active"] >= 2
+    assert target["stats"]["by_source"]["admin_bulk"] >= 2

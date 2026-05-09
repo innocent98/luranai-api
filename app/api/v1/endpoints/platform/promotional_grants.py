@@ -11,6 +11,10 @@ from app.schemas.platform_admin import PlatformAdminResponse
 from app.schemas.promotional_grant import (
     BulkGrantRequest,
     BulkGrantResponse,
+    CampaignListResponse,
+    CampaignStats,
+    CampaignStatsBySource,
+    CampaignSummary,
     PreviewRequest,
     PreviewResponse,
     PreviewTenantSummary,
@@ -162,6 +166,57 @@ def list_grants_for_tenant(
     grants = (
         db.query(PromotionalGrant)
         .filter(PromotionalGrant.tenant_id == tenant_id)
+        .order_by(PromotionalGrant.created_at.desc())
+        .all()
+    )
+    return [PromotionalGrantResponse.model_validate(g) for g in grants]
+
+
+@router.get(
+    "/campaigns",
+    response_model=CampaignListResponse,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def list_campaigns(
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
+):
+    service = PromotionalGrantService(db)
+    raw = service.list_campaigns_with_stats()
+    campaigns = [
+        CampaignSummary(
+            campaign_code=c["campaign_code"],
+            campaign_name=c["campaign_name"],
+            granted_tier=c["granted_tier"],
+            duration_days=c["duration_days"],
+            first_grant_at=c["first_grant_at"],
+            stats=CampaignStats(
+                total=c["stats"]["total"],
+                active=c["stats"]["active"],
+                converted=c["stats"]["converted"],
+                expired=c["stats"]["expired"],
+                revoked=c["stats"]["revoked"],
+                by_source=CampaignStatsBySource(**c["stats"]["by_source"]),
+            ),
+        )
+        for c in raw
+    ]
+    return CampaignListResponse(campaigns=campaigns)
+
+
+@router.get(
+    "/campaigns/{campaign_code}",
+    response_model=list[PromotionalGrantResponse],
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def list_grants_for_campaign(
+    campaign_code: str,
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
+):
+    grants = (
+        db.query(PromotionalGrant)
+        .filter(PromotionalGrant.campaign_code == campaign_code)
         .order_by(PromotionalGrant.created_at.desc())
         .all()
     )
