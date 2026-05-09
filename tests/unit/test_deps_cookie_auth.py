@@ -1,6 +1,5 @@
 """Test that deps.py reads tokens from cookies and checks jti revocation."""
 
-import pytest
 from unittest.mock import patch, MagicMock
 
 
