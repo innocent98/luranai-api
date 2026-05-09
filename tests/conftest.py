@@ -111,7 +111,7 @@ def super_admin_user(db_session):
 
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
     unique_prefix = uuid4().hex[:8]
-    email = f"{unique_prefix}@test.local"
+    email = f"{unique_prefix}@testdomain.com"
 
     admin = PlatformAdmin(
         email=email,
