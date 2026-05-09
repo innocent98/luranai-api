@@ -9,6 +9,9 @@ from app.api.deps import get_current_super_admin, get_db
 from app.db.models.promotional_grant import PromotionalGrant
 from app.schemas.platform_admin import PlatformAdminResponse
 from app.schemas.promotional_grant import (
+    AutoSignupConfigResponse,
+    AutoSignupConfigUpdateRequest,
+    AutoSignupConfigUpdateResponse,
     BulkGrantRequest,
     BulkGrantResponse,
     CampaignListResponse,
@@ -21,6 +24,10 @@ from app.schemas.promotional_grant import (
     PromotionalGrantResponse,
     RevokeGrantRequest,
     RevokeGrantResponse,
+)
+from app.services.auto_signup_grant_config_service import (
+    AutoSignupConfigValidationError,
+    AutoSignupGrantConfigService,
 )
 from app.services.promotional_grant_service import (
     PromoGrantNotFoundError,
@@ -221,3 +228,43 @@ def list_grants_for_campaign(
         .all()
     )
     return [PromotionalGrantResponse.model_validate(g) for g in grants]
+
+
+@router.get(
+    "/config/auto-signup",
+    response_model=AutoSignupConfigResponse,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def get_auto_signup_config(
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
+):
+    config = AutoSignupGrantConfigService(db).get()
+    return AutoSignupConfigResponse.model_validate(config)
+
+
+@router.put(
+    "/config/auto-signup",
+    response_model=AutoSignupConfigUpdateResponse,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def update_auto_signup_config(
+    request: AutoSignupConfigUpdateRequest,
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
+):
+    service = AutoSignupGrantConfigService(db)
+    try:
+        updated = service.update(
+            enabled=request.enabled,
+            campaign_code=request.campaign_code,
+            campaign_name=request.campaign_name,
+            granted_tier=request.granted_tier,
+            duration_days=request.duration_days,
+            valid_until=request.valid_until,
+            admin_id=current_admin.id,
+            admin_name=current_admin.email,
+        )
+    except AutoSignupConfigValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    return AutoSignupConfigUpdateResponse.model_validate(updated)

@@ -206,3 +206,47 @@ def test_list_campaigns_aggregates_stats(pg_client, super_admin_token, churned_t
     assert target["stats"]["total"] >= 2
     assert target["stats"]["active"] >= 2
     assert target["stats"]["by_source"]["admin_bulk"] >= 2
+
+
+def test_get_auto_signup_config_default_disabled(pg_client, super_admin_token):
+    response = pg_client.get(
+        "/api/v1/platform/promotional-grants/config/auto-signup",
+        headers={"Authorization": f"Bearer {super_admin_token}"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is False
+
+
+def test_put_auto_signup_config_enables_with_full_config(pg_client, super_admin_token):
+    response = pg_client.put(
+        "/api/v1/platform/promotional-grants/config/auto-signup",
+        json={
+            "enabled": True,
+            "campaign_code": "LAUNCH_2026",
+            "campaign_name": "Public Launch",
+            "granted_tier": "professional",
+            "duration_days": 90,
+            "valid_until": "2026-08-09T00:00:00+00:00",
+        },
+        headers={"Authorization": f"Bearer {super_admin_token}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["enabled"] is True
+    assert response.json()["campaign_code"] == "LAUNCH_2026"
+
+
+def test_put_auto_signup_config_rejects_enable_without_required_fields(pg_client, super_admin_token):
+    response = pg_client.put(
+        "/api/v1/platform/promotional-grants/config/auto-signup",
+        json={
+            "enabled": True,
+            "campaign_code": None,
+            "campaign_name": None,
+            "granted_tier": None,
+            "duration_days": None,
+            "valid_until": None,
+        },
+        headers={"Authorization": f"Bearer {super_admin_token}"},
+    )
+    assert response.status_code == 400
