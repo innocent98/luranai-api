@@ -1,16 +1,19 @@
 """Platform admin endpoints for promotional grants."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_super_admin, get_db
 from app.schemas.platform_admin import PlatformAdminResponse
 from app.schemas.promotional_grant import (
+    BulkGrantRequest,
+    BulkGrantResponse,
     PreviewRequest,
     PreviewResponse,
     PreviewTenantSummary,
 )
 from app.services.promotional_grant_service import (
+    PromoGrantValidationError,
     PromotionalGrantService,
 )
 from app.utils.http_rate_limiter import platform_admin_rate_limit
@@ -65,4 +68,46 @@ def preview_cohort(
         matched_count=len(matched),
         sample_tenants=sample,
         preview_token=token,
+    )
+
+
+@router.post(
+    "/",
+    response_model=BulkGrantResponse,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def bulk_create_grants(
+    request: BulkGrantRequest,
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
+):
+    service = PromotionalGrantService(db)
+    try:
+        tenant_ids = service.decode_preview_token(request.preview_token)
+    except PromoGrantValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+    if len(tenant_ids) > BULK_MAX_PER_REQUEST:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Bulk operations are capped at {BULK_MAX_PER_REQUEST} tenants per request",
+        )
+
+    result = service.bulk_create_grants(
+        tenant_ids=tenant_ids,
+        campaign_code=request.campaign_code,
+        campaign_name=request.campaign_name,
+        granted_tier=request.granted_tier,
+        duration_days=request.duration_days,
+        granted_by_admin_id=current_admin.id,
+        granted_by_admin_name=current_admin.email,
+        reason=request.reason,
+        force_replace_active=request.force_replace_active,
+    )
+    return BulkGrantResponse(
+        campaign_code=request.campaign_code,
+        granted=result["granted"],
+        skipped_already_granted=result["skipped_already_granted"],
+        failed=result["failed"],
+        grant_ids_sample=result["grant_ids_sample"],
     )

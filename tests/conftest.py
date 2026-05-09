@@ -201,7 +201,7 @@ def pg_client(db_session):
 @pytest.fixture(scope="function")
 def churned_tenants_factory(db_session):
     """Factory that creates N Tenant rows with specified churn status."""
-    from app.db.models.tenant import Tenant
+    from app.db.models.tenant import Tenant, TenantCapabilities
 
     def factory(count: int = 1, status: str = "trial_expired", churned_days_ago: int = 30):
         tenants = []
@@ -218,6 +218,11 @@ def churned_tenants_factory(db_session):
             db_session.add(tenant)
             tenants.append(tenant)
         db_session.flush()
+        for t in tenants:
+            db_session.refresh(t)
+            capabilities = TenantCapabilities(tenant_id=t.id)
+            db_session.add(capabilities)
+        db_session.commit()
         for t in tenants:
             db_session.refresh(t)
         return tenants
