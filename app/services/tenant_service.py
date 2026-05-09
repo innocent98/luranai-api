@@ -1,5 +1,6 @@
 """Tenant service for managing tenants, AI configs, and capabilities."""
 
+import logging
 import secrets
 from uuid import UUID
 
@@ -25,6 +26,8 @@ from app.utils.slugs import (
     is_valid_public_slug,
     normalize_public_slug,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class TenantService:
@@ -155,6 +158,30 @@ class TenantService:
 
         self.db.commit()
         self.db.refresh(db_tenant)
+
+        # Auto-grant on signup, if campaign is active.
+        # Failures here must NEVER block tenant creation.
+        from app.services.auto_signup_grant_config_service import AutoSignupGrantConfigService
+        from app.services.promotional_grant_service import PromotionalGrantService
+
+        try:
+            config_svc = AutoSignupGrantConfigService(self.db)
+            if config_svc.is_active():
+                cfg = config_svc.get()
+                PromotionalGrantService(self.db).create_grant(
+                    tenant_id=db_tenant.id,
+                    campaign_code=cfg.campaign_code,
+                    campaign_name=cfg.campaign_name,
+                    granted_tier=cfg.granted_tier,
+                    duration_days=cfg.duration_days,
+                    source="auto_signup",
+                    granted_by_admin_id=None,
+                    granted_by_admin_name="system",
+                    reason=f"Auto-grant on signup for campaign {cfg.campaign_code}",
+                )
+        except Exception as e:
+            logger.error(f"Auto-grant failed for tenant {db_tenant.id}: {e}")
+            # Swallow — tenant creation already succeeded; auto-grant is best-effort.
 
         # Return tenant with the generated API key (only shown once at creation)
         response = TenantResponse.model_validate(db_tenant)
