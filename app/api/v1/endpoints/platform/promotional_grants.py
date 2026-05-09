@@ -1,9 +1,12 @@
 """Platform admin endpoints for promotional grants."""
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_super_admin, get_db
+from app.db.models.promotional_grant import PromotionalGrant
 from app.schemas.platform_admin import PlatformAdminResponse
 from app.schemas.promotional_grant import (
     BulkGrantRequest,
@@ -11,8 +14,13 @@ from app.schemas.promotional_grant import (
     PreviewRequest,
     PreviewResponse,
     PreviewTenantSummary,
+    PromotionalGrantResponse,
+    RevokeGrantRequest,
+    RevokeGrantResponse,
 )
 from app.services.promotional_grant_service import (
+    PromoGrantNotFoundError,
+    PromoGrantStateError,
     PromoGrantValidationError,
     PromotionalGrantService,
 )
@@ -111,3 +119,50 @@ def bulk_create_grants(
         failed=result["failed"],
         grant_ids_sample=result["grant_ids_sample"],
     )
+
+
+@router.post(
+    "/{grant_id}/revoke",
+    response_model=RevokeGrantResponse,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def revoke_grant(
+    grant_id: UUID,
+    request: RevokeGrantRequest,
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
+):
+    service = PromotionalGrantService(db)
+    try:
+        result = service.revoke_grant(
+            grant_id=grant_id,
+            reason=request.reason,
+            admin_id=current_admin.id,
+            admin_name=current_admin.email,
+        )
+        return RevokeGrantResponse(**result)
+    except PromoGrantNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    except PromoGrantStateError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
+    except PromoGrantValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+
+
+@router.get(
+    "/tenant/{tenant_id}",
+    response_model=list[PromotionalGrantResponse],
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def list_grants_for_tenant(
+    tenant_id: UUID,
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
+):
+    grants = (
+        db.query(PromotionalGrant)
+        .filter(PromotionalGrant.tenant_id == tenant_id)
+        .order_by(PromotionalGrant.created_at.desc())
+        .all()
+    )
+    return [PromotionalGrantResponse.model_validate(g) for g in grants]
