@@ -988,6 +988,78 @@ async def send_channel_post_notifications(ctx: dict, post_id: str) -> None:
             db.close()
 
 
+async def process_promotional_grant_lifecycle(ctx: dict) -> dict:
+    """Daily worker: send reminders and process grant expiries.
+
+    Scheduled: Daily at 09:05 UTC (5 minutes after trial expiration reminders
+    to avoid lock contention).
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import and_, select
+
+    from app.db.models.promotional_grant import PromotionalGrant
+    from app.services.email_notification_service import EmailNotificationService
+    from app.services.promotional_grant_service import PromotionalGrantService
+
+    db = SessionLocal()
+    reminders_sent = 0
+    expired = 0
+    errors = 0
+    try:
+        email_service = EmailNotificationService(db)
+        promo_service = PromotionalGrantService(db)
+
+        # ---- Pass 1: reminders at T-14, T-7, T-1 ----
+        for days_remaining in [14, 7, 1]:
+            target_date = datetime.now(UTC) + timedelta(days=days_remaining)
+            date_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            date_end = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            query = select(PromotionalGrant).where(
+                and_(
+                    PromotionalGrant.status == "active",
+                    PromotionalGrant.grant_ends_at >= date_start,
+                    PromotionalGrant.grant_ends_at <= date_end,
+                )
+            )
+            grants = db.execute(query).scalars().all()
+            for grant in grants:
+                try:
+                    success = await email_service.send_promo_expiration_reminder(
+                        grant_id=grant.id, days_remaining=days_remaining
+                    )
+                    if success:
+                        reminders_sent += 1
+                except Exception as e:
+                    logger.error(f"Promo reminder error for grant {grant.id}: {e}")
+                    errors += 1
+
+        # ---- Pass 2: expire past-due grants ----
+        try:
+            expired_ids = promo_service.expire_grants_due()
+            expired = len(expired_ids)
+        except Exception as e:
+            logger.error(f"Promo expiry pass error: {e}")
+            errors += 1
+            expired_ids = []
+
+        for grant_id in expired_ids:
+            try:
+                await email_service.send_promo_expired_email(grant_id=grant_id)
+            except Exception as e:
+                logger.error(f"Promo expired email error for grant {grant_id}: {e}")
+                errors += 1
+
+        logger.info(
+            "Promo lifecycle complete. reminders={} expired={} errors={}",
+            reminders_sent, expired, errors,
+        )
+    finally:
+        db.close()
+
+    return {"reminders_sent": reminders_sent, "expired": expired, "errors": errors}
+
+
 # ARQ worker settings
 def get_redis_settings():
     """Get Redis settings from environment at runtime."""
@@ -1019,6 +1091,7 @@ class WorkerSettings:
         send_scheduled_platform_email_campaigns,
         aggregate_daily_metrics,
         send_channel_post_notifications,
+        process_promotional_grant_lifecycle,
     ]
     redis_settings = get_redis_settings()
 
@@ -1085,6 +1158,13 @@ class WorkerSettings:
             aggregate_daily_metrics,
             hour=1,
             minute=0,
+            run_at_startup=False,
+        ),
+        # Promotional grant lifecycle (reminders + expiry) - daily at 09:05 UTC
+        cron(
+            process_promotional_grant_lifecycle,
+            hour={9},
+            minute={5},
             run_at_startup=False,
         ),
     ]
