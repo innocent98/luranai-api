@@ -57,6 +57,10 @@ class TenantBase(BaseModel):
         default=False,
         description="Whether the business appears in the public directory",
     )
+    is_featured: bool = Field(
+        default=False,
+        description="Whether the business is pinned to the top of the public directory",
+    )
     status: TenantStatus = Field(default=TenantStatus.ACTIVE, description="Tenant status")
 
 
@@ -193,6 +197,16 @@ class TenantUpdate(BaseModel):
     public_slug: str | None = Field(None, min_length=3, max_length=50)
     status: TenantStatus | None = None
     category: TenantCategory | None = None
+
+
+class TenantFeaturedUpdate(BaseModel):
+    """Schema for toggling a tenant's `is_featured` flag (platform admin only)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    is_featured: bool = Field(
+        ..., description="True to pin to top of public directory, false to unpin"
+    )
 
 
 class TenantAIConfigUpdate(BaseModel):
