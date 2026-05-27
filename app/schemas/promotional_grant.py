@@ -25,6 +25,9 @@ class CohortFilter(BaseModel):
 class PreviewRequest(BaseModel):
     filters: CohortFilter
     exclude_already_granted: bool = True
+    # When true, also exclude tenants who EVER received any grant (any status).
+    # Use to prevent serial-recipients in win-back campaigns.
+    exclude_previously_granted: bool = False
 
 
 class PreviewTenantSummary(BaseModel):

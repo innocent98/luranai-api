@@ -72,6 +72,7 @@ def preview_cohort(
         subscription_statuses=request.filters.subscription_statuses,
         churned_within_days=request.filters.churned_within_days,
         exclude_already_granted=request.exclude_already_granted,
+        exclude_previously_granted=request.exclude_previously_granted,
     )
     sample = [
         PreviewTenantSummary(

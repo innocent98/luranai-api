@@ -344,13 +344,19 @@ class PromotionalGrantService:
         subscription_statuses: list[str],
         churned_within_days: int | None,
         exclude_already_granted: bool,
+        exclude_previously_granted: bool = False,
     ) -> list[Tenant]:
         if not subscription_statuses:
             return []
 
         query = self.db.query(Tenant).filter(Tenant.subscription_status.in_(subscription_statuses))
 
-        if churned_within_days is not None:
+        # Recency filter only meaningful for churned states. For active/trialing
+        # cohorts (thank-you/festive campaigns), the recency anchors don't exist
+        # in a useful form, so skip it.
+        churn_states = {"trial_expired", "canceled", "past_due"}
+        is_churn_cohort = any(s in churn_states for s in subscription_statuses)
+        if churned_within_days is not None and is_churn_cohort:
             cutoff = datetime.now(UTC) - timedelta(days=churned_within_days)
             # 'churned at' is approximated by trial_ends_at for trial_expired,
             # subscription_ends_at for canceled / past_due
@@ -361,13 +367,18 @@ class PromotionalGrantService:
                 )
             )
 
-        if exclude_already_granted:
-            granted_subq = (
+        if exclude_previously_granted:
+            # Strictest: exclude any tenant who has EVER received any grant.
+            ever_granted_subq = self.db.query(PromotionalGrant.tenant_id).subquery()
+            query = query.filter(~Tenant.id.in_(self.db.query(ever_granted_subq.c.tenant_id)))
+        elif exclude_already_granted:
+            # Default: exclude only tenants with an ACTIVE grant right now.
+            active_granted_subq = (
                 self.db.query(PromotionalGrant.tenant_id)
                 .filter(PromotionalGrant.status == "active")
                 .subquery()
             )
-            query = query.filter(~Tenant.id.in_(self.db.query(granted_subq.c.tenant_id)))
+            query = query.filter(~Tenant.id.in_(self.db.query(active_granted_subq.c.tenant_id)))
 
         return query.all()
 
