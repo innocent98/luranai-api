@@ -514,6 +514,48 @@ async def check_trial_expiration_3days(ctx: dict) -> dict:
         db.close()
 
 
+async def expire_lapsed_trials(ctx: dict) -> dict:
+    """Transition tenants from `trialing` to `trial_expired` once their trial ends.
+
+    Until this runs, the only path that flips the status is the lazy check in
+    `get_current_user` (deps.py) and the chat endpoint — meaning tenants who
+    never log back in after trial expiry stay `trialing` forever, which breaks
+    cohort filters, analytics, and the promotional-grants win-back wizard.
+
+    Scheduled: Daily at 9:05 AM UTC (just after the reminder run).
+    """
+    from sqlalchemy import update
+
+    from app.db.models.tenant import Tenant
+
+    db = SessionLocal()
+    try:
+        now = datetime.now(UTC)
+        stmt = (
+            update(Tenant)
+            .where(
+                Tenant.subscription_status.in_(["trialing", "trial"]),
+                Tenant.trial_ends_at.is_not(None),
+                Tenant.trial_ends_at < now,
+            )
+            .values(subscription_status="trial_expired", updated_at=now)
+        )
+        result = db.execute(stmt)
+        db.commit()
+        transitioned = result.rowcount  # type: ignore[attr-defined]
+        logger.info(
+            "expire_lapsed_trials: transitioned {} tenants to trial_expired",
+            transitioned,
+        )
+        return {"status": "success", "transitioned": transitioned}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error in expire_lapsed_trials: {e}")
+        return {"status": "error", "error": str(e)}
+    finally:
+        db.close()
+
+
 async def send_subscription_confirmations(ctx: dict) -> dict:
     """
     Send confirmation emails for successful payments in the last 10 minutes.
@@ -1087,6 +1129,7 @@ class WorkerSettings:
         auto_abandon_inactive_conversations,
         auto_resolve_stale_tickets,
         check_trial_expiration_3days,
+        expire_lapsed_trials,
         check_subscription_renewal_reminders,
         send_subscription_confirmations,
         send_payment_failure_emails,
@@ -1129,6 +1172,13 @@ class WorkerSettings:
             hour=9,
             minute=0,
             run_at_startup=False,
+        ),
+        # Transition expired trials from `trialing` to `trial_expired` - daily at 9:05 AM UTC
+        cron(
+            expire_lapsed_trials,
+            hour=9,
+            minute=5,
+            run_at_startup=True,  # backfill any stale rows on worker start
         ),
         # Check paid subscription auto-renewal reminders (7/3/1 days) - daily at 10 AM UTC
         cron(
