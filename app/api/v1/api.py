@@ -38,6 +38,7 @@ from app.api.v1.endpoints.platform import promotional_grants as platform_promoti
 from app.api.v1.endpoints.platform import reviews as platform_reviews
 from app.api.v1.endpoints.platform import subscriptions as platform_subscriptions
 from app.api.v1.endpoints.platform import tenants as platform_tenants
+from app.api.v1.endpoints.platform import test_fixtures as platform_test_fixtures
 from app.api.v1.endpoints.platform import users as platform_users
 
 api_router = APIRouter()
@@ -193,6 +194,13 @@ api_router.include_router(
     platform_promotional_grants.router,
     prefix="/platform/promotional-grants",
     tags=["platform: promotional grants"],
+)
+
+# Test-only fixture endpoints (env-gated — 404 outside test/local)
+api_router.include_router(
+    platform_test_fixtures.router,
+    prefix="/platform/test-fixtures",
+    tags=["platform: test fixtures"],
 )
 
 # Tenant self-management endpoints
