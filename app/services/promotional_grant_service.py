@@ -483,7 +483,7 @@ class PromotionalGrantService:
         granted = 0
         skipped = 0
         failed = 0
-        sample_ids: list[UUID] = []
+        granted_ids: list[UUID] = []
 
         for tenant_id in tenant_ids:
             # Use a nested transaction (SAVEPOINT) per tenant so that a rollback
@@ -521,8 +521,7 @@ class PromotionalGrantService:
                 # create_grant calls db.commit() internally, which releases the
                 # savepoint; no explicit sp.commit() needed here.
                 granted += 1
-                if len(sample_ids) < 10:
-                    sample_ids.append(grant.id)
+                granted_ids.append(grant.id)
             except IntegrityError:
                 sp.rollback()
                 skipped += 1
@@ -534,5 +533,6 @@ class PromotionalGrantService:
             "granted": granted,
             "skipped_already_granted": skipped,
             "failed": failed,
-            "grant_ids_sample": sample_ids,
+            "granted_ids": granted_ids,
+            "grant_ids_sample": granted_ids[:10],
         }

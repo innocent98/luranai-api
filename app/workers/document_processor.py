@@ -1104,6 +1104,46 @@ async def process_promotional_grant_lifecycle(ctx: dict) -> dict:
     return {"reminders_sent": reminders_sent, "expired": expired, "errors": errors}
 
 
+async def send_promo_granted_emails_batch(ctx: dict, grant_ids: list[str]) -> dict:
+    """Send `you've been granted Pro` emails for a batch of grants.
+
+    Enqueued by the bulk-grant endpoint right after grants are created. The
+    underlying send is idempotent (7-day window), so retries / duplicate
+    enqueues are safe.
+    """
+    import uuid
+
+    from app.services.email_notification_service import EmailNotificationService
+
+    db = SessionLocal()
+    sent = 0
+    failed = 0
+    try:
+        email_service = EmailNotificationService(db)
+        for gid in grant_ids:
+            try:
+                ok = await email_service.send_promo_granted_email(grant_id=uuid.UUID(gid))
+                if ok:
+                    sent += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                logger.error(f"send_promo_granted_emails_batch: failed for {gid}: {e}")
+                failed += 1
+        logger.info(
+            "send_promo_granted_emails_batch: sent {}, failed {}, total {}",
+            sent,
+            failed,
+            len(grant_ids),
+        )
+        return {"status": "success", "sent": sent, "failed": failed, "total": len(grant_ids)}
+    except Exception as e:
+        logger.error(f"send_promo_granted_emails_batch error: {e}")
+        return {"status": "error", "error": str(e), "sent": sent, "failed": failed}
+    finally:
+        db.close()
+
+
 # ARQ worker settings
 def get_redis_settings():
     """Get Redis settings from environment at runtime."""
@@ -1137,6 +1177,7 @@ class WorkerSettings:
         aggregate_daily_metrics,
         send_channel_post_notifications,
         process_promotional_grant_lifecycle,
+        send_promo_granted_emails_batch,
     ]
     redis_settings = get_redis_settings()
 
