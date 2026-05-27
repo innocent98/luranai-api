@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_super_admin, get_db
 from app.db.models.promotional_grant import PromotionalGrant
+from app.db.models.tenant import Tenant
 from app.schemas.platform_admin import PlatformAdminResponse
 from app.schemas.promotional_grant import (
     AutoSignupConfigResponse,
@@ -95,7 +96,7 @@ def preview_cohort(
     response_model=BulkGrantResponse,
     dependencies=[Depends(platform_admin_rate_limit)],
 )
-def bulk_create_grants(
+async def bulk_create_grants(
     request: BulkGrantRequest,
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
@@ -123,6 +124,31 @@ def bulk_create_grants(
         reason=request.reason,
         force_replace_active=request.force_replace_active,
     )
+
+    # Enqueue 'you've been granted Pro' emails in the background.
+    # The send is idempotent (7-day window) so duplicate enqueues are safe.
+    granted_ids: list = result.get("granted_ids", [])
+    if granted_ids:
+        try:
+            from arq import create_pool
+            from arq.connections import RedisSettings
+
+            from app.core.config import settings
+
+            redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+            await redis.enqueue_job(
+                "send_promo_granted_emails_batch",
+                [str(gid) for gid in granted_ids],
+            )
+        except Exception as e:
+            # Don't fail the API call if the queue is unavailable; the grants
+            # are already committed. If the queue is down, granted emails are
+            # not sent — re-running the campaign on the same cohort will pick
+            # them up (send_promo_granted_email is idempotent over 7 days).
+            from loguru import logger
+
+            logger.error(f"Failed to enqueue promo granted emails: {e}")
+
     return BulkGrantResponse(
         campaign_code=request.campaign_code,
         granted=result["granted"],
@@ -221,13 +247,26 @@ def list_grants_for_campaign(
     db: Session = Depends(get_db),
     current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
 ):
-    grants = (
-        db.query(PromotionalGrant)
+    rows = (
+        db.query(PromotionalGrant, Tenant.name, Tenant.display_name)
+        .join(Tenant, Tenant.id == PromotionalGrant.tenant_id)
         .filter(PromotionalGrant.campaign_code == campaign_code)
         .order_by(PromotionalGrant.created_at.desc())
         .all()
     )
-    return [PromotionalGrantResponse.model_validate(g) for g in grants]
+    return [
+        PromotionalGrantResponse.model_validate(
+            {
+                **{
+                    col.name: getattr(grant, col.name)
+                    for col in PromotionalGrant.__table__.columns
+                },
+                "tenant_name": tenant_name,
+                "tenant_display_name": tenant_display_name,
+            }
+        )
+        for grant, tenant_name, tenant_display_name in rows
+    ]
 
 
 @router.get(

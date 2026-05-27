@@ -70,6 +70,8 @@ class BulkGrantResponse(BaseModel):
 class PromotionalGrantResponse(BaseModel):
     id: UUID
     tenant_id: UUID
+    tenant_name: str | None = None
+    tenant_display_name: str | None = None
     campaign_code: str
     campaign_name: str | None
     granted_tier: GrantedTier
