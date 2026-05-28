@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
 from app.db.models.conversation import MessageRole, SessionStatus
 from app.db.models.visitor import VisitorSource
+from app.schemas.explore import SourceMeta, TenantCategory
 
 
 class PublicBusinessProfileResponse(BaseModel):
@@ -42,6 +43,8 @@ class PublicBusinessDirectoryItem(BaseModel):
     support_subheadline: str | None = None
     widget_logo_url: str | None = None
     is_featured: bool = False
+    category: TenantCategory | None = None
+    created_at: datetime
 
 
 class PublicBusinessDirectoryResponse(BaseModel):
@@ -68,6 +71,11 @@ class VisitorBootstrapRequest(BaseModel):
     email: EmailStr | None = None
     entry_point: VisitorSource = VisitorSource.WIDGET
     metadata: dict[str, Any] | None = None
+    # Accepted here to avoid 422 on clients that send them; bootstrap doesn't create
+    # a ConversationSession, so these are stored only when a session is later created
+    # via the chat route. Forward-compat — keep until clients are guaranteed not to send.
+    source: str | None = None
+    source_meta: SourceMeta | None = None
 
     @model_validator(mode="after")
     def validate_workspace_reference(self) -> "VisitorBootstrapRequest":
@@ -135,6 +143,6 @@ class VisitorEnrichmentUpdate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    name: str | None = Field(None, max_length=255)
-    email: str | None = Field(None, max_length=255)
-    phone: str | None = Field(None, max_length=50)
+    name: str | None = Field(default=None, max_length=255)
+    email: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=50)

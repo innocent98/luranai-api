@@ -130,6 +130,9 @@ sudo chown $USER:$USER /opt/luran-staging
 cd /opt/luran
 nano .env
 # Add your production environment variables
+# CRITICAL: lock down permissions — /opt is world-readable by default
+chmod 600 .env
+ls -la .env
 
 cd /opt/luran-staging
 nano .env
@@ -189,9 +192,9 @@ Use GitHub environments so the same workflow can deploy both stacks safely:
 ```bash
 # On your VPS
 cd /opt/luran
-docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-docker compose -f docker-compose.yml -f docker-compose.prod.yml exec api alembic upgrade head
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml exec api alembic upgrade head
 ```
 
 For first-time staging bootstrap, do the same from `/opt/luran-staging` after the workflow copies the files there.
@@ -243,16 +246,16 @@ Manual rollback:
 ```bash
 # SSH into VPS
 cd /opt/luran
-docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+docker compose -f docker-compose.prod.yml down
 docker tag luran-api:previous luran-api:latest
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml up -d
 ```
 
 ## To confirm deployment on VPS, run these once:
 ```bash
 cd /opt/luran
-docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
-docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=100 api
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml logs --tail=100 api
 curl -sS http://localhost:8000/api/v1/health
 ```
 
@@ -287,8 +290,8 @@ docker inspect luran-api:latest --format='{{.Created}}'
 
 1. **Always test locally first:**
    ```bash
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml build
-   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+   docker compose -f docker-compose.prod.yml build
+   docker compose -f docker-compose.prod.yml up -d
    curl http://localhost:8000/api/v1/health
    ```
 

@@ -249,6 +249,64 @@ rclone ls dropbox:LuranBackups/
 
 ---
 
+### Backblaze B2
+
+Backblaze B2 is the cheapest durable object storage we use — roughly 1/4 the price of S3, and free egress to Cloudflare via the Bandwidth Alliance. Same rclone pattern as Google Drive/Dropbox.
+
+**1. Install rclone** (same as above — skip if done).
+
+**2. Create a B2 application key:**
+
+In the Backblaze console: **Account → Application Keys → "Add a New Application Key"**. Write down the `keyID` and `applicationKey`.
+
+**3. Configure rclone for B2:**
+
+```bash
+rclone config
+
+# Follow prompts:
+# - Choose "n" for new remote
+# - Name: b2
+# - Storage: Backblaze B2 (option varies by rclone version — search for "b2")
+# - Account ID / key ID: paste the keyID
+# - Application key: paste the applicationKey
+# - Endpoint: leave blank
+# - Edit advanced config: No
+```
+
+**4. Create the bucket (via rclone or the console):**
+
+```bash
+rclone mkdir b2:luran-backups
+```
+
+**5. Configure environment variables:**
+
+Add to `.env` file:
+```bash
+ENABLE_CLOUD_BACKUP=true
+CLOUD_PROVIDER=b2
+B2_BUCKET=luran-backups
+# Optional — override if your rclone remote isn't named "b2":
+# B2_RCLONE_REMOTE=backblaze
+```
+
+**6. Test backup:**
+
+```bash
+./scripts/backup_db.sh
+```
+
+**Verify upload:**
+
+```bash
+rclone ls b2:luran-backups/
+```
+
+**Lifecycle rules (recommended):** In the Backblaze console, set a bucket-level lifecycle policy to hide files after N days and delete after M days. This complements the script's local `RETENTION_DAYS` — use both, since the script can only prune what's on the host.
+
+---
+
 ### AWS S3
 
 **1. Install AWS CLI:**
@@ -366,6 +424,18 @@ aws s3 ls s3://luran-db-backups/backups/2026/01/
 
 # Download specific backup
 aws s3 cp s3://luran-db-backups/backups/2026/01/luran_backup_20260124_140530.sql.gz ./backups/
+
+# Restore
+./scripts/restore_db.sh ./backups/luran_backup_20260124_140530.sql.gz
+```
+
+**Download from Backblaze B2:**
+```bash
+# List backups
+rclone ls b2:luran-backups/2026/01/
+
+# Download specific backup
+rclone copy b2:luran-backups/2026/01/luran_backup_20260124_140530.sql.gz ./backups/
 
 # Restore
 ./scripts/restore_db.sh ./backups/luran_backup_20260124_140530.sql.gz
@@ -564,6 +634,9 @@ rclone copy gdrive:LuranBackups/ ./backups/ --include "*.sql.gz" --max-age 7d
 
 # Dropbox
 rclone copy dropbox:LuranBackups/ ./backups/ --include "*.sql.gz" --max-age 7d
+
+# Backblaze B2
+rclone copy b2:luran-backups/ ./backups/ --include "*.sql.gz" --max-age 7d
 
 # AWS S3
 aws s3 sync s3://luran-db-backups/backups/ ./backups/ --exclude "*" --include "*.sql.gz"

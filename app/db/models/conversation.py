@@ -7,6 +7,7 @@ from datetime import datetime
 from sqlalchemy import JSON, DateTime
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy import ForeignKey, Index, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.encryption import EncryptedJSON, EncryptedString
@@ -71,6 +72,7 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
         Index("ix_conversation_sessions_user", "tenant_id", "user_identifier"),
         Index("ix_conversation_sessions_visitor", "visitor_id", "last_message_at"),
         Index("ix_conversation_sessions_customer", "customer_user_id", "last_message_at"),
+        Index("ix_conversation_sessions_source_created", "source", "created_at"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -102,6 +104,17 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         index=True,
         comment="Authenticated B2C customer linked to this conversation",
+    )
+    source: Mapped[str | None] = mapped_column(
+        String(32),
+        nullable=True,
+        comment="Attribution source — validated against ConversationSource enum at API boundary",
+    )
+    # JSONB on Postgres (GIN-indexable, containment operators) — JSON on SQLite for tests
+    source_meta: Mapped[dict | None] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"),
+        nullable=True,
+        comment="Optional attribution context (category_filter, position, page, etc.)",
     )
     status: Mapped[SessionStatus] = mapped_column(
         SQLEnum(SessionStatus, name="session_status"),

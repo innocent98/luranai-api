@@ -4,7 +4,10 @@ Subscription Plan Model
 This module defines the SubscriptionPlan model for database-driven pricing configuration.
 """
 
-from sqlalchemy import JSON, Boolean, Column, Index, Integer, String
+from typing import Any
+
+from sqlalchemy import JSON, Boolean, Index, Integer, String
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
 
@@ -19,46 +22,60 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "subscription_plans"
 
     # Identification
-    tier = Column(String, unique=True, nullable=False)
-    display_name = Column(String, nullable=False)
-    description = Column(String, nullable=False)
+    tier: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str] = mapped_column(String, nullable=False)
 
     # Pricing (all prices in kobo)
-    monthly_price_kobo = Column(Integer, nullable=False)
-    annual_price_kobo = Column(Integer, nullable=False)
+    monthly_price_kobo: Mapped[int] = mapped_column(Integer, nullable=False)
+    annual_price_kobo: Mapped[int] = mapped_column(Integer, nullable=False)
 
     # Capabilities (matching TIER_CONFIGS structure)
-    can_access_analytics = Column(Boolean, nullable=False, default=False)
-    max_knowledge_sources = Column(Integer, nullable=True)  # None = unlimited
-    can_use_url_sources = Column(Boolean, nullable=False, default=False)
-    max_knowledge_mb = Column(Integer, nullable=True)  # None = unlimited
-    max_conversations_per_month = Column(Integer, nullable=True)  # None = unlimited
-    max_team_members = Column(Integer, nullable=True)  # None = unlimited
-    max_response_tokens = Column(Integer, nullable=False)
-    max_automation_actions = Column(Integer, nullable=True)  # None = unlimited
-    max_automation_executions_per_month = Column(Integer, nullable=True)  # None = unlimited
-    can_use_ai_chat_automation = Column(Boolean, nullable=False, default=False)
-    can_use_lookup_chains = Column(Boolean, nullable=False, default=False)
+    can_access_analytics: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    max_knowledge_sources: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )  # None = unlimited
+    can_use_url_sources: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    max_knowledge_mb: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = unlimited
+    max_conversations_per_month: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )  # None = unlimited
+    max_team_members: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = unlimited
+    max_response_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    max_automation_actions: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )  # None = unlimited
+    max_automation_executions_per_month: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )  # None = unlimited
+    can_use_ai_chat_automation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    can_use_lookup_chains: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     # Flow capabilities
-    max_flows = Column(Integer, nullable=True)  # None = unlimited
-    max_nodes_per_flow = Column(Integer, nullable=True)  # None = unlimited
-    can_use_webhooks = Column(Boolean, nullable=False, default=False)
-    max_webhooks_per_flow = Column(Integer, nullable=True)  # None = unlimited
+    max_flows: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = unlimited
+    max_nodes_per_flow: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )  # None = unlimited
+    can_use_webhooks: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    max_webhooks_per_flow: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )  # None = unlimited
 
     # Marketing
-    features = Column(JSON, nullable=False, default=list)  # List of feature descriptions
+    features: Mapped[list[str]] = mapped_column(
+        JSON, nullable=False, default=list
+    )  # List of feature descriptions
 
     # Status
-    is_active = Column(Boolean, nullable=False, default=True)
-    sort_order = Column(Integer, nullable=False, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     __table_args__ = (
         Index("ix_subscription_plans_tier", "tier", unique=True),
         Index("ix_subscription_plans_active_sort", "is_active", "sort_order"),
     )
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert plan to dictionary representation."""
         return {
             "id": str(self.id),
@@ -93,7 +110,7 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
-    def get_capabilities(self) -> dict:
+    def get_capabilities(self) -> dict[str, Any]:
         """
         Get capabilities dict matching TIER_CONFIGS structure.
 

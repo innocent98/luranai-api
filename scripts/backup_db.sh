@@ -181,9 +181,30 @@ if [ "$ENABLE_CLOUD_BACKUP" = "true" ]; then
             fi
             ;;
 
+        "b2")
+            # Backblaze B2 Upload (using rclone)
+            # Configure once: rclone config → new remote → "Backblaze B2" → paste keyID + applicationKey
+            if [ -z "${B2_BUCKET:-}" ]; then
+                log_error "B2_BUCKET not set in environment variables"
+            else
+                B2_REMOTE="${B2_RCLONE_REMOTE:-b2}"
+                log_info "Uploading to Backblaze B2: ${B2_REMOTE}:${B2_BUCKET}/${DATE_PATH}/"
+
+                if command -v rclone &> /dev/null; then
+                    rclone mkdir "${B2_REMOTE}:${B2_BUCKET}/${DATE_PATH}" 2>/dev/null || true
+                    rclone copy "${BACKUP_PATH}" "${B2_REMOTE}:${B2_BUCKET}/${DATE_PATH}/" --progress
+                    log_success "Uploaded to Backblaze B2"
+                else
+                    log_warning "rclone not installed. Skipping Backblaze B2 upload."
+                    log_info "Install: brew install rclone (macOS) or apt install rclone (Linux)"
+                    log_info "Setup: rclone config (choose Backblaze B2)"
+                fi
+            fi
+            ;;
+
         *)
             log_warning "Unknown cloud provider: ${CLOUD_PROVIDER}"
-            log_info "Supported providers: s3, gdrive, dropbox"
+            log_info "Supported providers: s3, gdrive, dropbox, b2"
             ;;
     esac
 fi

@@ -196,9 +196,7 @@ def _post_flow_input(client: TestClient, session_id: str, user_identifier: str, 
     return response.json()
 
 
-def test_action_call_failure_routes_to_failure_end_message(
-    client: TestClient, db: Session, mocker
-):
+def test_action_call_failure_routes_to_failure_end_message(client: TestClient, db: Session, mocker):
     tenant = _create_tenant_base(db, name_prefix="flow_failure")
     action = _add_action(
         db,
@@ -258,7 +256,11 @@ def test_action_call_failure_routes_to_failure_end_message(
             return_value=SimpleNamespace(
                 id=uuid4(),
                 status=ActionExecutionStatus.FAILED,
-                normalized_output={"status_code": 404, "success": False, "data": {"detail": "Order not found"}},
+                normalized_output={
+                    "status_code": 404,
+                    "success": False,
+                    "data": {"detail": "Order not found"},
+                },
                 response_body={"detail": "Order not found"},
                 error_message="Provider returned HTTP 404",
                 response_status_code=404,
@@ -276,7 +278,9 @@ def test_action_call_failure_routes_to_failure_end_message(
 
 def test_automation_action_creation_respects_plan_limit(db: Session):
     tenant = _create_tenant_base(db, name_prefix="automation_limit")
-    capabilities = db.query(TenantCapabilities).filter(TenantCapabilities.tenant_id == tenant.id).one()
+    capabilities = (
+        db.query(TenantCapabilities).filter(TenantCapabilities.tenant_id == tenant.id).one()
+    )
     capabilities.max_automation_actions = 2
     db.commit()
 
@@ -300,7 +304,9 @@ def test_automation_action_creation_respects_plan_limit(db: Session):
 @pytest.mark.asyncio
 async def test_automation_execution_respects_monthly_plan_limit(db: Session):
     tenant = _create_tenant_base(db, name_prefix="automation_execution_limit")
-    capabilities = db.query(TenantCapabilities).filter(TenantCapabilities.tenant_id == tenant.id).one()
+    capabilities = (
+        db.query(TenantCapabilities).filter(TenantCapabilities.tenant_id == tenant.id).one()
+    )
     capabilities.max_automation_executions_per_month = 1
     db.commit()
 
@@ -339,9 +345,7 @@ async def test_automation_execution_respects_monthly_plan_limit(db: Session):
     assert "monthly automation execution limit reached" in (execution.error_message or "").lower()
 
 
-def test_action_call_success_interpolates_end_message(
-    client: TestClient, db: Session, mocker
-):
+def test_action_call_success_interpolates_end_message(client: TestClient, db: Session, mocker):
     tenant = _create_tenant_base(db, name_prefix="flow_success")
     action = _add_action(
         db,
@@ -503,7 +507,9 @@ def test_approval_required_action_routes_to_escalation_path(
 @pytest.mark.asyncio
 async def test_lookup_chain_collects_lookup_input_before_target_action(db: Session, mocker):
     tenant = _create_tenant_base(db, name_prefix="lookup_chain")
-    capabilities = db.query(TenantCapabilities).filter(TenantCapabilities.tenant_id == tenant.id).one()
+    capabilities = (
+        db.query(TenantCapabilities).filter(TenantCapabilities.tenant_id == tenant.id).one()
+    )
     capabilities.can_use_lookup_chains = True
     db.commit()
 
@@ -608,7 +614,9 @@ async def test_lookup_chain_collects_lookup_input_before_target_action(db: Sessi
 @pytest.mark.asyncio
 async def test_ai_chat_automation_respects_plan_capability_gate(db: Session):
     tenant = _create_tenant_base(db, name_prefix="ai_chat_gate")
-    capabilities = db.query(TenantCapabilities).filter(TenantCapabilities.tenant_id == tenant.id).one()
+    capabilities = (
+        db.query(TenantCapabilities).filter(TenantCapabilities.tenant_id == tenant.id).one()
+    )
     capabilities.can_use_ai_chat_automation = False
     db.commit()
 
@@ -650,7 +658,9 @@ async def test_ai_chat_automation_respects_plan_capability_gate(db: Session):
 @pytest.mark.asyncio
 async def test_lookup_chain_requires_lookup_chain_capability(db: Session):
     tenant = _create_tenant_base(db, name_prefix="lookup_chain_gate")
-    capabilities = db.query(TenantCapabilities).filter(TenantCapabilities.tenant_id == tenant.id).one()
+    capabilities = (
+        db.query(TenantCapabilities).filter(TenantCapabilities.tenant_id == tenant.id).one()
+    )
     capabilities.can_use_lookup_chains = False
     db.commit()
 

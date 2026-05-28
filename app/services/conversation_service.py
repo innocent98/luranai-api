@@ -16,6 +16,7 @@ from app.schemas.conversation import (
     SessionResponse,
 )
 from app.schemas.visitor import VisitorIdentitySummary
+from app.utils.attribution import coerce_source, normalize_source_meta
 from app.utils.datetime import utcnow_naive
 
 
@@ -54,6 +55,7 @@ class ConversationService:
         include_messages: bool = False,
     ) -> SessionResponse | SessionDetailResponse:
         """Convert DB session model to API response with visitor identity."""
+        response: SessionResponse | SessionDetailResponse
         if include_messages:
             response = SessionDetailResponse.model_validate(session)
         else:
@@ -80,6 +82,8 @@ class ConversationService:
             status=SessionStatus.ACTIVE,
             meta=session_data.meta or {},
             last_message_at=utcnow_naive(),
+            source=coerce_source(session_data.source),
+            source_meta=normalize_source_meta(session_data.source_meta),
         )
 
         self.db.add(db_session)
@@ -301,7 +305,7 @@ class ConversationService:
         session_id: UUID,
         role: MessageRole,
         content: str,
-        retrieved_chunk_ids: list[UUID] | None = None,
+        retrieved_chunk_ids: list[UUID] | list[str] | None = None,
         token_count: int | None = None,
         meta: dict | None = None,
     ) -> MessageResponse:

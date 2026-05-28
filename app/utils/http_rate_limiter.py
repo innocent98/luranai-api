@@ -10,21 +10,21 @@ from app.core.logger import log
 from app.utils.rate_limiter import RedisRateLimiter
 
 # Rate limiters for different endpoint types
-# Staging needs higher limits to accommodate E2E test runs from shared CI IPs.
-_is_staging = settings.ENVIRONMENT == "staging"
+# Staging and development need higher limits to accommodate E2E test runs.
+_is_relaxed = settings.ENVIRONMENT in ("staging", "development")
 
 # Regular user login - moderate protection
 auth_rate_limiter = RedisRateLimiter(
     key_prefix="http_auth",
-    max_calls=50 if _is_staging else 5,
-    window_seconds=600,  # 5 per 10 minutes (better brute force protection)
+    max_calls=50 if _is_relaxed else 5,
+    window_seconds=600,  # 5 per 10 minutes in prod (brute force protection)
 )
 
 # Platform admin login - stricter protection (more sensitive endpoint)
 platform_admin_auth_rate_limiter = RedisRateLimiter(
     key_prefix="http_platform_admin_auth",
-    max_calls=30 if _is_staging else 3,
-    window_seconds=900,  # 3 per 15 minutes (stricter for admin access)
+    max_calls=30 if _is_relaxed else 3,
+    window_seconds=900,  # 3 per 15 minutes in prod (stricter for admin access)
 )
 
 chat_rate_limiter = RedisRateLimiter(

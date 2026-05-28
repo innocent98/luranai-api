@@ -45,6 +45,8 @@ ENABLE_CLOUD_BACKUP="$(_env_val ENABLE_CLOUD_BACKUP)"
 CLOUD_PROVIDER="$(_env_val CLOUD_PROVIDER)"
 GDRIVE_FOLDER="$(_env_val GDRIVE_FOLDER)"
 AWS_S3_BUCKET="$(_env_val AWS_S3_BUCKET)"
+B2_BUCKET="$(_env_val B2_BUCKET)"
+B2_RCLONE_REMOTE="$(_env_val B2_RCLONE_REMOTE)"
 
 # ---- Pre-flight checks ----
 if [ -z "$DB_USER" ] || [ -z "$DB_NAME" ]; then
@@ -103,6 +105,22 @@ if [ "${ENABLE_CLOUD_BACKUP:-false}" = "true" ]; then
                     "s3://${AWS_S3_BUCKET:-luran-backups}/backups/${DATE_PATH}/${BACKUP_FILE}.gz" 2>/dev/null \
                     && echo "[$(date -u +%FT%TZ)] Uploaded to S3" \
                     || echo "[$(date -u +%FT%TZ)] WARNING: S3 upload failed"
+            fi
+            ;;
+        b2)
+            # Backblaze B2 via rclone. Configure once with: rclone config (choose "Backblaze B2")
+            # Expected env: B2_BUCKET. Optional B2_RCLONE_REMOTE (defaults to "b2").
+            if command -v rclone &>/dev/null; then
+                B2_REMOTE="${B2_RCLONE_REMOTE:-b2}"
+                rclone mkdir "${B2_REMOTE}:${B2_BUCKET:-luran-backups}/${DATE_PATH}" 2>/dev/null || true
+                if rclone copy "${BACKUP_DIR}/${BACKUP_FILE}.gz" \
+                    "${B2_REMOTE}:${B2_BUCKET:-luran-backups}/${DATE_PATH}/" --verbose 2>&1; then
+                    echo "[$(date -u +%FT%TZ)] Uploaded to Backblaze B2"
+                else
+                    echo "[$(date -u +%FT%TZ)] WARNING: Backblaze B2 upload failed"
+                fi
+            else
+                echo "[$(date -u +%FT%TZ)] WARNING: rclone not installed, skipping Backblaze B2 upload"
             fi
             ;;
     esac

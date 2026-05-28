@@ -1,18 +1,19 @@
 """Service layer for visitor identity and visitor session bootstrap."""
 
 import secrets
+from datetime import UTC, datetime, timedelta
 from math import ceil
-from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import asc, case, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.encryption import hash_for_lookup
 from app.db.models.conversation import Message, SessionStatus
 from app.db.models.tenant import Tenant, TenantStatus
 from app.db.models.visitor import DeviceType, Visitor, VisitorSession, VisitorSource
+from app.schemas.explore import TenantCategory
 from app.schemas.visitor import (
     PublicBusinessDirectoryItem,
     PublicBusinessDirectoryResponse,
@@ -24,6 +25,7 @@ from app.schemas.visitor import (
     VisitorEnrichmentUpdate,
     VisitorProfileSummary,
 )
+from app.utils.categories import coerce_tenant_category
 from app.utils.datetime import utcnow_aware
 
 
@@ -85,21 +87,29 @@ class VisitorService:
 
     def list_public_businesses(
         self,
+        *,
         query: str | None = None,
         page: int = 1,
         page_size: int = 24,
+        category: TenantCategory | None = None,
     ) -> PublicBusinessDirectoryResponse:
         """Return publicly listed businesses for customer search and discovery."""
-        stmt = select(Tenant).where(
+        thirty_days_ago = datetime.now(UTC) - timedelta(days=30)
+
+        normalized_query = (query or "").strip()
+        normalized_page = max(1, page)
+        normalized_page_size = max(1, min(page_size, 100))
+
+        base_filters = [
             Tenant.is_publicly_listed.is_(True),
             Tenant.public_slug.is_not(None),
             Tenant.status == TenantStatus.ACTIVE,
-        )
-
-        normalized_query = (query or "").strip()
+        ]
+        if category is not None:
+            base_filters.append(Tenant.category == category)
         if normalized_query:
             search = f"%{normalized_query.lower()}%"
-            stmt = stmt.where(
+            base_filters.append(
                 or_(
                     func.lower(Tenant.display_name).like(search),
                     func.lower(func.coalesce(Tenant.description, "")).like(search),
@@ -108,20 +118,29 @@ class VisitorService:
                 )
             )
 
-        normalized_page = max(1, page)
-        normalized_page_size = max(1, min(page_size, 100))
+        # Portable CASE expression: 1 for tenants created within the last 30 days, else 0.
+        is_recent = case(
+            (Tenant.created_at >= thirty_days_ago, 1),
+            else_=0,
+        )
 
-        total = self.db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
+        count_stmt = select(func.count()).select_from(
+            select(Tenant).where(*base_filters).subquery()
+        )
+        total = self.db.execute(count_stmt).scalar_one()
 
-        stmt = (
-            stmt.order_by(
-                Tenant.is_featured.desc(),
-                Tenant.display_name.asc(),
+        page_stmt = (
+            select(Tenant)
+            .where(*base_filters)
+            .order_by(
+                desc(Tenant.is_featured),
+                desc(is_recent),
+                asc(Tenant.display_name),
             )
             .offset((normalized_page - 1) * normalized_page_size)
             .limit(normalized_page_size)
         )
-        tenants = list(self.db.execute(stmt).scalars())
+        tenants = list(self.db.execute(page_stmt).scalars())
 
         return PublicBusinessDirectoryResponse(
             businesses=[
@@ -134,6 +153,8 @@ class VisitorService:
                     support_subheadline=tenant.support_subheadline,
                     widget_logo_url=tenant.widget_logo_url,
                     is_featured=tenant.is_featured,
+                    category=coerce_tenant_category(tenant.category),
+                    created_at=tenant.created_at,
                 )
                 for tenant in tenants
             ],

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass
-from types import SimpleNamespace
 from typing import Any
 from uuid import UUID
 
@@ -18,6 +17,7 @@ from app.db.models.automation import (
     TenantActionStatus,
 )
 from app.schemas.conversation import MessageResponse
+from app.schemas.rag import PromptComponents
 from app.db.models.tenant import TenantCapabilities
 from app.services.automation_service import AutomationService
 from app.services.conversation_service import ConversationService
@@ -832,7 +832,12 @@ class ChatAutomationOrchestrator:
             )
 
         rag_service = RAGService(self.db)
-        prompt = SimpleNamespace(full_prompt=prompt_text, prompt_tokens=0)
+        prompt = PromptComponents(
+            full_prompt=prompt_text,
+            knowledge_chunks_used=0,
+            history_turns_used=0,
+            prompt_tokens=0,
+        )
         try:
             response_text, _, is_api_error = await asyncio.wait_for(
                 rag_service.generate_ai_response(
@@ -1019,7 +1024,12 @@ class ChatAutomationOrchestrator:
             )
 
         rag_service = RAGService(self.db)
-        prompt = SimpleNamespace(full_prompt=prompt_text, prompt_tokens=0)
+        prompt = PromptComponents(
+            full_prompt=prompt_text,
+            knowledge_chunks_used=0,
+            history_turns_used=0,
+            prompt_tokens=0,
+        )
         try:
             response_text, _, is_api_error = await asyncio.wait_for(
                 rag_service.generate_ai_response(

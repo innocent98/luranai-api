@@ -1,6 +1,5 @@
 """Tests for updated security utilities."""
 
-import pytest
 from unittest.mock import MagicMock
 
 

@@ -2,7 +2,7 @@
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 import pytest
 from cryptography.fernet import Fernet
@@ -23,7 +23,7 @@ def _set_encryption_env(monkeypatch):
 def encryption_db():
     engine = create_engine("sqlite:///:memory:", echo=False)
     Base.metadata.create_all(bind=engine)
-    Session = sessionmaker(bind=engine)
+    Session = sessionmaker(bind=engine)  # noqa: N806
     session = Session()
     yield session
     session.close()
@@ -43,8 +43,14 @@ SAMPLE_PAYSTACK_DATA = {
 }
 
 ALLOWED_KEYS = {
-    "reference", "amount", "currency", "status", "plan_code",
-    "paid_at", "channel", "transaction_date",
+    "reference",
+    "amount",
+    "currency",
+    "status",
+    "plan_code",
+    "paid_at",
+    "channel",
+    "transaction_date",
 }
 
 
@@ -62,8 +68,8 @@ class TestPaymentEncryption:
             tier="lite",
             billing_cycle="monthly",
             authorization_code="AUTH_secret_code",
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
         encryption_db.add(txn)
         encryption_db.commit()
@@ -95,8 +101,8 @@ class TestPaymentEncryption:
             tier="professional",
             billing_cycle="annual",
             paystack_data_encrypted=json.dumps(stripped),
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
         )
         encryption_db.add(txn)
         encryption_db.commit()

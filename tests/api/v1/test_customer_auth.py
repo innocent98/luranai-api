@@ -81,12 +81,14 @@ def test_customer_register_verify_login_and_profile_flow(
     monkeypatch.setattr(
         token_service,
         "verify_customer_email_token",
-        lambda token: {
-            "customer_user_id": sent_verification["customer_user_id"],
-            "email": sent_verification["email"],
-        }
-        if token == "verify-token"
-        else None,
+        lambda token: (
+            {
+                "customer_user_id": sent_verification["customer_user_id"],
+                "email": sent_verification["email"],
+            }
+            if token == "verify-token"
+            else None
+        ),
     )
 
     register_response = client.post(
@@ -183,12 +185,14 @@ def test_customer_register_verify_login_and_profile_flow(
     monkeypatch.setattr(
         token_service,
         "verify_customer_password_reset_token",
-        lambda token: {
-            "customer_user_id": created_customer_id,
-            "email": created_customer_email,
-        }
-        if token == "reset-token"
-        else None,
+        lambda token: (
+            {
+                "customer_user_id": created_customer_id,
+                "email": created_customer_email,
+            }
+            if token == "reset-token"
+            else None
+        ),
     )
 
     reset_response = client.post(

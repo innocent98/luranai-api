@@ -94,6 +94,11 @@ class Tenant(Base, UUIDMixin, TimestampMixin):
         index=True,
         comment="Featured businesses appear first in the public directory",
     )
+    category: Mapped[str | None] = mapped_column(
+        String(40),
+        nullable=True,
+        comment="Industry category for public directory filtering — validated against TenantCategory enum at API boundary",
+    )
     public_slug: Mapped[str | None] = mapped_column(
         String(50),
         unique=True,

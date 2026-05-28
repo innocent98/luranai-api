@@ -149,7 +149,10 @@ class CustomerEngagementService:
                 (CustomerBusinessFollow.tenant_id == TenantChannelPost.tenant_id)
                 & (CustomerBusinessFollow.customer_user_id == customer_user_id),
             )
-            .where(TenantChannelPost.status == ChannelPostStatus.PUBLISHED)
+            .where(
+                TenantChannelPost.status == ChannelPostStatus.PUBLISHED,
+                TenantChannelPost.published_at.is_not(None),
+            )
         )
 
         if tenant_id:
@@ -202,6 +205,7 @@ class CustomerEngagementService:
             .where(
                 TenantChannelPost.id == post_id,
                 TenantChannelPost.status == ChannelPostStatus.PUBLISHED,
+                TenantChannelPost.published_at.is_not(None),
             )
         ).first()
         if not row:

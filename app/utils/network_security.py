@@ -55,9 +55,11 @@ def ensure_safe_outbound_url(url: str, allowed_hostnames: set[str] | None = None
         sockaddr = entry[4]
         if not sockaddr:
             continue
+        # sockaddr[0] is the host (str) for both IPv4 (host, port) and IPv6
+        # (host, port, flowinfo, scope_id), but stubs widen it to str | int.
         ip = sockaddr[0]
         if ip:
-            resolved_ips.add(ip)
+            resolved_ips.add(str(ip))
 
     if not resolved_ips:
         raise ValueError(f"No IP addresses resolved for hostname: {hostname}")

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Welcome Back to Luran{% endblock %}
+
+{% block content %}
+<h1>Welcome back to Luran, {{ tenant_display_name }}</h1>
+
+<p>We've added <strong>{{ duration_days }} days of {{ granted_tier_display }}</strong> access to your account, no card required.</p>
+
+<p>This is part of our <strong>{{ campaign_name }}</strong> campaign. We've made significant improvements since you last tried Luran, and we'd love for you to see what's changed.</p>
+
+<p>Your access ends on <strong>{{ grant_ends_at_display }}</strong>. If you decide Luran is right for your team, you can subscribe at any time and your data and integrations stay exactly as they are.</p>
+
+<center style="margin: 32px 0;">
+  <a href="{{ dashboard_url }}" style="background: #312e81; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; font-weight: 600;">
+    Open Luran
+  </a>
+</center>
+
+<p style="color: #666; font-size: 14px; text-align: center;">Questions? Just reply to this email.</p>
+{% endblock %}

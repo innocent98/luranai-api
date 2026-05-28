@@ -21,6 +21,8 @@ fi
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-luran}"
 DB_CONTAINER="${DB_CONTAINER:-${COMPOSE_PROJECT_NAME}_db}"
 GDRIVE_FOLDER="${GDRIVE_FOLDER:-LuranBackups}"
+B2_BUCKET="${B2_BUCKET:-luran-backups}"
+B2_RCLONE_REMOTE="${B2_RCLONE_REMOTE:-b2}"
 
 echo ""
 echo "🗄️  ============================================"
@@ -68,6 +70,28 @@ if command -v rclone &> /dev/null; then
         fi
     else
         echo -e "${YELLOW}⚠️  Google Drive not configured${NC}"
+    fi
+else
+    echo -e "${YELLOW}⚠️  rclone not installed${NC}"
+fi
+echo ""
+
+# Backblaze B2 backups
+echo -e "${BLUE}🪣 Backblaze B2 Backups:${NC}"
+if command -v rclone &> /dev/null; then
+    if rclone listremotes | grep -q "^${B2_RCLONE_REMOTE}:"; then
+        B2_COUNT=$(rclone ls "${B2_RCLONE_REMOTE}:${B2_BUCKET}/" 2>/dev/null | wc -l | tr -d ' ')
+        if [ "$B2_COUNT" -gt 0 ]; then
+            echo -e "${GREEN}✅ ${B2_COUNT} backups in Backblaze B2${NC}"
+            echo ""
+            echo "Recent cloud backups:"
+            CURRENT_DATE_PATH=$(date +"%Y/%m")
+            rclone ls "${B2_RCLONE_REMOTE}:${B2_BUCKET}/${CURRENT_DATE_PATH}/" 2>/dev/null | tail -3 | awk '{printf "  %s (%.0f KB)\n", $2, $1/1024}'
+        else
+            echo -e "${YELLOW}⚠️  No backups in Backblaze B2 yet${NC}"
+        fi
+    else
+        echo -e "${YELLOW}⚠️  Backblaze B2 not configured (run: rclone config; choose 'Backblaze B2')${NC}"
     fi
 else
     echo -e "${YELLOW}⚠️  rclone not installed${NC}"

@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 import os
-import time
 from dataclasses import dataclass
 from typing import Any
 
 import pytest
 import requests
-
-from tests.e2e.helpers import assert_ok, post_chat, unique_user
 
 
 @dataclass
@@ -23,6 +20,8 @@ class LiveE2EConfig:
     pro: LiveUserConfig
     lite: LiveUserConfig
     quota: LiveUserConfig
+    customer_email: str | None
+    customer_password: str | None
     platform_email: str | None
     platform_password: str | None
     timeout_seconds: int
@@ -48,6 +47,17 @@ class LiveApiClient:
     def platform_login(self, email: str, password: str) -> dict[str, Any]:
         response = self.session.post(
             f"{self.base_url}/platform/auth/login",
+            json={"email": email, "password": password},
+            timeout=self.timeout_seconds,
+        )
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        self.session.headers.update({"Authorization": f"Bearer {payload['access_token']}"})
+        return payload
+
+    def customer_login(self, email: str, password: str) -> dict[str, Any]:
+        response = self.session.post(
+            f"{self.base_url}/customer/auth/login",
             json={"email": email, "password": password},
             timeout=self.timeout_seconds,
         )
@@ -84,7 +94,9 @@ def _env(name: str, default: str | None = None) -> str | None:
 def e2e_config() -> LiveE2EConfig:
     base_url = _env("LURAN_E2E_BASE_URL")
     if not base_url:
-        pytest.skip("LURAN_E2E_BASE_URL is not set; skipping live E2E tests.", allow_module_level=True)
+        pytest.skip(
+            "LURAN_E2E_BASE_URL is not set; skipping live E2E tests.", allow_module_level=True
+        )
 
     return LiveE2EConfig(
         base_url=base_url.rstrip("/"),
@@ -100,6 +112,8 @@ def e2e_config() -> LiveE2EConfig:
             email=_env("LURAN_E2E_QUOTA_EMAIL", "staging-e2e-quota@luranai.com") or "",
             password=_env("LURAN_E2E_QUOTA_PASSWORD", "StagingE2E123$") or "",
         ),
+        customer_email=_env("LURAN_E2E_CUSTOMER_EMAIL"),
+        customer_password=_env("LURAN_E2E_CUSTOMER_PASSWORD"),
         platform_email=_env("LURAN_E2E_PLATFORM_EMAIL"),
         platform_password=_env("LURAN_E2E_PLATFORM_PASSWORD"),
         timeout_seconds=int(_env("LURAN_E2E_TIMEOUT_SECONDS", "45") or "45"),
@@ -134,3 +148,18 @@ def platform_client(e2e_config: LiveE2EConfig) -> LiveApiClient:
     client = LiveApiClient(e2e_config.base_url, e2e_config.timeout_seconds)
     client.platform_login(e2e_config.platform_email, e2e_config.platform_password)
     return client
+
+
+@pytest.fixture
+def customer_client(e2e_config: LiveE2EConfig) -> LiveApiClient:
+    if not e2e_config.customer_email or not e2e_config.customer_password:
+        pytest.skip("Customer credentials were not provided for live E2E.")
+    client = LiveApiClient(e2e_config.base_url, e2e_config.timeout_seconds)
+    client.customer_login(e2e_config.customer_email, e2e_config.customer_password)
+    return client
+
+
+@pytest.fixture
+def anonymous_client(e2e_config: LiveE2EConfig) -> LiveApiClient:
+    """Unauthenticated client — for public endpoints like visitor browse."""
+    return LiveApiClient(e2e_config.base_url, e2e_config.timeout_seconds)

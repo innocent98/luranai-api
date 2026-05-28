@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Your {{ granted_tier_display }} Access Expires Soon{% endblock %}
+
+{% block content %}
+<h1>Your {{ granted_tier_display }} access ends in {{ days_remaining }} day{{ 's' if days_remaining != 1 else '' }}</h1>
+
+<p>Hi {{ tenant_display_name }},</p>
+
+<p>Your free {{ granted_tier_display }} access from the <strong>{{ campaign_name }}</strong> campaign expires on <strong>{{ grant_ends_at_display }}</strong>.</p>
+
+<p>To keep your data, integrations, and team intact, subscribe before then:</p>
+
+<center style="margin: 32px 0;">
+  <a href="{{ subscribe_url }}" style="background: #312e81; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; font-weight: 600;">
+    Subscribe to {{ granted_tier_display }}
+  </a>
+</center>
+
+<p style="color: #666; font-size: 14px; text-align: center;">If you decide not to subscribe, your data is preserved — you'll just need an active subscription to access it again.</p>
+{% endblock %}

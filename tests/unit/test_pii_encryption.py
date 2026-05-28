@@ -1,7 +1,7 @@
 """Test PII encryption and hash column lookups."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 import pytest
 from cryptography.fernet import Fernet
@@ -23,7 +23,7 @@ def _set_encryption_env(monkeypatch):
 def encryption_db():
     engine = create_engine("sqlite:///:memory:", echo=False)
     Base.metadata.create_all(bind=engine)
-    Session = sessionmaker(bind=engine)
+    Session = sessionmaker(bind=engine)  # noqa: N806
     session = Session()
     yield session
     session.close()
@@ -65,9 +65,11 @@ class TestCustomerUserPIIEncryption:
         encryption_db.add(user)
         encryption_db.commit()
 
-        found = encryption_db.query(CustomerUser).filter(
-            CustomerUser.email_hash == hash_for_lookup("bob@example.com")
-        ).first()
+        found = (
+            encryption_db.query(CustomerUser)
+            .filter(CustomerUser.email_hash == hash_for_lookup("bob@example.com"))
+            .first()
+        )
         assert found is not None
         assert found.email == "bob@example.com"
 
@@ -83,8 +85,8 @@ class TestVisitorPIIEncryption:
             email="visitor@test.com",
             email_hash=hash_for_lookup("visitor@test.com"),
             name="Test Visitor",
-            first_seen_at=datetime.now(timezone.utc),
-            last_seen_at=datetime.now(timezone.utc),
+            first_seen_at=datetime.now(UTC),
+            last_seen_at=datetime.now(UTC),
             created_from=VisitorSource.WIDGET,
         )
         encryption_db.add(visitor)

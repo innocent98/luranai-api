@@ -8,9 +8,11 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_super_admin, get_db
 from app.db.models.tenant import TenantStatus
 from app.schemas.platform_admin import PlatformAdminResponse
+from app.db.models.tenant import Tenant
 from app.schemas.tenant import (
     TenantCapabilitiesResponse,
     TenantCapabilitiesUpdate,
+    TenantFeaturedUpdate,
     TenantListResponse,
     TenantResponse,
 )
@@ -217,3 +219,32 @@ def update_tenant_capabilities(
         return capabilities
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+
+
+@router.put(
+    "/{tenant_id}/featured",
+    response_model=TenantResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def set_tenant_featured(
+    tenant_id: UUID,
+    payload: TenantFeaturedUpdate,
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
+):
+    """Toggle a tenant's `is_featured` flag in the public directory.
+
+    Featured tenants are pinned to the top of the public business
+    directory and customer-facing explore page. Only meaningful when
+    is_publicly_listed is also true — otherwise the tenant isn't in
+    the directory at all.
+    """
+    tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
+    if not tenant:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+
+    tenant.is_featured = payload.is_featured
+    db.commit()
+    db.refresh(tenant)
+    return tenant

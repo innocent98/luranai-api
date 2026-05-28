@@ -20,6 +20,19 @@ from app.services.customer_engagement_service import CustomerEngagementService
 router = APIRouter()
 
 
+def _require_published_at(value: datetime | None) -> datetime:
+    """Narrow a published-post timestamp to non-null at the response edge.
+
+    The service queries TenantChannelPost rows with status=PUBLISHED and
+    published_at IS NOT NULL — this assertion converts that runtime invariant
+    into a type narrow for the response schema, which requires a non-null
+    datetime. A None here would indicate a service-level invariant break.
+    """
+    if value is None:
+        raise RuntimeError("Published channel post is missing published_at timestamp")
+    return value
+
+
 @router.get("/follows", response_model=list[CustomerFollowResponse], status_code=status.HTTP_200_OK)
 def list_customer_follows(
     db: Session = Depends(get_db),
@@ -176,7 +189,8 @@ def list_customer_channels(
                 cta_url=post.cta_url,
                 is_pinned=post.is_pinned,
                 is_following=is_following,
-                published_at=post.published_at,
+                # Service guarantees published_at IS NOT NULL for PUBLISHED posts.
+                published_at=_require_published_at(post.published_at),
             )
             for post, tenant, is_following in rows
         ],
@@ -214,5 +228,6 @@ def get_customer_channel_detail(
         cta_url=post.cta_url,
         is_pinned=post.is_pinned,
         is_following=is_following,
-        published_at=post.published_at,
+        # Service guarantees published_at IS NOT NULL for PUBLISHED posts.
+        published_at=_require_published_at(post.published_at),
     )

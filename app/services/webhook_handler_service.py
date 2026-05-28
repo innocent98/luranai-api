@@ -136,6 +136,20 @@ class WebhookHandlerService:
             )
             self.db.add(history)
 
+            # Mark any active promotional grant as converted
+            try:
+                from app.services.promotional_grant_service import PromotionalGrantService
+
+                PromotionalGrantService(self.db).mark_converted_for_tenant(
+                    tenant_id=transaction.tenant_id,
+                    paid_tier=transaction.tier,
+                    paid_billing_cycle=transaction.billing_cycle,
+                )
+            except Exception as promo_exc:
+                logger.error(
+                    f"Promo conversion mark failed for tenant {transaction.tenant_id}: {promo_exc}"
+                )
+
         except Exception as e:
             logger.error(f"Failed to upgrade tenant subscription: {e}")
             transaction.error_message = f"Subscription upgrade failed: {str(e)}"

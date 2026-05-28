@@ -292,7 +292,13 @@ def _prune_unreachable_template_nodes(template_nodes: dict) -> dict:
     if not isinstance(nodes, list) or not start_node_id:
         return pruned
 
-    node_map = {node.get("id"): node for node in nodes if isinstance(node, dict) and node.get("id")}
+    node_map: dict[str, dict] = {}
+    for node in nodes:
+        if not isinstance(node, dict):
+            continue
+        nid = node.get("id")
+        if isinstance(nid, str) and nid:
+            node_map[nid] = node
     if start_node_id not in node_map:
         return pruned
 

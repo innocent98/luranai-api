@@ -170,9 +170,9 @@ def test_customer_conversation_detail_and_messages_pagination(
     session = _create_session(db, tenant, customer, customer_user_id=customer.id)
 
     base = datetime.now(UTC) - timedelta(minutes=5)
-    first = _add_message(db, session, content="First", created_at=base + timedelta(minutes=1))
-    second = _add_message(db, session, content="Second", created_at=base + timedelta(minutes=2))
-    third = _add_message(db, session, content="Third", created_at=base + timedelta(minutes=3))
+    _add_message(db, session, content="First", created_at=base + timedelta(minutes=1))
+    _add_message(db, session, content="Second", created_at=base + timedelta(minutes=2))
+    _add_message(db, session, content="Third", created_at=base + timedelta(minutes=3))
 
     detail_response = client.get(
         f"/api/v1/customer/conversations/{session.id}?limit=2",
