@@ -9,19 +9,24 @@ from app.services.visitor_service import VisitorService
 
 
 def _seed_tenants(db, fixtures):
-    """fixtures: list of (display_name, is_featured, category, days_old)."""
+    """fixtures: list of (display_name, is_featured, category, days_old) or
+    (display_name, is_featured, category, days_old, is_publicly_listed)."""
     now = datetime.now(UTC)
     created = []
-    for name, featured, category, days in fixtures:
+    for row in fixtures:
+        name, featured, category, days, *rest = row
+        is_publicly_listed = rest[0] if rest else True
         slug = f"{name.lower().replace(' ', '-')}-{uuid.uuid4().hex[:6]}"
         t = Tenant(
             name=f"{name}_{uuid.uuid4().hex[:8]}",
             display_name=name,
             api_key_hash=f"hash_{uuid.uuid4().hex}",
             public_slug=slug,
-            is_publicly_listed=True,
+            is_publicly_listed=is_publicly_listed,
             is_featured=featured,
             category=category,
+            description=f"{name} description",
+            support_headline=f"{name} headline",
             created_at=now - timedelta(days=days),
         )
         db.add(t)
@@ -143,3 +148,82 @@ class TestListPublicBusinesses:
         assert page1.total_pages == 2
         assert len(page1.businesses) == 10
         assert len(page2.businesses) == 5
+
+    def test_private_tenant_appears_with_redacted_fields(self, db):
+        # Public + private both with slug. Private should appear with is_private=True
+        # but no description / category / headline / is_featured.
+        _seed_tenants(
+            db,
+            [
+                ("PublicCo", True, "retail_ecommerce", 5, True),
+                ("PrivateCo", True, "software_saas", 5, False),
+            ],
+        )
+        svc = VisitorService(db)
+        resp = svc.list_public_businesses()
+
+        items = {b.display_name: b for b in resp.businesses}
+        assert {"PublicCo", "PrivateCo"} <= set(items)
+        private = items["PrivateCo"]
+        assert private.is_private is True
+        assert private.description is None
+        assert private.category is None
+        assert private.support_headline is None
+        # Featured is suppressed for private tenants — "featured" is a public
+        # marketing concept that doesn't apply when descriptive fields are hidden.
+        assert private.is_featured is False
+
+    def test_public_tenants_order_before_private(self, db):
+        # Reordering: even when a private tenant is featured + recent, public
+        # tenants should win the top of the list. Verifies the new
+        # `desc(Tenant.is_publicly_listed)` clause is the primary sort key.
+        _seed_tenants(
+            db,
+            [
+                ("PrivateFeatured", True, None, 1, False),
+                ("PublicPlain", False, None, 60, True),
+            ],
+        )
+        svc = VisitorService(db)
+        resp = svc.list_public_businesses()
+        names = [
+            b.display_name
+            for b in resp.businesses
+            if b.display_name in {"PrivateFeatured", "PublicPlain"}
+        ]
+        assert names == ["PublicPlain", "PrivateFeatured"]
+
+    def test_search_by_description_does_not_match_private(self, db):
+        # A unique word in the description should match only public tenants —
+        # private descriptions are never queried, to avoid soft-leaking
+        # content the tenant chose to keep private.
+        now = datetime.now(UTC)
+        db.add_all(
+            [
+                Tenant(
+                    name=f"PubMatch_{uuid.uuid4().hex[:8]}",
+                    display_name="PublicMatcher",
+                    api_key_hash=f"hash_{uuid.uuid4().hex}",
+                    public_slug=f"pubmatch-{uuid.uuid4().hex[:6]}",
+                    is_publicly_listed=True,
+                    description="uniquetokenxyz appears here",
+                    created_at=now - timedelta(days=5),
+                ),
+                Tenant(
+                    name=f"PrivMatch_{uuid.uuid4().hex[:8]}",
+                    display_name="PrivateMatcher",
+                    api_key_hash=f"hash_{uuid.uuid4().hex}",
+                    public_slug=f"privmatch-{uuid.uuid4().hex[:6]}",
+                    is_publicly_listed=False,
+                    description="uniquetokenxyz also here",
+                    created_at=now - timedelta(days=5),
+                ),
+            ]
+        )
+        db.commit()
+
+        svc = VisitorService(db)
+        resp = svc.list_public_businesses(query="uniquetokenxyz")
+        names = {b.display_name for b in resp.businesses}
+        assert "PublicMatcher" in names
+        assert "PrivateMatcher" not in names

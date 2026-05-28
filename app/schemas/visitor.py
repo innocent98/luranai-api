@@ -12,11 +12,17 @@ from app.schemas.explore import SourceMeta, TenantCategory
 
 
 class PublicBusinessProfileResponse(BaseModel):
-    """Public-facing tenant profile used by the hosted support page."""
+    """Public-facing tenant profile used by the hosted support page.
+
+    For private tenants (is_private=True), only identity fields are populated;
+    descriptive and widget-config fields are omitted so unauthenticated callers
+    cannot read profile content the tenant has chosen to keep private.
+    """
 
     tenant_id: UUID
     public_slug: str
     display_name: str
+    is_private: bool = False
     description: str | None = None
     long_description: str | None = None
     support_headline: str | None = None
@@ -33,11 +39,16 @@ class PublicBusinessProfileResponse(BaseModel):
 
 
 class PublicBusinessDirectoryItem(BaseModel):
-    """Public business listing item shown in the support directory."""
+    """Public business listing item shown in the support directory.
+
+    Private tenants appear in the directory with name + logo + lock badge only —
+    description, headlines, and category are nulled in the response.
+    """
 
     tenant_id: UUID
     public_slug: str
     display_name: str
+    is_private: bool = False
     description: str | None = None
     support_headline: str | None = None
     support_subheadline: str | None = None
