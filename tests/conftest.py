@@ -12,7 +12,7 @@ if not os.environ.get("ENCRYPTION_KEY"):
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
@@ -80,13 +80,64 @@ PG_DATABASE_URL = os.environ.get(
 
 @pytest.fixture(scope="session")
 def pg_engine():
-    """Session-scoped Postgres engine with schema ensured.
+    """Session-scoped Postgres engine with schema + baseline seed data.
 
     `Base.metadata.create_all` is idempotent — on local dev it's a no-op
     (tables exist via migrations); in CI it bootstraps the empty test DB.
+
+    Subscription plans are seeded once per session because several services
+    (PromotionalGrantService, PlanService) resolve tier -> plan at runtime
+    and crash with `ValueError: Subscription plan 'trial' not found` against
+    an empty plans table. `create_subscription_plans` is the same function
+    `scripts/seed_data.py` uses, so test data matches dev/prod exactly and
+    is upsert-style (skips rows that already exist).
     """
+    from scripts.seed_data import create_subscription_plans
+
     engine = create_engine(PG_DATABASE_URL)
     Base.metadata.create_all(bind=engine)
+
+    # Partial / expression indexes from migration 0c1be6a3a289 — not declared
+    # on the model, so create_all skips them. Tests assert IntegrityError on
+    # these uniqueness constraints, so they must exist. All `IF NOT EXISTS`
+    # so this is idempotent against a migration-managed dev DB.
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS promo_grants_one_active_per_tenant "
+                "ON promotional_grants (tenant_id) WHERE status = 'active'"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS promo_grants_idempotency "
+                "ON promotional_grants (tenant_id, campaign_code) "
+                "WHERE status IN ('active', 'converted')"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS auto_signup_grant_config_singleton "
+                "ON auto_signup_grant_config ((true))"
+            )
+        )
+        # Singleton row also lives in migration, not create_all. The migration
+        # sets server_default=gen_random_uuid() on id; create_all uses the
+        # model's Python-side default so we must supply id explicitly here.
+        conn.execute(
+            text(
+                "INSERT INTO auto_signup_grant_config (id, enabled) "
+                "VALUES (gen_random_uuid(), false) ON CONFLICT DO NOTHING"
+            )
+        )
+
+    seed_session = sessionmaker(bind=engine)()
+    try:
+        create_subscription_plans(seed_session)
+        seed_session.commit()
+    finally:
+        seed_session.close()
+
     yield engine
     engine.dispose()
 
