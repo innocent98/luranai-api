@@ -1,6 +1,5 @@
 """Test that ActionSecret.secret_value is encrypted at rest."""
 
-import os
 import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, text
@@ -21,7 +20,7 @@ def encryption_db():
     """Separate in-memory DB for encryption tests to avoid conftest conflicts."""
     engine = create_engine("sqlite:///:memory:", echo=False)
     Base.metadata.create_all(bind=engine)
-    Session = sessionmaker(bind=engine)
+    Session = sessionmaker(bind=engine)  # noqa: N806
     session = Session()
     yield session
     session.close()

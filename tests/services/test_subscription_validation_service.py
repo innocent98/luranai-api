@@ -163,6 +163,4 @@ def test_validate_tier_change_blocks_when_action_count_exceeds_new_tier(db: Sess
     result = SubscriptionValidationService(db).validate_tier_change(tenant.id, "lite")
 
     assert result.valid is False
-    assert any(
-        v.field == "automation_actions" and v.allowed_value == 5 for v in result.violations
-    )
+    assert any(v.field == "automation_actions" and v.allowed_value == 5 for v in result.violations)

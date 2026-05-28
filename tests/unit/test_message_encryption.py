@@ -1,8 +1,7 @@
 """Test that Message.content and Message.meta are encrypted at rest."""
 
-import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 import pytest
 from cryptography.fernet import Fernet
@@ -23,7 +22,7 @@ def _set_encryption_env(monkeypatch):
 def encryption_db():
     engine = create_engine("sqlite:///:memory:", echo=False)
     Base.metadata.create_all(bind=engine)
-    Session = sessionmaker(bind=engine)
+    Session = sessionmaker(bind=engine)  # noqa: N806
     session = Session()
     yield session
     session.close()
@@ -38,7 +37,7 @@ class TestMessageEncryption:
             session_id=uuid.uuid4(),
             role=MessageRole.USER,
             content="My credit card number is 4111-1111-1111-1111",
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         encryption_db.add(msg)
         encryption_db.commit()
@@ -60,7 +59,7 @@ class TestMessageEncryption:
             role=MessageRole.ASSISTANT,
             content="Hello",
             meta=meta,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         encryption_db.add(msg)
         encryption_db.commit()

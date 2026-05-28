@@ -52,6 +52,7 @@ from app.db.models.platform_email_campaign import (
     PlatformEmailCampaign,
     PlatformEmailCampaignRecipient,
 )
+from app.db.models.promotional_grant import AutoSignupGrantConfig, PromotionalGrant
 from app.db.models.review import FeedbackCategory, PlatformFeedback, SessionRating
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.subscription_plan import SubscriptionPlan
@@ -128,6 +129,9 @@ __all__ = [
     # Subscription models
     "SubscriptionHistory",
     "SubscriptionPlan",
+    # Promotional grant models
+    "PromotionalGrant",
+    "AutoSignupGrantConfig",
     # Visit analytics models
     "DailyVisit",
     # Email notification models

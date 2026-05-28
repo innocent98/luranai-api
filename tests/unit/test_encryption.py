@@ -41,7 +41,7 @@ class TestEncryptField:
     def test_invalid_token_raises(self):
         from app.core.encryption import decrypt_field
 
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             decrypt_field("not-a-valid-fernet-token")
 
 

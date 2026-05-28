@@ -514,6 +514,48 @@ async def check_trial_expiration_3days(ctx: dict) -> dict:
         db.close()
 
 
+async def expire_lapsed_trials(ctx: dict) -> dict:
+    """Transition tenants from `trialing` to `trial_expired` once their trial ends.
+
+    Until this runs, the only path that flips the status is the lazy check in
+    `get_current_user` (deps.py) and the chat endpoint — meaning tenants who
+    never log back in after trial expiry stay `trialing` forever, which breaks
+    cohort filters, analytics, and the promotional-grants win-back wizard.
+
+    Scheduled: Daily at 9:05 AM UTC (just after the reminder run).
+    """
+    from sqlalchemy import update
+
+    from app.db.models.tenant import Tenant
+
+    db = SessionLocal()
+    try:
+        now = datetime.now(UTC)
+        stmt = (
+            update(Tenant)
+            .where(
+                Tenant.subscription_status.in_(["trialing", "trial"]),
+                Tenant.trial_ends_at.is_not(None),
+                Tenant.trial_ends_at < now,
+            )
+            .values(subscription_status="trial_expired", updated_at=now)
+        )
+        result = db.execute(stmt)
+        db.commit()
+        transitioned = result.rowcount  # type: ignore[attr-defined]
+        logger.info(
+            "expire_lapsed_trials: transitioned {} tenants to trial_expired",
+            transitioned,
+        )
+        return {"status": "success", "transitioned": transitioned}
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error in expire_lapsed_trials: {e}")
+        return {"status": "error", "error": str(e)}
+    finally:
+        db.close()
+
+
 async def send_subscription_confirmations(ctx: dict) -> dict:
     """
     Send confirmation emails for successful payments in the last 10 minutes.
@@ -988,6 +1030,120 @@ async def send_channel_post_notifications(ctx: dict, post_id: str) -> None:
             db.close()
 
 
+async def process_promotional_grant_lifecycle(ctx: dict) -> dict:
+    """Daily worker: send reminders and process grant expiries.
+
+    Scheduled: Daily at 09:05 UTC (5 minutes after trial expiration reminders
+    to avoid lock contention).
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import and_, select
+
+    from app.db.models.promotional_grant import PromotionalGrant
+    from app.services.email_notification_service import EmailNotificationService
+    from app.services.promotional_grant_service import PromotionalGrantService
+
+    db = SessionLocal()
+    reminders_sent = 0
+    expired = 0
+    errors = 0
+    try:
+        email_service = EmailNotificationService(db)
+        promo_service = PromotionalGrantService(db)
+
+        # ---- Pass 1: reminders at T-14, T-7, T-1 ----
+        for days_remaining in [14, 7, 1]:
+            target_date = datetime.now(UTC) + timedelta(days=days_remaining)
+            date_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            date_end = target_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+            query = select(PromotionalGrant).where(
+                and_(
+                    PromotionalGrant.status == "active",
+                    PromotionalGrant.grant_ends_at >= date_start,
+                    PromotionalGrant.grant_ends_at <= date_end,
+                )
+            )
+            grants = db.execute(query).scalars().all()
+            for grant in grants:
+                try:
+                    success = await email_service.send_promo_expiration_reminder(
+                        grant_id=grant.id, days_remaining=days_remaining
+                    )
+                    if success:
+                        reminders_sent += 1
+                except Exception as e:
+                    logger.error(f"Promo reminder error for grant {grant.id}: {e}")
+                    errors += 1
+
+        # ---- Pass 2: expire past-due grants ----
+        try:
+            expired_ids = promo_service.expire_grants_due()
+            expired = len(expired_ids)
+        except Exception as e:
+            logger.error(f"Promo expiry pass error: {e}")
+            errors += 1
+            expired_ids = []
+
+        for grant_id in expired_ids:
+            try:
+                await email_service.send_promo_expired_email(grant_id=grant_id)
+            except Exception as e:
+                logger.error(f"Promo expired email error for grant {grant_id}: {e}")
+                errors += 1
+
+        logger.info(
+            "Promo lifecycle complete. reminders={} expired={} errors={}",
+            reminders_sent,
+            expired,
+            errors,
+        )
+    finally:
+        db.close()
+
+    return {"reminders_sent": reminders_sent, "expired": expired, "errors": errors}
+
+
+async def send_promo_granted_emails_batch(ctx: dict, grant_ids: list[str]) -> dict:
+    """Send `you've been granted Pro` emails for a batch of grants.
+
+    Enqueued by the bulk-grant endpoint right after grants are created. The
+    underlying send is idempotent (7-day window), so retries / duplicate
+    enqueues are safe.
+    """
+    import uuid
+
+    from app.services.email_notification_service import EmailNotificationService
+
+    db = SessionLocal()
+    sent = 0
+    failed = 0
+    try:
+        email_service = EmailNotificationService(db)
+        for gid in grant_ids:
+            try:
+                ok = await email_service.send_promo_granted_email(grant_id=uuid.UUID(gid))
+                if ok:
+                    sent += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                logger.error(f"send_promo_granted_emails_batch: failed for {gid}: {e}")
+                failed += 1
+        logger.info(
+            "send_promo_granted_emails_batch: sent {}, failed {}, total {}",
+            sent,
+            failed,
+            len(grant_ids),
+        )
+        return {"status": "success", "sent": sent, "failed": failed, "total": len(grant_ids)}
+    except Exception as e:
+        logger.error(f"send_promo_granted_emails_batch error: {e}")
+        return {"status": "error", "error": str(e), "sent": sent, "failed": failed}
+    finally:
+        db.close()
+
+
 # ARQ worker settings
 def get_redis_settings():
     """Get Redis settings from environment at runtime."""
@@ -1013,12 +1169,15 @@ class WorkerSettings:
         auto_abandon_inactive_conversations,
         auto_resolve_stale_tickets,
         check_trial_expiration_3days,
+        expire_lapsed_trials,
         check_subscription_renewal_reminders,
         send_subscription_confirmations,
         send_payment_failure_emails,
         send_scheduled_platform_email_campaigns,
         aggregate_daily_metrics,
         send_channel_post_notifications,
+        process_promotional_grant_lifecycle,
+        send_promo_granted_emails_batch,
     ]
     redis_settings = get_redis_settings()
 
@@ -1055,6 +1214,13 @@ class WorkerSettings:
             minute=0,
             run_at_startup=False,
         ),
+        # Transition expired trials from `trialing` to `trial_expired` - daily at 9:05 AM UTC
+        cron(
+            expire_lapsed_trials,
+            hour=9,
+            minute=5,
+            run_at_startup=True,  # backfill any stale rows on worker start
+        ),
         # Check paid subscription auto-renewal reminders (7/3/1 days) - daily at 10 AM UTC
         cron(
             check_subscription_renewal_reminders,
@@ -1085,6 +1251,13 @@ class WorkerSettings:
             aggregate_daily_metrics,
             hour=1,
             minute=0,
+            run_at_startup=False,
+        ),
+        # Promotional grant lifecycle (reminders + expiry) - daily at 09:05 UTC
+        cron(
+            process_promotional_grant_lifecycle,
+            hour={9},
+            minute={5},
             run_at_startup=False,
         ),
     ]

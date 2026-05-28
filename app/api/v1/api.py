@@ -34,9 +34,11 @@ from app.api.v1.endpoints.platform import emails as platform_emails
 from app.api.v1.endpoints.platform import financials as platform_financials
 from app.api.v1.endpoints.platform import health as platform_health
 from app.api.v1.endpoints.platform import pricing as platform_pricing
+from app.api.v1.endpoints.platform import promotional_grants as platform_promotional_grants
 from app.api.v1.endpoints.platform import reviews as platform_reviews
 from app.api.v1.endpoints.platform import subscriptions as platform_subscriptions
 from app.api.v1.endpoints.platform import tenants as platform_tenants
+from app.api.v1.endpoints.platform import test_fixtures as platform_test_fixtures
 from app.api.v1.endpoints.platform import users as platform_users
 
 api_router = APIRouter()
@@ -185,6 +187,20 @@ api_router.include_router(
     platform_pricing.router,
     prefix="/platform/pricing",
     tags=["platform-pricing"],
+)
+
+# Platform admin promotional grants endpoints
+api_router.include_router(
+    platform_promotional_grants.router,
+    prefix="/platform/promotional-grants",
+    tags=["platform: promotional grants"],
+)
+
+# Test-only fixture endpoints (env-gated — 404 outside test/local)
+api_router.include_router(
+    platform_test_fixtures.router,
+    prefix="/platform/test-fixtures",
+    tags=["platform: test fixtures"],
 )
 
 # Tenant self-management endpoints
