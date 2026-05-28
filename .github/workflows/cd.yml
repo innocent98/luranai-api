@@ -93,6 +93,25 @@ jobs:
             docker load < api-image.tar.gz
             export API_IMAGE="luran-api:${{ github.event.workflow_run.head_sha || github.sha }}"
             docker compose -f docker-compose.prod.yml pull db redis qdrant pgbouncer
+            # Start db first and wait for it to be ready. `docker compose pull`
+            # may have downloaded a newer image, and the first `run --rm api`
+            # below recreates the db container as a dependency — Postgres
+            # accepts TCP before it finishes init, which kills the migration
+            # connection. Block here until pg_isready succeeds.
+            docker compose -f docker-compose.prod.yml up -d db
+            for attempt in $(seq 1 30); do
+              if docker compose -f docker-compose.prod.yml exec -T db \
+                pg_isready -U "${POSTGRES_USER:-postgres}" >/dev/null 2>&1; then
+                echo "DB is ready"
+                break
+              fi
+              if [ "$attempt" -eq 30 ]; then
+                echo "DB did not become ready within 60s" >&2
+                docker compose -f docker-compose.prod.yml logs --tail=100 db >&2 || true
+                exit 1
+              fi
+              sleep 2
+            done
             # Multi-phase migration: each encryption-expansion migration is paired
             # with its backfill, then the follow-up NOT NULL constraint. All
             # backfills are idempotent — safe on re-runs.
@@ -374,6 +393,23 @@ jobs:
             docker load < api-image.tar.gz
             export API_IMAGE="luran-api:${{ github.event.workflow_run.head_sha || github.sha }}"
             docker compose -f docker-compose.prod.yml pull db redis qdrant pgbouncer
+            # Start db first and wait for it to be ready (see staging-deploy
+            # job for full rationale — TCP-up != init-complete on a freshly
+            # pulled postgres image).
+            docker compose -f docker-compose.prod.yml up -d db
+            for attempt in $(seq 1 30); do
+              if docker compose -f docker-compose.prod.yml exec -T db \
+                pg_isready -U "${POSTGRES_USER:-postgres}" >/dev/null 2>&1; then
+                echo "DB is ready"
+                break
+              fi
+              if [ "$attempt" -eq 30 ]; then
+                echo "DB did not become ready within 60s" >&2
+                docker compose -f docker-compose.prod.yml logs --tail=100 db >&2 || true
+                exit 1
+              fi
+              sleep 2
+            done
             # Multi-phase migration: each encryption-expansion migration is paired
             # with its backfill, then the follow-up NOT NULL constraint.
             docker compose -f docker-compose.prod.yml run --rm api alembic upgrade 145bebe88ecb
