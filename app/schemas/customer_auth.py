@@ -18,6 +18,14 @@ class CustomerRegisterRequest(BaseModel):
     password: str = Field(..., min_length=8, max_length=100)
     confirm_password: str = Field(..., min_length=8, max_length=100)
     accepted_terms: bool = Field(..., description="Customer accepted Luran terms")
+    # Optional list of visitor tokens this browser has accumulated against
+    # public business widgets. On successful registration we claim those
+    # visitors' conversations to the new account so chat history survives the
+    # transition from anonymous → authenticated. Tokens not resolvable to a
+    # visitor are silently ignored.
+    visitor_tokens: list[str] | None = Field(
+        default=None, max_length=20, description="Browser-stored visitor tokens to claim"
+    )
 
 
 class CustomerLoginRequest(BaseModel):
