@@ -259,8 +259,7 @@ def list_grants_for_campaign(
         PromotionalGrantResponse.model_validate(
             {
                 **{
-                    col.name: getattr(grant, col.name)
-                    for col in PromotionalGrant.__table__.columns
+                    col.name: getattr(grant, col.name) for col in PromotionalGrant.__table__.columns
                 },
                 "tenant_name": tenant_name,
                 "tenant_display_name": tenant_display_name,
