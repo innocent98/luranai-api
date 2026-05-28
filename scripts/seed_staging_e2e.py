@@ -31,12 +31,21 @@ from app.db.models.automation import (
     TenantActionType,
 )
 from app.db.models.flow import Flow, FlowStatus, FlowTriggerType
+from app.db.models.platform_admin import PlatformAdmin, PlatformAdminRole
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
 from app.db.models.user import User, UserRole
 from app.db.session import SessionLocal
 
 COMMON_PASSWORD = "StagingE2E123$"
 BEARER_TOKEN = "staging-sandbox-bearer-token"
+
+# Platform-admin fixtures consumed by the dashboard Playwright suite.
+# Defaults match `tests/e2e/helpers.ts` so the workflow needs no new secrets;
+# override via env if the GH secrets PLAYWRIGHT_PLATFORM_ADMIN_* are customised.
+PLATFORM_E2E_SUPER_EMAIL = "platform-e2e@luranai.com"
+PLATFORM_E2E_SUPER_PASSWORD = "platform-e2e-password"
+PLATFORM_E2E_ADMIN_EMAIL = "platform-e2e-admin@luranai.com"
+PLATFORM_E2E_ADMIN_PASSWORD = "platform-e2e-password"
 
 
 def _ensure_tenant(
@@ -163,6 +172,39 @@ def _ensure_user(db, tenant: Tenant, *, email: str, full_name: str) -> User:
     db.add(user)
     db.flush()
     return user
+
+
+def _ensure_platform_admin(
+    db,
+    *,
+    email: str,
+    password: str,
+    full_name: str,
+    role: PlatformAdminRole,
+) -> PlatformAdmin:
+    admin = (
+        db.query(PlatformAdmin)
+        .filter(PlatformAdmin.email_hash == hash_for_lookup(email))
+        .one_or_none()
+    )
+    if admin:
+        admin.full_name = full_name
+        admin.role = role
+        admin.is_active = True
+        admin.hashed_password = get_password_hash(password)
+        return admin
+
+    admin = PlatformAdmin(
+        id=uuid4(),
+        email=email,
+        hashed_password=get_password_hash(password),
+        full_name=full_name,
+        role=role,
+        is_active=True,
+    )
+    db.add(admin)
+    db.flush()
+    return admin
 
 
 def _ensure_secret(db, tenant: Tenant) -> None:
@@ -593,6 +635,21 @@ def main() -> None:
             order_action=quota_actions[0],
         )
 
+        _ensure_platform_admin(
+            db,
+            email=PLATFORM_E2E_SUPER_EMAIL,
+            password=PLATFORM_E2E_SUPER_PASSWORD,
+            full_name="Staging Platform Super",
+            role=PlatformAdminRole.SUPER_ADMIN,
+        )
+        _ensure_platform_admin(
+            db,
+            email=PLATFORM_E2E_ADMIN_EMAIL,
+            password=PLATFORM_E2E_ADMIN_PASSWORD,
+            full_name="Staging Platform Admin",
+            role=PlatformAdminRole.ADMIN,
+        )
+
         db.commit()
         logger.success("Staging E2E fixtures are ready.")
         logger.info("Tenant admins:")
@@ -600,6 +657,9 @@ def main() -> None:
         logger.info("  - staging-e2e-lite@luranai.com")
         logger.info("  - staging-e2e-quota@luranai.com")
         logger.info(f"Shared password: {COMMON_PASSWORD}")
+        logger.info("Platform admins:")
+        logger.info(f"  - {PLATFORM_E2E_SUPER_EMAIL} (SUPER_ADMIN)")
+        logger.info(f"  - {PLATFORM_E2E_ADMIN_EMAIL} (ADMIN)")
     except Exception:
         db.rollback()
         raise
