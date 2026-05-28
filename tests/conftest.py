@@ -78,10 +78,22 @@ PG_DATABASE_URL = os.environ.get(
 )
 
 
+@pytest.fixture(scope="session")
+def pg_engine():
+    """Session-scoped Postgres engine with schema ensured.
+
+    `Base.metadata.create_all` is idempotent — on local dev it's a no-op
+    (tables exist via migrations); in CI it bootstraps the empty test DB.
+    """
+    engine = create_engine(PG_DATABASE_URL)
+    Base.metadata.create_all(bind=engine)
+    yield engine
+    engine.dispose()
+
+
 @pytest.fixture(scope="function")
-def db_session():
+def db_session(pg_engine):
     """Postgres session using external-transaction + savepoint rollback pattern."""
-    pg_engine = create_engine(PG_DATABASE_URL)
     connection = pg_engine.connect()
     transaction = connection.begin()
     session_factory = sessionmaker(bind=connection)
@@ -99,7 +111,6 @@ def db_session():
         session.close()
         transaction.rollback()
         connection.close()
-        pg_engine.dispose()
 
 
 @pytest.fixture(scope="function")
