@@ -1,10 +1,11 @@
 """Customer authentication and profile management."""
 
 import hashlib
+import logging
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -15,8 +16,10 @@ from app.core.security import (
     get_password_hash,
     verify_password,
 )
+from app.db.models.conversation import ConversationSession
 from app.db.models.customer_user import CustomerUser
 from app.db.models.refresh_token import RefreshToken
+from app.db.models.visitor import Visitor
 from app.schemas.customer_auth import (
     CustomerActionResponse,
     CustomerEmailVerificationRequest,
@@ -32,6 +35,8 @@ from app.schemas.customer_auth import (
 )
 from app.services.email_service import email_service
 from app.services.token_service import token_service
+
+logger = logging.getLogger(__name__)
 
 
 class CustomerAuthService:
@@ -129,10 +134,62 @@ class CustomerAuthService:
             frontend_url=self.frontend_url,
         )
 
+        # Claim any visitor conversations the signup browser had accumulated
+        # against business widgets. We do this BEFORE commit so the link lives
+        # in the same transaction as the user create — partial state would
+        # leave dangling visitor links pointing at a customer that never got
+        # persisted.
+        if payload.visitor_tokens:
+            self._claim_visitor_conversations(customer.id, payload.visitor_tokens)
+
         self.db.commit()
         return CustomerActionResponse(
             message="Account created. Please check your email to verify your account."
         )
+
+    def _claim_visitor_conversations(
+        self, customer_user_id: UUID, visitor_tokens: list[str]
+    ) -> int:
+        """Attach a customer to all conversations from their browser's prior
+        anonymous activity.
+
+        Tokens that don't resolve to a visitor row are silently ignored — they
+        may be stale (token rotated on backend, tenant suspended) or fabricated.
+        We deliberately do NOT raise on lookup miss because signup should never
+        fail because of a stale localStorage entry.
+
+        Returns the total number of conversation_sessions claimed.
+        """
+        deduplicated = list({token.strip() for token in visitor_tokens if token.strip()})
+        if not deduplicated:
+            return 0
+
+        visitors = list(
+            self.db.execute(select(Visitor).where(Visitor.public_token.in_(deduplicated))).scalars()
+        )
+        if not visitors:
+            return 0
+
+        visitor_ids = [v.id for v in visitors]
+        # Only claim sessions that haven't already been attached to a customer
+        # (don't overwrite an existing link — that would be a silent join of
+        # two different users' history if a token ever leaked or was reused).
+        result = self.db.execute(
+            update(ConversationSession)
+            .where(
+                ConversationSession.visitor_id.in_(visitor_ids),
+                ConversationSession.customer_user_id.is_(None),
+            )
+            .values(customer_user_id=customer_user_id)
+        )
+        claimed = int(result.rowcount or 0)
+        if claimed:
+            logger.info(
+                "claimed %d visitor conversation(s) for new customer %s",
+                claimed,
+                customer_user_id,
+            )
+        return claimed
 
     def verify_email(self, payload: CustomerEmailVerificationRequest) -> CustomerActionResponse:
         token_data = token_service.verify_customer_email_token(payload.token)

@@ -6,7 +6,7 @@ from math import ceil
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import asc, case, desc, func, or_, select
+from sqlalchemy import and_, asc, case, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.encryption import hash_for_lookup
@@ -54,7 +54,12 @@ class VisitorService:
         return DeviceType.DESKTOP
 
     def get_public_business_profile(self, public_slug: str) -> PublicBusinessProfileResponse | None:
-        """Resolve a public business profile by tenant slug."""
+        """Resolve a public business profile by tenant slug.
+
+        Private tenants are still resolvable (so the frontend can render a
+        "this business is private" gate), but their descriptive fields and
+        widget configuration are redacted from the response.
+        """
         tenant = self.db.execute(
             select(Tenant).where(Tenant.public_slug == public_slug.strip().lower())
         ).scalar_one_or_none()
@@ -62,10 +67,23 @@ class VisitorService:
         if not tenant:
             return None
 
+        if not tenant.is_publicly_listed:
+            # Minimal payload: identity only. No description, widget config,
+            # or collect_* flags — frontend renders a "sign in to communicate"
+            # gate; the chat widget never bootstraps for unauthenticated users.
+            return PublicBusinessProfileResponse(
+                tenant_id=tenant.id,
+                public_slug=tenant.public_slug or "",
+                display_name=tenant.display_name,
+                is_private=True,
+                widget_logo_url=tenant.widget_logo_url,
+            )
+
         return PublicBusinessProfileResponse(
             tenant_id=tenant.id,
             public_slug=tenant.public_slug or "",
             display_name=tenant.display_name,
+            is_private=False,
             description=tenant.description,
             long_description=tenant.long_description,
             support_headline=tenant.support_headline,
@@ -100,21 +118,38 @@ class VisitorService:
         normalized_page = max(1, page)
         normalized_page_size = max(1, min(page_size, 100))
 
+        # Private tenants are included in the directory but with redacted
+        # detail fields (see below). The is_publicly_listed filter is dropped;
+        # status + slug filters stay so suspended or un-slugged tenants stay
+        # hidden everywhere.
         base_filters = [
-            Tenant.is_publicly_listed.is_(True),
             Tenant.public_slug.is_not(None),
             Tenant.status == TenantStatus.ACTIVE,
         ]
+        # Category filter applies to public tenants only. Private tenants don't
+        # expose a category to unauthenticated viewers, so filtering by category
+        # naturally excludes them.
         if category is not None:
-            base_filters.append(Tenant.category == category)
+            base_filters.append(
+                and_(Tenant.is_publicly_listed.is_(True), Tenant.category == category)
+            )
         if normalized_query:
             search = f"%{normalized_query.lower()}%"
+            # Display name is searchable for everyone. Descriptive fields are
+            # only searchable on public tenants — matching on a private
+            # tenant's description would soft-leak content the tenant chose
+            # to keep private.
             base_filters.append(
                 or_(
                     func.lower(Tenant.display_name).like(search),
-                    func.lower(func.coalesce(Tenant.description, "")).like(search),
-                    func.lower(func.coalesce(Tenant.support_headline, "")).like(search),
-                    func.lower(func.coalesce(Tenant.support_subheadline, "")).like(search),
+                    and_(
+                        Tenant.is_publicly_listed.is_(True),
+                        or_(
+                            func.lower(func.coalesce(Tenant.description, "")).like(search),
+                            func.lower(func.coalesce(Tenant.support_headline, "")).like(search),
+                            func.lower(func.coalesce(Tenant.support_subheadline, "")).like(search),
+                        ),
+                    ),
                 )
             )
 
@@ -133,6 +168,9 @@ class VisitorService:
             select(Tenant)
             .where(*base_filters)
             .order_by(
+                # Public tenants surface first; private ones land at the tail
+                # of each page so discovery still favours fully-public listings.
+                desc(Tenant.is_publicly_listed),
                 desc(Tenant.is_featured),
                 desc(is_recent),
                 asc(Tenant.display_name),
@@ -143,26 +181,42 @@ class VisitorService:
         tenants = list(self.db.execute(page_stmt).scalars())
 
         return PublicBusinessDirectoryResponse(
-            businesses=[
-                PublicBusinessDirectoryItem(
-                    tenant_id=tenant.id,
-                    public_slug=tenant.public_slug or "",
-                    display_name=tenant.display_name,
-                    description=tenant.description,
-                    support_headline=tenant.support_headline,
-                    support_subheadline=tenant.support_subheadline,
-                    widget_logo_url=tenant.widget_logo_url,
-                    is_featured=tenant.is_featured,
-                    category=coerce_tenant_category(tenant.category),
-                    created_at=tenant.created_at,
-                )
-                for tenant in tenants
-            ],
+            businesses=[self._build_directory_item(tenant) for tenant in tenants],
             total=total,
             query=normalized_query or None,
             page=normalized_page,
             page_size=normalized_page_size,
             total_pages=ceil(total / normalized_page_size) if total else 0,
+        )
+
+    def _build_directory_item(self, tenant: Tenant) -> PublicBusinessDirectoryItem:
+        """Build a directory item, redacting detail fields for private tenants.
+
+        Featured status is suppressed for private tenants — "featured" is a
+        public-marketing signal that shouldn't apply when descriptive content
+        is hidden.
+        """
+        if not tenant.is_publicly_listed:
+            return PublicBusinessDirectoryItem(
+                tenant_id=tenant.id,
+                public_slug=tenant.public_slug or "",
+                display_name=tenant.display_name,
+                is_private=True,
+                widget_logo_url=tenant.widget_logo_url,
+                created_at=tenant.created_at,
+            )
+        return PublicBusinessDirectoryItem(
+            tenant_id=tenant.id,
+            public_slug=tenant.public_slug or "",
+            display_name=tenant.display_name,
+            is_private=False,
+            description=tenant.description,
+            support_headline=tenant.support_headline,
+            support_subheadline=tenant.support_subheadline,
+            widget_logo_url=tenant.widget_logo_url,
+            is_featured=tenant.is_featured,
+            category=coerce_tenant_category(tenant.category),
+            created_at=tenant.created_at,
         )
 
     def _resolve_tenant(self, payload: VisitorBootstrapRequest) -> Tenant | None:
@@ -326,6 +380,15 @@ class VisitorService:
         tenant = self._resolve_tenant(payload)
         if not tenant or not tenant.public_slug:
             raise ValueError("Tenant not found")
+        # Private tenants reject anonymous chat from Luran's own discovery
+        # surfaces — /b/{slug} and /support/{slug} both bootstrap by
+        # workspace_slug. The tenant's own embed widget bootstraps by
+        # workspace_id (the widget loader passes tenantId from the install
+        # snippet), so private tenants keep the ability to run their own
+        # support widget on their own website.
+        bootstrapped_by_slug = payload.workspace_slug is not None and payload.workspace_id is None
+        if not tenant.is_publicly_listed and bootstrapped_by_slug:
+            raise PermissionError("Anonymous chat is not available for this business")
 
         metadata = self._normalize_entry_metadata(payload.metadata)
         if payload.name:
