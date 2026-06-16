@@ -530,6 +530,52 @@ class ChatAutomationOrchestrator:
 
         return best
 
+    def _build_action_tools(self, actions: list) -> list[dict]:
+        """
+        Build OpenAI function-calling tools from tenant actions.
+
+        Parameters come from the action's input_schema when present; otherwise
+        from the customer-collectible {{placeholders}} discovered in the action
+        templates. Secret/token/key fields are never exposed as parameters.
+        """
+        tools: list[dict] = []
+        for action in actions:
+            schema = action.input_schema if isinstance(action.input_schema, dict) else {}
+            properties = schema.get("properties") if isinstance(schema, dict) else None
+            required = schema.get("required") if isinstance(schema, dict) else None
+
+            if not isinstance(properties, dict) or not properties:
+                fields = self._extract_required_fields(action)
+                properties = {
+                    field: {"type": "string", "description": self._field_prompt_label(field)}
+                    for field in fields
+                }
+                required = fields
+            else:
+                # Filter out any secret-like fields that slipped into the schema.
+                properties = {
+                    key: value
+                    for key, value in properties.items()
+                    if self._looks_customer_collectible(key)
+                }
+                required = [r for r in (required or []) if r in properties]
+
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": action.slug,
+                        "description": (action.description or action.name or action.slug)[:1024],
+                        "parameters": {
+                            "type": "object",
+                            "properties": properties,
+                            "required": required or [],
+                        },
+                    },
+                }
+            )
+        return tools
+
     def _extract_required_fields(self, action: TenantAction) -> list[str]:
         discovered: list[str] = []
         for source in (
