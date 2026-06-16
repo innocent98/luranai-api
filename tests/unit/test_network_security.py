@@ -42,7 +42,9 @@ def _addrinfo(ip: str):
 
 
 def test_resolve_and_validate_returns_public_ip():
-    with patch("app.utils.network_security.socket.getaddrinfo", return_value=_addrinfo("93.184.216.34")):
+    with patch(
+        "app.utils.network_security.socket.getaddrinfo", return_value=_addrinfo("93.184.216.34")
+    ):
         assert resolve_and_validate_host("example.com") == "93.184.216.34"
 
 
@@ -61,7 +63,10 @@ def test_resolve_and_validate_rejects_when_any_ip_unsafe():
 
 def test_resolve_and_validate_allowlisted_hostname_skips_resolution():
     # Allowlisted hostnames bypass IP checks and return the hostname itself.
-    assert resolve_and_validate_host("internal-api", allowed_hostnames={"internal-api"}) == "internal-api"
+    assert (
+        resolve_and_validate_host("internal-api", allowed_hostnames={"internal-api"})
+        == "internal-api"
+    )
 
 
 def test_resolve_and_validate_rejects_localhost():

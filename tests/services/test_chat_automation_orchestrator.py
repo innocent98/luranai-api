@@ -97,8 +97,11 @@ async def test_no_actions_skips_llm(monkeypatch):
         "app.services.chat_automation_orchestrator.RAGService.route_action_via_tools", router
     )
     result = await orch.handle_turn(
-        tenant_id="t", session_id="s", user_message="hi",
-        session_meta={}, conversation_history=[],
+        tenant_id="t",
+        session_id="s",
+        user_message="hi",
+        session_meta={},
+        conversation_history=[],
     )
     assert result.handled is False
     router.assert_not_awaited()  # cost guard: no LLM call when no actions
@@ -107,7 +110,9 @@ async def test_no_actions_skips_llm(monkeypatch):
 @pytest.mark.asyncio
 async def test_no_tool_falls_through_to_rag(monkeypatch):
     action = _active_chat_action(
-        slug="cancel_order", name="Cancel order", description="Cancel an order",
+        slug="cancel_order",
+        name="Cancel order",
+        description="Cancel an order",
         url_template="https://api.example.com/orders/{{order_id}}/cancel",
     )
     orch = ChatAutomationOrchestrator(db=AsyncMock())
@@ -118,8 +123,11 @@ async def test_no_tool_falls_through_to_rag(monkeypatch):
         AsyncMock(return_value=ToolRoutingResult(tool_name=None)),
     )
     result = await orch.handle_turn(
-        tenant_id="t", session_id="s", user_message="just browsing, thanks",
-        session_meta={}, conversation_history=[],
+        tenant_id="t",
+        session_id="s",
+        user_message="just browsing, thanks",
+        session_meta={},
+        conversation_history=[],
     )
     assert result.handled is False
 
@@ -127,7 +135,9 @@ async def test_no_tool_falls_through_to_rag(monkeypatch):
 @pytest.mark.asyncio
 async def test_intent_hit_with_all_args_executes(monkeypatch):
     action = _active_chat_action(
-        slug="cancel_order", name="Cancel order", description="Cancel an order",
+        slug="cancel_order",
+        name="Cancel order",
+        description="Cancel an order",
         url_template="https://api.example.com/orders/{{order_id}}/cancel",
     )
     orch = ChatAutomationOrchestrator(db=AsyncMock())
@@ -135,24 +145,33 @@ async def test_intent_hit_with_all_args_executes(monkeypatch):
     monkeypatch.setattr(orch.automation_service, "list_actions", lambda tid: [action])
     monkeypatch.setattr(
         "app.services.chat_automation_orchestrator.RAGService.route_action_via_tools",
-        AsyncMock(return_value=ToolRoutingResult(tool_name="cancel_order", arguments={"order_id": "42"})),
+        AsyncMock(
+            return_value=ToolRoutingResult(tool_name="cancel_order", arguments={"order_id": "42"})
+        ),
     )
     executed = {}
 
     async def fake_exec(**kwargs):
         executed.update(kwargs["input_payload"])
         return SimpleNamespace(
-            status=SimpleNamespace(value="succeeded"), id="e1",
-            normalized_output={"data": {"status": "cancelled"}}, response_body=None,
+            status=SimpleNamespace(value="succeeded"),
+            id="e1",
+            normalized_output={"data": {"status": "cancelled"}},
+            response_body=None,
         )
 
     monkeypatch.setattr(orch.automation_service, "execute_action", AsyncMock(side_effect=fake_exec))
     monkeypatch.setattr(orch.conversation_service, "update_session_meta", lambda *a, **k: None)
-    monkeypatch.setattr(orch, "_format_execution_response", AsyncMock(return_value=("Done.", False, None)))
+    monkeypatch.setattr(
+        orch, "_format_execution_response", AsyncMock(return_value=("Done.", False, None))
+    )
 
     result = await orch.handle_turn(
-        tenant_id="t", session_id="s", user_message="please cancel order 42",
-        session_meta={}, conversation_history=[],
+        tenant_id="t",
+        session_id="s",
+        user_message="please cancel order 42",
+        session_meta={},
+        conversation_history=[],
     )
     assert result.handled is True
     assert executed.get("order_id") == "42"
@@ -177,7 +196,8 @@ async def test_action_resolves_by_sanitized_tool_name(monkeypatch):
     # orchestrator must map it back to the action via the same sanitization.
     action = _active_chat_action(
         slug="Cancel My Order",  # contains spaces -> sanitized to Cancel_My_Order
-        name="Cancel order", description="Cancel an order",
+        name="Cancel order",
+        description="Cancel an order",
         url_template="https://api.example.com/orders/{{order_id}}/cancel",
     )
     orch = ChatAutomationOrchestrator(db=AsyncMock())
@@ -188,24 +208,33 @@ async def test_action_resolves_by_sanitized_tool_name(monkeypatch):
     monkeypatch.setattr(orch.automation_service, "list_actions", lambda tid: [action])
     monkeypatch.setattr(
         "app.services.chat_automation_orchestrator.RAGService.route_action_via_tools",
-        AsyncMock(return_value=ToolRoutingResult(tool_name=sanitized_name, arguments={"order_id": "7"})),
+        AsyncMock(
+            return_value=ToolRoutingResult(tool_name=sanitized_name, arguments={"order_id": "7"})
+        ),
     )
     executed = {}
 
     async def fake_exec(**kwargs):
         executed.update(kwargs["input_payload"])
         return SimpleNamespace(
-            status=SimpleNamespace(value="succeeded"), id="e1",
-            normalized_output={"data": {"status": "cancelled"}}, response_body=None,
+            status=SimpleNamespace(value="succeeded"),
+            id="e1",
+            normalized_output={"data": {"status": "cancelled"}},
+            response_body=None,
         )
 
     monkeypatch.setattr(orch.automation_service, "execute_action", AsyncMock(side_effect=fake_exec))
     monkeypatch.setattr(orch.conversation_service, "update_session_meta", lambda *a, **k: None)
-    monkeypatch.setattr(orch, "_format_execution_response", AsyncMock(return_value=("Done.", False, None)))
+    monkeypatch.setattr(
+        orch, "_format_execution_response", AsyncMock(return_value=("Done.", False, None))
+    )
 
     result = await orch.handle_turn(
-        tenant_id="t", session_id="s", user_message="cancel my order 7",
-        session_meta={}, conversation_history=[],
+        tenant_id="t",
+        session_id="s",
+        user_message="cancel my order 7",
+        session_meta={},
+        conversation_history=[],
     )
     assert result.handled is True
     assert executed.get("order_id") == "7"
@@ -214,36 +243,53 @@ async def test_action_resolves_by_sanitized_tool_name(monkeypatch):
 @pytest.mark.asyncio
 async def test_pending_turn_fills_field_from_llm(monkeypatch):
     action = _active_chat_action(
-        slug="cancel_order", name="Cancel order",
-        description="Cancel an order", url_template="https://api.example.com/orders/{{order_id}}/cancel",
+        slug="cancel_order",
+        name="Cancel order",
+        description="Cancel an order",
+        url_template="https://api.example.com/orders/{{order_id}}/cancel",
     )
     orch = ChatAutomationOrchestrator(db=AsyncMock())
     monkeypatch.setattr(orch, "_can_use_ai_chat_automation", lambda tid: True)
     monkeypatch.setattr(orch.automation_service, "get_action", lambda tenant_id, action_id: action)
     monkeypatch.setattr(
         "app.services.chat_automation_orchestrator.RAGService.route_action_via_tools",
-        AsyncMock(return_value=ToolRoutingResult(tool_name="cancel_order", arguments={"order_id": "12345"})),
+        AsyncMock(
+            return_value=ToolRoutingResult(
+                tool_name="cancel_order", arguments={"order_id": "12345"}
+            )
+        ),
     )
     executed = {}
 
     async def fake_exec(**kwargs):
         executed.update(kwargs["input_payload"])
         return SimpleNamespace(
-            status=SimpleNamespace(value="succeeded"), id="e1",
-            normalized_output={"data": {"status": "cancelled"}}, response_body=None,
+            status=SimpleNamespace(value="succeeded"),
+            id="e1",
+            normalized_output={"data": {"status": "cancelled"}},
+            response_body=None,
         )
 
     monkeypatch.setattr(orch.automation_service, "execute_action", AsyncMock(side_effect=fake_exec))
     monkeypatch.setattr(orch.conversation_service, "update_session_meta", lambda *a, **k: None)
-    monkeypatch.setattr(orch, "_format_execution_response", AsyncMock(return_value=("Done.", False, None)))
+    monkeypatch.setattr(
+        orch, "_format_execution_response", AsyncMock(return_value=("Done.", False, None))
+    )
 
-    session_meta = {"pending_ai_action": {
-        "action_id": str(action.id), "action_name": "Cancel order",
-        "collected_inputs": {}, "missing_fields": ["order_id"],
-    }}
+    session_meta = {
+        "pending_ai_action": {
+            "action_id": str(action.id),
+            "action_name": "Cancel order",
+            "collected_inputs": {},
+            "missing_fields": ["order_id"],
+        }
+    }
     result = await orch.handle_turn(
-        tenant_id="t", session_id="s", user_message="it's 12345",
-        session_meta=session_meta, conversation_history=[],
+        tenant_id="t",
+        session_id="s",
+        user_message="it's 12345",
+        session_meta=session_meta,
+        conversation_history=[],
     )
     assert result.handled is True
     assert executed.get("order_id") == "12345"

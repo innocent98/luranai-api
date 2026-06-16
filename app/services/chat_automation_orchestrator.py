@@ -421,9 +421,7 @@ class ChatAutomationOrchestrator:
             escalation_reason=escalation_reason,
         )
 
-    def _build_routing_messages(
-        self, conversation_history: list, user_message: str
-    ) -> list[dict]:
+    def _build_routing_messages(self, conversation_history: list, user_message: str) -> list[dict]:
         system = (
             "You are an action router for a customer support assistant. "
             "Decide whether the customer's latest message requests one of the "

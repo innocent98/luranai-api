@@ -586,9 +586,7 @@ async def test_lookup_chain_collects_lookup_input_before_target_action(db: Sessi
     mocker.patch.object(
         RAGService,
         "route_action_via_tools",
-        new=AsyncMock(
-            return_value=ToolRoutingResult(tool_name=target_action.slug, arguments={})
-        ),
+        new=AsyncMock(return_value=ToolRoutingResult(tool_name=target_action.slug, arguments={})),
     )
 
     orchestrator = ChatAutomationOrchestrator(db)
@@ -712,9 +710,7 @@ async def test_lookup_chain_requires_lookup_chain_capability(db: Session, mocker
     mocker.patch.object(
         RAGService,
         "route_action_via_tools",
-        new=AsyncMock(
-            return_value=ToolRoutingResult(tool_name=target_action.slug, arguments={})
-        ),
+        new=AsyncMock(return_value=ToolRoutingResult(tool_name=target_action.slug, arguments={})),
     )
 
     orchestrator = ChatAutomationOrchestrator(db)

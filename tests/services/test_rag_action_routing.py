@@ -10,9 +10,7 @@ from app.services.rag_service import RAGService, ToolRoutingResult
 
 
 def _tool_call_response(name: str, args: dict):
-    tool_call = SimpleNamespace(
-        function=SimpleNamespace(name=name, arguments=json.dumps(args))
-    )
+    tool_call = SimpleNamespace(function=SimpleNamespace(name=name, arguments=json.dumps(args)))
     message = SimpleNamespace(tool_calls=[tool_call], content=None)
     return SimpleNamespace(choices=[SimpleNamespace(message=message)])
 
@@ -28,14 +26,14 @@ async def test_route_returns_tool_and_args(monkeypatch):
     fake_client = SimpleNamespace(
         chat=SimpleNamespace(
             completions=SimpleNamespace(
-                create=AsyncMock(return_value=_tool_call_response("cancel_order", {"order_id": "42"}))
+                create=AsyncMock(
+                    return_value=_tool_call_response("cancel_order", {"order_id": "42"})
+                )
             )
         )
     )
     monkeypatch.setattr("app.services.rag_service.openai.AsyncOpenAI", lambda **_: fake_client)
-    monkeypatch.setattr(
-        "app.services.rag_service.openai_llm_rate_limiter.acquire", AsyncMock()
-    )
+    monkeypatch.setattr("app.services.rag_service.openai_llm_rate_limiter.acquire", AsyncMock())
 
     result = await service.route_action_via_tools(
         messages=[{"role": "user", "content": "please cancel order 42"}],
@@ -56,11 +54,11 @@ async def test_route_returns_no_tool(monkeypatch):
         )
     )
     monkeypatch.setattr("app.services.rag_service.openai.AsyncOpenAI", lambda **_: fake_client)
-    monkeypatch.setattr(
-        "app.services.rag_service.openai_llm_rate_limiter.acquire", AsyncMock()
-    )
+    monkeypatch.setattr("app.services.rag_service.openai_llm_rate_limiter.acquire", AsyncMock())
 
-    result = await service.route_action_via_tools(messages=[{"role": "user", "content": "hi"}], tools=[])
+    result = await service.route_action_via_tools(
+        messages=[{"role": "user", "content": "hi"}], tools=[]
+    )
     assert result.tool_name is None
     assert result.arguments == {}
     assert result.is_api_error is False
@@ -75,11 +73,11 @@ async def test_route_api_error_flagged(monkeypatch):
         )
     )
     monkeypatch.setattr("app.services.rag_service.openai.AsyncOpenAI", lambda **_: fake_client)
-    monkeypatch.setattr(
-        "app.services.rag_service.openai_llm_rate_limiter.acquire", AsyncMock()
-    )
+    monkeypatch.setattr("app.services.rag_service.openai_llm_rate_limiter.acquire", AsyncMock())
 
-    result = await service.route_action_via_tools(messages=[{"role": "user", "content": "hi"}], tools=[])
+    result = await service.route_action_via_tools(
+        messages=[{"role": "user", "content": "hi"}], tools=[]
+    )
     assert result.is_api_error is True
     assert result.tool_name is None
 
@@ -104,9 +102,7 @@ async def test_route_malformed_or_non_dict_args_become_empty(monkeypatch, raw_ar
         )
     )
     monkeypatch.setattr("app.services.rag_service.openai.AsyncOpenAI", lambda **_: fake_client)
-    monkeypatch.setattr(
-        "app.services.rag_service.openai_llm_rate_limiter.acquire", AsyncMock()
-    )
+    monkeypatch.setattr("app.services.rag_service.openai_llm_rate_limiter.acquire", AsyncMock())
 
     result = await service.route_action_via_tools(
         messages=[{"role": "user", "content": "cancel it"}],

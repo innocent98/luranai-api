@@ -47,9 +47,7 @@ def _reject_unsafe_hostname(hostname: str) -> None:
         raise ValueError("Localhost/internal hostnames are not allowed")
 
 
-def resolve_and_validate_host(
-    hostname: str, allowed_hostnames: set[str] | None = None
-) -> str:
+def resolve_and_validate_host(hostname: str, allowed_hostnames: set[str] | None = None) -> str:
     """
     Resolve a hostname ONCE, validate every resolved IP, and return a single
     safe IP to connect to. Callers must connect to the returned value (not the

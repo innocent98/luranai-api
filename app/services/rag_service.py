@@ -962,7 +962,7 @@ Instructions:
         try:
             await openai_llm_rate_limiter.acquire()
             client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-            response = await client.chat.completions.create(
+            response = await client.chat.completions.create(  # type: ignore[call-overload]
                 model=model,
                 messages=messages,
                 tools=tools or None,
