@@ -147,3 +147,124 @@ def test_finalize_timeout_and_invalid_condition():
                             _AttemptOutcome(kind="response", status_code=200, body={}))
     assert i_exec.status == ActionExecutionStatus.FAILED
     assert i_exec.error_code == "CONDITION_INVALID"
+
+
+def _exec_test_service(monkeypatch, outcomes):
+    """Service whose _attempt_request yields the given outcomes in order, with
+    DB writes stubbed so execute_action can run without a real session."""
+    svc = _svc()
+    svc.db.add = MagicMock()
+    svc.db.commit = MagicMock()
+    svc.db.refresh = MagicMock()
+    monkeypatch.setattr(svc, "_get_execution_limit", lambda tid: None)
+    monkeypatch.setattr(svc, "_find_succeeded_by_idempotency", lambda *a, **k: None)
+    # auth_type="none" is a no-op in production, but the real helper unconditionally
+    # parses UUID(tenant_id) up front; bypass it so these wiring tests can use a
+    # non-UUID tenant sentinel ("t"). _apply_auth_headers has its own dedicated tests.
+    monkeypatch.setattr(svc, "_apply_auth_headers", lambda headers, auth_type, cfg: headers)
+    monkeypatch.setattr(
+        "app.services.automation_service.resolve_and_validate_host",
+        lambda host, allowed_hostnames=None: "93.184.216.34",
+    )
+    calls = {"n": 0}
+
+    async def fake_attempt(action, request):
+        o = outcomes[min(calls["n"], len(outcomes) - 1)]
+        calls["n"] += 1
+        return o
+
+    monkeypatch.setattr(svc, "_attempt_request", fake_attempt)
+    monkeypatch.setattr("app.services.automation_service.asyncio.sleep", AsyncMock())
+    return svc, calls
+
+
+def _action_obj(**over):
+    from app.db.models.automation import TenantActionStatus
+
+    base = {
+        "id": "11111111-1111-1111-1111-111111111111", "status": None, "requires_approval": False,
+        "allow_in_flows": True, "method": "POST", "url_template": "https://api.example.com/orders",
+        "headers_template": {}, "query_template": {}, "body_template": {}, "timeout_seconds": 5,
+        "auth_type": SimpleNamespace(value="none"), "auth_config": {},
+        "success_condition": None, "retry_policy": {"max_attempts": 3, "backoff_ms": 10},
+    }
+    base.update(over)
+    base["status"] = TenantActionStatus.ACTIVE
+    return SimpleNamespace(**base)
+
+
+@pytest.mark.asyncio
+async def test_execute_retries_then_succeeds(monkeypatch):
+    from app.db.models.automation import ActionExecutionStatus
+    from app.services.automation_service import _AttemptOutcome
+
+    outcomes = [
+        _AttemptOutcome(kind="response", status_code=503, body={"e": 1}),
+        _AttemptOutcome(kind="response", status_code=200, body={"ok": True}),
+    ]
+    svc, calls = _exec_test_service(monkeypatch, outcomes)
+    execution = await svc.execute_action(tenant_id="t", action=_action_obj())
+    assert calls["n"] == 2
+    assert execution.status == ActionExecutionStatus.SUCCEEDED
+    assert execution.attempt == 2
+
+
+@pytest.mark.asyncio
+async def test_execute_4xx_not_retried(monkeypatch):
+    from app.db.models.automation import ActionExecutionStatus
+    from app.services.automation_service import _AttemptOutcome
+
+    outcomes = [_AttemptOutcome(kind="response", status_code=404, body={"e": 1})]
+    svc, calls = _exec_test_service(monkeypatch, outcomes)
+    execution = await svc.execute_action(tenant_id="t", action=_action_obj())
+    assert calls["n"] == 1
+    assert execution.status == ActionExecutionStatus.FAILED
+    assert execution.attempt == 1
+
+
+@pytest.mark.asyncio
+async def test_execute_dedupe_skips_send(monkeypatch):
+    from app.db.models.automation import ActionExecutionStatus
+    from app.services.automation_service import _AttemptOutcome
+
+    svc, calls = _exec_test_service(monkeypatch, [_AttemptOutcome(kind="response", status_code=200, body={})])
+    prior = SimpleNamespace(id="prior", response_status_code=200, response_body={"done": True},
+                            normalized_output={"success": True, "data": {"done": True}})
+    monkeypatch.setattr(svc, "_find_succeeded_by_idempotency", lambda *a, **k: prior)
+    execution = await svc.execute_action(tenant_id="t", action=_action_obj(), idempotency_key="dup-1")
+    assert calls["n"] == 0  # no HTTP send
+    assert execution.status == ActionExecutionStatus.SUCCEEDED
+    assert execution.meta.get("deduplicated_from") == "prior"
+
+
+@pytest.mark.asyncio
+async def test_execute_dedupe_synthesizes_normalized_output_when_prior_null(monkeypatch):
+    from app.db.models.automation import ActionExecutionStatus
+    from app.services.automation_service import _AttemptOutcome
+
+    svc, _ = _exec_test_service(monkeypatch, [_AttemptOutcome(kind="response", status_code=200, body={})])
+    prior = SimpleNamespace(id="legacy", response_status_code=200, response_body={"done": True},
+                            normalized_output=None)
+    monkeypatch.setattr(svc, "_find_succeeded_by_idempotency", lambda *a, **k: prior)
+    execution = await svc.execute_action(tenant_id="t", action=_action_obj(), idempotency_key="dup-2")
+    assert execution.status == ActionExecutionStatus.SUCCEEDED
+    # A prior with NULL normalized_output gets a synthesized success payload so
+    # downstream consumers can always read normalized_output["success"].
+    assert execution.normalized_output["success"] is True
+    assert execution.normalized_output["data"] == {"done": True}
+
+
+@pytest.mark.asyncio
+async def test_execute_forwards_idempotency_header_on_post(monkeypatch):
+    from app.services.automation_service import _AttemptOutcome
+
+    captured = {}
+    svc, _ = _exec_test_service(monkeypatch, [_AttemptOutcome(kind="response", status_code=200, body={})])
+
+    async def capture_attempt(action, request):
+        captured["idem"] = request.headers.get("idempotency-key")
+        return _AttemptOutcome(kind="response", status_code=200, body={})
+
+    monkeypatch.setattr(svc, "_attempt_request", capture_attempt)
+    await svc.execute_action(tenant_id="t", action=_action_obj(method="POST"), idempotency_key="key-xyz")
+    assert captured["idem"] == "key-xyz"
