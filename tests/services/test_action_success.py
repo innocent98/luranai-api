@@ -1,7 +1,12 @@
 """Unit tests for the pure success_condition evaluator."""
 
-import pytest
+from datetime import UTC, datetime
+from uuid import uuid4
 
+import pytest
+from pydantic import ValidationError
+
+from app.schemas.automation import TenantActionCreate, TenantActionResponse
 from app.services.action_success import SuccessConditionError, evaluate_success_condition
 
 
@@ -68,3 +73,49 @@ def test_status_in_combines_with_body_all():
 def test_malformed_condition_raises(bad):
     with pytest.raises(SuccessConditionError):
         evaluate_success_condition(bad, 200, {"x": 1})
+
+
+def _minimal_create(**over):
+    base = {
+        "name": "Cancel", "slug": "cancel", "method": "POST",
+        "url_template": "https://api.example.com/x",
+    }
+    base.update(over)
+    return base
+
+
+def test_create_rejects_malformed_success_condition():
+    with pytest.raises(ValidationError):
+        TenantActionCreate(**_minimal_create(success_condition={"all": "not-a-list"}))
+
+
+def test_create_accepts_valid_success_condition():
+    model = TenantActionCreate(**_minimal_create(
+        success_condition={"status_in": [200], "all": [{"path": "ok", "op": "truthy"}]}
+    ))
+    assert model.success_condition["status_in"] == [200]
+
+
+def test_create_rejects_bad_retry_policy():
+    with pytest.raises(ValidationError):
+        TenantActionCreate(**_minimal_create(retry_policy={"max_attempts": 0}))
+    with pytest.raises(ValidationError):
+        TenantActionCreate(**_minimal_create(retry_policy={"max_attempts": "x"}))
+
+
+def test_response_does_not_validate_stored_config():
+    # Validators live on the write schema only. A legacy/edge row with malformed
+    # config must still serialize on read (never 500 a GET/list).
+    resp = TenantActionResponse(
+        name="x",
+        slug="x",
+        url_template="https://e.com",
+        success_condition={"all": "not-a-list"},  # malformed
+        retry_policy={"max_attempts": 0},  # malformed
+        id=uuid4(),
+        tenant_id=uuid4(),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    assert resp.success_condition == {"all": "not-a-list"}
+    assert resp.retry_policy == {"max_attempts": 0}
