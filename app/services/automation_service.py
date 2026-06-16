@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from time import perf_counter
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -28,6 +28,7 @@ from app.db.models.automation import (
 )
 from app.db.models.tenant import TenantCapabilities
 from app.schemas.automation import TenantActionCreate, TenantActionUpdate
+from app.services.action_success import SuccessConditionError, evaluate_success_condition
 from app.utils.network_security import resolve_and_validate_host
 
 
@@ -678,6 +679,92 @@ class AutomationService:
             .limit(1)
         )
         return self.db.execute(stmt).scalar_one_or_none()
+
+    async def _attempt_request(
+        self, action: TenantAction, request: httpx.Request
+    ) -> _AttemptOutcome:
+        started = perf_counter()
+        try:
+            async with httpx.AsyncClient(
+                timeout=action.timeout_seconds, follow_redirects=False
+            ) as client:
+                response = await client.send(request)
+            latency_ms = int((perf_counter() - started) * 1000)
+            return _AttemptOutcome(
+                kind="response",
+                status_code=response.status_code,
+                response_headers=dict(response.headers),
+                body=self._parse_response_body(response),
+                latency_ms=latency_ms,
+                retry_after=self._parse_retry_after(response.headers.get("retry-after")),
+            )
+        except httpx.TimeoutException:
+            return _AttemptOutcome(
+                kind="timeout",
+                latency_ms=int((perf_counter() - started) * 1000),
+                error=f"Action timed out after {action.timeout_seconds}s",
+            )
+        except httpx.TransportError as exc:
+            return _AttemptOutcome(
+                kind="transport_error",
+                latency_ms=int((perf_counter() - started) * 1000),
+                error=str(exc),
+            )
+        except Exception as exc:  # noqa: BLE001 — unexpected, non-retryable
+            logger.error(f"Action attempt failed ({action.id}): {exc}", exc_info=True)
+            return _AttemptOutcome(
+                kind="error",
+                latency_ms=int((perf_counter() - started) * 1000),
+                error=str(exc),
+            )
+
+    def _finalize_execution(
+        self, execution: ActionExecution, action: TenantAction, outcome: _AttemptOutcome
+    ) -> None:
+        execution.latency_ms = outcome.latency_ms
+        if outcome.kind == "timeout":
+            execution.status = ActionExecutionStatus.TIMED_OUT
+            execution.error_code = "ACTION_TIMEOUT"
+            execution.error_message = outcome.error
+            return
+        if outcome.kind in {"transport_error", "error"}:
+            execution.status = ActionExecutionStatus.FAILED
+            execution.error_code = "ACTION_EXECUTION_ERROR"
+            execution.error_message = outcome.error
+            return
+
+        status_code = outcome.status_code or 0
+        execution.response_status_code = status_code
+        execution.response_headers = outcome.response_headers
+        execution.response_body = cast(Any, outcome.body)
+        try:
+            ok = evaluate_success_condition(action.success_condition, status_code, outcome.body)
+        except SuccessConditionError as exc:
+            execution.status = ActionExecutionStatus.FAILED
+            execution.error_code = "CONDITION_INVALID"
+            execution.error_message = str(exc)
+            execution.normalized_output = {
+                "status_code": outcome.status_code, "success": False, "data": outcome.body
+            }
+            return
+
+        if ok:
+            execution.status = ActionExecutionStatus.SUCCEEDED
+            execution.normalized_output = {
+                "status_code": outcome.status_code, "success": True, "data": outcome.body
+            }
+            return
+
+        execution.status = ActionExecutionStatus.FAILED
+        if 200 <= (outcome.status_code or 0) < 300:
+            execution.error_code = "SUCCESS_CONDITION_FAILED"
+            execution.error_message = "Response did not satisfy the action's success condition."
+        else:
+            execution.error_code = "PROVIDER_ERROR"
+            execution.error_message = f"Provider returned HTTP {outcome.status_code}"
+        execution.normalized_output = {
+            "status_code": outcome.status_code, "success": False, "data": outcome.body
+        }
 
     def _parse_response_body(self, response: httpx.Response) -> Any:
         if not response.text:

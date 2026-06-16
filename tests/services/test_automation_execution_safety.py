@@ -68,3 +68,82 @@ def test_find_succeeded_by_idempotency_queries_and_returns():
     )
     assert found is prior
     assert db.execute.called  # a select was issued
+
+
+@pytest.mark.asyncio
+async def test_attempt_request_response(monkeypatch):
+    import httpx
+
+    svc = _svc()
+    action = SimpleNamespace(timeout_seconds=5, id="a1")
+    req = httpx.Request("GET", "https://api.example.com/x")
+
+    async def fake_send(self, request, **kw):
+        return httpx.Response(503, headers={"Retry-After": "3"}, json={"e": 1}, request=request)
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", fake_send)
+    outcome = await svc._attempt_request(action, req)
+    assert outcome.kind == "response"
+    assert outcome.status_code == 503
+    assert outcome.retry_after == 3
+
+
+@pytest.mark.asyncio
+async def test_attempt_request_timeout(monkeypatch):
+    import httpx
+
+    svc = _svc()
+    action = SimpleNamespace(timeout_seconds=5, id="a1")
+    req = httpx.Request("GET", "https://api.example.com/x")
+
+    async def fake_send(self, request, **kw):
+        raise httpx.ConnectTimeout("slow")
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", fake_send)
+    outcome = await svc._attempt_request(action, req)
+    assert outcome.kind == "timeout"
+
+
+def test_finalize_success_and_condition_fail():
+    from app.db.models.automation import ActionExecutionStatus
+    from app.services.automation_service import _AttemptOutcome
+
+    svc = _svc()
+    action = SimpleNamespace(success_condition=None)
+
+    ok_exec = SimpleNamespace(meta={})
+    svc._finalize_execution(ok_exec, action, _AttemptOutcome(kind="response", status_code=200, body={"x": 1}))
+    assert ok_exec.status == ActionExecutionStatus.SUCCEEDED
+    assert ok_exec.normalized_output["success"] is True
+
+    action2 = SimpleNamespace(success_condition={"all": [{"path": "ok", "op": "truthy"}]})
+    bad_exec = SimpleNamespace(meta={})
+    svc._finalize_execution(bad_exec, action2, _AttemptOutcome(kind="response", status_code=200, body={"ok": False}))
+    assert bad_exec.status == ActionExecutionStatus.FAILED
+    assert bad_exec.error_code == "SUCCESS_CONDITION_FAILED"
+
+    # Non-2xx response -> PROVIDER_ERROR (distinct from the 2xx-condition-fail case).
+    err_exec = SimpleNamespace(meta={})
+    svc._finalize_execution(err_exec, action, _AttemptOutcome(kind="response", status_code=404, body={"e": 1}))
+    assert err_exec.status == ActionExecutionStatus.FAILED
+    assert err_exec.error_code == "PROVIDER_ERROR"
+    assert err_exec.normalized_output["success"] is False
+
+
+def test_finalize_timeout_and_invalid_condition():
+    from app.db.models.automation import ActionExecutionStatus
+    from app.services.automation_service import _AttemptOutcome
+
+    svc = _svc()
+    t_exec = SimpleNamespace(meta={})
+    svc._finalize_execution(t_exec, SimpleNamespace(success_condition=None),
+                            _AttemptOutcome(kind="timeout", error="too slow", latency_ms=10))
+    assert t_exec.status == ActionExecutionStatus.TIMED_OUT
+    assert t_exec.error_code == "ACTION_TIMEOUT"
+
+    bad_cond = SimpleNamespace(success_condition={"all": "not-a-list"})
+    i_exec = SimpleNamespace(meta={})
+    svc._finalize_execution(i_exec, bad_cond,
+                            _AttemptOutcome(kind="response", status_code=200, body={}))
+    assert i_exec.status == ActionExecutionStatus.FAILED
+    assert i_exec.error_code == "CONDITION_INVALID"
