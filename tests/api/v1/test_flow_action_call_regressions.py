@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import pytest
@@ -25,6 +26,7 @@ from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities
 from app.services.chat_automation_orchestrator import ChatAutomationOrchestrator
 from app.services.automation_service import AutomationService
 from app.services.flow_service import FlowService
+from app.services.rag_service import RAGService, ToolRoutingResult
 from app.schemas.automation import TenantActionCreate
 from app.schemas.flow import FlowCreate
 
@@ -581,6 +583,13 @@ async def test_lookup_chain_collects_lookup_input_before_target_action(db: Sessi
         raise AssertionError("Unexpected action executed")
 
     mocker.patch.object(AutomationService, "execute_action", new=fake_execute_action)
+    mocker.patch.object(
+        RAGService,
+        "route_action_via_tools",
+        new=AsyncMock(
+            return_value=ToolRoutingResult(tool_name=target_action.slug, arguments={})
+        ),
+    )
 
     orchestrator = ChatAutomationOrchestrator(db)
     session_meta: dict = {}
@@ -656,7 +665,7 @@ async def test_ai_chat_automation_respects_plan_capability_gate(db: Session):
 
 
 @pytest.mark.asyncio
-async def test_lookup_chain_requires_lookup_chain_capability(db: Session):
+async def test_lookup_chain_requires_lookup_chain_capability(db: Session, mocker):
     tenant = _create_tenant_base(db, name_prefix="lookup_chain_gate")
     capabilities = (
         db.query(TenantCapabilities).filter(TenantCapabilities.tenant_id == tenant.id).one()
@@ -683,7 +692,7 @@ async def test_lookup_chain_requires_lookup_chain_capability(db: Session):
         available_in_ai_chat=True,
         query_template={"customer_email": "{{customer_email}}"},
     )
-    _add_action(
+    target_action = _add_action(
         db,
         tenant_id=tenant.id,
         name="Check Account Status",
@@ -698,6 +707,14 @@ async def test_lookup_chain_requires_lookup_chain_capability(db: Session):
                 }
             }
         },
+    )
+
+    mocker.patch.object(
+        RAGService,
+        "route_action_via_tools",
+        new=AsyncMock(
+            return_value=ToolRoutingResult(tool_name=target_action.slug, arguments={})
+        ),
     )
 
     orchestrator = ChatAutomationOrchestrator(db)

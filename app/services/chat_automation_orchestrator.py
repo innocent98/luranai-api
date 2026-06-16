@@ -27,28 +27,6 @@ PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_.-]+)\s*}}")
 IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_.@+\-#:/ ]{1,200}$")
 EMAIL_PATTERN = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
 
-ACTION_HINT_WORDS = {
-    "book",
-    "booking",
-    "schedule",
-    "appointment",
-    "track",
-    "check",
-    "lookup",
-    "find",
-    "create",
-    "open",
-    "submit",
-    "status",
-    "unlock",
-    "reactivate",
-    "update",
-    "cancel",
-    "refund",
-    "order",
-    "account",
-    "ticket",
-}
 CUSTOMER_FIELD_HINTS = (
     "account",
     "date",
@@ -66,28 +44,6 @@ CUSTOMER_FIELD_HINTS = (
     "time",
     "ticket",
 )
-STOPWORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "can",
-    "do",
-    "for",
-    "get",
-    "help",
-    "i",
-    "is",
-    "me",
-    "my",
-    "of",
-    "please",
-    "the",
-    "to",
-    "what",
-    "with",
-    "you",
-}
 
 
 @dataclass
@@ -174,93 +130,37 @@ class ChatAutomationOrchestrator:
             for action in self.automation_service.list_actions(tenant_id)
             if action.status == TenantActionStatus.ACTIVE and action.available_in_ai_chat
         ]
-        if actions and not self._can_use_ai_chat_automation(tenant_id):
-            return AutomationTurnResult(handled=False)
         if not actions:
             return AutomationTurnResult(handled=False)
-
-        matched = self._match_action(user_message=user_message, actions=actions)
-        if not matched:
+        if not self._can_use_ai_chat_automation(tenant_id):
             return AutomationTurnResult(handled=False)
 
-        action, score = matched
-        if score < 2:
+        tools = self._build_action_tools(actions)
+        routing = await RAGService(self.db).route_action_via_tools(
+            messages=self._build_routing_messages(conversation_history, user_message),
+            tools=tools,
+        )
+        if routing.is_api_error or not routing.tool_name:
+            return AutomationTurnResult(handled=False)
+
+        action = next((a for a in actions if a.slug == routing.tool_name), None)
+        if action is None:
             return AutomationTurnResult(handled=False)
 
         required_fields = self._extract_required_fields(action)
-        collected_inputs = self._extract_current_inputs(required_fields, user_message)
-        missing_fields = [field for field in required_fields if field not in collected_inputs]
+        collected_inputs = self._validate_routed_inputs(required_fields, routing.arguments)
+        missing_fields = [f for f in required_fields if f not in collected_inputs]
         if missing_fields:
-            lookup_plan = self._build_lookup_plan(
+            return await self._begin_collection(
                 tenant_id=tenant_id,
-                target_action=action,
-                actions=actions,
-                target_missing_fields=missing_fields,
-            )
-            if lookup_plan:
-                missing_lookup_fields = [
-                    field
-                    for field in lookup_plan.lookup_required_fields
-                    if field not in collected_inputs
-                ]
-                if missing_lookup_fields:
-                    session_meta["pending_ai_action"] = {
-                        "action_id": str(action.id),
-                        "action_name": action.name,
-                        "collected_inputs": collected_inputs,
-                        "missing_fields": missing_lookup_fields,
-                        "lookup_plan": {
-                            "lookup_action_id": lookup_plan.lookup_action_id,
-                            "target_field": lookup_plan.target_field,
-                            "lookup_required_fields": lookup_plan.lookup_required_fields,
-                            "remaining_target_fields": lookup_plan.remaining_target_fields,
-                        },
-                    }
-                    self.conversation_service.update_session_meta(session_id, session_meta)
-                    prompt_text = await self._generate_missing_field_prompt(
-                        action=action,
-                        field_name=missing_lookup_fields[0],
-                        tenant_ai_config=tenant_ai_config,
-                        company_name=company_name,
-                        fallback_action_name=action.name,
-                    )
-                    return AutomationTurnResult(
-                        handled=True,
-                        assistant_text=prompt_text,
-                        metadata={
-                            "automation_orchestrated": True,
-                            "automation_action_id": str(action.id),
-                            "automation_action_name": action.name,
-                            "automation_mode": "collect_input",
-                            "missing_field": missing_lookup_fields[0],
-                            "lookup_target_field": lookup_plan.target_field,
-                        },
-                    )
-
-            prompt = await self._generate_missing_field_prompt(
+                session_id=session_id,
                 action=action,
-                field_name=missing_fields[0],
+                actions=actions,
+                collected_inputs=collected_inputs,
+                missing_fields=missing_fields,
+                session_meta=session_meta,
                 tenant_ai_config=tenant_ai_config,
                 company_name=company_name,
-                fallback_action_name=action.name,
-            )
-            session_meta["pending_ai_action"] = {
-                "action_id": str(action.id),
-                "action_name": action.name,
-                "collected_inputs": collected_inputs,
-                "missing_fields": missing_fields,
-            }
-            self.conversation_service.update_session_meta(session_id, session_meta)
-            return AutomationTurnResult(
-                handled=True,
-                assistant_text=prompt,
-                metadata={
-                    "automation_orchestrated": True,
-                    "automation_action_id": str(action.id),
-                    "automation_action_name": action.name,
-                    "automation_mode": "collect_input",
-                    "missing_field": missing_fields[0],
-                },
             )
 
         return await self._execute_action_from_chat(
@@ -510,25 +410,99 @@ class ChatAutomationOrchestrator:
             escalation_reason=escalation_reason,
         )
 
-    def _match_action(
-        self, *, user_message: str, actions: list[TenantAction]
-    ) -> tuple[TenantAction, int] | None:
-        tokens = self._tokenize(user_message)
-        if not tokens or not (set(tokens) & ACTION_HINT_WORDS):
-            return None
+    def _build_routing_messages(
+        self, conversation_history: list, user_message: str
+    ) -> list[dict]:
+        system = (
+            "You are an action router for a customer support assistant. "
+            "Decide whether the customer's latest message requests one of the "
+            "available actions, and if so call exactly one tool with the values "
+            "the customer has provided. Only extract values the customer actually "
+            "gave. If no action clearly applies, do not call any tool."
+        )
+        messages: list[dict] = [{"role": "system", "content": system}]
+        for item in conversation_history[-6:]:
+            role = "assistant" if getattr(item, "role", "user") == "assistant" else "user"
+            content = getattr(item, "content", "") or ""
+            if content:
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": user_message})
+        return messages
 
-        best: tuple[TenantAction, int] | None = None
-        for action in actions:
-            action_tokens = self._tokenize(
-                " ".join(filter(None, [action.name, action.slug, action.description or ""]))
-            )
-            overlap = len(set(tokens) & set(action_tokens))
-            bonus = 1 if any(token in action.slug.lower() for token in tokens) else 0
-            score = overlap + bonus
-            if best is None or score > best[1]:
-                best = (action, score)
+    def _validate_routed_inputs(
+        self, required_fields: list[str], arguments: dict
+    ) -> dict[str, str]:
+        """Trust only values that pass the same shape guards as before."""
+        validated: dict[str, str] = {}
+        for field in required_fields:
+            raw = arguments.get(field)
+            if raw is None:
+                continue
+            value = self._extract_field_value(field, str(raw))
+            if value is not None:
+                validated[field] = value
+        return validated
 
-        return best
+    async def _begin_collection(
+        self,
+        *,
+        tenant_id: UUID,
+        session_id: UUID,
+        action: TenantAction,
+        actions: list[TenantAction],
+        collected_inputs: dict[str, Any],
+        missing_fields: list[str],
+        session_meta: dict[str, Any],
+        tenant_ai_config: Any | None,
+        company_name: str | None,
+    ) -> AutomationTurnResult:
+        lookup_plan = self._build_lookup_plan(
+            tenant_id=tenant_id,
+            target_action=action,
+            actions=actions,
+            target_missing_fields=missing_fields,
+        )
+        metadata: dict[str, Any] = {
+            "automation_orchestrated": True,
+            "automation_action_id": str(action.id),
+            "automation_action_name": action.name,
+            "automation_mode": "collect_input",
+        }
+        pending: dict[str, Any] = {
+            "action_id": str(action.id),
+            "action_name": action.name,
+            "collected_inputs": collected_inputs,
+            "missing_fields": missing_fields,
+        }
+        if lookup_plan:
+            lookup_missing = [
+                f for f in lookup_plan.lookup_required_fields if f not in collected_inputs
+            ]
+            if lookup_missing:
+                missing_fields = lookup_missing
+                pending["missing_fields"] = lookup_missing
+                pending["lookup_plan"] = {
+                    "lookup_action_id": lookup_plan.lookup_action_id,
+                    "target_field": lookup_plan.target_field,
+                    "lookup_required_fields": lookup_plan.lookup_required_fields,
+                    "remaining_target_fields": lookup_plan.remaining_target_fields,
+                }
+                metadata["lookup_target_field"] = lookup_plan.target_field
+        session_meta["pending_ai_action"] = pending
+        self.conversation_service.update_session_meta(session_id, session_meta)
+        prompt = await self._generate_missing_field_prompt(
+            action=action,
+            field_name=missing_fields[0],
+            tenant_ai_config=tenant_ai_config,
+            company_name=company_name,
+            fallback_action_name=action.name,
+        )
+        metadata["missing_field"] = missing_fields[0]
+        return AutomationTurnResult(
+            handled=True,
+            assistant_text=prompt,
+            metadata=metadata,
+        )
 
     def _build_action_tools(self, actions: list) -> list[dict]:
         """
@@ -588,16 +562,6 @@ class ChatAutomationOrchestrator:
                     discovered.append(match)
         return [field for field in discovered if self._looks_customer_collectible(field)]
 
-    def _extract_current_inputs(
-        self, required_fields: list[str], user_message: str
-    ) -> dict[str, str]:
-        inputs: dict[str, str] = {}
-        for field in required_fields:
-            value = self._extract_embedded_field_value(field, user_message)
-            if value is not None:
-                inputs[field] = value
-        return inputs
-
     def _extract_field_value(self, field_name: str, user_message: str) -> str | None:
         cleaned = user_message.strip()
         if not cleaned:
@@ -606,23 +570,6 @@ class ChatAutomationOrchestrator:
             lowered = cleaned.lower()
             return lowered if EMAIL_PATTERN.fullmatch(lowered) else None
         return cleaned if IDENTIFIER_PATTERN.fullmatch(cleaned) else None
-
-    def _extract_embedded_field_value(self, field_name: str, user_message: str) -> str | None:
-        lowered = field_name.lower()
-        stripped = user_message.strip()
-        if not stripped:
-            return None
-        if "email" in lowered:
-            match = EMAIL_PATTERN.search(stripped.lower())
-            return match.group(0) if match else None
-        if any(token in lowered for token in ("order", "account", "reference", "id")):
-            direct = stripped.lstrip("#")
-            if re.fullmatch(r"[A-Za-z0-9_-]*\d[A-Za-z0-9_-]*", direct):
-                return direct
-            token_match = re.search(r"#?([A-Za-z0-9_-]*\d[A-Za-z0-9_-]*)", stripped)
-            if token_match:
-                return token_match.group(1)
-        return None
 
     def _build_lookup_plan(
         self,
@@ -1135,7 +1082,3 @@ class ChatAutomationOrchestrator:
         if lowered.startswith("secret_") or "token" in lowered or "key" in lowered:
             return False
         return any(hint in lowered for hint in CUSTOMER_FIELD_HINTS)
-
-    def _tokenize(self, text: str) -> list[str]:
-        normalized = re.sub(r"[^a-z0-9]+", " ", text.lower())
-        return [token for token in normalized.split() if token and token not in STOPWORDS]
