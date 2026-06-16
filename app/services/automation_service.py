@@ -748,7 +748,7 @@ class AutomationService:
             execution.error_code = "CONDITION_INVALID"
             execution.error_message = str(exc)
             execution.normalized_output = {
-                "status_code": outcome.status_code,
+                "status_code": status_code,
                 "success": False,
                 "data": outcome.body,
             }
@@ -757,21 +757,21 @@ class AutomationService:
         if ok:
             execution.status = ActionExecutionStatus.SUCCEEDED
             execution.normalized_output = {
-                "status_code": outcome.status_code,
+                "status_code": status_code,
                 "success": True,
                 "data": outcome.body,
             }
             return
 
         execution.status = ActionExecutionStatus.FAILED
-        if 200 <= (outcome.status_code or 0) < 300:
+        if 200 <= status_code < 300:
             execution.error_code = "SUCCESS_CONDITION_FAILED"
             execution.error_message = "Response did not satisfy the action's success condition."
         else:
             execution.error_code = "PROVIDER_ERROR"
-            execution.error_message = f"Provider returned HTTP {outcome.status_code}"
+            execution.error_message = f"Provider returned HTTP {status_code}"
         execution.normalized_output = {
-            "status_code": outcome.status_code,
+            "status_code": status_code,
             "success": False,
             "data": outcome.body,
         }
