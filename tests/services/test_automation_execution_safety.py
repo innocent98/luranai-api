@@ -112,19 +112,25 @@ def test_finalize_success_and_condition_fail():
     action = SimpleNamespace(success_condition=None)
 
     ok_exec = SimpleNamespace(meta={})
-    svc._finalize_execution(ok_exec, action, _AttemptOutcome(kind="response", status_code=200, body={"x": 1}))
+    svc._finalize_execution(
+        ok_exec, action, _AttemptOutcome(kind="response", status_code=200, body={"x": 1})
+    )
     assert ok_exec.status == ActionExecutionStatus.SUCCEEDED
     assert ok_exec.normalized_output["success"] is True
 
     action2 = SimpleNamespace(success_condition={"all": [{"path": "ok", "op": "truthy"}]})
     bad_exec = SimpleNamespace(meta={})
-    svc._finalize_execution(bad_exec, action2, _AttemptOutcome(kind="response", status_code=200, body={"ok": False}))
+    svc._finalize_execution(
+        bad_exec, action2, _AttemptOutcome(kind="response", status_code=200, body={"ok": False})
+    )
     assert bad_exec.status == ActionExecutionStatus.FAILED
     assert bad_exec.error_code == "SUCCESS_CONDITION_FAILED"
 
     # Non-2xx response -> PROVIDER_ERROR (distinct from the 2xx-condition-fail case).
     err_exec = SimpleNamespace(meta={})
-    svc._finalize_execution(err_exec, action, _AttemptOutcome(kind="response", status_code=404, body={"e": 1}))
+    svc._finalize_execution(
+        err_exec, action, _AttemptOutcome(kind="response", status_code=404, body={"e": 1})
+    )
     assert err_exec.status == ActionExecutionStatus.FAILED
     assert err_exec.error_code == "PROVIDER_ERROR"
     assert err_exec.normalized_output["success"] is False
@@ -136,15 +142,19 @@ def test_finalize_timeout_and_invalid_condition():
 
     svc = _svc()
     t_exec = SimpleNamespace(meta={})
-    svc._finalize_execution(t_exec, SimpleNamespace(success_condition=None),
-                            _AttemptOutcome(kind="timeout", error="too slow", latency_ms=10))
+    svc._finalize_execution(
+        t_exec,
+        SimpleNamespace(success_condition=None),
+        _AttemptOutcome(kind="timeout", error="too slow", latency_ms=10),
+    )
     assert t_exec.status == ActionExecutionStatus.TIMED_OUT
     assert t_exec.error_code == "ACTION_TIMEOUT"
 
     bad_cond = SimpleNamespace(success_condition={"all": "not-a-list"})
     i_exec = SimpleNamespace(meta={})
-    svc._finalize_execution(i_exec, bad_cond,
-                            _AttemptOutcome(kind="response", status_code=200, body={}))
+    svc._finalize_execution(
+        i_exec, bad_cond, _AttemptOutcome(kind="response", status_code=200, body={})
+    )
     assert i_exec.status == ActionExecutionStatus.FAILED
     assert i_exec.error_code == "CONDITION_INVALID"
 
@@ -182,11 +192,20 @@ def _action_obj(**over):
     from app.db.models.automation import TenantActionStatus
 
     base = {
-        "id": "11111111-1111-1111-1111-111111111111", "status": None, "requires_approval": False,
-        "allow_in_flows": True, "method": "POST", "url_template": "https://api.example.com/orders",
-        "headers_template": {}, "query_template": {}, "body_template": {}, "timeout_seconds": 5,
-        "auth_type": SimpleNamespace(value="none"), "auth_config": {},
-        "success_condition": None, "retry_policy": {"max_attempts": 3, "backoff_ms": 10},
+        "id": "11111111-1111-1111-1111-111111111111",
+        "status": None,
+        "requires_approval": False,
+        "allow_in_flows": True,
+        "method": "POST",
+        "url_template": "https://api.example.com/orders",
+        "headers_template": {},
+        "query_template": {},
+        "body_template": {},
+        "timeout_seconds": 5,
+        "auth_type": SimpleNamespace(value="none"),
+        "auth_config": {},
+        "success_condition": None,
+        "retry_policy": {"max_attempts": 3, "backoff_ms": 10},
     }
     base.update(over)
     base["status"] = TenantActionStatus.ACTIVE
@@ -227,11 +246,19 @@ async def test_execute_dedupe_skips_send(monkeypatch):
     from app.db.models.automation import ActionExecutionStatus
     from app.services.automation_service import _AttemptOutcome
 
-    svc, calls = _exec_test_service(monkeypatch, [_AttemptOutcome(kind="response", status_code=200, body={})])
-    prior = SimpleNamespace(id="prior", response_status_code=200, response_body={"done": True},
-                            normalized_output={"success": True, "data": {"done": True}})
+    svc, calls = _exec_test_service(
+        monkeypatch, [_AttemptOutcome(kind="response", status_code=200, body={})]
+    )
+    prior = SimpleNamespace(
+        id="prior",
+        response_status_code=200,
+        response_body={"done": True},
+        normalized_output={"success": True, "data": {"done": True}},
+    )
     monkeypatch.setattr(svc, "_find_succeeded_by_idempotency", lambda *a, **k: prior)
-    execution = await svc.execute_action(tenant_id="t", action=_action_obj(), idempotency_key="dup-1")
+    execution = await svc.execute_action(
+        tenant_id="t", action=_action_obj(), idempotency_key="dup-1"
+    )
     assert calls["n"] == 0  # no HTTP send
     assert execution.status == ActionExecutionStatus.SUCCEEDED
     assert execution.meta.get("deduplicated_from") == "prior"
@@ -242,11 +269,16 @@ async def test_execute_dedupe_synthesizes_normalized_output_when_prior_null(monk
     from app.db.models.automation import ActionExecutionStatus
     from app.services.automation_service import _AttemptOutcome
 
-    svc, _ = _exec_test_service(monkeypatch, [_AttemptOutcome(kind="response", status_code=200, body={})])
-    prior = SimpleNamespace(id="legacy", response_status_code=200, response_body={"done": True},
-                            normalized_output=None)
+    svc, _ = _exec_test_service(
+        monkeypatch, [_AttemptOutcome(kind="response", status_code=200, body={})]
+    )
+    prior = SimpleNamespace(
+        id="legacy", response_status_code=200, response_body={"done": True}, normalized_output=None
+    )
     monkeypatch.setattr(svc, "_find_succeeded_by_idempotency", lambda *a, **k: prior)
-    execution = await svc.execute_action(tenant_id="t", action=_action_obj(), idempotency_key="dup-2")
+    execution = await svc.execute_action(
+        tenant_id="t", action=_action_obj(), idempotency_key="dup-2"
+    )
     assert execution.status == ActionExecutionStatus.SUCCEEDED
     # A prior with NULL normalized_output gets a synthesized success payload so
     # downstream consumers can always read normalized_output["success"].
@@ -259,14 +291,18 @@ async def test_execute_forwards_idempotency_header_on_post(monkeypatch):
     from app.services.automation_service import _AttemptOutcome
 
     captured = {}
-    svc, _ = _exec_test_service(monkeypatch, [_AttemptOutcome(kind="response", status_code=200, body={})])
+    svc, _ = _exec_test_service(
+        monkeypatch, [_AttemptOutcome(kind="response", status_code=200, body={})]
+    )
 
     async def capture_attempt(action, request):
         captured["idem"] = request.headers.get("idempotency-key")
         return _AttemptOutcome(kind="response", status_code=200, body={})
 
     monkeypatch.setattr(svc, "_attempt_request", capture_attempt)
-    await svc.execute_action(tenant_id="t", action=_action_obj(method="POST"), idempotency_key="key-xyz")
+    await svc.execute_action(
+        tenant_id="t", action=_action_obj(method="POST"), idempotency_key="key-xyz"
+    )
     assert captured["idem"] == "key-xyz"
 
 
@@ -274,9 +310,16 @@ async def test_execute_forwards_idempotency_header_on_post(monkeypatch):
 async def test_retry_execution_reuses_key(monkeypatch):
     svc = _svc()
     original = SimpleNamespace(
-        id="e-orig", action_id="a1", input_payload={"x": 1}, session_id=None,
-        flow_execution_id=None, flow_id=None, node_id=None,
-        trigger_source=SimpleNamespace(), idempotency_key="orig-key", meta={},
+        id="e-orig",
+        action_id="a1",
+        input_payload={"x": 1},
+        session_id=None,
+        flow_execution_id=None,
+        flow_id=None,
+        node_id=None,
+        trigger_source=SimpleNamespace(),
+        idempotency_key="orig-key",
+        meta={},
     )
     monkeypatch.setattr(svc, "get_execution", lambda tenant_id, execution_id: original)
     monkeypatch.setattr(svc, "get_action", lambda tenant_id, action_id: SimpleNamespace(id="a1"))

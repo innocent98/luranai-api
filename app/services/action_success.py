@@ -54,9 +54,9 @@ def _check(check: dict, body: Any) -> bool:
         return False
     operand = check.get("value")
     if op == "equals":
-        return actual == operand
+        return bool(actual == operand)
     if op == "not_equals":
-        return actual != operand
+        return bool(actual != operand)
     if op == "in":
         if not isinstance(operand, list):
             raise SuccessConditionError("op 'in' requires a list 'value'")

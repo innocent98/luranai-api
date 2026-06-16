@@ -496,9 +496,7 @@ class AutomationService:
         # Best-effort server-side dedupe: there is no row lock, so two truly
         # concurrent re-runs could both miss this and send. The forwarded
         # Idempotency-Key header is the authoritative provider-side backstop.
-        prior = self._find_succeeded_by_idempotency(
-            tenant_id, idem_key, exclude_id=execution.id
-        )
+        prior = self._find_succeeded_by_idempotency(tenant_id, idem_key, exclude_id=execution.id)
         if prior is not None:
             execution.status = ActionExecutionStatus.SUCCEEDED
             execution.response_status_code = prior.response_status_code
@@ -529,7 +527,9 @@ class AutomationService:
         self.db.commit()
 
         retry_policy = action.retry_policy if isinstance(action.retry_policy, dict) else {}
-        max_attempts = max(1, min(int(retry_policy.get("max_attempts", 1) or 1), MAX_RETRY_ATTEMPTS))
+        max_attempts = max(
+            1, min(int(retry_policy.get("max_attempts", 1) or 1), MAX_RETRY_ATTEMPTS)
+        )
         backoff_ms = int(retry_policy.get("backoff_ms", 0) or 0)
 
         attempts_meta: list[dict] = []
@@ -662,9 +662,7 @@ class AutomationService:
             return self._is_retryable_status(outcome.status_code)
         return False
 
-    def _retry_delay_seconds(
-        self, attempt: int, backoff_ms: int, retry_after: int | None
-    ) -> float:
+    def _retry_delay_seconds(self, attempt: int, backoff_ms: int, retry_after: int | None) -> float:
         base = (backoff_ms / 1000) * float(2 ** (attempt - 1))
         base = min(base, float(MAX_BACKOFF_SECONDS))
         if retry_after is not None:
@@ -750,14 +748,18 @@ class AutomationService:
             execution.error_code = "CONDITION_INVALID"
             execution.error_message = str(exc)
             execution.normalized_output = {
-                "status_code": outcome.status_code, "success": False, "data": outcome.body
+                "status_code": outcome.status_code,
+                "success": False,
+                "data": outcome.body,
             }
             return
 
         if ok:
             execution.status = ActionExecutionStatus.SUCCEEDED
             execution.normalized_output = {
-                "status_code": outcome.status_code, "success": True, "data": outcome.body
+                "status_code": outcome.status_code,
+                "success": True,
+                "data": outcome.body,
             }
             return
 
@@ -769,7 +771,9 @@ class AutomationService:
             execution.error_code = "PROVIDER_ERROR"
             execution.error_message = f"Provider returned HTTP {outcome.status_code}"
         execution.normalized_output = {
-            "status_code": outcome.status_code, "success": False, "data": outcome.body
+            "status_code": outcome.status_code,
+            "success": False,
+            "data": outcome.body,
         }
 
     def _parse_response_body(self, response: httpx.Response) -> Any:
