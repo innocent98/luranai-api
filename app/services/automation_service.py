@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from time import perf_counter
 from typing import Any
 from urllib.parse import urlparse
@@ -27,6 +29,24 @@ from app.db.models.automation import (
 from app.db.models.tenant import TenantCapabilities
 from app.schemas.automation import TenantActionCreate, TenantActionUpdate
 from app.utils.network_security import resolve_and_validate_host
+
+
+@dataclass
+class _AttemptOutcome:
+    """Outcome of a single HTTP attempt within execute_action."""
+
+    kind: str  # "response" | "timeout" | "transport_error" | "error"
+    status_code: int | None = None
+    response_headers: dict | None = None
+    body: object = None
+    latency_ms: int = 0
+    retry_after: int | None = None
+    error: str | None = None
+    meta: dict = field(default_factory=dict)
+
+
+MAX_BACKOFF_SECONDS = 30
+MAX_RETRY_ATTEMPTS = 5
 
 
 class AutomationService:
@@ -232,8 +252,8 @@ class AutomationService:
         patch = payload.model_dump(exclude_unset=True)
         if patch.get("is_sensitive") is True and "requires_approval" not in patch:
             patch["requires_approval"] = True
-        for field, value in patch.items():
-            setattr(action, field, value)
+        for attr, value in patch.items():
+            setattr(action, attr, value)
         action.updated_by = user_id
         self.db.commit()
         self.db.refresh(action)
@@ -607,6 +627,42 @@ class AutomationService:
             if key_value:
                 result[str(key_name)] = str(key_value)
         return result
+
+    def _parse_retry_after(self, value: str | None) -> int | None:
+        if not value:
+            return None
+        value = value.strip()
+        if value.isdigit():
+            return int(value)
+        try:
+            when = parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return None
+        if when is None:
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        delta = (when - datetime.now(UTC)).total_seconds()
+        return max(0, int(delta))
+
+    def _is_retryable_status(self, status_code: int) -> bool:
+        return status_code == 429 or 500 <= status_code <= 599
+
+    def _outcome_retryable(self, outcome: _AttemptOutcome) -> bool:
+        if outcome.kind in {"timeout", "transport_error"}:
+            return True
+        if outcome.kind == "response" and outcome.status_code is not None:
+            return self._is_retryable_status(outcome.status_code)
+        return False
+
+    def _retry_delay_seconds(
+        self, attempt: int, backoff_ms: int, retry_after: int | None
+    ) -> float:
+        base = (backoff_ms / 1000) * float(2 ** (attempt - 1))
+        base = min(base, float(MAX_BACKOFF_SECONDS))
+        if retry_after is not None:
+            return float(max(base, retry_after))
+        return base
 
     def _parse_response_body(self, response: httpx.Response) -> Any:
         if not response.text:
