@@ -1,6 +1,7 @@
 """Tests for retry/idempotency/success wiring in AutomationService."""
 
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -54,3 +55,16 @@ def test_outcome_retryable():
     assert svc._outcome_retryable(_AttemptOutcome(kind="response", status_code=503)) is True
     assert svc._outcome_retryable(_AttemptOutcome(kind="response", status_code=404)) is False
     assert svc._outcome_retryable(_AttemptOutcome(kind="error")) is False
+
+
+def test_find_succeeded_by_idempotency_queries_and_returns():
+    db = MagicMock()
+    prior = SimpleNamespace(id="prior-1")
+    db.execute.return_value.scalar_one_or_none.return_value = prior
+    svc = AutomationService(db=db)
+
+    found = svc._find_succeeded_by_idempotency(
+        tenant_id="t1", idempotency_key="k1", exclude_id="cur-1"
+    )
+    assert found is prior
+    assert db.execute.called  # a select was issued

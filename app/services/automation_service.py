@@ -664,6 +664,21 @@ class AutomationService:
             return float(max(base, retry_after))
         return base
 
+    def _find_succeeded_by_idempotency(
+        self, tenant_id: UUID, idempotency_key: str, exclude_id: UUID
+    ) -> ActionExecution | None:
+        stmt = (
+            select(ActionExecution)
+            .where(
+                ActionExecution.tenant_id == tenant_id,
+                ActionExecution.idempotency_key == idempotency_key,
+                ActionExecution.status == ActionExecutionStatus.SUCCEEDED,
+                ActionExecution.id != exclude_id,
+            )
+            .limit(1)
+        )
+        return self.db.execute(stmt).scalar_one_or_none()
+
     def _parse_response_body(self, response: httpx.Response) -> Any:
         if not response.text:
             return None
