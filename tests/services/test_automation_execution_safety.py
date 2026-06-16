@@ -268,3 +268,26 @@ async def test_execute_forwards_idempotency_header_on_post(monkeypatch):
     monkeypatch.setattr(svc, "_attempt_request", capture_attempt)
     await svc.execute_action(tenant_id="t", action=_action_obj(method="POST"), idempotency_key="key-xyz")
     assert captured["idem"] == "key-xyz"
+
+
+@pytest.mark.asyncio
+async def test_retry_execution_reuses_key(monkeypatch):
+    svc = _svc()
+    original = SimpleNamespace(
+        id="e-orig", action_id="a1", input_payload={"x": 1}, session_id=None,
+        flow_execution_id=None, flow_id=None, node_id=None,
+        trigger_source=SimpleNamespace(), idempotency_key="orig-key", meta={},
+    )
+    monkeypatch.setattr(svc, "get_execution", lambda tenant_id, execution_id: original)
+    monkeypatch.setattr(svc, "get_action", lambda tenant_id, action_id: SimpleNamespace(id="a1"))
+    passed = {}
+
+    async def fake_execute(**kwargs):
+        passed.update(kwargs)
+        return SimpleNamespace(meta={})
+
+    monkeypatch.setattr(svc, "execute_action", fake_execute)
+    svc.db.commit = MagicMock()
+    svc.db.refresh = MagicMock()
+    await svc.retry_execution(tenant_id="t", execution_id="e-orig")
+    assert passed.get("idempotency_key") == "orig-key"

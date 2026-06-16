@@ -317,6 +317,7 @@ class AutomationService:
             flow_id=execution.flow_id,
             node_id=execution.node_id,
             trigger_source=execution.trigger_source,
+            idempotency_key=execution.idempotency_key,
         )
         retried.meta = {
             **(retried.meta or {}),
@@ -364,6 +365,7 @@ class AutomationService:
             node_id=execution.node_id,
             trigger_source=execution.trigger_source,
             bypass_approval_check=True,
+            idempotency_key=execution.idempotency_key,
         )
         rerun.meta = {
             **(rerun.meta or {}),
