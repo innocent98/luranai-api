@@ -221,7 +221,16 @@ class ChatAutomationOrchestrator:
             return AutomationTurnResult(handled=False)
 
         field_name = missing_fields[0]
-        extracted_value = self._extract_field_value(field_name, user_message)
+        routing = await RAGService(self.db).route_action_via_tools(
+            messages=self._build_routing_messages([], user_message),
+            tools=self._build_action_tools([action]),
+        )
+        candidate = None
+        if not routing.is_api_error and routing.arguments:
+            candidate = routing.arguments.get(field_name)
+        if candidate is None:
+            candidate = user_message
+        extracted_value = self._extract_field_value(field_name, str(candidate))
         if extracted_value is None:
             invalid_prompt = await self._generate_invalid_field_prompt(
                 action=action,
