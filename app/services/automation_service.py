@@ -6,6 +6,7 @@ import re
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
+from urllib.parse import urlparse
 from uuid import UUID
 
 import httpx
@@ -25,7 +26,7 @@ from app.db.models.automation import (
 )
 from app.db.models.tenant import TenantCapabilities
 from app.schemas.automation import TenantActionCreate, TenantActionUpdate
-from app.utils.network_security import ensure_safe_outbound_url
+from app.utils.network_security import resolve_and_validate_host
 
 
 class AutomationService:
@@ -431,8 +432,13 @@ class AutomationService:
         method = action.method.upper()
 
         try:
-            ensure_safe_outbound_url(
-                url,
+            parsed_target = urlparse(url)
+            if parsed_target.scheme not in {"http", "https"}:
+                raise ValueError("Only http/https URLs are allowed")
+            if not parsed_target.hostname:
+                raise ValueError("URL hostname is required")
+            safe_ip = resolve_and_validate_host(
+                parsed_target.hostname,
                 allowed_hostnames=settings.get_automation_outbound_host_allowlist(),
             )
         except ValueError as e:
@@ -468,14 +474,18 @@ class AutomationService:
 
         started = perf_counter()
         try:
-            async with httpx.AsyncClient(timeout=action.timeout_seconds) as client:
-                response = await client.request(
-                    method=method,
-                    url=url,
-                    headers=headers,
-                    params=query if query else None,
-                    json=body if method in {"POST", "PUT", "PATCH", "DELETE"} else None,
-                )
+            request = self._build_pinned_request(
+                method=method,
+                url=url,
+                headers=headers,
+                query=query,
+                body=body,
+                safe_ip=safe_ip,
+            )
+            async with httpx.AsyncClient(
+                timeout=action.timeout_seconds, follow_redirects=False
+            ) as client:
+                response = await client.send(request)
             latency_ms = int((perf_counter() - started) * 1000)
             parsed_body = self._parse_response_body(response)
 
@@ -520,6 +530,50 @@ class AutomationService:
             self.db.commit()
             self.db.refresh(execution)
             return execution
+
+    def _build_pinned_request(
+        self,
+        *,
+        method: str,
+        url: str,
+        headers: dict,
+        query: dict,
+        body: dict,
+        safe_ip: str,
+    ) -> httpx.Request:
+        """
+        Build a request that connects to the validated IP while preserving the
+        original Host header and TLS SNI/cert hostname. Prevents DNS rebinding
+        between validation and connection.
+        """
+        parsed = urlparse(url)
+        original_host = parsed.hostname or ""
+        # Build Host from hostname (+ port) only — never include userinfo,
+        # which parsed.netloc would carry (user:pass@host) and leak/malform.
+        host_for_header = original_host
+        if ":" in original_host:  # IPv6 literal
+            host_for_header = f"[{original_host}]"
+        host_header = f"{host_for_header}:{parsed.port}" if parsed.port else host_for_header
+
+        # If the host is allowlisted, resolve_and_validate_host returns the
+        # hostname unchanged — connect by hostname, no pinning needed.
+        connect_host = safe_ip if safe_ip != original_host else original_host
+        pinned_url = httpx.URL(url).copy_with(host=connect_host)
+
+        request_headers = dict(headers or {})
+        request_headers["Host"] = host_header
+
+        request = httpx.Request(
+            method=method,
+            url=pinned_url,
+            headers=request_headers,
+            params=query if query else None,
+            json=body if method in {"POST", "PUT", "PATCH", "DELETE"} else None,
+        )
+        if connect_host != original_host:
+            # Validate the TLS cert against the real hostname, not the IP.
+            request.extensions["sni_hostname"] = original_host
+        return request
 
     def _apply_auth_headers(self, headers: dict, auth_type: str, auth_config: dict) -> dict:
         result = dict(headers or {})

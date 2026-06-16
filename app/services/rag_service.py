@@ -1,6 +1,8 @@
 """RAG service for vector retrieval and prompt assembly."""
 
+import json
 import re
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
@@ -18,6 +20,15 @@ from app.utils.token_counter import count_tokens
 if TYPE_CHECKING:
     from app.db.models.conversation import EscalationAction
     from app.schemas.rag import EscalationDecision, PromptComponents, ResponseQuality
+
+
+@dataclass
+class ToolRoutingResult:
+    """Result of asking the LLM which tenant action (if any) to invoke."""
+
+    tool_name: str | None = None
+    arguments: dict[str, Any] = field(default_factory=dict)
+    is_api_error: bool = False
 
 
 class RAGService:
@@ -933,6 +944,49 @@ Instructions:
             logger.error(f"Error retrieving chunks: {e}")
             logger.exception(e)  # Log full traceback for debugging
             return [], []
+
+    async def route_action_via_tools(
+        self,
+        *,
+        messages: list[dict],
+        tools: list[dict],
+        model_name: str | None = None,
+    ) -> ToolRoutingResult:
+        """
+        Ask the model whether to call a tenant action tool, and with what args.
+
+        Returns ToolRoutingResult. On any API/parse failure, is_api_error=True
+        and no tool — callers fall back to normal RAG.
+        """
+        model = model_name or settings.OPENAI_LLM_MODEL
+        try:
+            await openai_llm_rate_limiter.acquire()
+            client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+            response = await client.chat.completions.create(  # type: ignore[call-overload]
+                model=model,
+                messages=messages,
+                tools=tools or None,
+                tool_choice="auto" if tools else "none",
+                temperature=0.1,
+                max_tokens=300,
+            )
+            message = response.choices[0].message
+            tool_calls = getattr(message, "tool_calls", None)
+            if not tool_calls:
+                return ToolRoutingResult(tool_name=None, arguments={}, is_api_error=False)
+            call = tool_calls[0]
+            try:
+                args = json.loads(call.function.arguments or "{}")
+            except (ValueError, TypeError):
+                args = {}
+            if not isinstance(args, dict):
+                args = {}
+            return ToolRoutingResult(
+                tool_name=call.function.name, arguments=args, is_api_error=False
+            )
+        except Exception as exc:  # noqa: BLE001 — any failure => RAG fallback
+            logger.warning(f"Action routing LLM call failed: {exc}", exc_info=True)
+            return ToolRoutingResult(tool_name=None, arguments={}, is_api_error=True)
 
     async def generate_ai_response(
         self,
