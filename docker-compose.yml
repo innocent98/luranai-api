@@ -14,9 +14,12 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
-      - redis
-      - qdrant
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -63,9 +66,12 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
-      - redis
-      - qdrant
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
