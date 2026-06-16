@@ -143,7 +143,9 @@ class ChatAutomationOrchestrator:
         if routing.is_api_error or not routing.tool_name:
             return AutomationTurnResult(handled=False)
 
-        action = next((a for a in actions if a.slug == routing.tool_name), None)
+        action = next(
+            (a for a in actions if self._tool_name_for_action(a) == routing.tool_name), None
+        )
         if action is None:
             return AutomationTurnResult(handled=False)
 
@@ -504,6 +506,19 @@ class ChatAutomationOrchestrator:
             metadata=metadata,
         )
 
+    def _tool_name_for_action(self, action) -> str:
+        """
+        Derive a valid OpenAI function name from an action slug.
+
+        OpenAI requires tool/function names to match ^[a-zA-Z0-9_-]+$ and be at
+        most 64 chars. Action slugs are not constrained to that, so we sanitize
+        deterministically and resolve the routed tool back to its action with
+        this same mapping (see handle_turn) to avoid a silent no-fire when the
+        slug contains spaces/dots or exceeds 64 chars.
+        """
+        sanitized = re.sub(r"[^a-zA-Z0-9_-]", "_", action.slug or "")
+        return sanitized[:64] or "action"
+
     def _build_action_tools(self, actions: list) -> list[dict]:
         """
         Build OpenAI function-calling tools from tenant actions.
@@ -538,7 +553,7 @@ class ChatAutomationOrchestrator:
                 {
                     "type": "function",
                     "function": {
-                        "name": action.slug,
+                        "name": self._tool_name_for_action(action),
                         "description": (action.description or action.name or action.slug)[:1024],
                         "parameters": {
                             "type": "object",

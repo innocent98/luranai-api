@@ -1,5 +1,6 @@
 """ChatAutomationOrchestrator tool-building + routing tests."""
 
+import re
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -155,3 +156,56 @@ async def test_intent_hit_with_all_args_executes(monkeypatch):
     )
     assert result.handled is True
     assert executed.get("order_id") == "42"
+
+
+def test_tool_name_sanitized_to_openai_charset_and_length():
+    orch = ChatAutomationOrchestrator(db=AsyncMock())
+    action = _action(
+        slug="Check Order.Status" + "x" * 80,  # spaces, dot, uppercase, >64 chars
+        name="Check order status",
+        description="Check an order",
+        url_template="https://api.example.com/orders/{{order_id}}",
+    )
+    name = orch._build_action_tools([action])[0]["function"]["name"]
+    assert len(name) <= 64
+    assert re.fullmatch(r"[a-zA-Z0-9_-]+", name)
+
+
+@pytest.mark.asyncio
+async def test_action_resolves_by_sanitized_tool_name(monkeypatch):
+    # The router returns the sanitized tool name (as OpenAI would echo it); the
+    # orchestrator must map it back to the action via the same sanitization.
+    action = _active_chat_action(
+        slug="Cancel My Order",  # contains spaces -> sanitized to Cancel_My_Order
+        name="Cancel order", description="Cancel an order",
+        url_template="https://api.example.com/orders/{{order_id}}/cancel",
+    )
+    orch = ChatAutomationOrchestrator(db=AsyncMock())
+    sanitized_name = orch._tool_name_for_action(action)
+    assert sanitized_name == "Cancel_My_Order"
+
+    monkeypatch.setattr(orch, "_can_use_ai_chat_automation", lambda tid: True)
+    monkeypatch.setattr(orch.automation_service, "list_actions", lambda tid: [action])
+    monkeypatch.setattr(
+        "app.services.chat_automation_orchestrator.RAGService.route_action_via_tools",
+        AsyncMock(return_value=ToolRoutingResult(tool_name=sanitized_name, arguments={"order_id": "7"})),
+    )
+    executed = {}
+
+    async def fake_exec(**kwargs):
+        executed.update(kwargs["input_payload"])
+        return SimpleNamespace(
+            status=SimpleNamespace(value="succeeded"), id="e1",
+            normalized_output={"data": {"status": "cancelled"}}, response_body=None,
+        )
+
+    monkeypatch.setattr(orch.automation_service, "execute_action", AsyncMock(side_effect=fake_exec))
+    monkeypatch.setattr(orch.conversation_service, "update_session_meta", lambda *a, **k: None)
+    monkeypatch.setattr(orch, "_format_execution_response", AsyncMock(return_value=("Done.", False, None)))
+
+    result = await orch.handle_turn(
+        tenant_id="t", session_id="s", user_message="cancel my order 7",
+        session_meta={}, conversation_history=[],
+    )
+    assert result.handled is True
+    assert executed.get("order_id") == "7"
