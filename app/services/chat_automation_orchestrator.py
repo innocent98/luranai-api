@@ -143,9 +143,7 @@ class ChatAutomationOrchestrator:
         if routing.is_api_error or not routing.tool_name:
             return AutomationTurnResult(handled=False)
 
-        action = next(
-            (a for a in actions if self._tool_name_for_action(a) == routing.tool_name), None
-        )
+        action = self._resolve_tool_action(actions, routing.tool_name)
         if action is None:
             return AutomationTurnResult(handled=False)
 
@@ -526,6 +524,38 @@ class ChatAutomationOrchestrator:
         sanitized = re.sub(r"[^a-zA-Z0-9_-]", "_", action.slug or "")
         return sanitized[:64] or "action"
 
+    def _action_tool_names(self, actions: list) -> list[tuple[str, Any]]:
+        """Assign each action a UNIQUE OpenAI tool name.
+
+        Sanitization is many-to-one and truncates to 64 chars, so distinct slugs
+        can collapse to the same base name. Append a numeric suffix on collision
+        so the model never receives duplicate tool names and a chosen name maps
+        back to exactly one action. Order follows `actions`, so build-time and
+        resolve-time agree for the same input list.
+        """
+        used: set[str] = set()
+        mapping: list[tuple[str, Any]] = []
+        for action in actions:
+            base = self._tool_name_for_action(action)
+            name = base
+            n = 2
+            while name in used:
+                suffix = f"_{n}"
+                name = base[: 64 - len(suffix)] + suffix
+                n += 1
+            used.add(name)
+            mapping.append((name, action))
+        return mapping
+
+    def _resolve_tool_action(self, actions: list, tool_name: str | None) -> Any:
+        """Map an LLM-chosen tool name back to its action (collision-safe)."""
+        if not tool_name:
+            return None
+        for name, action in self._action_tool_names(actions):
+            if name == tool_name:
+                return action
+        return None
+
     def _build_action_tools(self, actions: list) -> list[dict]:
         """
         Build OpenAI function-calling tools from tenant actions.
@@ -535,7 +565,7 @@ class ChatAutomationOrchestrator:
         templates. Secret/token/key fields are never exposed as parameters.
         """
         tools: list[dict] = []
-        for action in actions:
+        for tool_name, action in self._action_tool_names(actions):
             schema = action.input_schema if isinstance(action.input_schema, dict) else {}
             properties = schema.get("properties") if isinstance(schema, dict) else None
             required = schema.get("required") if isinstance(schema, dict) else None
@@ -560,7 +590,7 @@ class ChatAutomationOrchestrator:
                 {
                     "type": "function",
                     "function": {
-                        "name": self._tool_name_for_action(action),
+                        "name": tool_name,
                         "description": (action.description or action.name or action.slug)[:1024],
                         "parameters": {
                             "type": "object",

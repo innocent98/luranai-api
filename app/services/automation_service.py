@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from time import perf_counter
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 from loguru import logger
@@ -26,7 +29,26 @@ from app.db.models.automation import (
 )
 from app.db.models.tenant import TenantCapabilities
 from app.schemas.automation import TenantActionCreate, TenantActionUpdate
+from app.services.action_success import SuccessConditionError, evaluate_success_condition
 from app.utils.network_security import resolve_and_validate_host
+
+
+@dataclass
+class _AttemptOutcome:
+    """Outcome of a single HTTP attempt within execute_action."""
+
+    kind: str  # "response" | "timeout" | "transport_error" | "error"
+    status_code: int | None = None
+    response_headers: dict | None = None
+    body: object = None
+    latency_ms: int = 0
+    retry_after: int | None = None
+    error: str | None = None
+    meta: dict = field(default_factory=dict)
+
+
+MAX_BACKOFF_SECONDS = 30
+MAX_RETRY_ATTEMPTS = 5
 
 
 class AutomationService:
@@ -232,8 +254,8 @@ class AutomationService:
         patch = payload.model_dump(exclude_unset=True)
         if patch.get("is_sensitive") is True and "requires_approval" not in patch:
             patch["requires_approval"] = True
-        for field, value in patch.items():
-            setattr(action, field, value)
+        for attr, value in patch.items():
+            setattr(action, attr, value)
         action.updated_by = user_id
         self.db.commit()
         self.db.refresh(action)
@@ -295,6 +317,7 @@ class AutomationService:
             flow_id=execution.flow_id,
             node_id=execution.node_id,
             trigger_source=execution.trigger_source,
+            idempotency_key=execution.idempotency_key,
         )
         retried.meta = {
             **(retried.meta or {}),
@@ -342,6 +365,7 @@ class AutomationService:
             node_id=execution.node_id,
             trigger_source=execution.trigger_source,
             bypass_approval_check=True,
+            idempotency_key=execution.idempotency_key,
         )
         rerun.meta = {
             **(rerun.meta or {}),
@@ -363,6 +387,7 @@ class AutomationService:
         node_id: str | None = None,
         trigger_source: ActionTriggerSource = ActionTriggerSource.FLOW_NODE,
         bypass_approval_check: bool = False,
+        idempotency_key: str | None = None,
     ) -> ActionExecution:
         input_payload = input_payload or {}
         monthly_execution_limit = self._get_execution_limit(tenant_id)
@@ -462,6 +487,35 @@ class AutomationService:
         headers = self._apply_auth_headers(
             headers, action.auth_type.value, auth_config_with_context
         )
+
+        # Idempotency: one stable key per logical request, reused across retries
+        # and approval/manual re-runs.
+        idem_key = idempotency_key or uuid4().hex
+        execution.idempotency_key = idem_key
+
+        # Best-effort server-side dedupe: there is no row lock, so two truly
+        # concurrent re-runs could both miss this and send. The forwarded
+        # Idempotency-Key header is the authoritative provider-side backstop.
+        prior = self._find_succeeded_by_idempotency(tenant_id, idem_key, exclude_id=execution.id)
+        if prior is not None:
+            execution.status = ActionExecutionStatus.SUCCEEDED
+            execution.response_status_code = prior.response_status_code
+            execution.response_body = prior.response_body
+            execution.normalized_output = prior.normalized_output or {
+                "status_code": prior.response_status_code,
+                "success": True,
+                "data": prior.response_body,
+            }
+            execution.meta = {**(execution.meta or {}), "deduplicated_from": str(prior.id)}
+            self.db.commit()
+            self.db.refresh(execution)
+            return execution
+
+        if method in {"POST", "PUT", "PATCH", "DELETE"} and not any(
+            k.lower() == "idempotency-key" for k in headers
+        ):
+            headers["Idempotency-Key"] = idem_key
+
         execution.status = ActionExecutionStatus.RUNNING
         execution.resolved_request = {
             "method": method,
@@ -472,64 +526,37 @@ class AutomationService:
         }
         self.db.commit()
 
-        started = perf_counter()
-        try:
+        retry_policy = action.retry_policy if isinstance(action.retry_policy, dict) else {}
+        max_attempts = max(
+            1, min(int(retry_policy.get("max_attempts", 1) or 1), MAX_RETRY_ATTEMPTS)
+        )
+        backoff_ms = int(retry_policy.get("backoff_ms", 0) or 0)
+
+        attempts_meta: list[dict] = []
+        outcome: _AttemptOutcome | None = None
+        for attempt in range(1, max_attempts + 1):
             request = self._build_pinned_request(
-                method=method,
-                url=url,
-                headers=headers,
-                query=query,
-                body=body,
-                safe_ip=safe_ip,
+                method=method, url=url, headers=headers, query=query, body=body, safe_ip=safe_ip
             )
-            async with httpx.AsyncClient(
-                timeout=action.timeout_seconds, follow_redirects=False
-            ) as client:
-                response = await client.send(request)
-            latency_ms = int((perf_counter() - started) * 1000)
-            parsed_body = self._parse_response_body(response)
+            outcome = await self._attempt_request(action, request)
+            step = {"n": attempt, "kind": outcome.kind, "status": outcome.status_code}
+            if self._outcome_retryable(outcome) and attempt < max_attempts:
+                delay = self._retry_delay_seconds(attempt, backoff_ms, outcome.retry_after)
+                step["delay_s"] = delay
+                attempts_meta.append(step)
+                await asyncio.sleep(delay)
+                continue
+            attempts_meta.append(step)
+            break
 
-            execution.response_status_code = response.status_code
-            execution.response_headers = dict(response.headers)
-            execution.response_body = parsed_body
-            execution.latency_ms = latency_ms
-
-            if 200 <= response.status_code < 300:
-                execution.status = ActionExecutionStatus.SUCCEEDED
-                execution.normalized_output = {
-                    "status_code": response.status_code,
-                    "success": True,
-                    "data": parsed_body,
-                }
-            else:
-                execution.status = ActionExecutionStatus.FAILED
-                execution.error_code = "PROVIDER_ERROR"
-                execution.error_message = f"Provider returned HTTP {response.status_code}"
-                execution.normalized_output = {
-                    "status_code": response.status_code,
-                    "success": False,
-                    "data": parsed_body,
-                }
-            self.db.commit()
-            self.db.refresh(execution)
-            return execution
-        except httpx.TimeoutException:
-            execution.status = ActionExecutionStatus.TIMED_OUT
-            execution.error_code = "ACTION_TIMEOUT"
-            execution.error_message = f"Action timed out after {action.timeout_seconds}s"
-            execution.latency_ms = int((perf_counter() - started) * 1000)
-            self.db.commit()
-            self.db.refresh(execution)
-            return execution
-        except Exception as e:
-            logger.error(f"Action execution failed ({action.id}): {e}", exc_info=True)
-            execution.status = ActionExecutionStatus.FAILED
-            execution.error_code = "ACTION_EXECUTION_ERROR"
-            execution.error_message = str(e)
-            execution.latency_ms = int((perf_counter() - started) * 1000)
-            self.db.commit()
-            self.db.refresh(execution)
-            return execution
+        if outcome is None:  # unreachable: the loop always runs (max_attempts >= 1)
+            raise RuntimeError("execute_action retry loop produced no outcome")
+        execution.attempt = len(attempts_meta)
+        execution.meta = {**(execution.meta or {}), "attempts": attempts_meta}
+        self._finalize_execution(execution, action, outcome)
+        self.db.commit()
+        self.db.refresh(execution)
+        return execution
 
     def _build_pinned_request(
         self,
@@ -607,6 +634,147 @@ class AutomationService:
             if key_value:
                 result[str(key_name)] = str(key_value)
         return result
+
+    def _parse_retry_after(self, value: str | None) -> int | None:
+        if not value:
+            return None
+        value = value.strip()
+        if value.isdigit():
+            return int(value)
+        try:
+            when = parsedate_to_datetime(value)
+        except (TypeError, ValueError):
+            return None
+        if when is None:
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        delta = (when - datetime.now(UTC)).total_seconds()
+        return max(0, int(delta))
+
+    def _is_retryable_status(self, status_code: int) -> bool:
+        return status_code == 429 or 500 <= status_code <= 599
+
+    def _outcome_retryable(self, outcome: _AttemptOutcome) -> bool:
+        if outcome.kind in {"timeout", "transport_error"}:
+            return True
+        if outcome.kind == "response" and outcome.status_code is not None:
+            return self._is_retryable_status(outcome.status_code)
+        return False
+
+    def _retry_delay_seconds(self, attempt: int, backoff_ms: int, retry_after: int | None) -> float:
+        base = (backoff_ms / 1000) * float(2 ** (attempt - 1))
+        base = min(base, float(MAX_BACKOFF_SECONDS))
+        if retry_after is not None:
+            return float(max(base, retry_after))
+        return base
+
+    def _find_succeeded_by_idempotency(
+        self, tenant_id: UUID, idempotency_key: str, exclude_id: UUID
+    ) -> ActionExecution | None:
+        stmt = (
+            select(ActionExecution)
+            .where(
+                ActionExecution.tenant_id == tenant_id,
+                ActionExecution.idempotency_key == idempotency_key,
+                ActionExecution.status == ActionExecutionStatus.SUCCEEDED,
+                ActionExecution.id != exclude_id,
+            )
+            .limit(1)
+        )
+        return self.db.execute(stmt).scalar_one_or_none()
+
+    async def _attempt_request(
+        self, action: TenantAction, request: httpx.Request
+    ) -> _AttemptOutcome:
+        started = perf_counter()
+        try:
+            async with httpx.AsyncClient(
+                timeout=action.timeout_seconds, follow_redirects=False
+            ) as client:
+                response = await client.send(request)
+            latency_ms = int((perf_counter() - started) * 1000)
+            return _AttemptOutcome(
+                kind="response",
+                status_code=response.status_code,
+                response_headers=dict(response.headers),
+                body=self._parse_response_body(response),
+                latency_ms=latency_ms,
+                retry_after=self._parse_retry_after(response.headers.get("retry-after")),
+            )
+        except httpx.TimeoutException:
+            return _AttemptOutcome(
+                kind="timeout",
+                latency_ms=int((perf_counter() - started) * 1000),
+                error=f"Action timed out after {action.timeout_seconds}s",
+            )
+        except httpx.TransportError as exc:
+            return _AttemptOutcome(
+                kind="transport_error",
+                latency_ms=int((perf_counter() - started) * 1000),
+                error=str(exc),
+            )
+        except Exception as exc:  # noqa: BLE001 — unexpected, non-retryable
+            logger.error(f"Action attempt failed ({action.id}): {exc}", exc_info=True)
+            return _AttemptOutcome(
+                kind="error",
+                latency_ms=int((perf_counter() - started) * 1000),
+                error=str(exc),
+            )
+
+    def _finalize_execution(
+        self, execution: ActionExecution, action: TenantAction, outcome: _AttemptOutcome
+    ) -> None:
+        execution.latency_ms = outcome.latency_ms
+        if outcome.kind == "timeout":
+            execution.status = ActionExecutionStatus.TIMED_OUT
+            execution.error_code = "ACTION_TIMEOUT"
+            execution.error_message = outcome.error
+            return
+        if outcome.kind in {"transport_error", "error"}:
+            execution.status = ActionExecutionStatus.FAILED
+            execution.error_code = "ACTION_EXECUTION_ERROR"
+            execution.error_message = outcome.error
+            return
+
+        status_code = outcome.status_code or 0
+        execution.response_status_code = status_code
+        execution.response_headers = outcome.response_headers
+        execution.response_body = cast(Any, outcome.body)
+        try:
+            ok = evaluate_success_condition(action.success_condition, status_code, outcome.body)
+        except SuccessConditionError as exc:
+            execution.status = ActionExecutionStatus.FAILED
+            execution.error_code = "CONDITION_INVALID"
+            execution.error_message = str(exc)
+            execution.normalized_output = {
+                "status_code": status_code,
+                "success": False,
+                "data": outcome.body,
+            }
+            return
+
+        if ok:
+            execution.status = ActionExecutionStatus.SUCCEEDED
+            execution.normalized_output = {
+                "status_code": status_code,
+                "success": True,
+                "data": outcome.body,
+            }
+            return
+
+        execution.status = ActionExecutionStatus.FAILED
+        if 200 <= status_code < 300:
+            execution.error_code = "SUCCESS_CONDITION_FAILED"
+            execution.error_message = "Response did not satisfy the action's success condition."
+        else:
+            execution.error_code = "PROVIDER_ERROR"
+            execution.error_message = f"Provider returned HTTP {status_code}"
+        execution.normalized_output = {
+            "status_code": status_code,
+            "success": False,
+            "data": outcome.body,
+        }
 
     def _parse_response_body(self, response: httpx.Response) -> Any:
         if not response.text:

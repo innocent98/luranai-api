@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.db.models.automation import (
     ActionAuthType,
@@ -42,9 +42,40 @@ class TenantActionBase(BaseModel):
 
 
 class TenantActionCreate(TenantActionBase):
-    """Create schema for tenant actions."""
+    """Create schema for tenant actions.
 
-    pass
+    Config validators live here (the write boundary) rather than on
+    TenantActionBase, so TenantActionResponse does NOT re-run them on read —
+    a legacy/edge row with malformed config must not 500 a GET/list.
+    """
+
+    @field_validator("success_condition")
+    @classmethod
+    def _validate_success_condition(cls, v):
+        if v is None:
+            return v
+        from app.services.action_success import SuccessConditionError, evaluate_success_condition
+
+        try:
+            evaluate_success_condition(v, 200, {})
+        except SuccessConditionError as exc:
+            raise ValueError(str(exc)) from exc
+        return v
+
+    @field_validator("retry_policy")
+    @classmethod
+    def _validate_retry_policy(cls, v):
+        if v is None:
+            return v
+        if not isinstance(v, dict):
+            raise ValueError("retry_policy must be an object")
+        max_attempts = v.get("max_attempts", 1)
+        backoff_ms = v.get("backoff_ms", 0)
+        if not isinstance(max_attempts, int) or isinstance(max_attempts, bool) or max_attempts < 1:
+            raise ValueError("retry_policy.max_attempts must be an integer >= 1")
+        if not isinstance(backoff_ms, int) or isinstance(backoff_ms, bool) or backoff_ms < 0:
+            raise ValueError("retry_policy.backoff_ms must be an integer >= 0")
+        return v
 
 
 class TenantActionUpdate(BaseModel):
@@ -73,6 +104,34 @@ class TenantActionUpdate(BaseModel):
     requires_approval: bool | None = None
     allow_in_flows: bool | None = None
     available_in_ai_chat: bool | None = None
+
+    @field_validator("success_condition")
+    @classmethod
+    def _validate_success_condition(cls, v):
+        if v is None:
+            return v
+        from app.services.action_success import SuccessConditionError, evaluate_success_condition
+
+        try:
+            evaluate_success_condition(v, 200, {})
+        except SuccessConditionError as exc:
+            raise ValueError(str(exc)) from exc
+        return v
+
+    @field_validator("retry_policy")
+    @classmethod
+    def _validate_retry_policy(cls, v):
+        if v is None:
+            return v
+        if not isinstance(v, dict):
+            raise ValueError("retry_policy must be an object")
+        max_attempts = v.get("max_attempts", 1)
+        backoff_ms = v.get("backoff_ms", 0)
+        if not isinstance(max_attempts, int) or isinstance(max_attempts, bool) or max_attempts < 1:
+            raise ValueError("retry_policy.max_attempts must be an integer >= 1")
+        if not isinstance(backoff_ms, int) or isinstance(backoff_ms, bool) or backoff_ms < 0:
+            raise ValueError("retry_policy.backoff_ms must be an integer >= 0")
+        return v
 
 
 class TenantActionResponse(TenantActionBase):
