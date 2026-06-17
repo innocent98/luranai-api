@@ -293,3 +293,30 @@ async def test_pending_turn_fills_field_from_llm(monkeypatch):
     )
     assert result.handled is True
     assert executed.get("order_id") == "12345"
+
+
+def test_build_action_tools_disambiguates_colliding_names():
+    # Distinct slugs that sanitize to the same base name must get unique tool
+    # names, and each name must resolve back to the correct distinct action.
+    orch = ChatAutomationOrchestrator(db=AsyncMock())
+    a1 = _action(
+        slug="cancel order",
+        name="Cancel order",
+        description="d1",
+        url_template="https://api.example.com/a/{{order_id}}",
+    )
+    a2 = _action(
+        slug="cancel.order",
+        name="Cancel order 2",
+        description="d2",
+        url_template="https://api.example.com/b/{{order_id}}",
+    )
+    a2.id = "00000000-0000-0000-0000-000000000002"
+
+    tools = orch._build_action_tools([a1, a2])
+    names = [t["function"]["name"] for t in tools]
+    assert len(set(names)) == 2, f"tool names must be unique, got {names}"
+    assert all(len(n) <= 64 for n in names)
+    # Each generated name resolves back to exactly the action it was built from.
+    assert orch._resolve_tool_action([a1, a2], names[0]) is a1
+    assert orch._resolve_tool_action([a1, a2], names[1]) is a2
