@@ -246,7 +246,7 @@ class AuditService:
         return max(0, limit - active_count)
 
 
-    def claim_audit(self, claim_token: str, tenant_id: UUID) -> AuditReport:
+    async def claim_audit(self, claim_token: str, tenant_id: UUID) -> AuditReport:
         """Re-parent a public audit to a tenant after sign-up.
 
         - Looks up the unclaimed AuditReport by claim_token.
@@ -256,7 +256,6 @@ class AuditService:
           with resume=True). Otherwise: fresh full crawl (re-enqueue with resume=False).
         - Raises ValueError if the token is unknown or already claimed.
         """
-        import asyncio
         from datetime import UTC, datetime, timedelta
 
         from app.core.config import settings
@@ -311,7 +310,7 @@ class AuditService:
         self.db.commit()
 
         # Enqueue — must not be fire-and-forget; a Redis failure must surface.
-        asyncio.run(enqueue_audit(report.id))
+        await enqueue_audit(report.id)
         return report
 
 
