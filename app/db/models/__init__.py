@@ -13,7 +13,16 @@ from app.db.models.automation import (
     TenantActionStatus,
     TenantActionType,
 )
-from app.db.models.audit import AnalyticsMetric, AuditLog
+from app.db.models.audit import (
+    AnalyticsMetric,
+    AuditEntry,
+    AuditEntryKind,
+    AuditEntryStatus,
+    AuditLog,
+    AuditReport,
+    AuditScope,
+    AuditStatus,
+)
 from app.db.models.conversation import (
     ConversationSession,
     Message,
@@ -117,6 +126,13 @@ __all__ = [
     # Audit models
     "AuditLog",
     "AnalyticsMetric",
+    # Auditor staging models
+    "AuditReport",
+    "AuditEntry",
+    "AuditScope",
+    "AuditStatus",
+    "AuditEntryStatus",
+    "AuditEntryKind",
     # Job models
     "ProcessingJob",
     "JobStatus",
