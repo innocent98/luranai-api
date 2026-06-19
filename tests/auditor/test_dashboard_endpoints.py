@@ -305,6 +305,44 @@ def test_patch_entry_edits_fields(pg_client, db_session):
     assert entry.edited is True
 
 
+def test_patch_entry_updates_title_and_kind(pg_client, db_session):
+    """PATCH must update title and kind, and reject an invalid kind value."""
+    user, token = _make_tenant_user(db_session)
+    report = _make_report(db_session, user.tenant_id, with_entries=True)
+    db_session.flush()
+
+    entry = db_session.query(AuditEntry).filter(
+        AuditEntry.audit_report_id == report.id
+    ).first()
+
+    # Valid update: change title and kind
+    resp = pg_client.patch(
+        f"/api/v1/audit/entries/{entry.id}",
+        json={"title": "New Title", "kind": "policy"},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+    assert body["data"]["edited"] is True
+
+    db_session.refresh(entry)
+    assert entry.title == "New Title"
+    assert entry.kind == AuditEntryKind.POLICY
+    assert entry.edited is True
+
+    # Invalid kind must be rejected with error envelope
+    resp_bad = pg_client.patch(
+        f"/api/v1/audit/entries/{entry.id}",
+        json={"kind": "not_a_real_kind"},
+        headers=_auth(token),
+    )
+    assert resp_bad.status_code == 422
+    body_bad = resp_bad.json()
+    assert body_bad["success"] is False
+    assert body_bad["error"]["code"] == "INVALID_KIND"
+
+
 def test_patch_entry_cross_tenant_blocked(pg_client, db_session):
     user_a, token_a = _make_tenant_user(db_session)
     user_b, token_b = _make_tenant_user(db_session)
@@ -375,6 +413,22 @@ def test_generate_outline_is_forward_stub(pg_client, db_session):
     )
     assert resp.status_code == 501
     assert "Stage 6" in resp.json()["detail"]
+
+
+def test_generate_outline_cross_tenant_returns_404(pg_client, db_session):
+    """Ownership check fires before the 501 stub — cross-tenant gets 404."""
+    user_a, token_a = _make_tenant_user(db_session)
+    user_b, token_b = _make_tenant_user(db_session)
+
+    report_a = _make_report(
+        db_session, user_a.tenant_id, gaps=[{"title": "x", "kind": "faq", "demand_count": 1}]
+    )
+    db_session.flush()
+
+    resp = pg_client.post(
+        f"/api/v1/audit/{report_a.id}/gaps/0/outline", headers=_auth(token_b)
+    )
+    assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------

@@ -76,6 +76,59 @@ async def test_import_is_idempotent(db):
     )
 
 
+async def test_preselect_preserves_manual_swap_on_reimport(db):
+    """preselect_entries must not revert tenant's manual ACTIVE/LOCKED swaps.
+
+    Scenario (limit=2, 3 entries by rank):
+      - Initial preselect: rank-1 → ACTIVE, rank-2 → ACTIVE, rank-3 → LOCKED
+      - Tenant swaps: rank-3 → ACTIVE, rank-1 → LOCKED  (still 2 active, within limit)
+      - Second preselect (as called before import): must leave the swap intact
+      - import_entries imports rank-2 and rank-3 (the two ACTIVE entries after swap)
+        and does NOT import rank-1 (LOCKED by tenant)
+    """
+    _tid, report = _setup(db, max_sources=2)
+    svc = AuditService(db)
+
+    # Initial preselect: rank-1 and rank-2 → ACTIVE; rank-3 → LOCKED
+    svc.preselect_entries(report.id)
+    db.flush()
+
+    entries = (
+        db.query(AuditEntry)
+        .filter(AuditEntry.audit_report_id == report.id)
+        .order_by(AuditEntry.importance_rank.asc())
+        .all()
+    )
+    rank1, rank2, rank3 = entries
+    assert rank1.status == AuditEntryStatus.ACTIVE
+    assert rank2.status == AuditEntryStatus.ACTIVE
+    assert rank3.status == AuditEntryStatus.LOCKED
+
+    # Tenant manually swaps: lock rank-1, activate rank-3
+    rank1.status = AuditEntryStatus.LOCKED
+    rank3.status = AuditEntryStatus.ACTIVE
+    db.flush()
+
+    # Call preselect again (as import endpoint does) — must be a no-op on curated entries
+    svc.preselect_entries(report.id)
+    db.flush()
+
+    db.refresh(rank1)
+    db.refresh(rank2)
+    db.refresh(rank3)
+    assert rank1.status == AuditEntryStatus.LOCKED, "rank-1 should still be LOCKED after re-preselect"
+    assert rank2.status == AuditEntryStatus.ACTIVE, "rank-2 should remain ACTIVE"
+    assert rank3.status == AuditEntryStatus.ACTIVE, "rank-3 should remain ACTIVE (tenant activated)"
+
+    # Import: only rank-2 and rank-3 (the ACTIVE entries) should be imported
+    with patch("app.auditor.service.enqueue_document_ingestion", new_callable=AsyncMock):
+        imported_ids = await svc.import_entries(report.id)
+
+    assert rank1.id not in imported_ids, "Tenant-locked rank-1 must NOT be imported"
+    assert rank2.id in imported_ids, "rank-2 must be imported"
+    assert rank3.id in imported_ids, "Tenant-activated rank-3 must be imported"
+
+
 def test_upgrade_unlock_counts_newly_eligible(db):
     tid, report = _setup(db, max_sources=2)
     svc = AuditService(db)

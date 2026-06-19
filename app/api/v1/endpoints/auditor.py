@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_db
 from app.auditor.service import AuditService
-from app.db.models.audit import AuditEntry, AuditEntryStatus, AuditReport, AuditScope
+from app.db.models.audit import AuditEntry, AuditEntryKind, AuditEntryStatus, AuditReport, AuditScope
 from app.schemas.auditor import DashboardAuditRequest, EntryEditRequest
 from app.schemas.user import UserResponse
 
@@ -212,6 +212,17 @@ def edit_entry(
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
 
+    if payload.title is not None:
+        entry.title = payload.title
+    if payload.kind is not None:
+        try:
+            entry.kind = AuditEntryKind(payload.kind)
+        except ValueError:
+            return _err(
+                "INVALID_KIND",
+                f"'{payload.kind}' is not a valid entry kind.",
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
     if payload.content is not None:
         entry.content = payload.content
     if payload.category is not None:
@@ -268,8 +279,10 @@ async def import_audit(
 def generate_outline(
     audit_id: UUID,
     gap_index: int,
+    db: Session = Depends(get_db),
     user: UserResponse = Depends(get_current_tenant_admin),
 ):
+    _owned_report(db, audit_id, user.tenant_id)
     raise HTTPException(
         status_code=501,
         detail="Available with Marketing (Stage 6)",

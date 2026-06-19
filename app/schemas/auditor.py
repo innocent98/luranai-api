@@ -39,6 +39,8 @@ class DashboardAuditRequest(BaseModel):
 
 
 class EntryEditRequest(BaseModel):
+    title: str | None = None
+    kind: str | None = None
     content: str | None = None
     category: str | None = None
     status: str | None = None

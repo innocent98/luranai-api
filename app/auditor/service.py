@@ -90,36 +90,54 @@ class AuditService:
     def preselect_entries(
         self, audit_report_id: UUID
     ) -> tuple[list["AuditEntry"], list["AuditEntry"]]:
-        """Select top-N entries as ACTIVE (by importance_rank), rest become LOCKED.
+        """Initialization-only preselection: assign ACTIVE/LOCKED only to PROPOSED entries.
 
         N is determined by TenantCapabilities.max_knowledge_sources.
         None = unlimited; missing capabilities row = 0 (no sources allowed).
+
+        Idempotency guarantee: entries already in ACTIVE, LOCKED, or IMPORTED status
+        are left untouched, preserving any manual swaps the tenant has made via PATCH.
+        Only entries still in PROPOSED status are eligible for initial assignment.
+        The top-N PROPOSED entries (by importance_rank) become ACTIVE; the rest become LOCKED.
+        The plan-limit cap on the import side is enforced by import_entries, which only
+        processes entries currently in ACTIVE status — so an over-limit active set
+        (impossible via PATCH if that endpoint is correctly guarded) cannot bypass the cap.
         """
         from app.db.models.audit import AuditEntry, AuditEntryStatus, AuditReport
 
         report = self.db.query(AuditReport).filter(AuditReport.id == audit_report_id).one()
-        entries = (
+        limit = self._max_sources(report.tenant_id)
+
+        # Count how many slots are already consumed by tenant-curated ACTIVE entries
+        already_active_count = (
             self.db.query(AuditEntry)
             .filter(
                 AuditEntry.audit_report_id == audit_report_id,
-                AuditEntry.status.in_(
-                    [
-                        AuditEntryStatus.PROPOSED,
-                        AuditEntryStatus.ACTIVE,
-                        AuditEntryStatus.LOCKED,
-                    ]
-                ),
+                AuditEntry.status == AuditEntryStatus.ACTIVE,
+            )
+            .count()
+        )
+
+        # Only operate on entries still in PROPOSED — never touch ACTIVE/LOCKED/IMPORTED
+        proposed = (
+            self.db.query(AuditEntry)
+            .filter(
+                AuditEntry.audit_report_id == audit_report_id,
+                AuditEntry.status == AuditEntryStatus.PROPOSED,
             )
             .order_by(AuditEntry.importance_rank.asc())
             .all()
         )
-        limit = self._max_sources(report.tenant_id)
+
         active: list = []
         locked: list = []
-        for idx, entry in enumerate(entries):
-            if limit is None or idx < limit:
+        remaining_slots = (limit - already_active_count) if limit is not None else None
+        for entry in proposed:
+            if remaining_slots is None or remaining_slots > 0:
                 entry.status = AuditEntryStatus.ACTIVE
                 active.append(entry)
+                if remaining_slots is not None:
+                    remaining_slots -= 1
             else:
                 entry.status = AuditEntryStatus.LOCKED
                 locked.append(entry)
