@@ -421,6 +421,27 @@ Instructions:
 - If required details are still missing, ask one clarifying question or offer human support.
 """
 
+    def _build_business_block(self, profile: Any, *, token_budget: int = 150) -> str:
+        """Build a compact 'About this business' grounding block from a BusinessProfile.
+
+        Enforces the token budget by iterative character truncation.
+        Intentionally stays independent of the DB — caller passes the profile in.
+        """
+        offerings = ", ".join((profile.offerings or [])[:6])
+        entities = ", ".join((profile.key_entities or [])[:6])
+        parts = ["About this business:"]
+        if profile.summary:
+            parts.append(profile.summary)
+        if offerings:
+            parts.append(f"Offerings: {offerings}")
+        if entities:
+            parts.append(f"Key entities: {entities}")
+        block = " ".join(parts)
+        # Enforce ~150-token budget by truncation
+        while count_tokens(block) > token_budget and len(block) > 0:
+            block = block[: int(len(block) * 0.9)]
+        return block
+
     def assemble_prompt(
         self,
         ai_config: TenantAIConfig,
@@ -430,6 +451,7 @@ Instructions:
         company_name: str,
         company_description: str | None = None,
         max_history_turns: int = 10,
+        business_profile: "Any | None" = None,
     ) -> "PromptComponents":
         """
         Assemble intelligent adaptive prompt with knowledge availability signaling.
@@ -453,6 +475,9 @@ Instructions:
         tenant_config_parts.append(f"Company: {company_name}")
         if company_description:
             tenant_config_parts.append(f"Description: {company_description}")
+
+        if business_profile is not None:
+            tenant_config_parts.append(self._build_business_block(business_profile))
 
         if ai_config.brand_voice:
             voice = ai_config.brand_voice
