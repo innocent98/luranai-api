@@ -117,9 +117,31 @@ async def run_audit(
         db.commit()
 
         if report.tenant_id is not None:
-            profile_obj, _sig = await profile.synthesize_or_reuse(
-                db, report.tenant_id, extracted, prior_signature=None
+            from app.db.models.business_profile import BusinessProfile
+
+            # Load any existing profile so we can supply its stored content
+            # signature.  synthesize_or_reuse reuses the profile when
+            # prior_signature matches the signature of the *current* pages,
+            # meaning the site content is unchanged since the last audit.
+            # BusinessProfile.raw stores the signature under key
+            # "_content_signature" after each synthesis (written below).
+            existing_bp = (
+                db.query(BusinessProfile)
+                .filter(BusinessProfile.tenant_id == report.tenant_id)
+                .one_or_none()
             )
+            stored_sig: str | None = (
+                (existing_bp.raw or {}).get("_content_signature")
+                if existing_bp is not None
+                else None
+            )
+            profile_obj, new_sig = await profile.synthesize_or_reuse(
+                db, report.tenant_id, extracted, prior_signature=stored_sig
+            )
+            # Persist the content signature so future re-audits can reuse.
+            if profile_obj.raw is None:
+                profile_obj.raw = {}
+            profile_obj.raw = {**profile_obj.raw, "_content_signature": new_sig}
             db.flush()
             report.business_profile_id = profile_obj.id
             profile_dict: dict = {
@@ -212,19 +234,36 @@ async def run_audit(
         logger.error(
             "run_audit failed for audit_report_id={}: {}", audit_report_id, exc, exc_info=True
         )
+        # Recover: clear any pending dirty state via expire_all (avoids a bare
+        # rollback that would destroy the outer transaction in test environments
+        # that use a connection-level transaction for rollback isolation).
+        # Then re-load both the report and its job and mark them FAILED together
+        # in one commit so the Scanning screen never gets stuck in PROCESSING.
         try:
-            report.status = AuditStatus.FAILED
-            db.commit()
-        except Exception:  # noqa: BLE001
-            db.rollback()
-        _update_job(
-            db, report.processing_job_id,
-            status=JobStatus.FAILED,
-            error_message=str(exc),
-            completed_at=datetime.now(UTC),
-        )
+            db.expire_all()
+            _report = db.query(AuditReport).filter(AuditReport.id == audit_report_id).one_or_none()
+            if _report is not None:
+                _report.status = AuditStatus.FAILED
+                _job_id = _report.processing_job_id
+                if _job_id:
+                    _job = db.query(ProcessingJob).filter(ProcessingJob.id == _job_id).one_or_none()
+                    if _job is not None:
+                        _job.status = JobStatus.FAILED
+                        _job.error_message = str(exc)
+                        _job.completed_at = datetime.now(UTC)
+                db.commit()
+                report = _report
+        except Exception as recovery_exc:  # noqa: BLE001
+            logger.error("run_audit recovery commit failed: {}", recovery_exc, exc_info=True)
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001
+                pass
 
-    db.refresh(report)
+    try:
+        db.refresh(report)
+    except Exception:  # noqa: BLE001
+        pass
     return report
 
 
