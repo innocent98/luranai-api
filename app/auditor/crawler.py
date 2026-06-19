@@ -10,6 +10,7 @@ import httpx
 from loguru import logger
 
 from app.core.config import settings
+from app.auditor.discovery import guard_url
 
 
 @dataclass
@@ -19,6 +20,10 @@ class RawPage:
     html: str | None
     bytes_len: int
     error: str | None = None
+    # The final URL after any redirects (defaults to the requested URL).
+    # Added for post-redirect SSRF guard; safe to ignore by callers that don't
+    # care about redirects.
+    final_url: str | None = None
 
 
 async def _default_fetch_text(url: str) -> str | None:
@@ -62,8 +67,12 @@ def is_allowed_by_robots(url: str, disallowed: set[str]) -> bool:
     return not any(path.startswith(rule) for rule in disallowed)
 
 
-async def _playwright_render(url: str) -> tuple[int, str]:
-    """Default page renderer using Playwright headless Chromium."""
+async def _playwright_render(url: str) -> tuple[int, str, str]:
+    """Default page renderer using Playwright headless Chromium.
+
+    Returns (status, html, final_url) where final_url is the URL the browser
+    landed on after any redirects.
+    """
     from playwright.async_api import async_playwright
 
     async with async_playwright() as p:
@@ -76,7 +85,8 @@ async def _playwright_render(url: str) -> tuple[int, str]:
                 wait_until="domcontentloaded",
             )
             html = await page.content()
-            return (resp.status if resp else 0), html
+            final_url = page.url or url
+            return (resp.status if resp else 0), html, final_url
         finally:
             await browser.close()
 
@@ -91,10 +101,27 @@ async def render_page(
 
     Handles timeout and errors gracefully — returns a RawPage with error set
     rather than raising. Enforces max_bytes content-size cap.
+
+    SSRF guards:
+    - Pre-render: guard_url(url) is checked before rendering; unsafe URLs are
+      returned immediately as RawPage(error="UNSAFE_URL").
+    - Post-redirect: the final URL the renderer landed on is re-checked;
+      unsafe post-redirect hosts yield RawPage(error="UNSAFE_REDIRECT") with
+      no body returned.
+
+    The injectable page_renderer must return either:
+      (status, html)               — final_url defaults to the requested url
+      (status, html, final_url)    — explicit final URL after redirects
+    Both forms are accepted for backwards compatibility.
     """
+    # Pre-render SSRF guard.
+    if not guard_url(url):
+        logger.warning("render_page SSRF pre-guard blocked: {}", url)
+        return RawPage(url=url, status=0, html=None, bytes_len=0, error="UNSAFE_URL")
+
     renderer = page_renderer or _playwright_render
     try:
-        status, html = await asyncio.wait_for(
+        result = await asyncio.wait_for(
             renderer(url),
             timeout=settings.AUDITOR_PER_PAGE_TIMEOUT_S + 2,
         )
@@ -104,6 +131,18 @@ async def render_page(
         logger.debug("render_page error {}: {}", url, exc)
         return RawPage(url=url, status=0, html=None, bytes_len=0, error=str(exc))
 
+    # Support both 2-tuple (status, html) and 3-tuple (status, html, final_url).
+    if len(result) == 3:
+        status, html, final_url = result
+    else:
+        status, html = result
+        final_url = url
+
+    # Post-redirect SSRF guard — discard body if the browser landed on an unsafe host.
+    if final_url != url and not guard_url(final_url):
+        logger.warning("render_page SSRF post-redirect guard blocked: {} -> {}", url, final_url)
+        return RawPage(url=url, status=0, html=None, bytes_len=0, error="UNSAFE_REDIRECT", final_url=final_url)
+
     byte_len = len(html.encode("utf-8"))
     if byte_len > max_bytes:
         return RawPage(
@@ -112,8 +151,9 @@ async def render_page(
             html=None,
             bytes_len=byte_len,
             error="SIZE_CAP_EXCEEDED",
+            final_url=final_url,
         )
-    return RawPage(url=url, status=status, html=html, bytes_len=byte_len)
+    return RawPage(url=url, status=status, html=html, bytes_len=byte_len, final_url=final_url)
 
 
 async def crawl(
@@ -128,7 +168,8 @@ async def crawl(
     Args:
         urls: Ordered list of URLs to render.
         rps: Requests per second cap per domain (defaults to settings.AUDITOR_CRAWL_RPS).
-        page_renderer: Injectable async callable ``(url) -> (status, html)`` for testing.
+        page_renderer: Injectable async callable ``(url) -> (status, html[, final_url])``
+            for testing.
         robots_disallowed: Set of disallowed path prefixes from fetch_robots().
 
     Returns:
