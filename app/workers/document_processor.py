@@ -1164,8 +1164,11 @@ class WorkerSettings:
         auto_resolve_stale_tickets,
     )
 
+    from app.auditor.pipeline import run_website_audit  # type: ignore[misc]
+
     functions = [
         process_document_ingestion,
+        run_website_audit,
         auto_abandon_inactive_conversations,
         auto_resolve_stale_tickets,
         check_trial_expiration_3days,
