@@ -47,6 +47,8 @@ def create_subscription_plans(db):
             "max_nodes_per_flow": 0,
             "can_use_webhooks": False,
             "max_webhooks_per_flow": 0,
+            "max_audit_pages_per_crawl": 50,
+            "max_audits_per_month": 2,
             "features": [
                 "2 knowledge sources",
                 "10MB storage",
@@ -83,6 +85,8 @@ def create_subscription_plans(db):
             "max_nodes_per_flow": 20,
             "can_use_webhooks": False,
             "max_webhooks_per_flow": 0,
+            "max_audit_pages_per_crawl": 200,
+            "max_audits_per_month": 5,
             "features": [
                 "15 knowledge sources",
                 "50MB storage",
@@ -120,6 +124,8 @@ def create_subscription_plans(db):
             "max_nodes_per_flow": 50,
             "can_use_webhooks": True,
             "max_webhooks_per_flow": 3,
+            "max_audit_pages_per_crawl": 500,
+            "max_audits_per_month": 15,
             "features": [
                 "50 knowledge sources",
                 "200MB storage",
@@ -159,6 +165,8 @@ def create_subscription_plans(db):
             "max_nodes_per_flow": 100,
             "can_use_webhooks": True,
             "max_webhooks_per_flow": 10,
+            "max_audit_pages_per_crawl": 500,
+            "max_audits_per_month": 30,
             "features": [
                 "50 knowledge sources",
                 "500MB storage",
@@ -198,6 +206,8 @@ def create_subscription_plans(db):
             "max_nodes_per_flow": None,  # Unlimited
             "can_use_webhooks": True,
             "max_webhooks_per_flow": None,  # Unlimited
+            "max_audit_pages_per_crawl": None,  # Unlimited
+            "max_audits_per_month": None,  # Unlimited
             "features": [
                 "Unlimited knowledge sources",
                 "Unlimited storage",

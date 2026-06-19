@@ -451,6 +451,16 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         comment="Maximum webhook nodes allowed per flow (null = unlimited)",
     )
+    max_audit_pages_per_crawl: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Max pages an authed audit crawl may scan (null = unlimited)",
+    )
+    max_audits_per_month: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Max dashboard audits per calendar month (null = unlimited)",
+    )
 
     # Override Tracking
     override_flags: Mapped[dict | None] = mapped_column(

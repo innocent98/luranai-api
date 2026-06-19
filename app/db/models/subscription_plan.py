@@ -60,6 +60,8 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
     max_webhooks_per_flow: Mapped[int | None] = mapped_column(
         Integer, nullable=True
     )  # None = unlimited
+    max_audit_pages_per_crawl: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_audits_per_month: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Marketing
     features: Mapped[list[str]] = mapped_column(
@@ -102,6 +104,8 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
                 "max_nodes_per_flow": self.max_nodes_per_flow,
                 "can_use_webhooks": self.can_use_webhooks,
                 "max_webhooks_per_flow": self.max_webhooks_per_flow,
+                "max_audit_pages_per_crawl": self.max_audit_pages_per_crawl,
+                "max_audits_per_month": self.max_audits_per_month,
             },
             "features": self.features,
             "is_active": self.is_active,
@@ -132,4 +136,6 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
             "max_nodes_per_flow": self.max_nodes_per_flow,
             "can_use_webhooks": self.can_use_webhooks,
             "max_webhooks_per_flow": self.max_webhooks_per_flow,
+            "max_audit_pages_per_crawl": self.max_audit_pages_per_crawl,
+            "max_audits_per_month": self.max_audits_per_month,
         }
