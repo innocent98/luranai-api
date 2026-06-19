@@ -126,7 +126,7 @@ class AuditService:
         self.db.flush()
         return active, locked
 
-    def import_entries(
+    async def import_entries(
         self, audit_report_id: UUID, *, uploaded_by: UUID | None = None
     ) -> list[UUID]:
         """Materialize ACTIVE AuditEntry rows into KnowledgeSource + enqueue ingestion.
@@ -134,6 +134,9 @@ class AuditService:
         Idempotent: entries already IMPORTED (knowledge_source_id set) are skipped.
         Dedup: entries whose content_hash matches an existing KnowledgeSource are
         linked to the existing source rather than creating a duplicate.
+
+        Now async so that enqueue failures surface immediately (no orphaned
+        KnowledgeSource rows left stuck at PROCESSING).
         """
         from datetime import UTC, datetime
 
@@ -208,7 +211,7 @@ class AuditService:
             self.db.add(job)
             self.db.flush()
             imported_ids.append(entry.id)
-            enqueue_document_ingestion(job.id)
+            await enqueue_document_ingestion(job.id)
 
         report.imported = True
         report.imported_at = datetime.now(UTC)
@@ -338,21 +341,15 @@ def purge_unclaimed_audits_sync(db) -> int:
     return count
 
 
-def enqueue_document_ingestion(job_id: UUID) -> None:
-    """Enqueue the document_processor ARQ job. Separated for test mockability."""
-    import asyncio
+async def enqueue_document_ingestion(job_id: UUID) -> None:
+    """Enqueue the document_processor ARQ job. Separated for test mockability.
 
+    Now async so callers can await it and surface Redis failures immediately.
+    """
     from arq import create_pool
     from arq.connections import RedisSettings
 
     from app.core.config import settings
 
-    async def _enqueue() -> None:
-        redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
-        await redis.enqueue_job("process_document_ingestion", str(job_id))
-
-    try:
-        asyncio.get_running_loop()
-        asyncio.ensure_future(_enqueue())
-    except RuntimeError:
-        asyncio.run(_enqueue())
+    redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+    await redis.enqueue_job("process_document_ingestion", str(job_id))

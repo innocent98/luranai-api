@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     analytics,
     api_keys,
+    auditor,
     auth,
     automation,
     automation_sandbox,
@@ -272,3 +273,6 @@ api_router.include_router(jobs.router, tags=["jobs"])
 
 # WebSocket endpoints (real-time chat)
 api_router.include_router(websocket.router, prefix="/ws", tags=["websocket"])
+
+# Authenticated tenant-dashboard auditor endpoints
+api_router.include_router(auditor.router, tags=["auditor"])

@@ -1,7 +1,7 @@
 """Tests for AuditService.import_entries + plan-gating + idempotency."""
 
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from app.auditor.service import AuditService
 from app.db.models.audit import (
@@ -57,14 +57,14 @@ def test_preselect_respects_max_knowledge_sources(db):
     assert locked[0].status == AuditEntryStatus.LOCKED
 
 
-def test_import_is_idempotent(db):
+async def test_import_is_idempotent(db):
     _tid, report = _setup(db, max_sources=2)
     svc = AuditService(db)
     svc.preselect_entries(report.id)
     db.flush()
-    with patch("app.auditor.service.enqueue_document_ingestion"):
-        first = svc.import_entries(report.id)
-        second = svc.import_entries(report.id)  # re-run
+    with patch("app.auditor.service.enqueue_document_ingestion", new_callable=AsyncMock):
+        first = await svc.import_entries(report.id)
+        second = await svc.import_entries(report.id)  # re-run
     db.flush()
     assert len(first) == 2
     assert second == []  # nothing new imported
@@ -150,8 +150,8 @@ async def test_import_worker_path_single_source(db):
     db.flush()
 
     # import_entries creates 1 KnowledgeSource (PROCESSING) and enqueues job
-    with patch("app.auditor.service.enqueue_document_ingestion"):
-        imported = svc.import_entries(report.id)
+    with patch("app.auditor.service.enqueue_document_ingestion", new_callable=AsyncMock):
+        imported = await svc.import_entries(report.id)
     assert len(imported) == 1
 
     # Exactly 1 source must exist, still PROCESSING

@@ -32,3 +32,13 @@ class PublicReportResponse(AuditScoresResponse):
 
 class LeadCaptureRequest(BaseModel):
     email: EmailStr
+
+
+class DashboardAuditRequest(BaseModel):
+    url: HttpUrl
+
+
+class EntryEditRequest(BaseModel):
+    content: str | None = None
+    category: str | None = None
+    status: str | None = None
