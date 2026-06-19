@@ -246,6 +246,99 @@ class AuditService:
         return max(0, limit - active_count)
 
 
+    def claim_audit(self, claim_token: str, tenant_id: UUID) -> AuditReport:
+        """Re-parent a public audit to a tenant after sign-up.
+
+        - Looks up the unclaimed AuditReport by claim_token.
+        - Re-parents the report and its AuditEntry rows to tenant_id.
+        - Persists the BusinessProfile for the tenant if present.
+        - If the report is within the staleness window: incremental resume (re-enqueue
+          with resume=True). Otherwise: fresh full crawl (re-enqueue with resume=False).
+        - Raises ValueError if the token is unknown or already claimed.
+        """
+        import asyncio
+        from datetime import UTC, datetime, timedelta
+
+        from app.core.config import settings
+        from app.db.models.audit import AuditEntry, AuditReport
+        from app.db.models.business_profile import BusinessProfile
+        from app.db.models.job import JobType, ProcessingJob
+        from app.utils.datetime import ensure_utc_aware
+
+        report = (
+            self.db.query(AuditReport)
+            .filter(AuditReport.claim_token == claim_token, AuditReport.tenant_id.is_(None))
+            .one_or_none()
+        )
+        if report is None:
+            raise ValueError("Invalid or already-claimed token")
+
+        # Re-parent the report and all its entries
+        report.tenant_id = tenant_id
+        self.db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).update(
+            {AuditEntry.tenant_id: tenant_id}
+        )
+
+        # Persist BusinessProfile ownership if one is attached
+        if report.business_profile_id:
+            bp = (
+                self.db.query(BusinessProfile)
+                .filter(BusinessProfile.id == report.business_profile_id)
+                .one_or_none()
+            )
+            if bp and bp.tenant_id is None:
+                bp.tenant_id = tenant_id
+
+        # Staleness check: compare scan time to threshold
+        created = ensure_utc_aware(report.created_at)
+        stale = created is not None and (datetime.now(UTC) - created) > timedelta(
+            days=settings.AUDITOR_CLAIM_STALENESS_DAYS
+        )
+
+        # Create a new processing job for the re-crawl / resume
+        job = ProcessingJob(
+            tenant_id=tenant_id,
+            job_type=JobType.DOCUMENT_INGESTION,
+            input_data={
+                "kind": "website_audit",
+                "resume": not stale,  # True = incremental resume; False = fresh crawl
+                "url": report.url,
+            },
+        )
+        self.db.add(job)
+        self.db.flush()
+        report.processing_job_id = job.id
+        self.db.commit()
+
+        # Enqueue — must not be fire-and-forget; a Redis failure must surface.
+        asyncio.run(enqueue_audit(report.id))
+        return report
+
+
+def purge_unclaimed_audits_sync(db) -> int:
+    """Delete AuditReport rows with tenant_id IS NULL older than the purge window.
+
+    AuditEntry rows are cascade-deleted via the FK relationship.
+    Returns the count of deleted reports.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from app.core.config import settings
+    from app.db.models.audit import AuditReport
+
+    cutoff = datetime.now(UTC) - timedelta(days=settings.AUDITOR_UNCLAIMED_PURGE_DAYS)
+    stale = (
+        db.query(AuditReport)
+        .filter(AuditReport.tenant_id.is_(None), AuditReport.created_at < cutoff)
+        .all()
+    )
+    count = len(stale)
+    for report in stale:
+        db.delete(report)  # cascade deletes AuditEntry rows via relationship
+    db.commit()
+    return count
+
+
 def enqueue_document_ingestion(job_id: UUID) -> None:
     """Enqueue the document_processor ARQ job. Separated for test mockability."""
     import asyncio

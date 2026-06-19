@@ -978,6 +978,19 @@ async def aggregate_daily_metrics(ctx: dict) -> dict:
         db.close()
 
 
+async def purge_unclaimed_audits(ctx: dict) -> dict:
+    """Daily: drop public audit reports with no tenant after the purge window."""
+    from app.auditor.service import purge_unclaimed_audits_sync
+
+    db = SessionLocal()
+    try:
+        removed = purge_unclaimed_audits_sync(db)
+        logger.info("purge_unclaimed_audits removed {} reports", removed)
+        return {"status": "success", "removed": removed}
+    finally:
+        db.close()
+
+
 async def send_channel_post_notifications(ctx: dict, post_id: str) -> None:
     """Send email notifications to all followers when a channel post is published."""
     from uuid import UUID
@@ -1198,6 +1211,7 @@ class WorkerSettings:
         send_channel_post_notifications,
         process_promotional_grant_lifecycle,
         send_promo_granted_emails_batch,
+        purge_unclaimed_audits,
     ]
     redis_settings = get_redis_settings()
 
@@ -1278,6 +1292,13 @@ class WorkerSettings:
             process_promotional_grant_lifecycle,
             hour={9},
             minute={5},
+            run_at_startup=False,
+        ),
+        # Purge unclaimed public audit reports older than AUDITOR_UNCLAIMED_PURGE_DAYS - daily at 03:30 UTC
+        cron(
+            purge_unclaimed_audits,
+            hour=3,
+            minute=30,
             run_at_startup=False,
         ),
     ]
