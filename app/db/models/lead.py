@@ -4,7 +4,7 @@ import enum
 import hashlib
 import uuid
 
-from sqlalchemy import JSON, ForeignKey, Index, Integer, String
+from sqlalchemy import JSON, ForeignKey, Index, Integer, String, event
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -53,5 +53,17 @@ class Lead(Base, UUIDMixin, TimestampMixin):
 
     @staticmethod
     def compute_email_hash(email: str) -> str:
-        """SHA-256 hex digest of the stripped, lowercased email for deterministic lookups."""
+        """SHA-256 hex digest of the stripped, lowercased email for deterministic lookups.
+
+        Intentionally lowercases for canonical, case-insensitive matching — other models
+        normalize email to lowercase upstream, so the hashes agree in practice.
+        """
         return hashlib.sha256(email.strip().lower().encode()).hexdigest()
+
+
+@event.listens_for(Lead, "before_insert")
+@event.listens_for(Lead, "before_update")
+def _populate_lead_email_hash(mapper, connection, target):
+    """Auto-populate email_hash from email before every insert/update."""
+    if target.email:
+        target.email_hash = Lead.compute_email_hash(target.email)
