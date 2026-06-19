@@ -30,6 +30,7 @@ from app.db.models.customer_engagement import (
 )
 from app.db.models.customer_user import CustomerUser
 from app.db.models.email_notification import EmailNotification
+from app.db.models.business_profile import BusinessProfile, BusinessProfileSource
 from app.db.models.flow import (
     Flow,
     FlowExecution,
@@ -136,6 +137,9 @@ __all__ = [
     "DailyVisit",
     # Email notification models
     "EmailNotification",
+    # Auditor models
+    "BusinessProfile",
+    "BusinessProfileSource",
     # Flow models
     "Flow",
     "FlowExecution",
