@@ -318,3 +318,70 @@ async def test_discover_excludes_cross_domain_urls():
 
     assert "https://other.com/evil" not in found
     assert "https://ex.com/about" in found
+
+
+# ---------------------------------------------------------------------------
+# Fix 1 + Fix 2 SSRF guard tests (sitemap fetch + _default_fetch_text)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_discover_sitemap_ssrf_blocked_host_skips_fetch():
+    """When guard_url blocks the sitemap URL, fetch_text is NOT called for it."""
+    fetch_calls = []
+
+    async def spy_fetch(url):
+        fetch_calls.append(url)
+        return None
+
+    # guard_url: block the sitemap URL (contains 'sitemap'), allow everything else
+    def selective_guard(url: str) -> bool:
+        return "sitemap" not in url
+
+    with patch("app.auditor.discovery.guard_url", side_effect=selective_guard):
+        found = await discovery.discover("https://ex.com", max_pages=10, fetch_text=spy_fetch)
+
+    # fetch_text should NOT have been called for sitemap.xml
+    assert not any("sitemap" in c for c in fetch_calls), (
+        f"sitemap URL was fetched despite SSRF guard: {fetch_calls}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_discovery_default_fetch_text_blocks_internal_host():
+    """_default_fetch_text returns None for an internal host (no HTTP request)."""
+    with patch(
+        "app.auditor.discovery.resolve_and_validate_host",
+        side_effect=ValueError("private IP"),
+    ):
+        result = await discovery._default_fetch_text("http://192.168.1.1/sitemap.xml")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_discovery_default_fetch_text_returns_none_on_3xx():
+    """_default_fetch_text returns None on a 3xx redirect (follow_redirects=False)."""
+    import httpx
+
+    async def mock_send(self_or_request, *args, **kwargs):
+        return httpx.Response(301, headers={"Location": "http://internal.host/new"})
+
+    with patch("app.auditor.discovery.resolve_and_validate_host", return_value="1.2.3.4"):
+        with patch("httpx.AsyncClient.send", new=mock_send):
+            result = await discovery._default_fetch_text("https://example.com/sitemap.xml")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_discovery_default_fetch_text_returns_text_on_200():
+    """_default_fetch_text returns body text on a normal 200 response."""
+    import httpx
+
+    async def mock_send(self_or_request, *args, **kwargs):
+        return httpx.Response(200, text="<urlset><url><loc>https://ex.com/</loc></url></urlset>")
+
+    with patch("app.auditor.discovery.resolve_and_validate_host", return_value="1.2.3.4"):
+        with patch("httpx.AsyncClient.send", new=mock_send):
+            result = await discovery._default_fetch_text("https://example.com/sitemap.xml")
+    assert result is not None
+    assert "<urlset>" in result

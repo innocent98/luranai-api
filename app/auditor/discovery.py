@@ -76,8 +76,23 @@ def guard_url(url: str) -> bool:
 
 
 async def _default_fetch_text(url: str) -> str | None:
+    """Fetch URL text with SSRF guard and no redirect-following.
+
+    Security notes:
+    - Guards the initial host via resolve_and_validate_host before any request.
+    - follow_redirects=False: any 3xx response returns None (sitemap/BFS fetches are
+      best-effort; not following redirects avoids blind redirect SSRF attacks).
+    """
+    hostname = urlparse(url).hostname
+    if not hostname:
+        return None
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        resolve_and_validate_host(hostname)
+    except ValueError:
+        logger.warning("discovery _default_fetch_text SSRF guard blocked: {}", url)
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             resp = await client.get(url)
             if resp.status_code == 200:
                 return resp.text
@@ -141,8 +156,13 @@ async def discover(root_url: str, max_pages: int, fetch_text=None) -> list[str]:
         found.append(root)
 
     # Phase 1: sitemap.xml
+    # SSRF guard: validate the sitemap URL host before fetching.
     sitemap_url = urljoin(root + "/", "sitemap.xml")
-    sitemap = await fetch_text(sitemap_url)
+    if not guard_url(sitemap_url):
+        logger.warning("discover SSRF guard blocked sitemap URL: {}", sitemap_url)
+        sitemap = None
+    else:
+        sitemap = await fetch_text(sitemap_url)
     if sitemap:
         for loc in _parse_sitemap(sitemap):
             n = normalize_url(loc)

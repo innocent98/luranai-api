@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import pytest
 
 from app.auditor import crawler
@@ -156,3 +158,69 @@ async def test_render_page_unsafe_redirect_discards_body(monkeypatch):
     assert page.html is None
     assert page.status == 0
     assert page.final_url == internal_url
+
+
+# ---------------------------------------------------------------------------
+# Fix 1 + Fix 2 SSRF guard tests (robots fetch + _default_fetch_text)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_fetch_robots_internal_host_returns_empty_disallow(monkeypatch):
+    """fetch_robots with an internal host is blocked; returns empty disallow set, no exception."""
+    # guard_url returns False for internal hosts
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: False)
+
+    called = []
+
+    async def should_not_be_called(url):
+        called.append(url)
+        return "User-agent: *\nDisallow: /secret\n"
+
+    result = await crawler.fetch_robots("http://10.0.0.1", fetch_text=should_not_be_called)
+    assert result == set()
+    assert called == [], "fetch_text must NOT be called for an internal host"
+
+
+@pytest.mark.asyncio
+async def test_crawler_default_fetch_text_blocks_internal_host(monkeypatch):
+    """_default_fetch_text returns None for an internal/private host (no request made)."""
+    from unittest.mock import patch, AsyncMock
+
+    with patch(
+        "app.auditor.crawler.resolve_and_validate_host" if hasattr(crawler, "resolve_and_validate_host") else
+        "app.utils.network_security.resolve_and_validate_host",
+        side_effect=ValueError("private IP"),
+    ):
+        # Patch at the module level where _default_fetch_text imports it
+        with patch("app.utils.network_security.resolve_and_validate_host", side_effect=ValueError("private IP")):
+            result = await crawler._default_fetch_text("http://169.254.169.254/latest/meta-data/")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_crawler_default_fetch_text_returns_none_on_3xx():
+    """_default_fetch_text with follow_redirects=False returns None on a 3xx response."""
+    import httpx
+
+    async def mock_send(self_or_request, *args, **kwargs):
+        return httpx.Response(302, headers={"Location": "http://internal.example.com/"})
+
+    with patch("app.utils.network_security.resolve_and_validate_host", return_value="1.2.3.4"):
+        with patch("httpx.AsyncClient.send", new=mock_send):
+            result = await crawler._default_fetch_text("https://example.com/robots.txt")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_crawler_default_fetch_text_returns_text_on_200():
+    """_default_fetch_text returns body text on a normal 200 response."""
+    import httpx
+
+    async def mock_send(self_or_request, *args, **kwargs):
+        return httpx.Response(200, text="User-agent: *\nDisallow: /admin\n")
+
+    with patch("app.utils.network_security.resolve_and_validate_host", return_value="1.2.3.4"):
+        with patch("httpx.AsyncClient.send", new=mock_send):
+            result = await crawler._default_fetch_text("https://example.com/robots.txt")
+    assert result is not None
+    assert "Disallow" in result

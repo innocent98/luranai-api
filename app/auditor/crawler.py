@@ -27,8 +27,25 @@ class RawPage:
 
 
 async def _default_fetch_text(url: str) -> str | None:
+    """Fetch URL text with SSRF guard and no redirect-following.
+
+    Security notes:
+    - Guards the initial host via resolve_and_validate_host before any request.
+    - follow_redirects=False: any 3xx response returns None (robots/sitemap are
+      best-effort; not following redirects is safe and avoids blind redirect SSRF).
+    """
+    from urllib.parse import urlparse as _urlparse
+    from app.utils.network_security import resolve_and_validate_host as _resolve
+    hostname = _urlparse(url).hostname
+    if not hostname:
+        return None
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+        _resolve(hostname)
+    except ValueError:
+        logger.warning("crawler _default_fetch_text SSRF guard blocked: {}", url)
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             resp = await client.get(url)
             return resp.text if resp.status_code == 200 else None
     except Exception as exc:
@@ -40,9 +57,15 @@ async def fetch_robots(domain_root: str, fetch_text=None) -> set[str]:
     """Fetch and parse robots.txt for the given domain root.
 
     Returns a set of disallowed path prefixes for the wildcard user-agent.
+    The robots URL host is validated via guard_url before fetching; if validation
+    fails the fetch is skipped and an empty disallow set is returned (safe default).
     """
     fetch_text = fetch_text or _default_fetch_text
     robots_url = urljoin(domain_root.rstrip("/") + "/", "robots.txt")
+    # SSRF guard: validate the robots URL host before fetching.
+    if not guard_url(robots_url):
+        logger.warning("fetch_robots SSRF guard blocked robots URL: {}", robots_url)
+        return set()
     body = await fetch_text(robots_url)
     disallowed: set[str] = set()
     if not body:

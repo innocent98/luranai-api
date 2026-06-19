@@ -25,6 +25,14 @@ public_audit_limiter = RedisRateLimiter(
 
 public_audit_rate_limit = create_rate_limit_dependency(public_audit_limiter, "ip")
 
+capture_lead_limiter = RedisRateLimiter(
+    key_prefix="public_audit_email",
+    max_calls=5,
+    window_seconds=3600,
+)
+
+capture_lead_rate_limit = create_rate_limit_dependency(capture_lead_limiter, "ip")
+
 
 def _err(code: str, message: str, http: int) -> JSONResponse:
     return JSONResponse(
@@ -94,7 +102,7 @@ def get_public_report(audit_id: UUID, db: Session = Depends(get_db)):
     return {"success": True, "data": data.model_dump(mode="json")}
 
 
-@router.post("/audit/{audit_id}/email")
+@router.post("/audit/{audit_id}/email", dependencies=[Depends(capture_lead_rate_limit)])
 def capture_lead(
     audit_id: UUID,
     payload: LeadCaptureRequest,
@@ -107,6 +115,13 @@ def capture_lead(
     )
     if not report:
         return _err("AUDIT_NOT_FOUND", "Audit not found", status.HTTP_404_NOT_FOUND)
+    # Idempotency: if a lead was already captured for this report, reject.
+    if report.lead_id is not None:
+        return _err(
+            "LEAD_ALREADY_CAPTURED",
+            "A lead has already been captured for this report.",
+            status.HTTP_409_CONFLICT,
+        )
     email = str(payload.email)
     lead = Lead(
         tenant_id=None,
