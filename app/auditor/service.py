@@ -197,6 +197,9 @@ class AuditService:
                     "source_category": "url",
                     "source_url": entry.url,
                     "metadata": {"auditor_category": entry.category},
+                    # Pass the pre-created source so the worker fills THIS source
+                    # rather than creating a second orphan KnowledgeSource.
+                    "knowledge_source_id": str(source.id),
                 },
                 created_by=uploaded_by,
             )

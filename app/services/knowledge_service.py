@@ -689,6 +689,77 @@ class KnowledgeService:
                 self.mark_source_failed(source.id)
             raise
 
+    async def fill_existing_source_with_chunks(
+        self,
+        source_id: UUID,
+        document_text: str,
+        document_name: str,
+        source_type: SourceType,
+        tenant_id: UUID,
+        document_metadata: dict[str, Any] | None = None,
+    ) -> KnowledgeSourceResponse:
+        """Chunk `document_text` and attach chunks to an already-created KnowledgeSource.
+
+        Used by the auditor import path where `import_entries` pre-creates the
+        KnowledgeSource (status=PROCESSING) and records its ID on the AuditEntry.
+        The worker calls this instead of `create_source_and_chunks` so that exactly
+        ONE KnowledgeSource exists per import — no orphan, no permanently-PROCESSING
+        duplicate.
+
+        The source must already exist and be owned by `tenant_id`.  Its status
+        remains PROCESSING after this call; the caller (process_document_ingestion)
+        transitions it to ACTIVE/FAILED after embedding.
+        """
+        import uuid as _uuid
+
+        from app.utils.chunking import text_chunker
+
+        stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
+        db_source = self.db.execute(stmt).scalar_one_or_none()
+        if not db_source:
+            raise ValueError(f"KnowledgeSource {source_id} not found")
+        if db_source.tenant_id != tenant_id:
+            raise ValueError(f"KnowledgeSource {source_id} does not belong to tenant {tenant_id}")
+
+        logger.info(f"Filling existing source {source_id} with chunks for '{document_name}'")
+
+        chunks_data = text_chunker.chunk_text(
+            text=document_text,
+            metadata={
+                "source_name": document_name,
+                "source_type": source_type.value,
+                **(document_metadata or {}),
+            },
+        )
+
+        if not chunks_data:
+            logger.warning("No chunks created from document")
+            self.mark_source_failed(source_id)
+            raise ValueError("No chunks could be created from document text")
+
+        for i, chunk_data in enumerate(chunks_data):
+            from app.schemas.knowledge import KnowledgeChunkCreate
+
+            # Provisional vector_id satisfies the NOT NULL DB constraint; the
+            # worker overwrites it with the real Qdrant point ID after embedding.
+            provisional_vector_id = str(_uuid.uuid4())
+
+            chunk_create = KnowledgeChunkCreate(
+                tenant_id=tenant_id,
+                source_id=source_id,
+                content=chunk_data["content"],
+                chunk_index=i,
+                vector_id=provisional_vector_id,
+                meta=chunk_data.get("metadata", {}),
+                visibility=ChunkVisibility.PUBLIC,
+                language="en",
+                version=db_source.version,
+            )
+            self.create_chunk(chunk_create)
+
+        logger.success(f"Created {len(chunks_data)} chunk records for existing source {source_id}")
+        return KnowledgeSourceResponse.model_validate(db_source)
+
     async def process_document(
         self,
         tenant_id: UUID,

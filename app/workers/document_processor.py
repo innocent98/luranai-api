@@ -105,20 +105,37 @@ async def process_document_ingestion(
         # Initialize knowledge service
         knowledge_service = KnowledgeService(db)
 
-        # Step 1: Create source and chunk text (fast, no API calls)
+        # Step 1: Create (or reuse) source and chunk text (fast, no API calls)
         logger.info(f"Creating source and chunking document: {document_name}")
 
-        source = await knowledge_service.create_source_and_chunks(
-            tenant_id=tenant_id,
-            document_text=document_text,
-            document_name=document_name,
-            source_type=source_type,
-            document_metadata=document_metadata,
-            uploaded_by=uploaded_by,
-            source_category=source_category,
-            source_url=source_url,
-            file_size_bytes=file_size_bytes,
-        )
+        existing_source_id_str = input_data.get("knowledge_source_id")
+
+        if existing_source_id_str:
+            # Auditor-import path: import_entries already created a KnowledgeSource
+            # (status=PROCESSING). Fill chunks into THAT source instead of creating
+            # a second orphan.
+            existing_source_id = UUID(str(existing_source_id_str))
+            source = await knowledge_service.fill_existing_source_with_chunks(
+                source_id=existing_source_id,
+                document_text=document_text,
+                document_name=document_name,
+                source_type=source_type,
+                tenant_id=tenant_id,
+                document_metadata=document_metadata,
+            )
+        else:
+            # Normal file-upload path: create a brand-new source.
+            source = await knowledge_service.create_source_and_chunks(
+                tenant_id=tenant_id,
+                document_text=document_text,
+                document_name=document_name,
+                source_type=source_type,
+                document_metadata=document_metadata,
+                uploaded_by=uploaded_by,
+                source_category=source_category,
+                source_url=source_url,
+                file_size_bytes=file_size_bytes,
+            )
 
         # Update job with total chunks
         # Query chunks directly as DB objects (not Pydantic models) so we can update them
