@@ -28,6 +28,7 @@ from app.db.models.conversation import (
     Ticket,
     TicketPriority,
 )
+from app.db.models.business_profile import BusinessProfile
 from app.db.models.flow import Flow, FlowExecution, FlowStatus
 from app.db.models.tenant import TenantAIConfig
 from app.db.models.user import User, UserRole
@@ -665,6 +666,11 @@ async def send_message(
                     "upgrade_url": "/dashboard/billing",
                 },
             )
+
+    # Fetch business profile for chat grounding (one lookup per request; None when absent)
+    business_profile = db.execute(
+        select(BusinessProfile).where(BusinessProfile.tenant_id == session.tenant_id)
+    ).scalar_one_or_none()
 
     tenant_config = tenant_service.get_ai_config(session.tenant_id)
     if not tenant_config:
@@ -1966,6 +1972,7 @@ async def send_message(
                 company_name=tenant_response.display_name,
                 company_description=tenant_response.description,
                 max_history_turns=6,
+                business_profile=business_profile,
             )
             directive_block = (
                 "\n\nRuntime policy decision for this turn:\n"
