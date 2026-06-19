@@ -229,13 +229,36 @@ def edit_entry(
         entry.category = payload.category
     if payload.status is not None:
         try:
-            entry.status = AuditEntryStatus(payload.status)
+            new_status = AuditEntryStatus(payload.status)
         except ValueError:
             return _err(
                 "INVALID_STATUS",
                 f"'{payload.status}' is not a valid entry status.",
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
+        # Guard: activating a non-ACTIVE entry must not exceed the plan limit.
+        if new_status == AuditEntryStatus.ACTIVE and entry.status != AuditEntryStatus.ACTIVE:
+            max_sources = AuditService(db)._max_sources(user.tenant_id)
+            if max_sources is not None:
+                active_count = (
+                    db.query(AuditEntry)
+                    .filter(
+                        AuditEntry.audit_report_id == entry.audit_report_id,
+                        AuditEntry.status == AuditEntryStatus.ACTIVE,
+                    )
+                    .count()
+                )
+                if active_count >= max_sources:
+                    return _err(
+                        "ACTIVE_LIMIT_REACHED",
+                        (
+                            f"Your plan allows {max_sources} active "
+                            "knowledge source(s) per audit. "
+                            "Lock another entry first, then activate this one."
+                        ),
+                        status.HTTP_403_FORBIDDEN,
+                    )
+        entry.status = new_status
 
     entry.edited = True
     db.commit()
@@ -258,7 +281,7 @@ async def import_audit(
     svc.preselect_entries(audit_id)
     try:
         imported = await svc.import_entries(audit_id, uploaded_by=user.id)
-    except RuntimeError as exc:
+    except RuntimeError:
         return _err(
             "ENQUEUE_FAILED",
             "Import could not be queued. Please try again later.",

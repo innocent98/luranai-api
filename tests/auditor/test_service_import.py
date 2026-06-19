@@ -129,6 +129,35 @@ async def test_preselect_preserves_manual_swap_on_reimport(db):
     assert rank3.id in imported_ids, "Tenant-activated rank-3 must be imported"
 
 
+async def test_import_caps_at_limit_even_if_db_has_excess_active(db):
+    """import_entries must create at most max_knowledge_sources KnowledgeSource rows
+    even when the DB somehow has more ACTIVE entries than the plan allows."""
+    _tid, report = _setup(db, max_sources=2)
+    svc = AuditService(db)
+
+    # Force all 3 entries ACTIVE (bypassing the PATCH guard — simulates a DB anomaly)
+    entries = (
+        db.query(AuditEntry)
+        .filter(AuditEntry.audit_report_id == report.id)
+        .order_by(AuditEntry.importance_rank.asc())
+        .all()
+    )
+    for e in entries:
+        e.status = AuditEntryStatus.ACTIVE
+    db.flush()
+
+    with patch("app.auditor.service.enqueue_document_ingestion", new_callable=AsyncMock):
+        imported_ids = await svc.import_entries(report.id)
+
+    assert len(imported_ids) == 2, f"Expected 2 imports (cap), got {len(imported_ids)}"
+    ks_count = (
+        db.query(KnowledgeSource)
+        .filter(KnowledgeSource.tenant_id == report.tenant_id)
+        .count()
+    )
+    assert ks_count == 2, f"Expected 2 KnowledgeSource rows, got {ks_count}"
+
+
 def test_upgrade_unlock_counts_newly_eligible(db):
     tid, report = _setup(db, max_sources=2)
     svc = AuditService(db)

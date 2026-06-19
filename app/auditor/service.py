@@ -163,14 +163,16 @@ class AuditService:
         from app.db.models.knowledge import KnowledgeSource, SourceStatus
 
         report = self.db.query(AuditReport).filter(AuditReport.id == audit_report_id).one()
-        active = (
+        limit = self._max_sources(report.tenant_id)
+        active_query = (
             self.db.query(AuditEntry)
             .filter(
                 AuditEntry.audit_report_id == audit_report_id,
                 AuditEntry.status == AuditEntryStatus.ACTIVE,
             )
-            .all()
+            .order_by(AuditEntry.importance_rank.asc())
         )
+        active = active_query.all() if limit is None else active_query.limit(limit).all()
         imported_ids: list[UUID] = []
         for entry in active:
             # Idempotency: already imported in a prior call — skip entirely

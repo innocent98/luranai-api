@@ -436,6 +436,78 @@ def test_generate_outline_cross_tenant_returns_404(pg_client, db_session):
 # ---------------------------------------------------------------------------
 
 
+def test_patch_active_limit_rejected_when_at_cap(pg_client, db_session):
+    """PATCH a 3rd entry to ACTIVE with max_knowledge_sources=2 → 403 ACTIVE_LIMIT_REACHED."""
+    user, token = _make_tenant_user(db_session)
+    db_session.add(TenantCapabilities(tenant_id=user.tenant_id, max_knowledge_sources=2))
+    db_session.flush()
+
+    report = _make_report(db_session, user.tenant_id, with_entries=True)
+    db_session.flush()
+
+    entries = (
+        db_session.query(AuditEntry)
+        .filter(AuditEntry.audit_report_id == report.id)
+        .order_by(AuditEntry.importance_rank.asc())
+        .all()
+    )
+    # Manually activate first two entries (simulating preselect)
+    entries[0].status = AuditEntryStatus.ACTIVE
+    entries[1].status = AuditEntryStatus.ACTIVE
+    entries[2].status = AuditEntryStatus.LOCKED
+    db_session.flush()
+
+    # Attempt to activate the 3rd entry → should be rejected
+    resp = pg_client.patch(
+        f"/api/v1/audit/entries/{entries[2].id}",
+        json={"status": "active"},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 403
+    body = resp.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "ACTIVE_LIMIT_REACHED"
+
+
+def test_patch_active_swap_succeeds_at_cap(pg_client, db_session):
+    """Lock one entry then activate another (a swap) still succeeds at limit=2."""
+    user, token = _make_tenant_user(db_session)
+    db_session.add(TenantCapabilities(tenant_id=user.tenant_id, max_knowledge_sources=2))
+    db_session.flush()
+
+    report = _make_report(db_session, user.tenant_id, with_entries=True)
+    db_session.flush()
+
+    entries = (
+        db_session.query(AuditEntry)
+        .filter(AuditEntry.audit_report_id == report.id)
+        .order_by(AuditEntry.importance_rank.asc())
+        .all()
+    )
+    entries[0].status = AuditEntryStatus.ACTIVE
+    entries[1].status = AuditEntryStatus.ACTIVE
+    entries[2].status = AuditEntryStatus.LOCKED
+    db_session.flush()
+
+    # Step 1: lock one of the active entries (now 1 active)
+    resp = pg_client.patch(
+        f"/api/v1/audit/entries/{entries[0].id}",
+        json={"status": "locked"},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+
+    # Step 2: activate the previously locked entry (back to 2 active) → allowed
+    resp = pg_client.patch(
+        f"/api/v1/audit/entries/{entries[2].id}",
+        json={"status": "active"},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["success"] is True
+
+
 def test_cross_tenant_audit_full_isolation(pg_client, db_session):
     """Tenant B cannot read Tenant A's audit, entries, gaps, or import them."""
     user_a, token_a = _make_tenant_user(db_session)
