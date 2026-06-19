@@ -50,16 +50,13 @@ def test_content_signature_stable_regardless_of_order():
     assert a == b
 
 
-def test_synthesize_profile_normalises_missing_llm_fields():
+@pytest.mark.asyncio
+async def test_synthesize_profile_normalises_missing_llm_fields():
     """LLM returning sparse dict should still yield a fully-keyed dict with safe defaults."""
     sparse = {"industry": "saas"}
 
-    async def run():
-        with patch("app.auditor.profile.complete_json", AsyncMock(return_value=sparse)):
-            return await profile.synthesize_profile(_pages())
-
-    import asyncio
-    out = asyncio.get_event_loop().run_until_complete(run())
+    with patch("app.auditor.profile.complete_json", AsyncMock(return_value=sparse)):
+        out = await profile.synthesize_profile(_pages())
     assert out["offerings"] == []
     assert out["tone"] == {}
     assert out["industry"] == "saas"

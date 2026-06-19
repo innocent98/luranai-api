@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.auditor.extraction import ExtractedPage
-from app.auditor.llm import complete_json
+from app.auditor.llm import complete_json, model_for_task
 from app.db.models.business_profile import BusinessProfile, BusinessProfileSource
 
 _SYSTEM = (
@@ -86,8 +86,6 @@ async def synthesize_or_reuse(
     existing = db.query(BusinessProfile).filter(BusinessProfile.tenant_id == tenant_id).one_or_none()
     if existing is not None and prior_signature == sig:
         return existing, sig
-    from app.auditor.llm import model_for_task
-
     data = await synthesize_profile(pages)
     bp = persist_profile(db, tenant_id, data, model_version=model_for_task("profile_synthesis"))
     return bp, sig
