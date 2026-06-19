@@ -56,8 +56,15 @@ async def run_audit(
     *,
     page_renderer=None,
     fetch_text=None,
+    resume: bool = False,
 ) -> AuditReport:
     """Orchestrate all auditor phases and persist results.
+
+    Args:
+        resume: When False (default), delete any pre-existing AuditEntry rows
+            for this report and perform a full crawl.  When True, load existing
+            entries, skip already-seen URLs, and append only the newly discovered
+            pages — used after claim_audit when the audit is still fresh.
 
     Catches all internal exceptions, marks the report FAILED, and returns
     the report — callers (including run_website_audit) never see a raise from
@@ -78,14 +85,40 @@ async def run_audit(
         )
 
         # ------------------------------------------------------------------ #
-        # Phase 1: URL discovery                                              #
+        # Phase 1a: resume — load existing entries, build already_have set   #
         # ------------------------------------------------------------------ #
-        urls = await discovery.discover(
+        existing_entries: list[AuditEntry] = []
+        already_have: set[str] = set()
+        if resume:
+            existing_entries = (
+                db.query(AuditEntry)
+                .filter(AuditEntry.audit_report_id == report.id)
+                .all()
+            )
+            already_have = {e.url for e in existing_entries}
+            # Edge case: no existing entries → fall through to fresh-run behaviour
+            if not existing_entries:
+                resume = False
+
+        if not resume:
+            # Fresh run: wipe any pre-existing entries so we never duplicate
+            db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).delete()
+            db.commit()
+            existing_entries = []
+            already_have = set()
+
+        # ------------------------------------------------------------------ #
+        # Phase 1b: URL discovery                                             #
+        # ------------------------------------------------------------------ #
+        all_urls = await discovery.discover(
             report.url,
             _max_pages(db, report),
             fetch_text=fetch_text,
         )
-        report.pages_discovered = len(urls)
+        # For incremental resume, only crawl URLs we haven't seen yet
+        urls = [u for u in all_urls if u not in already_have] if resume else all_urls
+
+        report.pages_discovered = len(all_urls)
         _update_job(
             db, report.processing_job_id,
             total_items=len(urls),
@@ -94,7 +127,7 @@ async def run_audit(
         db.commit()
 
         # ------------------------------------------------------------------ #
-        # Phase 2: render / crawl + extract                                   #
+        # Phase 2: render / crawl + extract (new URLs only when resuming)     #
         # ------------------------------------------------------------------ #
         robots = await crawler.fetch_robots(report.url, fetch_text=fetch_text)
         raw_pages = await crawler.crawl(
@@ -103,10 +136,11 @@ async def run_audit(
             robots_disallowed=robots,
         )
         extracted = extraction.extract_pages(raw_pages)
-        report.pages_scanned = len(extracted)
+        # pages_scanned reflects the total across existing + new
+        report.pages_scanned = len(existing_entries) + len(extracted)
         _update_job(
             db, report.processing_job_id,
-            processed_items=len(extracted),
+            processed_items=len(existing_entries) + len(extracted),
         )
         db.commit()
 
@@ -163,9 +197,11 @@ async def run_audit(
         # ------------------------------------------------------------------ #
         # Phase 4: classify pages (adaptive, profile-aware)                   #
         # ------------------------------------------------------------------ #
+        # Seed found sets from existing entries so union recompute is correct
+        found_kinds: set[str] = {e.kind.value for e in existing_entries}
+        found_categories: set[str] = {e.category for e in existing_entries}
+
         classified = await classify.classify_pages(extracted, profile_dict)
-        found_kinds: set[str] = set()
-        found_categories: set[str] = set()
         for page, c in classified:
             found_kinds.add(c.kind.value)
             found_categories.add(c.category)
@@ -186,6 +222,8 @@ async def run_audit(
             )
         db.flush()
 
+        total_entry_count = len(existing_entries) + len(classified)
+
         # ------------------------------------------------------------------ #
         # Phase 5: expected-content map                                        #
         # ------------------------------------------------------------------ #
@@ -199,13 +237,19 @@ async def run_audit(
         report.gaps = gaps.compute_gaps(expected_map, found_kinds, found_categories)
 
         # ------------------------------------------------------------------ #
-        # Phase 7: scoring                                                    #
+        # Phase 7: scoring — aligned with gaps found-set definition           #
+        # Gaps treats an item as found when kind ∈ found_kinds OR             #
+        # item-label ∈ found_categories (case-insensitive).  We must use the  #
+        # same two-condition rule here so score and gaps tell the same story. #
         # ------------------------------------------------------------------ #
-        # found_items = expected items already satisfied (kind overlaps what we found)
+        found_categories_lower = {c.lower() for c in found_categories}
         found_items: set[str] = {
             str(item.get("item", "")).lower()
             for item in expected_map
-            if str(item.get("kind", "")) in found_kinds
+            if (
+                str(item.get("kind", "")) in found_kinds
+                or str(item.get("item", "")).lower() in found_categories_lower
+            )
         }
         s = scoring.score(expected_map, found_items)
         report.knowledge_score = s["knowledge"]
@@ -215,7 +259,7 @@ async def run_audit(
         report.projected_score = s["projected"]
         report.summary_stats = {
             "kinds": sorted(found_kinds),
-            "entries": len(classified),
+            "entries": total_entry_count,
         }
 
         # ------------------------------------------------------------------ #
@@ -273,7 +317,20 @@ async def run_website_audit(ctx: dict, audit_report_id: str) -> dict:
 
     db: Session = SessionLocal()
     try:
-        report = await run_audit(db, UUID(audit_report_id))
+        # Read resume flag from the processing job's input_data so claim_audit's
+        # decision (stale=fresh crawl, fresh=incremental) is honoured by the worker.
+        report_obj = db.query(AuditReport).filter(
+            AuditReport.id == UUID(audit_report_id)
+        ).one_or_none()
+        resume = False
+        if report_obj and report_obj.processing_job_id:
+            job = db.query(ProcessingJob).filter(
+                ProcessingJob.id == report_obj.processing_job_id
+            ).one_or_none()
+            if job and job.input_data:
+                resume = bool(job.input_data.get("resume", False))
+
+        report = await run_audit(db, UUID(audit_report_id), resume=resume)
         return {
             "success": report.status == AuditStatus.COMPLETED,
             "audit_report_id": str(report.id),

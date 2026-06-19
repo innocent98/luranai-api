@@ -6,7 +6,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.auditor import pipeline
-from app.db.models.audit import AuditReport, AuditScope, AuditStatus, AuditEntryStatus
+from app.db.models.audit import (
+    AuditEntry,
+    AuditEntryKind,
+    AuditEntryStatus,
+    AuditReport,
+    AuditScope,
+    AuditStatus,
+)
 from app.db.models.job import JobStatus, JobType, ProcessingJob
 
 
@@ -232,3 +239,203 @@ async def test_run_audit_public_path(db):
     assert out.status == AuditStatus.COMPLETED
     db.refresh(job)
     assert job.status == JobStatus.COMPLETED
+
+
+# ---------------------------------------------------------------------------
+# Test 5: fresh re-run must not duplicate AuditEntry rows
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_fresh_rerun_no_duplicate_entries(db):
+    """Running the pipeline twice with resume=False must yield exactly one set of entries."""
+    tenant_id = uuid.uuid4()
+
+    profile_mock = AsyncMock(return_value=_PROF)
+    cls_mock = AsyncMock(return_value=_CLS)
+    gaps_mock = AsyncMock(return_value=_EXPECTED)
+
+    with (
+        patch("app.auditor.profile.complete_json", profile_mock),
+        patch("app.auditor.classify.complete_json", cls_mock),
+        patch("app.auditor.gaps.complete_json", gaps_mock),
+    ):
+        job, report = _make_job_and_report(db, tenant_id=tenant_id)
+
+        # First run
+        await pipeline.run_audit(
+            db, report.id, page_renderer=_fake_renderer, fetch_text=_fake_fetch
+        )
+        count_after_first = (
+            db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).count()
+        )
+        assert count_after_first >= 1, "First run must produce at least one entry"
+
+        # Second run — same report, resume=False (fresh)
+        await pipeline.run_audit(
+            db, report.id, page_renderer=_fake_renderer, fetch_text=_fake_fetch, resume=False
+        )
+        count_after_second = (
+            db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).count()
+        )
+
+    assert count_after_second == count_after_first, (
+        f"Fresh re-run doubled entries: {count_after_first} → {count_after_second}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 6: incremental resume — only new URLs crawled, existing entries kept
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_incremental_resume_appends_only_new_urls(db):
+    """resume=True must crawl only new URLs and append entries without touching existing ones."""
+    tenant_id = uuid.uuid4()
+    job, report = _make_job_and_report(db, tenant_id=tenant_id)
+
+    # Pre-seed N=2 existing AuditEntry rows (simulating a prior completed audit)
+    existing_urls = ["https://ex.com/old-a", "https://ex.com/old-b"]
+    for url in existing_urls:
+        db.add(
+            AuditEntry(
+                audit_report_id=report.id,
+                tenant_id=tenant_id,
+                url=url,
+                title="Old page",
+                category="about",
+                kind=AuditEntryKind.PRODUCT,
+                content="old content",
+                content_hash=f"hash-{url}",
+                importance_rank=5,
+                status=AuditEntryStatus.PROPOSED,
+                meta={},
+            )
+        )
+    db.flush()
+    n_existing = len(existing_urls)
+
+    # discover returns existing + 1 new URL
+    new_url = "https://ex.com/new-page"
+    all_discovered = existing_urls + [new_url]
+
+    # Track which URLs the renderer is actually called for
+    crawled_urls: list[str] = []
+
+    async def tracking_renderer(url: str):
+        crawled_urls.append(url)
+        return (
+            200,
+            f"<html><head><title>Page {url}</title></head>"
+            f"<body><p>content for {url}</p></body></html>",
+        )
+
+    profile_mock = AsyncMock(return_value=_PROF)
+    cls_mock = AsyncMock(return_value=_CLS)
+    gaps_mock = AsyncMock(return_value=_EXPECTED)
+
+    with (
+        patch("app.auditor.profile.complete_json", profile_mock),
+        patch("app.auditor.classify.complete_json", cls_mock),
+        patch("app.auditor.gaps.complete_json", gaps_mock),
+        patch(
+            "app.auditor.discovery.discover",
+            AsyncMock(return_value=all_discovered),
+        ),
+    ):
+        out = await pipeline.run_audit(
+            db, report.id, page_renderer=tracking_renderer, fetch_text=_fake_fetch, resume=True
+        )
+
+    db.refresh(out)
+
+    # (a) Only the new URL was passed to the renderer
+    assert crawled_urls == [new_url], (
+        f"Expected only [{new_url!r}] to be crawled; got {crawled_urls}"
+    )
+
+    # (b) + (c) existing entries survive and total == N + M (M=1 new)
+    all_entries = db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).all()
+    assert len(all_entries) == n_existing + 1, (
+        f"Expected {n_existing + 1} entries total; got {len(all_entries)}"
+    )
+    persisted_urls = {e.url for e in all_entries}
+    for url in existing_urls:
+        assert url in persisted_urls, f"Existing entry {url!r} was deleted"
+    assert new_url in persisted_urls, "New entry was not added"
+
+    # (d) scores and gaps were recomputed (report completed successfully)
+    assert out.status == AuditStatus.COMPLETED
+    assert out.overall_score is not None
+    assert out.gaps is not None
+
+    # (e) profile LLM reuse — synthesize_or_reuse must not re-call the LLM
+    # (the existing BusinessProfile from the prior run has the same content signature
+    # as the unchanged pages).  profile_mock.call_count covers synthesize calls only;
+    # for this test we assert it was called at most once (reuse path keeps it at 0 or 1
+    # depending on whether a profile row exists; the key invariant is no duplicate call).
+    assert profile_mock.call_count <= 1, (
+        f"Profile LLM called {profile_mock.call_count} times; expected ≤1 (reuse)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Test 7: scoring/gaps alignment — category-label match counts in both
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_score_and_gaps_agree_on_category_label_match(db):
+    """An expected item found by category label (not kind) must be absent from gaps
+    AND counted in the dimension score — score and gaps must tell the same story."""
+    tenant_id = uuid.uuid4()
+    job, report = _make_job_and_report(db, tenant_id=tenant_id)
+
+    # The expected map has one item whose kind ("faq") is NOT present on the site,
+    # but whose item label ("faqs") matches the category of a crawled page.
+    # gaps.compute_gaps counts it as found (label match); score must too.
+    expected_category_match = {
+        "expected": [
+            {
+                "item": "FAQs",           # label — lowercase "faqs" will match category below
+                "dimensions": ["support"],
+                "weight": 1.0,
+                "kind": "faq",            # kind NOT in found_kinds (crawler returns "product")
+                "why_it_matters": "answers questions",
+                "recommended_content": "add faq page",
+                "demand_count": 0,
+            }
+        ]
+    }
+
+    # Classify returns kind=product but category="faqs" — matches item label "faqs"
+    cls_category_match = {
+        "category": "faqs",    # lowercase matches item label "FAQs"
+        "kind": "product",     # different from expected kind "faq"
+        "importance_rank": 1,
+        "keep": True,
+    }
+
+    profile_mock = AsyncMock(return_value=_PROF)
+    cls_mock = AsyncMock(return_value=cls_category_match)
+    gaps_mock = AsyncMock(return_value=expected_category_match)
+
+    with (
+        patch("app.auditor.profile.complete_json", profile_mock),
+        patch("app.auditor.classify.complete_json", cls_mock),
+        patch("app.auditor.gaps.complete_json", gaps_mock),
+    ):
+        out = await pipeline.run_audit(
+            db, report.id, page_renderer=_fake_renderer, fetch_text=_fake_fetch
+        )
+
+    db.refresh(out)
+    assert out.status == AuditStatus.COMPLETED
+
+    # Gaps: item found by category label → NOT in gap list
+    assert out.gaps == [], (
+        f"Item found by category match must not appear in gaps; got {out.gaps}"
+    )
+
+    # Score: item found by category label → support dimension score must be > 0
+    assert out.support_score is not None and out.support_score > 0, (
+        f"Item found by category match must contribute to support score; got {out.support_score}"
+    )
