@@ -43,11 +43,17 @@ async def start_public_audit(
     db: Session = Depends(get_db),
 ):
     try:
-        report = AuditService(db).start_audit(
+        report = await AuditService(db).start_audit(
             url=str(payload.url), scope=AuditScope.PUBLIC, tenant_id=None
         )
     except ValueError as exc:
         return _err("INVALID_URL", str(exc), status.HTTP_400_BAD_REQUEST)
+    except RuntimeError:
+        return _err(
+            "ENQUEUE_FAILED",
+            "Audit could not be queued. Please try again later.",
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
     return JSONResponse(
         status_code=status.HTTP_202_ACCEPTED,
         content={
@@ -111,19 +117,25 @@ def capture_lead(
     db.add(lead)
     db.flush()
     report.email = email
+    report.email_hash = Lead.compute_email_hash(email)
     report.lead_id = lead.id
     db.commit()
+    gap_titles = [g.get("title") for g in (report.gaps or []) if g.get("title")]
     email_service.send_templated_email(
         to_email=email,
         subject="Your AI Website Audit report",
-        template_name="platform_broadcast.html",
+        template_name="audit_report.html",
         context={
-            "recipient_name": email,
+            "recipient_email": email,
             "subject": "Your AI Website Audit report",
-            "heading": "Your audit is ready",
-            "body_html": f"Overall score: {report.overall_score}",
-            "banner_label": "Website Audit",
-            "accent_color": "#1d4ed8",
+            "website_url": report.url,
+            "knowledge_score": report.knowledge_score,
+            "support_score": report.support_score,
+            "conversion_score": report.conversion_score,
+            "overall_score": report.overall_score,
+            "projected_score": report.projected_score,
+            "gap_titles": gap_titles,
+            "signup_url": "https://app.luranai.com/signup",
             "current_year": 2026,
         },
     )

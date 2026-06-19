@@ -1,14 +1,20 @@
 """Tests for public auditor endpoints (no-auth, rate-limited)."""
 import uuid
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.db.models.audit import AuditReport, AuditScope, AuditStatus
 from app.db.models.lead import Lead
 
 
+# ---------------------------------------------------------------------------
+# POST /public/audit
+# ---------------------------------------------------------------------------
+
 def test_post_public_audit_starts_and_returns_id(client, db):
     """POST /public/audit creates a report and returns audit_report_id."""
-    with patch("app.auditor.service.enqueue_audit"):
+    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock):
         resp = client.post("/api/v1/public/audit", json={"url": "https://example.com"})
     assert resp.status_code == 202
     body = resp.json()
@@ -16,32 +22,80 @@ def test_post_public_audit_starts_and_returns_id(client, db):
     assert "audit_report_id" in body["data"]
 
 
+def test_post_public_audit_enqueue_failure_returns_503(client, db):
+    """When Redis/enqueue fails, endpoint returns 503 ENQUEUE_FAILED — not a silent 202."""
+    with patch(
+        "app.auditor.service.enqueue_audit",
+        new_callable=AsyncMock,
+        side_effect=ConnectionError("Redis unavailable"),
+    ):
+        resp = client.post("/api/v1/public/audit", json={"url": "https://example.com"})
+
+    assert resp.status_code == 503
+    body = resp.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "ENQUEUE_FAILED"
+
+    # The report must exist in DB but be marked FAILED, not QUEUED
+    failed = db.query(AuditReport).filter(AuditReport.status == AuditStatus.FAILED).all()
+    assert len(failed) == 1
+
+
+# ---------------------------------------------------------------------------
+# Rate limit — hermetic test with mocked Redis
+# ---------------------------------------------------------------------------
+
 def test_post_public_audit_rate_limit_enforced(client, db):
-    """After 3 audits from same IP, 4th should return 429."""
-    from fastapi import HTTPException, Request, status
+    """After 3 audits from same IP, 4th call returns 429.
 
-    from app.api.v1.endpoints.public_auditor import public_audit_rate_limit
-    from app.main import app
+    Drives check_rate_limit with a mocked Redis so the real sliding-window
+    logic executes. The mock Redis increments an in-memory counter per key,
+    making the 4th acquire() call exceed max_calls=3.
+    """
+    import asyncio
+    import time
 
-    call_count = {"n": 0}
+    from app.api.v1.endpoints.public_auditor import public_audit_limiter
+    from app.utils.rate_limiter import RedisRateLimiter
 
-    async def fake_rate_limit(request: Request) -> None:
-        call_count["n"] += 1
-        if call_count["n"] > 3:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail={
-                    "error": "Rate limit exceeded",
-                    "limit": 3,
-                    "window_seconds": 86400,
-                    "retry_after_seconds": 86400,
-                },
-                headers={"Retry-After": "86400"},
-            )
+    # Build a fake Redis that tracks a sorted-set per key using a plain dict.
+    # zremrangebyscore / zadd / zcard / zrange / expire are the only methods
+    # check_rate_limit and acquire() use.
+    class _FakeRedis:
+        def __init__(self):
+            self._store: dict[str, list[float]] = {}
 
-    app.dependency_overrides[public_audit_rate_limit] = fake_rate_limit
+        async def zremrangebyscore(self, key, _min, max_score):
+            self._store.setdefault(key, [])
+            self._store[key] = [s for s in self._store[key] if s > float(max_score)]
+
+        async def zcard(self, key):
+            return len(self._store.get(key, []))
+
+        async def zadd(self, key, mapping):
+            score = list(mapping.values())[0]
+            self._store.setdefault(key, []).append(score)
+
+        async def expire(self, key, ttl):
+            pass
+
+        async def zrange(self, key, start, stop, withscores=False):
+            vals = self._store.get(key, [])
+            if not vals:
+                return []
+            sliced = vals[start: stop + 1 if stop >= 0 else None]
+            if withscores:
+                return [(str(s), s) for s in sliced]
+            return [str(s) for s in sliced]
+
+    fake_redis = _FakeRedis()
+
+    # Patch the limiter's internal _redis so it uses our fake instead of real Redis.
+    original_redis = public_audit_limiter._redis
+    public_audit_limiter._redis = fake_redis  # type: ignore[assignment]
+
     try:
-        with patch("app.auditor.service.enqueue_audit"):
+        with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock):
             for i in range(3):
                 resp = client.post(
                     "/api/v1/public/audit", json={"url": f"https://example{i}.com"}
@@ -50,12 +104,24 @@ def test_post_public_audit_rate_limit_enforced(client, db):
                     f"Expected 202 on call {i + 1}, got {resp.status_code}: {resp.json()}"
                 )
 
-            # 4th call — should be rate limited
+            # 4th call — should be rate limited at 429
             resp4 = client.post("/api/v1/public/audit", json={"url": "https://blocked.com"})
             assert resp4.status_code == 429
-    finally:
-        del app.dependency_overrides[public_audit_rate_limit]
 
+            # Verify limiter key embeds the client IP (loopback in test client)
+            ip = "testclient"  # httpx TestClient uses "testclient" as host
+            expected_key = f"public_audit:{ip}"
+            assert expected_key in fake_redis._store, (
+                f"Expected Redis key '{expected_key}' not found; keys: {list(fake_redis._store)}"
+            )
+            assert len(fake_redis._store[expected_key]) == 3  # 3 successful acquires recorded
+    finally:
+        public_audit_limiter._redis = original_redis  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
+# GET /public/audit/{id}
+# ---------------------------------------------------------------------------
 
 def test_get_public_report_returns_scores_and_blurred_gaps(client, db):
     """GET /public/audit/{id} returns scores + blurred gap titles, NOT raw content."""
@@ -106,14 +172,23 @@ def test_get_public_report_not_found(client, db):
     assert body["error"]["code"] == "AUDIT_NOT_FOUND"
 
 
-def test_post_email_creates_lead(client, db):
-    """POST /public/audit/{id}/email creates a Lead in DB and calls EmailService."""
+# ---------------------------------------------------------------------------
+# POST /public/audit/{id}/email
+# ---------------------------------------------------------------------------
+
+def test_post_email_creates_lead_with_email_hash(client, db):
+    """POST /public/audit/{id}/email creates a Lead with email_hash and sends audit_report template."""
     report = AuditReport(
         url="https://ex.com",
         domain="ex.com",
         scope=AuditScope.PUBLIC,
         status=AuditStatus.COMPLETED,
         overall_score=74,
+        knowledge_score=70,
+        support_score=60,
+        conversion_score=80,
+        projected_score=91,
+        gaps=[{"title": "Refund policy", "kind": "policy", "demand_count": 3}],
     )
     db.add(report)
     db.commit()
@@ -132,11 +207,30 @@ def test_post_email_creates_lead(client, db):
     assert body["success"] is True
     assert "lead_id" in body["data"]
 
+    # Lead row has email_hash (set by the before_insert event listener)
     leads = db.query(Lead).filter(Lead.audit_report_id == report.id).all()
     assert len(leads) == 1
     assert leads[0].source == "public_auditor"
+    expected_hash = Lead.compute_email_hash("owner@example.com")
+    assert leads[0].email_hash == expected_hash
 
+    # AuditReport.email_hash is also populated explicitly in the handler
+    refreshed = db.query(AuditReport).filter(AuditReport.id == report.id).one()
+    assert refreshed.email_hash == expected_hash
+
+    # Email was sent using the dedicated audit_report template
     mock_email.assert_called_once()
+    call_kwargs = mock_email.call_args.kwargs
+    assert call_kwargs["template_name"] == "audit_report.html"
+
+    # Context carries the four scores and at least one gap title
+    ctx = call_kwargs["context"]
+    assert ctx["overall_score"] == 74
+    assert ctx["knowledge_score"] == 70
+    assert ctx["support_score"] == 60
+    assert ctx["conversion_score"] == 80
+    assert ctx["projected_score"] == 91
+    assert "Refund policy" in ctx["gap_titles"]
 
 
 def test_post_email_report_not_found(client, db):

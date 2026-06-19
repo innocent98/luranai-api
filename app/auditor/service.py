@@ -14,31 +14,22 @@ from app.db.models.audit import AuditReport, AuditScope, AuditStatus
 from app.db.models.job import JobType, ProcessingJob
 
 
-def enqueue_audit(report_id: UUID) -> None:
-    """Enqueue the ARQ job. Separated for test mockability."""
-    import asyncio
-
+async def enqueue_audit(report_id: UUID) -> None:
+    """Enqueue the ARQ job for a website audit. Raises on failure — caller must handle."""
     from arq import create_pool
     from arq.connections import RedisSettings
 
     from app.core.config import settings
 
-    async def _enqueue() -> None:
-        redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
-        await redis.enqueue_job("run_website_audit", str(report_id))
-
-    try:
-        asyncio.get_running_loop()
-        asyncio.ensure_future(_enqueue())  # already in loop (endpoint context)
-    except RuntimeError:
-        asyncio.run(_enqueue())
+    redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+    await redis.enqueue_job("run_website_audit", str(report_id))
 
 
 class AuditService:
     def __init__(self, db: Session):
         self.db = db
 
-    def start_audit(
+    async def start_audit(
         self, *, url: str, scope: AuditScope, tenant_id: UUID | None, created_by: UUID | None = None
     ) -> AuditReport:
         normalized = normalize_url(url)
@@ -68,7 +59,18 @@ class AuditService:
         self.db.flush()
         self.db.commit()
         logger.info("Started {} audit {} for {}", scope.value, report.id, domain)
-        enqueue_audit(report.id)
+
+        try:
+            await enqueue_audit(report.id)
+        except Exception as exc:
+            logger.error("Failed to enqueue audit {}: {}", report.id, exc)
+            # Mark both the report and its processing job as FAILED so no row is
+            # left stuck in QUEUED with no worker behind it.
+            report.status = AuditStatus.FAILED
+            job.status = "failed"  # type: ignore[assignment]
+            self.db.commit()
+            raise RuntimeError(f"Audit enqueue failed: {exc}") from exc
+
         return report
 
     # ------------------------------------------------------------------
