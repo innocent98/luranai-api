@@ -18,6 +18,7 @@ from app.api.v1.endpoints import (
     knowledge,
     platform_admin_auth,
     public,
+    public_auditor,
     reviews,
     subscription,
     tenant,
@@ -117,6 +118,13 @@ api_router.include_router(
     public.router,
     prefix="/public",
     tags=["public"],
+)
+
+# Public auditor endpoints (no auth, rate-limited)
+api_router.include_router(
+    public_auditor.router,
+    prefix="/public",
+    tags=["public-auditor"],
 )
 
 # Platform admin tenant management endpoints
