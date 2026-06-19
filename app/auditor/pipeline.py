@@ -121,7 +121,7 @@ async def run_audit(
         report.pages_discovered = len(all_urls)
         _update_job(
             db, report.processing_job_id,
-            total_items=len(urls),
+            total_items=len(existing_entries) + len(urls),
             processed_items=0,
         )
         db.commit()
