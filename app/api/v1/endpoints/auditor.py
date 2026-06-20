@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_tenant_admin, get_db
 from app.auditor.service import AuditService
 from app.db.models.audit import AuditEntry, AuditEntryKind, AuditEntryStatus, AuditReport, AuditScope
-from app.schemas.auditor import DashboardAuditRequest, EntryEditRequest
+from app.schemas.auditor import DashboardAuditRequest, EntryDetailResponse, EntryEditRequest
 from app.schemas.user import UserResponse
 
 router = APIRouter()
@@ -190,6 +190,40 @@ def list_gaps(
 ):
     report = _owned_report(db, audit_id, user.tenant_id)
     return {"success": True, "data": report.gaps or []}
+
+
+# ---------------------------------------------------------------------------
+# GET /audit/entries/{entry_id} — full entry detail (for edit modal)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/audit/entries/{entry_id}")
+def get_audit_entry(
+    entry_id: UUID,
+    db: Session = Depends(get_db),
+    user: UserResponse = Depends(get_current_tenant_admin),
+):
+    entry = (
+        db.query(AuditEntry)
+        .filter(AuditEntry.id == entry_id, AuditEntry.tenant_id == user.tenant_id)
+        .one_or_none()
+    )
+    if entry is None:
+        return _err("ENTRY_NOT_FOUND", "Entry not found", 404)
+    return {
+        "success": True,
+        "data": EntryDetailResponse(
+            id=str(entry.id),
+            url=entry.url,
+            title=entry.title,
+            category=entry.category,
+            kind=entry.kind.value if hasattr(entry.kind, "value") else str(entry.kind),
+            content=entry.content or "",
+            status=entry.status.value if hasattr(entry.status, "value") else str(entry.status),
+            importance_rank=entry.importance_rank,
+            edited=bool(entry.edited),
+        ).model_dump(),
+    }
 
 
 # ---------------------------------------------------------------------------
