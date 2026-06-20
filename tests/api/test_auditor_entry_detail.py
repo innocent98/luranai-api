@@ -2,6 +2,7 @@
 
 import uuid
 
+from app.core.security import get_password_hash
 from app.db.models.audit import (
     AuditEntry,
     AuditEntryKind,
@@ -35,7 +36,7 @@ def _make_tenant_user(db_session):
 
     user = User(
         email=f"user_{prefix}@example.com",
-        hashed_password="$2b$12$placeholder_hash_not_real",
+        hashed_password=get_password_hash("testpassword123"),
         full_name=f"User {prefix}",
         role=UserRole.TENANT_ADMIN,
         tenant_id=tenant.id,
@@ -131,4 +132,4 @@ def test_get_entry_detail_unauthenticated_returns_401(pg_client, db_session):
     entry = _make_entry(db_session, _user.tenant_id)
 
     resp = pg_client.get(f"/api/v1/audit/entries/{entry.id}")
-    assert resp.status_code in (401, 403)
+    assert resp.status_code == 401
