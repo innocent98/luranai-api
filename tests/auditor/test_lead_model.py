@@ -1,6 +1,5 @@
 """Tests for Lead model — PII encryption, email_hash lookup, LeadStatus enum."""
 
-import uuid
 
 from app.db.models.lead import Lead, LeadStatus
 

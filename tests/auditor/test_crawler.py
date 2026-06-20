@@ -184,7 +184,7 @@ async def test_fetch_robots_internal_host_returns_empty_disallow(monkeypatch):
 @pytest.mark.asyncio
 async def test_crawler_default_fetch_text_blocks_internal_host(monkeypatch):
     """_default_fetch_text returns None for an internal/private host (no request made)."""
-    from unittest.mock import patch, AsyncMock
+    from unittest.mock import patch
 
     with patch(
         "app.auditor.crawler.resolve_and_validate_host" if hasattr(crawler, "resolve_and_validate_host") else
@@ -373,10 +373,10 @@ async def test_playwright_render_launches_with_host_resolver_rules():
         mock_p.chromium = mock_chromium
 
         class FakeCtx:
-            async def __aenter__(self_inner):
+            async def __aenter__(self):
                 return mock_p
 
-            async def __aexit__(self_inner, *_):
+            async def __aexit__(self, *_):
                 pass
 
         return FakeCtx()
@@ -413,10 +413,10 @@ async def test_playwright_render_blocks_unsafe_host_before_launch():
         mock_p.chromium = mock_chromium
 
         class FakeCtx:
-            async def __aenter__(self_inner):
+            async def __aenter__(self):
                 return mock_p
 
-            async def __aexit__(self_inner, *_):
+            async def __aexit__(self, *_):
                 pass
 
         return FakeCtx()
@@ -471,10 +471,10 @@ async def test_playwright_route_handler_aborts_internal_host():
         mock_p.chromium = mock_chromium
 
         class FakeCtx:
-            async def __aenter__(self_inner):
+            async def __aenter__(self):
                 return mock_p
 
-            async def __aexit__(self_inner, *_):
+            async def __aexit__(self, *_):
                 pass
 
         return FakeCtx()
@@ -537,10 +537,10 @@ async def test_playwright_route_handler_continues_safe_host():
         mock_p.chromium = mock_chromium
 
         class FakeCtx:
-            async def __aenter__(self_inner):
+            async def __aenter__(self):
                 return mock_p
 
-            async def __aexit__(self_inner, *_):
+            async def __aexit__(self, *_):
                 pass
 
         return FakeCtx()

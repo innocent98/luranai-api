@@ -1,6 +1,5 @@
 """Tests for AuditReport + AuditEntry staging models and ProcessingJob nullable tenant."""
 
-import uuid
 
 from app.db.models.audit import (
     AuditEntry,
@@ -42,7 +41,7 @@ def test_audit_report_and_entry_persist(db):
     assert report.entries[0].status.value == "proposed"
 
 
-from app.db.models.job import JobStatus, JobType, ProcessingJob
+from app.db.models.job import JobStatus, JobType, ProcessingJob  # noqa: E402
 
 
 def test_processing_job_allows_null_tenant(db):

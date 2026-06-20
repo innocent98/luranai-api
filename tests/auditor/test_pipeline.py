@@ -1,7 +1,7 @@
 """Tests for app/auditor/pipeline.py — end-to-end pipeline + failure path."""
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -152,8 +152,8 @@ async def test_run_audit_failure_marks_job_and_report_failed(db):
     assert out is not None
     assert out.status == AuditStatus.FAILED
     # Re-query the job too — the test's local `job` reference may be stale after rollback.
-    from app.db.models.job import ProcessingJob as _PJ
-    fresh_job = db.query(_PJ).filter(_PJ.id == job.id).one()
+    from app.db.models.job import ProcessingJob as PJob
+    fresh_job = db.query(PJob).filter(PJob.id == job.id).one()
     assert fresh_job.status == JobStatus.FAILED
 
 

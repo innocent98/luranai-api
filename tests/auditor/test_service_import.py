@@ -38,7 +38,7 @@ def _setup(db, max_sources):
                 category="c",
                 kind=AuditEntryKind.FAQ,
                 content=f"content {i}",
-                content_hash=("%064d" % i),
+                content_hash=f"{i:064d}",
                 importance_rank=i + 1,
                 status=AuditEntryStatus.PROPOSED,
             )
@@ -237,7 +237,7 @@ async def test_import_worker_path_single_source(db):
                 "additional sentences here to make absolutely certain the minimum "
                 "chunk size requirement is satisfied by this content string."
             ),
-            content_hash="%064d" % 99,
+            content_hash=f"{99:064d}",
             importance_rank=1,
             status=AuditEntryStatus.PROPOSED,
         )

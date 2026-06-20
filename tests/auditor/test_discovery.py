@@ -339,7 +339,7 @@ async def test_discover_sitemap_ssrf_blocked_host_skips_fetch():
         return "sitemap" not in url
 
     with patch("app.auditor.discovery.guard_url", side_effect=selective_guard):
-        found = await discovery.discover("https://ex.com", max_pages=10, fetch_text=spy_fetch)
+        await discovery.discover("https://ex.com", max_pages=10, fetch_text=spy_fetch)
 
     # fetch_text should NOT have been called for sitemap.xml
     assert not any("sitemap" in c for c in fetch_calls), (

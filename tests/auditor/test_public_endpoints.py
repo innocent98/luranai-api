@@ -1,8 +1,7 @@
 """Tests for public auditor endpoints (no-auth, rate-limited)."""
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
-import pytest
 
 from app.db.models.audit import AuditReport, AuditScope, AuditStatus
 from app.db.models.lead import Lead
@@ -52,11 +51,8 @@ def test_post_public_audit_rate_limit_enforced(client, db):
     logic executes. The mock Redis increments an in-memory counter per key,
     making the 4th acquire() call exceed max_calls=3.
     """
-    import asyncio
-    import time
 
     from app.api.v1.endpoints.public_auditor import public_audit_limiter
-    from app.utils.rate_limiter import RedisRateLimiter
 
     # Build a fake Redis that tracks a sorted-set per key using a plain dict.
     # zremrangebyscore / zadd / zcard / zrange / expire are the only methods

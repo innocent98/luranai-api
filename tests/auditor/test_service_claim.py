@@ -38,7 +38,7 @@ async def test_claim_fresh_reparents_report_and_entries(db):
 
 @pytest.mark.asyncio
 async def test_claim_stale_triggers_fresh_crawl(db):
-    report = _public_report(db, age_days=10)  # > 7 day staleness
+    _public_report(db, age_days=10)  # > 7 day staleness
     tid = uuid.uuid4()
     with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock) as mock_enqueue:
         await AuditService(db).claim_audit("tok123", tid)
@@ -50,7 +50,7 @@ async def test_claim_stale_triggers_fresh_crawl(db):
 
 @pytest.mark.asyncio
 async def test_claim_recent_triggers_incremental_resume(db):
-    report = _public_report(db, age_days=1)  # within staleness window
+    _public_report(db, age_days=1)  # within staleness window
     tid = uuid.uuid4()
     with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock) as mock_enqueue:
         await AuditService(db).claim_audit("tok123", tid)

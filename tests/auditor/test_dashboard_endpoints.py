@@ -3,7 +3,6 @@
 import uuid
 from unittest.mock import AsyncMock, patch
 
-import pytest
 
 from app.db.models.audit import (
     AuditEntry,
@@ -88,7 +87,7 @@ def _make_report(db_session, tenant_id, *, with_entries=False, gaps=None):
                     category="faq",
                     kind=AuditEntryKind.FAQ,
                     content=f"content {i}",
-                    content_hash=("%064d" % i),
+                    content_hash=f"{i:064d}",
                     importance_rank=i + 1,
                     status=AuditEntryStatus.PROPOSED,
                 )
