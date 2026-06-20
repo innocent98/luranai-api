@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 from uuid import UUID
 
@@ -12,6 +13,9 @@ from sqlalchemy.orm import Session
 from app.auditor.discovery import normalize_url
 from app.db.models.audit import AuditReport, AuditScope, AuditStatus
 from app.db.models.job import JobType, ProcessingJob
+
+if TYPE_CHECKING:
+    from app.db.models.audit import AuditEntry
 
 
 async def enqueue_audit(report_id: UUID) -> None:
@@ -39,7 +43,7 @@ class AuditService:
 
         job = ProcessingJob(
             tenant_id=tenant_id,  # None for public (pre-signup) audits; column is nullable
-            job_type=JobType.DOCUMENT_INGESTION,
+            job_type=JobType.WEBSITE_AUDIT,
             input_data={"kind": "website_audit", "url": normalized},
             created_by=created_by,
         )
@@ -89,7 +93,7 @@ class AuditService:
 
     def preselect_entries(
         self, audit_report_id: UUID
-    ) -> tuple[list["AuditEntry"], list["AuditEntry"]]:
+    ) -> tuple[list[AuditEntry], list[AuditEntry]]:
         """Initialization-only preselection: assign ACTIVE/LOCKED only to PROPOSED entries.
 
         N is determined by TenantCapabilities.max_knowledge_sources.
@@ -213,7 +217,7 @@ class AuditService:
 
             job = ProcessingJob(
                 tenant_id=report.tenant_id,
-                job_type=JobType.DOCUMENT_INGESTION,
+                job_type=JobType.WEBSITE_AUDIT,
                 input_data={
                     "tenant_id": str(report.tenant_id),
                     "document_text": entry.content,

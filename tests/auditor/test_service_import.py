@@ -173,6 +173,23 @@ def test_upgrade_unlock_counts_newly_eligible(db):
     assert svc.unlock_after_upgrade(report.id) == 1
 
 
+async def test_import_entries_job_has_website_audit_type(db):
+    """ProcessingJob created by import_entries must have job_type == WEBSITE_AUDIT."""
+    from app.db.models.job import JobType, ProcessingJob
+
+    _tid, report = _setup(db, max_sources=3)
+    svc = AuditService(db)
+    svc.preselect_entries(report.id)
+    db.flush()
+
+    with patch("app.auditor.service.enqueue_document_ingestion", new_callable=AsyncMock):
+        imported = await svc.import_entries(report.id)
+
+    assert len(imported) > 0
+    jobs = db.query(ProcessingJob).filter(ProcessingJob.tenant_id == report.tenant_id).all()
+    assert all(j.job_type == JobType.WEBSITE_AUDIT for j in jobs)
+
+
 async def test_import_worker_path_single_source(db):
     """Worker must activate the pre-created source, not spawn a second one.
 

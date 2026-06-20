@@ -875,6 +875,7 @@ class FlowEngine:
             Execution result
         """
         from app.core.config import settings
+        from app.db.models.business_profile import BusinessProfile
         from app.db.models.tenant import Tenant, TenantAIConfig
         from app.services.conversation_service import ConversationService
 
@@ -913,6 +914,10 @@ class FlowEngine:
         ).scalar_one_or_none()
         if not ai_config:
             return self._error_result("Tenant AI configuration not found")
+
+        business_profile = self.db.execute(
+            select(BusinessProfile).where(BusinessProfile.tenant_id == session.tenant_id)
+        ).scalar_one_or_none()
 
         # Build retrieved chunks
         retrieved_chunks: list[KnowledgeChunkResponse] = []
@@ -964,6 +969,7 @@ class FlowEngine:
             company_name=tenant.display_name,
             company_description=tenant.description,
             max_history_turns=max_history_turns,
+            business_profile=business_profile,
         )
 
         response_text, token_count, is_api_error = await self.rag_service.generate_ai_response(

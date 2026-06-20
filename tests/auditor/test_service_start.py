@@ -36,6 +36,18 @@ async def test_start_audit_dashboard_has_tenant_no_claim_token(db):
 
 
 @pytest.mark.asyncio
+async def test_start_audit_job_has_website_audit_type(db):
+    """ProcessingJob created by start_audit must have job_type == WEBSITE_AUDIT."""
+    from app.db.models.job import JobType
+    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock):
+        svc = AuditService(db)
+        report = await svc.start_audit(url="https://example.com/", scope=AuditScope.PUBLIC, tenant_id=None)
+    db.flush()
+    job = db.query(ProcessingJob).filter(ProcessingJob.id == report.processing_job_id).one()
+    assert job.job_type == JobType.WEBSITE_AUDIT
+
+
+@pytest.mark.asyncio
 async def test_start_audit_enqueue_failure_marks_report_failed_and_raises(db):
     """When enqueue_audit raises, the report is marked FAILED and RuntimeError propagates."""
     with patch(

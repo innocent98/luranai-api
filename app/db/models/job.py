@@ -28,6 +28,7 @@ class JobType(str, PyEnum):
     DOCUMENT_INGESTION = "document_ingestion"
     BULK_EMBEDDING = "bulk_embedding"
     KNOWLEDGE_REINDEX = "knowledge_reindex"
+    WEBSITE_AUDIT = "website_audit"
 
 
 class ProcessingJob(Base):
