@@ -76,24 +76,43 @@ def guard_url(url: str) -> bool:
 
 
 async def _default_fetch_text(url: str) -> str | None:
-    """Fetch URL text with SSRF guard and no redirect-following.
+    """Fetch URL text with SSRF guard and DNS-rebinding protection.
 
     Security notes:
-    - Guards the initial host via resolve_and_validate_host before any request.
-    - follow_redirects=False: any 3xx response returns None (sitemap/BFS fetches are
-      best-effort; not following redirects avoids blind redirect SSRF attacks).
+    - Rejects non-http/https schemes before any resolution.
+    - Resolves the hostname ONCE via resolve_and_validate_host and pins the
+      connection to the returned IP so DNS cannot be rebound between validation
+      and connect time.
+    - Sends the original hostname as the Host header and sets sni_hostname so
+      TLS cert verification uses the real hostname, not the IP.
+    - follow_redirects=False: any 3xx response returns None to avoid blind
+      redirect SSRF.
+    - Returns None on any ValueError (fail closed).
     """
-    hostname = urlparse(url).hostname
-    if not hostname:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return None
+    original_host = parsed.hostname or ""
+    if not original_host:
         return None
     try:
-        resolve_and_validate_host(hostname)
+        safe_ip = resolve_and_validate_host(original_host)
     except ValueError:
         logger.warning("discovery _default_fetch_text SSRF guard blocked: {}", url)
         return None
+    # Build the Host header: bracket IPv6, append port when explicit.
+    host_for_header = f"[{original_host}]" if ":" in original_host else original_host
+    host_header = f"{host_for_header}:{parsed.port}" if parsed.port else host_for_header
+    # Pin the connection to the validated IP; keep connecting by hostname when
+    # resolve_and_validate_host returned the hostname unchanged (allowlisted).
+    connect_host = safe_ip if safe_ip != original_host else original_host
+    pinned_url = httpx.URL(url).copy_with(host=connect_host)
+    req = httpx.Request("GET", pinned_url, headers={"Host": host_header})
+    if connect_host != original_host:
+        req.extensions["sni_hostname"] = original_host
     try:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
-            resp = await client.get(url)
+            resp = await client.send(req)
             if resp.status_code == 200:
                 return resp.text
     except Exception as exc:

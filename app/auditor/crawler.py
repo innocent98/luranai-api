@@ -8,9 +8,11 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 from loguru import logger
+from playwright.async_api import async_playwright
 
 from app.core.config import settings
 from app.auditor.discovery import guard_url
+from app.utils.network_security import resolve_and_validate_host
 
 
 @dataclass
@@ -27,26 +29,43 @@ class RawPage:
 
 
 async def _default_fetch_text(url: str) -> str | None:
-    """Fetch URL text with SSRF guard and no redirect-following.
+    """Fetch URL text with SSRF guard and DNS-rebinding protection.
 
     Security notes:
-    - Guards the initial host via resolve_and_validate_host before any request.
-    - follow_redirects=False: any 3xx response returns None (robots/sitemap are
-      best-effort; not following redirects is safe and avoids blind redirect SSRF).
+    - Rejects non-http/https schemes before any resolution.
+    - Resolves the hostname ONCE via resolve_and_validate_host and pins the
+      connection to the returned IP so DNS cannot be rebound between validation
+      and connect time.
+    - Sends the original hostname as the Host header and sets sni_hostname so
+      TLS cert verification uses the real hostname, not the IP.
+    - follow_redirects=False: any 3xx response returns None to avoid blind
+      redirect SSRF.
+    - Returns None on any ValueError (fail closed).
     """
-    from urllib.parse import urlparse as _urlparse
-    from app.utils.network_security import resolve_and_validate_host as _resolve
-    hostname = _urlparse(url).hostname
-    if not hostname:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return None
+    original_host = parsed.hostname or ""
+    if not original_host:
         return None
     try:
-        _resolve(hostname)
+        safe_ip = resolve_and_validate_host(original_host)
     except ValueError:
         logger.warning("crawler _default_fetch_text SSRF guard blocked: {}", url)
         return None
+    # Build the Host header: bracket IPv6, append port when explicit.
+    host_for_header = f"[{original_host}]" if ":" in original_host else original_host
+    host_header = f"{host_for_header}:{parsed.port}" if parsed.port else host_for_header
+    # Pin the connection to the validated IP; keep connecting by hostname when
+    # resolve_and_validate_host returned the hostname unchanged (allowlisted).
+    connect_host = safe_ip if safe_ip != original_host else original_host
+    pinned_url = httpx.URL(url).copy_with(host=connect_host)
+    req = httpx.Request("GET", pinned_url, headers={"Host": host_header})
+    if connect_host != original_host:
+        req.extensions["sni_hostname"] = original_host
     try:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
-            resp = await client.get(url)
+            resp = await client.send(req)
             return resp.text if resp.status_code == 200 else None
     except Exception as exc:
         logger.debug("robots fetch failed {}: {}", url, exc)
@@ -95,13 +114,57 @@ async def _playwright_render(url: str) -> tuple[int, str, str]:
 
     Returns (status, html, final_url) where final_url is the URL the browser
     landed on after any redirects.
+
+    DNS-rebinding protection:
+    - Resolves the target hostname ONCE before launching the browser and pins
+      the browser's DNS resolver to that validated IP via --host-resolver-rules.
+      The browser cannot re-resolve at connect time, closing the rebinding window.
+    - Route interception validates every subresource / redirect request's host
+      via resolve_and_validate_host; any internal host aborts the request.
+    - Returns (0, "", url) on ValueError so render_page treats it as blocked.
     """
-    from playwright.async_api import async_playwright
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    if not host:
+        return 0, "", url
+
+    try:
+        safe_ip = resolve_and_validate_host(host)
+    except ValueError:
+        logger.warning("_playwright_render SSRF guard blocked pre-launch: {}", url)
+        return 0, "", url
+
+    # Pin the browser's resolver for this specific host to the validated IP.
+    # EXCLUDE localhost so internal browser tooling is unaffected.
+    resolver_rule = f"MAP {host} {safe_ip}, EXCLUDE localhost"
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[f"--host-resolver-rules={resolver_rule}"],
+        )
         try:
             page = await browser.new_page()
+
+            # Block subresource / redirect requests to unvalidated hosts.
+            async def _route_handler(route, request):
+                req_url = request.url
+                req_parsed = urlparse(req_url)
+                req_host = req_parsed.hostname or ""
+                if req_parsed.scheme not in {"http", "https"} or not req_host:
+                    await route.abort()
+                    return
+                try:
+                    resolve_and_validate_host(req_host)
+                    await route.continue_()
+                except ValueError:
+                    logger.warning(
+                        "_playwright_render route interception blocked subresource: {}", req_url
+                    )
+                    await route.abort()
+
+            await page.route("**/*", _route_handler)
+
             resp = await page.goto(
                 url,
                 timeout=settings.AUDITOR_PER_PAGE_TIMEOUT_S * 1000,
@@ -148,7 +211,7 @@ async def render_page(
             renderer(url),
             timeout=settings.AUDITOR_PER_PAGE_TIMEOUT_S + 2,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return RawPage(url=url, status=0, html=None, bytes_len=0, error="TIMEOUT")
     except Exception as exc:
         logger.debug("render_page error {}: {}", url, exc)

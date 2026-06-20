@@ -385,3 +385,113 @@ async def test_discovery_default_fetch_text_returns_text_on_200():
             result = await discovery._default_fetch_text("https://example.com/sitemap.xml")
     assert result is not None
     assert "<urlset>" in result
+
+
+# ---------------------------------------------------------------------------
+# httpx PIN tests — verify resolve-and-pin contract in _default_fetch_text
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_discovery_fetch_text_connects_to_pinned_ip():
+    """_default_fetch_text must connect to the pinned IP, not re-resolve by hostname."""
+    import httpx
+
+    captured: list[httpx.Request] = []
+
+    async def capturing_send(self, request, *args, **kwargs):
+        captured.append(request)
+        return httpx.Response(200, text="ok")
+
+    with patch("app.auditor.discovery.resolve_and_validate_host", return_value="1.2.3.4"):
+        with patch("httpx.AsyncClient.send", new=capturing_send):
+            await discovery._default_fetch_text("https://example.com/sitemap.xml")
+
+    assert len(captured) == 1
+    req = captured[0]
+    # Connection must go to the pinned IP, not the original hostname.
+    assert req.url.host == "1.2.3.4", f"Expected pinned IP, got: {req.url.host}"
+
+
+@pytest.mark.asyncio
+async def test_discovery_fetch_text_sends_original_host_header():
+    """_default_fetch_text must set the Host header to the original hostname."""
+    import httpx
+
+    captured: list[httpx.Request] = []
+
+    async def capturing_send(self, request, *args, **kwargs):
+        captured.append(request)
+        return httpx.Response(200, text="ok")
+
+    with patch("app.auditor.discovery.resolve_and_validate_host", return_value="1.2.3.4"):
+        with patch("httpx.AsyncClient.send", new=capturing_send):
+            await discovery._default_fetch_text("https://example.com/sitemap.xml")
+
+    assert len(captured) == 1
+    req = captured[0]
+    assert req.headers.get("host") == "example.com", (
+        f"Expected Host: example.com, got: {req.headers.get('host')}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_discovery_fetch_text_sets_sni_hostname_extension():
+    """_default_fetch_text must set sni_hostname when connecting to an IP."""
+    import httpx
+
+    captured: list[httpx.Request] = []
+
+    async def capturing_send(self, request, *args, **kwargs):
+        captured.append(request)
+        return httpx.Response(200, text="ok")
+
+    with patch("app.auditor.discovery.resolve_and_validate_host", return_value="1.2.3.4"):
+        with patch("httpx.AsyncClient.send", new=capturing_send):
+            await discovery._default_fetch_text("https://example.com/sitemap.xml")
+
+    assert len(captured) == 1
+    req = captured[0]
+    assert req.extensions.get("sni_hostname") == "example.com", (
+        f"Expected sni_hostname='example.com', got: {req.extensions.get('sni_hostname')}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_discovery_fetch_text_no_send_on_internal_host():
+    """_default_fetch_text must NOT call send when resolve raises (fail closed)."""
+    import httpx
+
+    send_called = []
+
+    async def should_not_be_called(self, request, *args, **kwargs):
+        send_called.append(request)
+        return httpx.Response(200, text="leaked")
+
+    with patch(
+        "app.auditor.discovery.resolve_and_validate_host",
+        side_effect=ValueError("private IP"),
+    ):
+        with patch("httpx.AsyncClient.send", new=should_not_be_called):
+            result = await discovery._default_fetch_text("http://10.0.0.1/sitemap.xml")
+
+    assert result is None
+    assert send_called == [], "send must not be called for an internal host"
+
+
+@pytest.mark.asyncio
+async def test_discovery_fetch_text_rejects_non_http_scheme():
+    """_default_fetch_text must return None for non-http/https schemes without resolving."""
+    resolve_called = []
+
+    def should_not_resolve(hostname, *args, **kwargs):
+        resolve_called.append(hostname)
+        return "1.2.3.4"
+
+    with patch("app.auditor.discovery.resolve_and_validate_host", side_effect=should_not_resolve):
+        result_ftp = await discovery._default_fetch_text("ftp://example.com/file.txt")
+        result_file = await discovery._default_fetch_text("file:///etc/passwd")
+
+    assert result_ftp is None
+    assert result_file is None
+    assert resolve_called == [], "resolve must not be called for non-http/https schemes"

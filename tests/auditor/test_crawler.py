@@ -205,7 +205,7 @@ async def test_crawler_default_fetch_text_returns_none_on_3xx():
     async def mock_send(self_or_request, *args, **kwargs):
         return httpx.Response(302, headers={"Location": "http://internal.example.com/"})
 
-    with patch("app.utils.network_security.resolve_and_validate_host", return_value="1.2.3.4"):
+    with patch("app.auditor.crawler.resolve_and_validate_host", return_value="1.2.3.4"):
         with patch("httpx.AsyncClient.send", new=mock_send):
             result = await crawler._default_fetch_text("https://example.com/robots.txt")
     assert result is None
@@ -219,8 +219,346 @@ async def test_crawler_default_fetch_text_returns_text_on_200():
     async def mock_send(self_or_request, *args, **kwargs):
         return httpx.Response(200, text="User-agent: *\nDisallow: /admin\n")
 
-    with patch("app.utils.network_security.resolve_and_validate_host", return_value="1.2.3.4"):
+    with patch("app.auditor.crawler.resolve_and_validate_host", return_value="1.2.3.4"):
         with patch("httpx.AsyncClient.send", new=mock_send):
             result = await crawler._default_fetch_text("https://example.com/robots.txt")
     assert result is not None
     assert "Disallow" in result
+
+
+# ---------------------------------------------------------------------------
+# httpx PIN tests — verify resolve-and-pin contract in crawler._default_fetch_text
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_crawler_fetch_text_connects_to_pinned_ip():
+    """_default_fetch_text must connect to the pinned IP, not re-resolve by hostname."""
+    import httpx
+
+    captured: list[httpx.Request] = []
+
+    async def capturing_send(self, request, *args, **kwargs):
+        captured.append(request)
+        return httpx.Response(200, text="ok")
+
+    with patch("app.auditor.crawler.resolve_and_validate_host", return_value="1.2.3.4"):
+        with patch("httpx.AsyncClient.send", new=capturing_send):
+            await crawler._default_fetch_text("https://example.com/robots.txt")
+
+    assert len(captured) == 1
+    req = captured[0]
+    assert req.url.host == "1.2.3.4", f"Expected pinned IP, got: {req.url.host}"
+
+
+@pytest.mark.asyncio
+async def test_crawler_fetch_text_sends_original_host_header():
+    """_default_fetch_text must set the Host header to the original hostname."""
+    import httpx
+
+    captured: list[httpx.Request] = []
+
+    async def capturing_send(self, request, *args, **kwargs):
+        captured.append(request)
+        return httpx.Response(200, text="ok")
+
+    with patch("app.auditor.crawler.resolve_and_validate_host", return_value="1.2.3.4"):
+        with patch("httpx.AsyncClient.send", new=capturing_send):
+            await crawler._default_fetch_text("https://example.com/robots.txt")
+
+    assert len(captured) == 1
+    req = captured[0]
+    assert req.headers.get("host") == "example.com", (
+        f"Expected Host: example.com, got: {req.headers.get('host')}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_crawler_fetch_text_sets_sni_hostname_extension():
+    """_default_fetch_text must set sni_hostname when connecting to an IP."""
+    import httpx
+
+    captured: list[httpx.Request] = []
+
+    async def capturing_send(self, request, *args, **kwargs):
+        captured.append(request)
+        return httpx.Response(200, text="ok")
+
+    with patch("app.auditor.crawler.resolve_and_validate_host", return_value="1.2.3.4"):
+        with patch("httpx.AsyncClient.send", new=capturing_send):
+            await crawler._default_fetch_text("https://example.com/robots.txt")
+
+    assert len(captured) == 1
+    req = captured[0]
+    assert req.extensions.get("sni_hostname") == "example.com", (
+        f"Expected sni_hostname='example.com', got: {req.extensions.get('sni_hostname')}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_crawler_fetch_text_no_send_on_internal_host():
+    """_default_fetch_text must NOT call send when resolve raises (fail closed)."""
+    import httpx
+
+    send_called = []
+
+    async def should_not_be_called(self, request, *args, **kwargs):
+        send_called.append(request)
+        return httpx.Response(200, text="leaked")
+
+    with patch(
+        "app.auditor.crawler.resolve_and_validate_host",
+        side_effect=ValueError("private IP"),
+    ):
+        with patch("httpx.AsyncClient.send", new=should_not_be_called):
+            result = await crawler._default_fetch_text("http://10.0.0.1/robots.txt")
+
+    assert result is None
+    assert send_called == [], "send must not be called for an internal host"
+
+
+@pytest.mark.asyncio
+async def test_crawler_fetch_text_rejects_non_http_scheme():
+    """_default_fetch_text must return None for non-http/https schemes without resolving."""
+    resolve_called = []
+
+    def should_not_resolve(hostname, *args, **kwargs):
+        resolve_called.append(hostname)
+        return "1.2.3.4"
+
+    with patch("app.auditor.crawler.resolve_and_validate_host", side_effect=should_not_resolve):
+        result_ftp = await crawler._default_fetch_text("ftp://example.com/robots.txt")
+        result_file = await crawler._default_fetch_text("file:///etc/passwd")
+
+    assert result_ftp is None
+    assert result_file is None
+    assert resolve_called == [], "resolve must not be called for non-http/https schemes"
+
+
+# ---------------------------------------------------------------------------
+# Playwright PIN tests — host-resolver-rules + route interception
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_playwright_render_launches_with_host_resolver_rules():
+    """_playwright_render must pass --host-resolver-rules=MAP <host> <safe_ip> to Chromium."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    launch_args: list[list[str]] = []
+
+    def make_mock_playwright():
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+
+        mock_page = AsyncMock()
+        mock_page.goto = AsyncMock(return_value=mock_resp)
+        mock_page.content = AsyncMock(return_value="<html></html>")
+        mock_page.url = "https://example.com/"
+        mock_page.route = AsyncMock()
+
+        mock_browser = AsyncMock()
+        mock_browser.new_page = AsyncMock(return_value=mock_page)
+        mock_browser.close = AsyncMock()
+
+        mock_chromium = AsyncMock()
+
+        async def fake_launch(headless, args):
+            launch_args.append(args)
+            return mock_browser
+
+        mock_chromium.launch = fake_launch
+
+        mock_p = MagicMock()
+        mock_p.chromium = mock_chromium
+
+        class FakeCtx:
+            async def __aenter__(self_inner):
+                return mock_p
+
+            async def __aexit__(self_inner, *_):
+                pass
+
+        return FakeCtx()
+
+    with patch("app.auditor.crawler.resolve_and_validate_host", return_value="1.2.3.4"):
+        with patch("app.auditor.crawler.async_playwright", side_effect=make_mock_playwright):
+            await crawler._playwright_render("https://example.com/")
+
+    assert len(launch_args) == 1
+    args_list = launch_args[0]
+    matching = [a for a in args_list if a.startswith("--host-resolver-rules=")]
+    assert matching, f"--host-resolver-rules not found in launch args: {args_list}"
+    assert "MAP example.com 1.2.3.4" in matching[0], (
+        f"Expected MAP rule for example.com -> 1.2.3.4, got: {matching[0]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_playwright_render_blocks_unsafe_host_before_launch():
+    """_playwright_render must return failure tuple without launching browser on unsafe host."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    launched = []
+
+    def make_mock_playwright():
+        mock_chromium = AsyncMock()
+
+        async def fake_launch(**kwargs):
+            launched.append(True)
+            return AsyncMock()
+
+        mock_chromium.launch = fake_launch
+        mock_p = MagicMock()
+        mock_p.chromium = mock_chromium
+
+        class FakeCtx:
+            async def __aenter__(self_inner):
+                return mock_p
+
+            async def __aexit__(self_inner, *_):
+                pass
+
+        return FakeCtx()
+
+    with patch(
+        "app.auditor.crawler.resolve_and_validate_host",
+        side_effect=ValueError("private IP"),
+    ):
+        with patch("app.auditor.crawler.async_playwright", side_effect=make_mock_playwright):
+            status, html, final_url = await crawler._playwright_render("http://10.0.0.1/")
+
+    assert status == 0
+    assert html == ""
+    assert final_url == "http://10.0.0.1/"
+    assert launched == [], "Browser must NOT be launched for an unsafe host"
+
+
+@pytest.mark.asyncio
+async def test_playwright_route_handler_aborts_internal_host():
+    """Route handler must call route.abort() for subresource requests to internal hosts."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    # Extract and directly test the route handler logic by capturing it.
+    captured_handler = []
+
+    def make_mock_playwright():
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+
+        mock_page = AsyncMock()
+        mock_page.goto = AsyncMock(return_value=mock_resp)
+        mock_page.content = AsyncMock(return_value="<html></html>")
+        mock_page.url = "https://example.com/"
+
+        async def capture_route(pattern, handler):
+            captured_handler.append(handler)
+
+        mock_page.route = capture_route
+
+        mock_browser = AsyncMock()
+        mock_browser.new_page = AsyncMock(return_value=mock_page)
+        mock_browser.close = AsyncMock()
+
+        mock_chromium = AsyncMock()
+
+        async def fake_launch(headless, args):
+            return mock_browser
+
+        mock_chromium.launch = fake_launch
+
+        mock_p = MagicMock()
+        mock_p.chromium = mock_chromium
+
+        class FakeCtx:
+            async def __aenter__(self_inner):
+                return mock_p
+
+            async def __aexit__(self_inner, *_):
+                pass
+
+        return FakeCtx()
+
+    def selective_resolve(hostname):
+        if hostname in {"example.com"}:
+            return "1.2.3.4"
+        raise ValueError(f"internal: {hostname}")
+
+    with patch("app.auditor.crawler.resolve_and_validate_host", side_effect=selective_resolve):
+        with patch("app.auditor.crawler.async_playwright", side_effect=make_mock_playwright):
+            await crawler._playwright_render("https://example.com/")
+
+        # Handler must be invoked while the patch is still active.
+        assert len(captured_handler) == 1, "Route handler must be registered"
+        handler = captured_handler[0]
+
+        mock_route_internal = AsyncMock()
+        mock_request_internal = MagicMock()
+        mock_request_internal.url = "http://10.0.0.1/api/secret"
+        await handler(mock_route_internal, mock_request_internal)
+
+    mock_route_internal.abort.assert_called_once()
+    mock_route_internal.continue_.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_playwright_route_handler_continues_safe_host():
+    """Route handler must call route.continue_() for subresource requests to safe hosts."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    captured_handler = []
+
+    def make_mock_playwright():
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+
+        mock_page = AsyncMock()
+        mock_page.goto = AsyncMock(return_value=mock_resp)
+        mock_page.content = AsyncMock(return_value="<html></html>")
+        mock_page.url = "https://example.com/"
+
+        async def capture_route(pattern, handler):
+            captured_handler.append(handler)
+
+        mock_page.route = capture_route
+
+        mock_browser = AsyncMock()
+        mock_browser.new_page = AsyncMock(return_value=mock_page)
+        mock_browser.close = AsyncMock()
+
+        mock_chromium = AsyncMock()
+
+        async def fake_launch(headless, args):
+            return mock_browser
+
+        mock_chromium.launch = fake_launch
+
+        mock_p = MagicMock()
+        mock_p.chromium = mock_chromium
+
+        class FakeCtx:
+            async def __aenter__(self_inner):
+                return mock_p
+
+            async def __aexit__(self_inner, *_):
+                pass
+
+        return FakeCtx()
+
+    with patch("app.auditor.crawler.resolve_and_validate_host", return_value="1.2.3.4"):
+        with patch("app.auditor.crawler.async_playwright", side_effect=make_mock_playwright):
+            await crawler._playwright_render("https://example.com/")
+
+        # Handler must be invoked while the patch is still active so
+        # resolve_and_validate_host returns the safe IP instead of doing a
+        # real DNS lookup.
+        assert len(captured_handler) == 1
+        handler = captured_handler[0]
+
+        mock_route_safe = AsyncMock()
+        mock_request_safe = MagicMock()
+        mock_request_safe.url = "https://cdn.example.com/style.css"
+        await handler(mock_route_safe, mock_request_safe)
+
+    mock_route_safe.continue_.assert_called_once()
+    mock_route_safe.abort.assert_not_called()
