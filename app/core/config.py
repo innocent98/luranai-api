@@ -205,6 +205,17 @@ class Settings(BaseSettings):
     # Use with caution; empty by default for safer SSRF posture.
     AUTOMATION_OUTBOUND_HOST_ALLOWLIST: str = ""
 
+    # AI Website Auditor (Stage 4)
+    AUDITOR_PUBLIC_MAX_PAGES: int = 50
+    AUDITOR_DASHBOARD_DEFAULT_MAX_PAGES: int = 500
+    AUDITOR_CLAIM_STALENESS_DAYS: int = 7
+    AUDITOR_UNCLAIMED_PURGE_DAYS: int = 30
+    AUDITOR_PER_PAGE_TIMEOUT_S: int = 10
+    AUDITOR_CRAWL_RPS: int = 1
+    AUDITOR_MODEL_PROFILE: str = "gpt-4o"
+    AUDITOR_MODEL_CLASSIFY: str = "gpt-4o-mini"
+    AUDITOR_MODEL_GAPS: str = "gpt-4o"
+
     def get_trial_expiry_reminder_days(self) -> list[int]:
         """Parse and validate reminder windows from env setting."""
         try:

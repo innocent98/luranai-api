@@ -28,6 +28,7 @@ class JobType(str, PyEnum):
     DOCUMENT_INGESTION = "document_ingestion"
     BULK_EMBEDDING = "bulk_embedding"
     KNOWLEDGE_REINDEX = "knowledge_reindex"
+    WEBSITE_AUDIT = "website_audit"
 
 
 class ProcessingJob(Base):
@@ -41,8 +42,8 @@ class ProcessingJob(Base):
     __tablename__ = "processing_jobs"
 
     id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True), ForeignKey("tenants.id"), nullable=False, index=True
+    tenant_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("tenants.id"), nullable=True, index=True
     )
 
     # Job metadata

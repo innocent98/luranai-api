@@ -13,7 +13,16 @@ from app.db.models.automation import (
     TenantActionStatus,
     TenantActionType,
 )
-from app.db.models.audit import AnalyticsMetric, AuditLog
+from app.db.models.audit import (
+    AnalyticsMetric,
+    AuditEntry,
+    AuditEntryKind,
+    AuditEntryStatus,
+    AuditLog,
+    AuditReport,
+    AuditScope,
+    AuditStatus,
+)
 from app.db.models.conversation import (
     ConversationSession,
     Message,
@@ -30,6 +39,7 @@ from app.db.models.customer_engagement import (
 )
 from app.db.models.customer_user import CustomerUser
 from app.db.models.email_notification import EmailNotification
+from app.db.models.business_profile import BusinessProfile, BusinessProfileSource
 from app.db.models.flow import (
     Flow,
     FlowExecution,
@@ -56,6 +66,7 @@ from app.db.models.promotional_grant import AutoSignupGrantConfig, PromotionalGr
 from app.db.models.review import FeedbackCategory, PlatformFeedback, SessionRating
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.subscription_plan import SubscriptionPlan
+from app.db.models.lead import Lead, LeadStatus
 from app.db.models.visit_analytics import DailyVisit
 
 # Import all models to ensure they're registered with SQLAlchemy
@@ -116,6 +127,13 @@ __all__ = [
     # Audit models
     "AuditLog",
     "AnalyticsMetric",
+    # Auditor staging models
+    "AuditReport",
+    "AuditEntry",
+    "AuditScope",
+    "AuditStatus",
+    "AuditEntryStatus",
+    "AuditEntryKind",
     # Job models
     "ProcessingJob",
     "JobStatus",
@@ -136,6 +154,12 @@ __all__ = [
     "DailyVisit",
     # Email notification models
     "EmailNotification",
+    # Lead models
+    "Lead",
+    "LeadStatus",
+    # Auditor models
+    "BusinessProfile",
+    "BusinessProfileSource",
     # Flow models
     "Flow",
     "FlowExecution",

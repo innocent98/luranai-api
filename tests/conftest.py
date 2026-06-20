@@ -223,7 +223,7 @@ def regular_user_token(db_session):
     db_session.flush()
 
     user = User(
-        email=f"user_{unique_prefix}@test.local",
+        email=f"user_{unique_prefix}@example.com",
         hashed_password="$2b$12$placeholder_hash_not_real",
         full_name=f"Regular User {unique_prefix}",
         role=UserRole.TENANT_ADMIN,

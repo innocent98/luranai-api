@@ -37,6 +37,14 @@ class CompanyRegistrationRequest(BaseModel):
         description="Admin email address (will receive verification email)",
     )
 
+    # Optional audit claim token (public website audit run before signup)
+    claim_token: str | None = Field(
+        None,
+        min_length=1,
+        max_length=128,
+        description="Claim token from a public audit run before signup (optional)",
+    )
+
 
 class CompanyRegistrationResponse(BaseModel):
     """Schema for company registration response."""
