@@ -1,8 +1,32 @@
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from app.auditor import crawler
+
+
+@pytest.mark.asyncio
+async def test_ssrf_route_handler_aborts_non_http_and_internal_continues_safe():
+    # non-http scheme -> abort, never validated
+    route = AsyncMock()
+    await crawler._ssrf_route_handler(route, SimpleNamespace(url="data:text/html,hi"))
+    route.abort.assert_awaited_once()
+    route.continue_.assert_not_awaited()
+
+    # internal host (guard raises) -> abort
+    route2 = AsyncMock()
+    with patch("app.auditor.crawler.resolve_and_validate_host", side_effect=ValueError("private")):
+        await crawler._ssrf_route_handler(route2, SimpleNamespace(url="http://10.0.0.1/x.js"))
+    route2.abort.assert_awaited_once()
+    route2.continue_.assert_not_awaited()
+
+    # safe public host -> continue
+    route3 = AsyncMock()
+    with patch("app.auditor.crawler.resolve_and_validate_host", return_value="93.184.216.34"):
+        await crawler._ssrf_route_handler(route3, SimpleNamespace(url="https://example.com/s.css"))
+    route3.continue_.assert_awaited_once()
+    route3.abort.assert_not_awaited()
 
 
 def test_robots_blocks_disallowed_path():

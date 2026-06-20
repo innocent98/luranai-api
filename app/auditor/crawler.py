@@ -109,6 +109,23 @@ def is_allowed_by_robots(url: str, disallowed: set[str]) -> bool:
     return not any(path.startswith(rule) for rule in disallowed)
 
 
+async def _ssrf_route_handler(route, request) -> None:
+    """Playwright request interceptor: abort any subresource/redirect to a
+    non-http(s) or unvalidated/internal host (defense-in-depth vs subresource SSRF)."""
+    req_url = request.url
+    req_parsed = urlparse(req_url)
+    req_host = req_parsed.hostname or ""
+    if req_parsed.scheme not in {"http", "https"} or not req_host:
+        await route.abort()
+        return
+    try:
+        resolve_and_validate_host(req_host)
+        await route.continue_()
+    except ValueError:
+        logger.warning("_ssrf_route_handler blocked subresource: {}", req_url)
+        await route.abort()
+
+
 async def _playwright_render(url: str) -> tuple[int, str, str]:
     """Default page renderer using Playwright headless Chromium.
 
@@ -147,23 +164,7 @@ async def _playwright_render(url: str) -> tuple[int, str, str]:
             page = await browser.new_page()
 
             # Block subresource / redirect requests to unvalidated hosts.
-            async def _route_handler(route, request):
-                req_url = request.url
-                req_parsed = urlparse(req_url)
-                req_host = req_parsed.hostname or ""
-                if req_parsed.scheme not in {"http", "https"} or not req_host:
-                    await route.abort()
-                    return
-                try:
-                    resolve_and_validate_host(req_host)
-                    await route.continue_()
-                except ValueError:
-                    logger.warning(
-                        "_playwright_render route interception blocked subresource: {}", req_url
-                    )
-                    await route.abort()
-
-            await page.route("**/*", _route_handler)
+            await page.route("**/*", _ssrf_route_handler)
 
             resp = await page.goto(
                 url,
