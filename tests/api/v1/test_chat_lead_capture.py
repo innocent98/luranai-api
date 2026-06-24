@@ -264,3 +264,51 @@ def test_sales_mode_off_uses_plain_path(client, db: Session):
 
     meta = r.json()["message"]["meta"] or {}
     assert "lead_captured" not in meta
+
+
+def test_lead_captured_not_re_emitted_on_subsequent_turns(client, db: Session):
+    """lead_captured is set only when email is FIRST captured, not on later turns."""
+    tenant_id = _make_tenant(db, sales_enabled=True)
+
+    # Turn 1 — trigger intent, no captured data
+    with _sales_llm_patch("PRICING_INQUIRY", {}, {}), _retrieval_patch(), _automation_patch():
+        r1 = client.post(
+            "/api/v1/chat/message",
+            json={
+                "message": "pricing?",
+                "tenant_id": str(tenant_id),
+                "user_identifier": "v1",
+            },
+        )
+    assert r1.status_code == 200, r1.text
+    sid = r1.json()["session_id"]
+
+    # Turn 2 — email captured this turn → lead_captured in meta
+    captured = {"name": "John", "email": "john@co.com"}
+    signals = {}
+    with _sales_llm_patch("ENTERPRISE_PROSPECT", captured, signals), _retrieval_patch(), _automation_patch():
+        r2 = client.post(
+            "/api/v1/chat/message",
+            json={
+                "message": "John john@co.com",
+                "session_id": sid,
+                "tenant_id": str(tenant_id),
+                "user_identifier": "v1",
+            },
+        )
+    assert r2.status_code == 200, r2.text
+    assert r2.json()["message"]["meta"].get("lead_captured")
+
+    # Turn 3 — same email, no re-emit
+    with _sales_llm_patch("ENTERPRISE_PROSPECT", captured, signals), _retrieval_patch(), _automation_patch():
+        r3 = client.post(
+            "/api/v1/chat/message",
+            json={
+                "message": "thanks",
+                "session_id": sid,
+                "tenant_id": str(tenant_id),
+                "user_identifier": "v1",
+            },
+        )
+    assert r3.status_code == 200, r3.text
+    assert "lead_captured" not in (r3.json()["message"]["meta"] or {})
