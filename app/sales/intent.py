@@ -56,6 +56,7 @@ def is_trigger_intent(intent: str, trigger_intents: list[str]) -> bool:
 
 SALES_RESPONSE_SCHEMA: dict = {
     "type": "object",
+    "additionalProperties": False,
     "properties": {
         "reply": {"type": "string"},
         "intent": {
@@ -64,6 +65,7 @@ SALES_RESPONSE_SCHEMA: dict = {
         },
         "signals": {
             "type": "object",
+            "additionalProperties": False,
             "properties": {
                 "asked_features": {"type": "boolean"},
                 "requested_demo": {"type": "boolean"},
@@ -74,6 +76,7 @@ SALES_RESPONSE_SCHEMA: dict = {
         },
         "captured": {
             "type": "object",
+            "additionalProperties": False,
             "properties": {
                 "name": {"type": ["string", "null"]},
                 "email": {"type": ["string", "null"]},

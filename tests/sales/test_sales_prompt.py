@@ -16,6 +16,11 @@ def test_directive_mentions_one_question_and_no_forms():
     assert "How large is your team?" in d
 
 
+def test_directive_accepts_plain_string_question():
+    d = build_sales_directive(["How big is your team?"])
+    assert "How big is your team?" in d
+
+
 def test_parse_valid_and_invalid():
     good = '{"reply":"Hi","intent":"PRICING_INQUIRY","signals":{"asked_features":false,"requested_demo":false,"mentioned_competitor":false,"ready_to_buy":false},"captured":{"name":null,"email":null,"company":null,"team_size":null,"industry":null}}'
     out = parse_sales_output(good)
