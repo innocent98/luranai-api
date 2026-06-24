@@ -44,3 +44,15 @@ class EntryEditRequest(BaseModel):
     content: str | None = None
     category: str | None = None
     status: str | None = None
+
+
+class EntryDetailResponse(BaseModel):
+    id: str
+    url: str
+    title: str | None = None
+    category: str | None = None
+    kind: str
+    content: str
+    status: str
+    importance_rank: int
+    edited: bool
