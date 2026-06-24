@@ -48,9 +48,13 @@ from app.schemas.ticket import TicketAssign, TicketCreate
 from app.schemas.tenant import TenantResponse
 from app.schemas.user import UserResponse
 from app.schemas.visitor import VisitorEnrichmentUpdate
+from app.db.models.lead import Lead
+from app.db.models.sales_agent_config import TenantSalesAgentConfig
+from app.sales.intent import is_trigger_intent
 from app.services.conversation_service import ConversationService
 from app.services.chat_automation_orchestrator import ChatAutomationOrchestrator
 from app.services.flow_engine import FlowEngine
+from app.services.lead_service import LeadService
 from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
 from app.services.ticket_service import TicketService
@@ -691,6 +695,18 @@ async def send_message(
     )
     require_name_before_escalation = bool(
         getattr(tenant_ai_config, "require_name_before_escalation", False)
+    )
+
+    # Load sales agent config (may be None if tenant has not configured it).
+    sales_agent_config = db.execute(
+        select(TenantSalesAgentConfig).where(
+            TenantSalesAgentConfig.tenant_id == session.tenant_id
+        )
+    ).scalar_one_or_none()
+    _sales_mode = bool(
+        sales_agent_config is not None
+        and getattr(sales_agent_config, "agent_enabled", False)
+        and getattr(sales_agent_config, "lead_capture_enabled", False)
     )
     linked_visitor = visitor_service.get_visitor_for_session(session_id)
     current_session_meta = dict(session_model.meta or {})
@@ -1854,6 +1870,7 @@ async def send_message(
         prompt_components = None
         policy_action = "answer"
         policy_reason = "normal_generation"
+        _sales_meta: dict | None = None  # populated only in sales mode
 
         if not scope_allowed:
             policy_action = "refuse"
@@ -1990,11 +2007,23 @@ async def send_message(
             )
             prompt_components.full_prompt = f"{prompt_components.full_prompt}{directive_block}"
 
-            ai_response_text, token_count, is_api_error = await rag_service.generate_ai_response(
-                prompt=prompt_components,
-                max_tokens=tenant_ai_config.max_response_tokens,
-                model_name=settings.OPENAI_LLM_MODEL,
-            )
+            if _sales_mode:
+                ai_response_text, _sales_meta, token_count, is_api_error = (
+                    await rag_service.generate_sales_response(
+                        prompt=prompt_components,
+                        config=sales_agent_config,
+                        model_name=settings.OPENAI_LLM_MODEL,
+                    )
+                )
+            else:
+                _sales_meta = None
+                ai_response_text, token_count, is_api_error = (
+                    await rag_service.generate_ai_response(
+                        prompt=prompt_components,
+                        max_tokens=tenant_ai_config.max_response_tokens,
+                        model_name=settings.OPENAI_LLM_MODEL,
+                    )
+                )
 
             if token_count and prompt_components.prompt_tokens:
                 completion_tokens = token_count - prompt_components.prompt_tokens
@@ -2040,6 +2069,66 @@ async def send_message(
             limit=20,
         )
 
+        # Sales lead orchestration — SALES MODE only.
+        # Runs after ai_response_text is finalized so it never blocks the reply.
+        _lead_captured_meta: dict | None = None
+        if _sales_mode and _sales_meta is not None:
+            try:
+                lead_svc = LeadService(db)
+                conv_id = session_id  # conversation_id == session_id in this handler
+
+                # Determine if a lead already exists for this conversation.
+                _existing = db.execute(
+                    select(Lead).where(
+                        Lead.tenant_id == session.tenant_id,
+                        Lead.conversation_id == conv_id,
+                    )
+                ).scalar_one_or_none()
+
+                _should_create = (
+                    _existing is not None
+                    or is_trigger_intent(
+                        _sales_meta["intent"],
+                        sales_agent_config.trigger_intents,
+                    )
+                )
+
+                if _should_create:
+                    # Resolve UTM from visitor session metadata.
+                    _utm: dict | None = None
+                    if isinstance(message_data.metadata, dict):
+                        _utm = {
+                            k: message_data.metadata[k]
+                            for k in ("utm_source", "utm_medium", "utm_campaign")
+                            if k in message_data.metadata
+                        } or None
+
+                    lead = lead_svc.get_or_create_by_conversation(
+                        session.tenant_id,
+                        conv_id,
+                        intent=_sales_meta["intent"],
+                        source="chat_widget",
+                        utm=_utm,
+                    )
+
+                    _email_before = lead.email  # capture before enrich
+
+                    lead = lead_svc.enrich_from_chat(
+                        lead,
+                        intent=_sales_meta["intent"],
+                        captured=_sales_meta["captured"],
+                        signals=_sales_meta["signals"],
+                    )
+
+                    # Set lead_captured only on the turn the email first appears.
+                    if not _email_before and lead.email:
+                        _lead_captured_meta = {
+                            "name": lead.name,
+                            "email": lead.email,
+                        }
+            except Exception as _lead_exc:
+                logger.error(f"Sales lead orchestration error (non-fatal): {_lead_exc}")
+
         # Step 8: Save assistant message
         # Store as strings to keep JSON serialization safe (JSON column doesn't
         # serialize UUIDs natively).
@@ -2055,40 +2144,44 @@ async def send_message(
         retrieval_hit = (
             len(retrieved_chunks) > 0 and avg_similarity >= rag_service.MIN_RELEVANT_SIMILARITY
         )
+        _message_meta: dict = {
+            "chunks_used": len(retrieved_chunks),
+            "avg_similarity": round(avg_similarity, 3),
+            "retrieval_hit": retrieval_hit,
+            "escalation_action": escalation_decision.action.value,
+            "response_quality": {
+                "is_substantial": quality.is_substantial,
+                "has_uncertainty": quality.has_uncertainty,
+                "word_count": quality.word_count,
+                "char_count": quality.char_count,
+            },
+            "token_breakdown": {
+                "prompt_tokens": (
+                    prompt_components.prompt_tokens
+                    if prompt_components is not None
+                    and prompt_components.prompt_tokens is not None
+                    else 0
+                ),
+                "completion_tokens": (
+                    token_count - prompt_components.prompt_tokens
+                    if token_count
+                    and prompt_components is not None
+                    and prompt_components.prompt_tokens
+                    else 0
+                ),
+                "total_tokens": token_count,
+            },
+        }
+        if _lead_captured_meta is not None:
+            _message_meta["lead_captured"] = _lead_captured_meta
+
         assistant_message = conversation_service.add_message(
             session_id=session_id,
             role=MessageRole.ASSISTANT,
             content=ai_response_text,
             retrieved_chunk_ids=retrieved_chunk_ids,
             token_count=token_count,
-            meta={
-                "chunks_used": len(retrieved_chunks),
-                "avg_similarity": round(avg_similarity, 3),
-                "retrieval_hit": retrieval_hit,
-                "escalation_action": escalation_decision.action.value,
-                "response_quality": {
-                    "is_substantial": quality.is_substantial,
-                    "has_uncertainty": quality.has_uncertainty,
-                    "word_count": quality.word_count,
-                    "char_count": quality.char_count,
-                },
-                "token_breakdown": {
-                    "prompt_tokens": (
-                        prompt_components.prompt_tokens
-                        if prompt_components is not None
-                        and prompt_components.prompt_tokens is not None
-                        else 0
-                    ),
-                    "completion_tokens": (
-                        token_count - prompt_components.prompt_tokens
-                        if token_count
-                        and prompt_components is not None
-                        and prompt_components.prompt_tokens
-                        else 0
-                    ),
-                    "total_tokens": token_count,
-                },
-            },
+            meta=_message_meta,
         )
         logger.info(f"Saved assistant message: {assistant_message.id}")
 
