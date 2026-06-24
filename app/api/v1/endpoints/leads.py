@@ -14,7 +14,7 @@ from app.db.models.lead import LeadStatus
 from app.sales.scoring import tier_for
 from app.schemas.lead import LeadDetail, LeadListItem, LeadListResponse, LeadStatusPatch, LeadsSummary
 from app.schemas.user import UserResponse
-from app.services.lead_service import LeadService
+from app.services.lead_service import IllegalStatusTransition, LeadNotFound, LeadService
 
 router = APIRouter()
 
@@ -115,19 +115,12 @@ def patch_lead_status(
     """
     svc = LeadService(db)
 
-    # Verify ownership first — 404 beats a transition error message for cross-tenant.
-    lead = svc.get_lead(user.tenant_id, lead_id)
-    if lead is None:
-        return _err("LEAD_NOT_FOUND", "Lead not found", 404)
-
     try:
         lead = svc.set_status(user.tenant_id, lead_id, payload.status)
-    except ValueError as exc:
-        return _err(
-            "INVALID_STATUS_TRANSITION",
-            str(exc),
-            422,
-        )
+    except LeadNotFound:
+        return _err("LEAD_NOT_FOUND", "Lead not found", 404)
+    except IllegalStatusTransition as exc:
+        return _err("INVALID_STATUS_TRANSITION", str(exc), 422)
 
     detail = LeadDetail.from_lead(lead, tier_for(lead.lead_score or 0))
     return {"success": True, "data": detail.model_dump()}
@@ -147,13 +140,9 @@ def recompute_lead_score(
     """Re-run scoring for a lead and return the updated detail."""
     svc = LeadService(db)
 
-    lead = svc.get_lead(user.tenant_id, lead_id)
-    if lead is None:
-        return _err("LEAD_NOT_FOUND", "Lead not found", 404)
-
     try:
         lead = svc.recompute(user.tenant_id, lead_id)
-    except ValueError:
+    except LeadNotFound:
         return _err("LEAD_NOT_FOUND", "Lead not found", 404)
 
     detail = LeadDetail.from_lead(lead, tier_for(lead.lead_score or 0))

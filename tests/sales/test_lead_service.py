@@ -263,6 +263,17 @@ def test_illegal_status_transition_raises(db_session):
         svc.set_status(tenant.id, lead.id, LeadStatus.NEW)
 
 
+def test_illegal_status_transition_raises_typed(db_session):
+    from app.services.lead_service import IllegalStatusTransition, LeadService
+
+    tenant = _make_tenant(db_session)
+    lead = _make_lead(db_session, tenant, email="t@x.com", status=LeadStatus.CONVERTED)
+    svc = LeadService(db_session)
+
+    with pytest.raises(IllegalStatusTransition):
+        svc.set_status(tenant.id, lead.id, LeadStatus.NEW)
+
+
 def test_illegal_status_transition_qualified_to_new_raises(db_session):
     from app.services.lead_service import LeadService
 
@@ -284,6 +295,26 @@ def test_set_status_cross_tenant_raises_value_error(db_session):
 
     with pytest.raises(ValueError, match="not found"):
         svc.set_status(tenant_b.id, lead.id, LeadStatus.CONTACTED)
+
+
+def test_set_status_not_found_raises_lead_not_found(db_session):
+    from app.services.lead_service import LeadNotFound, LeadService
+
+    tenant = _make_tenant(db_session)
+    svc = LeadService(db_session)
+
+    with pytest.raises(LeadNotFound):
+        svc.set_status(tenant.id, uuid4(), LeadStatus.CONTACTED)
+
+
+def test_recompute_not_found_raises_lead_not_found(db_session):
+    from app.services.lead_service import LeadNotFound, LeadService
+
+    tenant = _make_tenant(db_session)
+    svc = LeadService(db_session)
+
+    with pytest.raises(LeadNotFound):
+        svc.recompute(tenant.id, uuid4())
 
 
 # ---------------------------------------------------------------------------

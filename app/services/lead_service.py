@@ -13,6 +13,15 @@ from sqlalchemy.orm import Session
 from app.db.models.lead import Lead, LeadStatus
 from app.sales.scoring import TIER_THRESHOLDS, score_lead
 
+
+class LeadNotFound(ValueError):
+    """Raised when a lead does not exist for the given tenant."""
+
+
+class IllegalStatusTransition(ValueError):
+    """Raised when the requested status transition is not permitted."""
+
+
 # Allowed transitions: current_status -> set of reachable next statuses
 _ALLOWED_TRANSITIONS: dict[LeadStatus, set[LeadStatus]] = {
     LeadStatus.NEW: {LeadStatus.CONTACTED, LeadStatus.QUALIFIED, LeadStatus.CONVERTED},
@@ -127,11 +136,11 @@ class LeadService:
         """
         lead = self.get_lead(tenant_id, lead_id)
         if lead is None:
-            raise ValueError(f"Lead {lead_id} not found for tenant {tenant_id}")
+            raise LeadNotFound(f"Lead {lead_id} not found for tenant {tenant_id}")
 
         allowed = _ALLOWED_TRANSITIONS.get(lead.status, set())
         if status not in allowed:
-            raise ValueError(
+            raise IllegalStatusTransition(
                 f"Transition {lead.status.value!r} → {status.value!r} is not allowed. "
                 f"Allowed: {[s.value for s in allowed]}"
             )
@@ -151,7 +160,7 @@ class LeadService:
         """
         lead = self.get_lead(tenant_id, lead_id)
         if lead is None:
-            raise ValueError(f"Lead {lead_id} not found for tenant {tenant_id}")
+            raise LeadNotFound(f"Lead {lead_id} not found for tenant {tenant_id}")
 
         self.apply_score(lead)
         self.db.commit()

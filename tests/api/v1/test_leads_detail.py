@@ -213,6 +213,21 @@ def test_patch_status_cross_tenant_is_404(pg_client, db_session):
     assert r.status_code == 404
 
 
+def test_patch_nonexistent_lead_is_404_not_422(pg_client, db_session):
+    """PATCH on a lead ID that does not exist returns 404 LEAD_NOT_FOUND, not 422."""
+    user, token = _make_tenant_user(db_session)
+    nonexistent_id = uuid.uuid4()
+
+    r = pg_client.patch(
+        f"/api/v1/leads/{nonexistent_id}",
+        json={"status": "contacted"},
+        headers=_auth(token),
+    )
+    assert r.status_code == 404
+    body = r.json()
+    assert body["error"]["code"] == "LEAD_NOT_FOUND"
+
+
 # ---------------------------------------------------------------------------
 # POST /api/v1/leads/{lead_id}/score — recompute
 # ---------------------------------------------------------------------------
