@@ -38,6 +38,7 @@ class Lead(Base, UUIDMixin, TimestampMixin):
     industry: Mapped[str | None] = mapped_column(String(120), nullable=True)
     intent: Mapped[str | None] = mapped_column(String(255), nullable=True)
     lead_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    score_breakdown: Mapped[list | None] = mapped_column(JSON, nullable=True)
     status: Mapped[LeadStatus] = mapped_column(
         SQLEnum(LeadStatus, name="lead_status", values_callable=lambda x: [e.value for e in x]),
         default=LeadStatus.NEW,
