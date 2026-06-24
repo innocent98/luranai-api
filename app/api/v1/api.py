@@ -22,6 +22,7 @@ from app.api.v1.endpoints import (
     public,
     public_auditor,
     reviews,
+    sales,
     subscription,
     tenant,
     tenant_channels,
@@ -280,3 +281,6 @@ api_router.include_router(auditor.router, tags=["auditor"])
 
 # Leads pipeline endpoints
 api_router.include_router(leads.router, prefix="/leads", tags=["leads"])
+
+# Sales agent configuration endpoints
+api_router.include_router(sales.router, prefix="/sales", tags=["sales"])
