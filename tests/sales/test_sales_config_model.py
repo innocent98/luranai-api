@@ -63,10 +63,11 @@ def test_default_for_trigger_intents(db_session):
     db_session.commit()
     db_session.refresh(cfg)
 
-    assert len(cfg.trigger_intents) == 3
+    assert len(cfg.trigger_intents) == 4
     assert "PRICING_INQUIRY" in cfg.trigger_intents
-    assert "PRODUCT_DEMO_REQUEST" in cfg.trigger_intents
-    assert "LEAD_QUALIFICATION" in cfg.trigger_intents
+    assert "DEMO_REQUEST" in cfg.trigger_intents
+    assert "PURCHASE_INTENT" in cfg.trigger_intents
+    assert "ENTERPRISE_PROSPECT" in cfg.trigger_intents
 
 
 def test_default_for_qualification_questions(db_session):

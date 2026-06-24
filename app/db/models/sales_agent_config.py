@@ -9,8 +9,9 @@ from app.db.base import Base, TimestampMixin, UUIDMixin
 
 _DEFAULT_TRIGGER_INTENTS: list[str] = [
     "PRICING_INQUIRY",
-    "PRODUCT_DEMO_REQUEST",
-    "LEAD_QUALIFICATION",
+    "DEMO_REQUEST",
+    "PURCHASE_INTENT",
+    "ENTERPRISE_PROSPECT",
 ]
 
 _DEFAULT_QUALIFICATION_QUESTIONS: list[dict] = [
