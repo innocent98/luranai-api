@@ -17,6 +17,7 @@ from app.api.v1.endpoints import (
     health,
     jobs,
     knowledge,
+    leads,
     platform_admin_auth,
     public,
     public_auditor,
@@ -276,3 +277,6 @@ api_router.include_router(websocket.router, prefix="/ws", tags=["websocket"])
 
 # Authenticated tenant-dashboard auditor endpoints
 api_router.include_router(auditor.router, tags=["auditor"])
+
+# Leads pipeline endpoints
+api_router.include_router(leads.router, prefix="/leads", tags=["leads"])
