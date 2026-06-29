@@ -2,6 +2,7 @@ from uuid import uuid4
 from datetime import datetime, timedelta, timezone
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.db.models.lead import Lead
 from app.db.models.meeting import Meeting, MeetingStatus
@@ -76,3 +77,51 @@ def test_compute_availability_excludes_booked(db_session):
     now = datetime.now(timezone.utc)
     slots = svc.compute_availability(t.id, AVAIL, now=now, days=3)
     assert when not in slots
+
+
+def test_partial_unique_index_blocks_duplicate_scheduled_slot(db_session):
+    # Directly inserts two SCHEDULED meetings at the same (tenant_id, scheduled_at)
+    # via the ORM, bypassing book()'s application-level pre-check SELECT.
+    # This exercises the partial unique index `uq_meeting_tenant_slot_scheduled`
+    # (WHERE status = 'scheduled') — the DB backstop that book()'s IntegrityError
+    # catch relies on under real concurrency.
+    t = _tenant(db_session); lead1 = _lead(db_session, t); lead2 = _lead(db_session, t)
+    when = _future_slot()
+
+    db_session.add(Meeting(
+        tenant_id=t.id, lead_id=lead1.id, conversation_id=lead1.conversation_id,
+        scheduled_at=when, duration_min=30, status=MeetingStatus.SCHEDULED,
+    ))
+    db_session.flush()  # first row lands — index entry created
+
+    db_session.add(Meeting(
+        tenant_id=t.id, lead_id=lead2.id, conversation_id=lead2.conversation_id,
+        scheduled_at=when, duration_min=30, status=MeetingStatus.SCHEDULED,
+    ))
+    with pytest.raises(IntegrityError):
+        db_session.flush()  # second SCHEDULED row at same slot must violate the index
+
+    db_session.rollback()  # restore savepoint so subsequent tests are unaffected
+
+    # Optional: a CANCELLED meeting at the same slot must NOT conflict with a
+    # SCHEDULED one (index predicate is `status = 'scheduled'`).
+    t2 = _tenant(db_session); lead3 = _lead(db_session, t2); lead4 = _lead(db_session, t2)
+    when2 = _future_slot()
+    db_session.add(Meeting(
+        tenant_id=t2.id, lead_id=lead3.id, conversation_id=lead3.conversation_id,
+        scheduled_at=when2, duration_min=30, status=MeetingStatus.CANCELLED,
+    ))
+    db_session.flush()
+    db_session.add(Meeting(
+        tenant_id=t2.id, lead_id=lead4.id, conversation_id=lead4.conversation_id,
+        scheduled_at=when2, duration_min=30, status=MeetingStatus.SCHEDULED,
+    ))
+    db_session.flush()  # CANCELLED + SCHEDULED at same slot is allowed — no error
+
+
+def test_naive_datetime_raises_slot_unavailable(db_session):
+    t = _tenant(db_session); lead = _lead(db_session, t)
+    svc = MeetingService(db_session)
+    naive = datetime(2099, 1, 1, 12, 0, 0)  # no tzinfo
+    with pytest.raises(SlotUnavailable, match="timezone-aware"):
+        svc.book(t.id, lead, scheduled_at=naive, visitor_timezone="UTC", use_case=None, duration_min=30)

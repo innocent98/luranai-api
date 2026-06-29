@@ -49,7 +49,17 @@ class MeetingService:
         scheduled_at: datetime, visitor_timezone: str | None,
         use_case: str | None, duration_min: int,
     ) -> Meeting:
+        """Book a meeting slot for the given lead.
+
+        Raises SlotUnavailable if the slot is in the past, already taken, or if
+        scheduled_at is naive (timezone-aware datetime required).
+
+        NOTE: calls db.commit() on success — this commits any other pending
+        work in the session, so callers should not hold unrelated dirty state.
+        """
         now = datetime.now(timezone.utc)
+        if scheduled_at.tzinfo is None:
+            raise SlotUnavailable("scheduled_at must be timezone-aware")
         scheduled_at = scheduled_at.astimezone(timezone.utc)
         if scheduled_at <= now:
             raise SlotUnavailable("Slot is in the past")
