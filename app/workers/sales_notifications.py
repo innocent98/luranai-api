@@ -12,6 +12,16 @@ from app.services.email_service import EmailService
 
 logger = logging.getLogger(__name__)
 
+
+class _EmailSendFailed(RuntimeError):
+    """Sentinel raised when send_templated_email returns False.
+
+    Subclasses RuntimeError so existing pytest.raises(RuntimeError) assertions
+    still pass.  The outer except-handler checks for this type and re-raises
+    immediately, skipping the fallback mark-FAILED path (which already ran).
+    """
+
+
 _REP_SUBJECT = {
     NotifEvent.SALES_READY_LEAD: "New sales-ready lead",
     NotifEvent.MEETING_BOOKED: "New demo booked",
@@ -73,10 +83,12 @@ async def send_rep_alert(ctx, notification_log_id: str) -> None:
             log.status = NotifStatus.FAILED
             log.error = "send_templated_email returned False"
             db.commit()
-            raise RuntimeError("email send failed")
+            raise _EmailSendFailed("email send failed")
         log.status = NotifStatus.SENT
         db.commit()
     except Exception as exc:  # noqa: BLE001 — mark failed, let ARQ retry
+        if isinstance(exc, _EmailSendFailed):
+            raise  # already persisted FAILED with precise error; skip fallback
         logger.error(f"send_rep_alert failed: {exc}")
         try:
             log = db.get(NotificationLog, uuid.UUID(notification_log_id))
@@ -117,10 +129,12 @@ async def send_visitor_meeting_confirmation(ctx, notification_log_id: str) -> No
             log.status = NotifStatus.FAILED
             log.error = "send_templated_email returned False"
             db.commit()
-            raise RuntimeError("email send failed")
+            raise _EmailSendFailed("email send failed")
         log.status = NotifStatus.SENT
         db.commit()
     except Exception as exc:  # noqa: BLE001
+        if isinstance(exc, _EmailSendFailed):
+            raise  # already persisted FAILED with precise error; skip fallback
         logger.error(f"send_visitor_meeting_confirmation failed: {exc}")
         try:
             log = db.get(NotificationLog, uuid.UUID(notification_log_id))
