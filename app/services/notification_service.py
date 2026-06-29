@@ -121,6 +121,14 @@ class NotificationService:
                           entity_type=entity_type, entity_id=entity_id, recipient="in_app",
                           status=NotifStatus.SENT, title=title, body=body)
 
+        if channels.get("slack") and getattr(config, "slack_webhook_url", None):
+            title, body = self._render_in_app_text(event, entity_type, entity_id)
+            log_id = self._try_log(tenant_id=tenant_id, event=event, channel=NotifChannel.SLACK,
+                                   entity_type=entity_type, entity_id=entity_id, recipient="slack",
+                                   status=NotifStatus.PENDING, title=title, body=body)
+            if log_id is not None:
+                jobs.append((log_id, "send_slack_notification"))
+
         # Logs are committed BEFORE the caller enqueues into Redis. If Redis is
         # down, the log row persists as PENDING with no queued job. A stale-PENDING
         # sweeper (requeue on startup / periodic scan) is a later-slice follow-up.
