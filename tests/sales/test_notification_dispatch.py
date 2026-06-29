@@ -49,3 +49,73 @@ def test_dispatch_no_recipient(db_session):
     t = _tenant_cfg(db_session, notif_email=None)  # and no admin user
     jobs = NotificationService(db_session).dispatch(t.id, NotifEvent.QUOTE_GENERATED, entity_type="quote", entity_id=uuid4())
     assert jobs == []
+
+
+# ---------------------------------------------------------------------------
+# MEETING_BOOKED path — rep + visitor dual-job dispatch
+# ---------------------------------------------------------------------------
+
+def test_dispatch_meeting_booked_rep_and_visitor(db_session):
+    from datetime import datetime, timezone
+    from app.db.models.lead import Lead
+    from app.db.models.meeting import Meeting, MeetingStatus
+
+    t = _tenant_cfg(db_session)
+    lead = Lead(tenant_id=t.id, email="visitor@example.com")
+    db_session.add(lead)
+    db_session.flush()
+    db_session.refresh(lead)
+
+    meeting = Meeting(
+        tenant_id=t.id, lead_id=lead.id,
+        scheduled_at=datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc),
+        duration_min=30, status=MeetingStatus.SCHEDULED,
+    )
+    db_session.add(meeting)
+    db_session.flush()
+    db_session.refresh(meeting)
+
+    svc = NotificationService(db_session)
+    jobs = svc.dispatch(t.id, NotifEvent.MEETING_BOOKED, entity_type="meeting", entity_id=meeting.id)
+
+    assert len(jobs) == 2
+    job_names = [j[1] for j in jobs]
+    assert "send_rep_alert" in job_names
+    assert "send_visitor_meeting_confirmation" in job_names
+
+    rows = db_session.query(NotificationLog).filter_by(tenant_id=t.id, entity_id=meeting.id).all()
+    assert len(rows) == 2
+    recipients = {r.recipient for r in rows}
+    assert "rep@co.com" in recipients
+    assert "visitor@example.com" in recipients
+
+
+def test_dispatch_meeting_visitor_skipped_when_lead_has_no_email(db_session):
+    from datetime import datetime, timezone
+    from app.db.models.lead import Lead
+    from app.db.models.meeting import Meeting, MeetingStatus
+
+    t = _tenant_cfg(db_session)
+    lead = Lead(tenant_id=t.id, email=None)
+    db_session.add(lead)
+    db_session.flush()
+    db_session.refresh(lead)
+
+    meeting = Meeting(
+        tenant_id=t.id, lead_id=lead.id,
+        scheduled_at=datetime(2026, 8, 2, 10, 0, tzinfo=timezone.utc),
+        duration_min=30, status=MeetingStatus.SCHEDULED,
+    )
+    db_session.add(meeting)
+    db_session.flush()
+    db_session.refresh(meeting)
+
+    svc = NotificationService(db_session)
+    jobs = svc.dispatch(t.id, NotifEvent.MEETING_BOOKED, entity_type="meeting", entity_id=meeting.id)
+
+    assert len(jobs) == 1
+    assert jobs[0][1] == "send_rep_alert"
+
+    rows = db_session.query(NotificationLog).filter_by(tenant_id=t.id, entity_id=meeting.id).all()
+    assert len(rows) == 1
+    assert rows[0].recipient == "rep@co.com"
