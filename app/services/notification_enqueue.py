@@ -15,7 +15,7 @@ async def _enqueue(jobs: list[tuple[uuid.UUID, str]]) -> None:
     redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
     try:
         for log_id, job_name in jobs:
-            await redis.enqueue_job(job_name, str(log_id))
+            await redis.enqueue_job(job_name, str(log_id), _job_id=f"{job_name}:{log_id}")
     finally:
         await redis.close()
 

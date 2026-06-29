@@ -1,5 +1,6 @@
 """Tests for ARQ sales-notification email jobs (Stage 3 Slice 5a)."""
 
+import pytest
 from uuid import uuid4
 from unittest.mock import patch
 
@@ -113,7 +114,7 @@ async def test_send_rep_alert_idempotent_if_already_sent(db_session, monkeypatch
 
 
 async def test_send_rep_alert_marks_failed_on_email_error(db_session, monkeypatch):
-    """send_rep_alert marks status FAILED when EmailService returns False."""
+    """send_rep_alert marks FAILED and raises RuntimeError when EmailService returns False."""
     log_id = _seed_quote_log(db_session)
 
     import app.workers.sales_notifications as notif_mod
@@ -123,14 +124,15 @@ async def test_send_rep_alert_marks_failed_on_email_error(db_session, monkeypatc
     with patch(
         "app.services.email_service.EmailService.send_templated_email", return_value=False
     ):
-        await send_rep_alert({}, str(log_id))
+        with pytest.raises(RuntimeError, match="email send failed"):
+            await send_rep_alert({}, str(log_id))
 
     log = db_session.get(NotificationLog, log_id)
     assert log.status == NotifStatus.FAILED
 
 
-async def test_send_visitor_meeting_confirmation_marks_sent(db_session, monkeypatch):
-    """send_visitor_meeting_confirmation flips status to SENT and calls send_templated_email."""
+def _seed_meeting_log(db):
+    """Insert a Tenant → Lead → Meeting → NotificationLog chain; return (log.id, meeting.id)."""
     from app.db.models.meeting import Meeting, MeetingStatus
     from datetime import datetime, timezone
 
@@ -141,12 +143,12 @@ async def test_send_visitor_meeting_confirmation_marks_sent(db_session, monkeypa
         subscription_tier="trial",
         subscription_status="trialing",
     )
-    db_session.add(t)
-    db_session.flush()
+    db.add(t)
+    db.flush()
 
     lead = Lead(tenant_id=t.id, conversation_id=uuid4(), email="visitor@co.com", company="Acme")
-    db_session.add(lead)
-    db_session.flush()
+    db.add(lead)
+    db.flush()
 
     meeting = Meeting(
         tenant_id=t.id,
@@ -155,8 +157,8 @@ async def test_send_visitor_meeting_confirmation_marks_sent(db_session, monkeypa
         visitor_timezone="Africa/Lagos",
         status=MeetingStatus.SCHEDULED,
     )
-    db_session.add(meeting)
-    db_session.flush()
+    db.add(meeting)
+    db.flush()
 
     log = NotificationLog(
         tenant_id=t.id,
@@ -167,7 +169,34 @@ async def test_send_visitor_meeting_confirmation_marks_sent(db_session, monkeypa
         recipient="visitor@co.com",
         status=NotifStatus.PENDING,
     )
-    db_session.add(log)
+    db.add(log)
+    db.commit()
+    return log.id
+
+
+async def test_send_visitor_meeting_confirmation_marks_sent(db_session, monkeypatch):
+    """send_visitor_meeting_confirmation flips status to SENT and calls send_templated_email."""
+    log_id = _seed_meeting_log(db_session)
+
+    import app.workers.sales_notifications as notif_mod
+
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+
+    with patch(
+        "app.services.email_service.EmailService.send_templated_email", return_value=True
+    ) as send:
+        await send_visitor_meeting_confirmation({}, str(log_id))
+
+    send.assert_called_once()
+    refreshed = db_session.get(NotificationLog, log_id)
+    assert refreshed.status == NotifStatus.SENT
+
+
+async def test_send_visitor_confirmation_idempotent_if_already_sent(db_session, monkeypatch):
+    """send_visitor_meeting_confirmation exits early without calling EmailService when already SENT."""
+    log_id = _seed_meeting_log(db_session)
+    log = db_session.get(NotificationLog, log_id)
+    log.status = NotifStatus.SENT
     db_session.commit()
 
     import app.workers.sales_notifications as notif_mod
@@ -177,8 +206,26 @@ async def test_send_visitor_meeting_confirmation_marks_sent(db_session, monkeypa
     with patch(
         "app.services.email_service.EmailService.send_templated_email", return_value=True
     ) as send:
-        await send_visitor_meeting_confirmation({}, str(log.id))
+        await send_visitor_meeting_confirmation({}, str(log_id))
 
-    send.assert_called_once()
-    refreshed = db_session.get(NotificationLog, log.id)
+    send.assert_not_called()
+    refreshed = db_session.get(NotificationLog, log_id)
     assert refreshed.status == NotifStatus.SENT
+
+
+async def test_send_visitor_confirmation_marks_failed_on_email_error(db_session, monkeypatch):
+    """send_visitor_meeting_confirmation marks FAILED and raises RuntimeError when EmailService returns False."""
+    log_id = _seed_meeting_log(db_session)
+
+    import app.workers.sales_notifications as notif_mod
+
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+
+    with patch(
+        "app.services.email_service.EmailService.send_templated_email", return_value=False
+    ):
+        with pytest.raises(RuntimeError, match="email send failed"):
+            await send_visitor_meeting_confirmation({}, str(log_id))
+
+    log = db_session.get(NotificationLog, log_id)
+    assert log.status == NotifStatus.FAILED

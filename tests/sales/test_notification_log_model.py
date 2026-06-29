@@ -20,8 +20,8 @@ def test_persists_lowercase(db_session):
                         entity_type="meeting", entity_id=uuid4(), recipient="rep@co.com",
                         status=NotifStatus.PENDING)
     db_session.add(n); db_session.flush(); db_session.refresh(n)
-    assert NotifEvent.MEETING_BOOKED.value == "meeting_booked"
-    assert NotifChannel.EMAIL.value == "email"
+    assert n.event == NotifEvent.MEETING_BOOKED
+    assert n.channel == NotifChannel.EMAIL
 
 
 def test_unique_dedupe(db_session):

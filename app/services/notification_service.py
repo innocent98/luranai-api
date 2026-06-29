@@ -83,5 +83,8 @@ class NotificationService:
                     if log_id is not None:
                         jobs.append((log_id, "send_visitor_meeting_confirmation"))
 
+        # Logs are committed BEFORE the caller enqueues into Redis. If Redis is
+        # down, the log row persists as PENDING with no queued job. A stale-PENDING
+        # sweeper (requeue on startup / periodic scan) is a later-slice follow-up.
         self.db.commit()
         return jobs

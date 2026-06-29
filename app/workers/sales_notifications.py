@@ -69,9 +69,12 @@ async def send_rep_alert(ctx, notification_log_id: str) -> None:
             template_name="sales_rep_alert.html",
             context=ctx_data,
         )
-        log.status = NotifStatus.SENT if ok else NotifStatus.FAILED
         if not ok:
+            log.status = NotifStatus.FAILED
             log.error = "send_templated_email returned False"
+            db.commit()
+            raise RuntimeError("email send failed")
+        log.status = NotifStatus.SENT
         db.commit()
     except Exception as exc:  # noqa: BLE001 — mark failed, let ARQ retry
         logger.error(f"send_rep_alert failed: {exc}")
@@ -110,9 +113,12 @@ async def send_visitor_meeting_confirmation(ctx, notification_log_id: str) -> No
                 "visitor_timezone": m.visitor_timezone if m else None,
             },
         )
-        log.status = NotifStatus.SENT if ok else NotifStatus.FAILED
         if not ok:
+            log.status = NotifStatus.FAILED
             log.error = "send_templated_email returned False"
+            db.commit()
+            raise RuntimeError("email send failed")
+        log.status = NotifStatus.SENT
         db.commit()
     except Exception as exc:  # noqa: BLE001
         logger.error(f"send_visitor_meeting_confirmation failed: {exc}")
