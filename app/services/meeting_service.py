@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -74,9 +75,14 @@ class MeetingService:
 
         # Slot membership guard: scheduled_at must be one of the tenant's computed
         # valid slots — this enforces weekday, hours, alignment, past-exclusion, AND
-        # inter-meeting buffer in one shot.  The days window is computed from the
-        # request so far-future valid slots are never excluded.
-        days = max(1, (scheduled_at.date() - now.date()).days + 1)
+        # inter-meeting buffer in one shot.  The days window is computed using the
+        # tenant's LOCAL calendar dates (matching what generate_slots iterates) so
+        # that tenants at UTC+12..+14 don't lose slots that sit on the next local
+        # day while sharing the same UTC calendar date as today.
+        tz_key = availability.get("tenant_timezone") or "UTC"
+        today_local = now.astimezone(ZoneInfo(tz_key)).date()
+        scheduled_local = scheduled_at.astimezone(ZoneInfo(tz_key)).date()
+        days = max(1, (scheduled_local - today_local).days + 1)
         valid_slots = set(self.compute_availability(tenant_id, availability, now=now, days=days))
         if scheduled_at not in valid_slots:
             raise SlotUnavailable("Not an available slot")

@@ -1,5 +1,6 @@
 from uuid import uuid4
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -178,8 +179,12 @@ def test_book_outside_weekday_raises(db_session):
     """Booking on a Saturday (weekday 6, outside Mon–Fri) raises SlotUnavailable."""
     t = _tenant(db_session); lead = _lead(db_session, t)
     svc = MeetingService(db_session)
-    # Find the next Saturday at 10:00 UTC — aligned slot, but excluded weekday.
-    target = datetime.now(timezone.utc).replace(hour=10, minute=0, second=0, microsecond=0)
+    # Start from tomorrow so 10:00 UTC is always in the future, then advance to the
+    # next Saturday. (Starting from today at 10:00 UTC fails when today IS Saturday
+    # and the run is after 10:00 UTC — book() would raise "Slot is in the past".)
+    target = (datetime.now(timezone.utc) + timedelta(days=1)).replace(
+        hour=10, minute=0, second=0, microsecond=0
+    )
     while target.isoweekday() != 6:  # 6 = Saturday
         target += timedelta(days=1)
     with pytest.raises(SlotUnavailable, match="Not an available slot"):
@@ -196,4 +201,62 @@ def test_book_valid_offered_slot_succeeds(db_session):
     when = _future_slot()
     m = svc.book(t.id, lead, scheduled_at=when, visitor_timezone="UTC",
                  use_case=None, duration_min=30, availability=AVAIL)
+    assert m.status == MeetingStatus.SCHEDULED
+
+
+# ---------------------------------------------------------------------------
+# Regression test for Finding 1 — local-date days-window bug (UTC+12/+13)
+# ---------------------------------------------------------------------------
+
+# All-week, full-day availability in Auckland (UTC+12 winter / UTC+13 DST).
+# Slots in this config can fall on a LOCAL date that is one calendar day ahead
+# of their UTC date — the exact scenario that exposed the UTC-based days bug.
+AVAIL_AUCKLAND = {
+    "weekdays": [1, 2, 3, 4, 5, 6, 7],
+    "start": "00:00",
+    "end": "23:30",
+    "slot_minutes": 30,
+    "buffer_minutes": 0,
+    "tenant_timezone": "Pacific/Auckland",
+}
+
+
+def test_positive_tz_next_local_day_slot_accepted(db_session):
+    """Regression (Finding 1): a slot whose LOCAL date (Pacific/Auckland) is ahead of
+    its UTC date must be accepted by book() — not falsely rejected with 'Not an
+    available slot'.
+
+    Strategy: derive a valid slot via compute_availability (which correctly uses local
+    calendar dates), then assert book() accepts it.  We prefer a slot on a LOCAL day
+    strictly after today_local because those are the ones most likely to share a UTC
+    date with 'now' (the triggering condition for the old UTC-based days bug).
+    """
+    t = _tenant(db_session)
+    lead = _lead(db_session, t)
+    svc = MeetingService(db_session)
+
+    now = datetime.now(timezone.utc)
+    tz = ZoneInfo("Pacific/Auckland")
+    today_local = now.astimezone(tz).date()
+
+    # Generate slots over a 5-day LOCAL window — wide enough to guarantee slots
+    # on the day(s) following today_local where the UTC/local date mismatch occurs.
+    slots = svc.compute_availability(t.id, AVAIL_AUCKLAND, now=now, days=5)
+    assert slots, "Expected at least one available slot in 5-day Auckland window"
+
+    # Prefer the first slot that falls on a LOCAL day strictly after today_local.
+    # Those slots are the ones whose UTC date can lag one day behind their local
+    # date — which is the scenario that previously caused book() to undercount
+    # the days window and miss the slot in generate_slots.
+    later_slots = [s for s in slots if s.astimezone(tz).date() > today_local]
+    slot = later_slots[0] if later_slots else slots[0]
+
+    m = svc.book(
+        t.id, lead,
+        scheduled_at=slot,
+        visitor_timezone="Pacific/Auckland",
+        use_case=None,
+        duration_min=30,
+        availability=AVAIL_AUCKLAND,
+    )
     assert m.status == MeetingStatus.SCHEDULED
