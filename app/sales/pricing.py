@@ -1,5 +1,13 @@
 """Pure deterministic quote computation (Stage 3 Slice 4). Integer money math only."""
 
+# Display symbols for currency-aware line-item detail text. Default NGN; falls
+# back to "<CODE> " for anything unmapped so non-NGN tenants never show ₦.
+_CURRENCY_SYMBOLS = {"NGN": "₦", "USD": "$", "GBP": "£", "EUR": "€"}
+
+
+def _currency_symbol(currency: str) -> str:
+    return _CURRENCY_SYMBOLS.get(currency, f"{currency} ")
+
 
 def _match_tier(tiers: list[dict], team_size: int, plan_interest: str | None) -> dict | None:
     if plan_interest:
@@ -43,7 +51,7 @@ def compute_quote(
     if overage_seats > 0:
         line_items.append({
             "label": f"Extra seats (×{overage_seats})",
-            "detail": f"₦{rate:,} / seat",
+            "detail": f"{_currency_symbol(currency)}{rate:,} / seat",
             "amount": overage,
         })
     if pct > 0 and discount > 0:
