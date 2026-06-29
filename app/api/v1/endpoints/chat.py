@@ -2115,6 +2115,7 @@ async def send_message(
                     )
 
                     _email_before = lead.email  # capture before enrich
+                    _prior_score = lead.lead_score  # capture before enrich for sales_ready check
 
                     lead = lead_svc.enrich_from_chat(
                         lead,
@@ -2129,6 +2130,21 @@ async def send_message(
                             "name": lead.name,
                             "email": lead.email,
                         }
+
+                    # Dispatch SALES_READY_LEAD on first threshold crossing.
+                    try:
+                        if lead_svc.crossed_sales_ready(_prior_score, lead):
+                            from app.services.notification_service import NotificationService
+                            from app.services.notification_enqueue import enqueue_jobs_async
+                            from app.db.models.notification_log import NotifEvent
+                            _sr_jobs = NotificationService(db).dispatch(
+                                session.tenant_id, NotifEvent.SALES_READY_LEAD,
+                                entity_type="lead", entity_id=lead.id,
+                            )
+                            await enqueue_jobs_async(_sr_jobs)
+                    except Exception as _sr_exc:  # noqa: BLE001
+                        logger.error(f"sales_ready notification dispatch failed (non-fatal): {_sr_exc}")
+
             except Exception as _lead_exc:
                 logger.error(f"Sales lead orchestration error (non-fatal): {_lead_exc}")
 
@@ -2200,7 +2216,7 @@ async def send_message(
                             plan_interest=(_sales_meta.get("captured") or {}).get("plan_interest"),
                         )
                         if _q is not None and lead is not None:
-                            QuoteService(db).create_quote(
+                            _created_quote = QuoteService(db).create_quote(
                                 session.tenant_id,
                                 lead,
                                 currency=_q["currency"],
@@ -2208,6 +2224,17 @@ async def send_message(
                                 total=_q["total"],
                             )
                             _message_meta["quote"] = _q
+                            try:
+                                from app.services.notification_service import NotificationService
+                                from app.services.notification_enqueue import enqueue_jobs_async
+                                from app.db.models.notification_log import NotifEvent
+                                _qn_jobs = NotificationService(db).dispatch(
+                                    session.tenant_id, NotifEvent.QUOTE_GENERATED,
+                                    entity_type="quote", entity_id=_created_quote.id,
+                                )
+                                await enqueue_jobs_async(_qn_jobs)
+                            except Exception as _qn_exc:  # noqa: BLE001
+                                logger.error(f"quote notification dispatch failed (non-fatal): {_qn_exc}")
                 except Exception as _quote_exc:
                     logger.error(f"Quote orchestration error (non-fatal): {_quote_exc}")
 

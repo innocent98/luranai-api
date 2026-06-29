@@ -10,6 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
+from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -106,6 +107,17 @@ def book_meeting(payload: BookMeetingRequest, db: Session = Depends(get_db)):
         )
     except SlotUnavailable as exc:
         return _err("SLOT_UNAVAILABLE", str(exc), 409)
+    try:
+        from app.services.notification_service import NotificationService
+        from app.services.notification_enqueue import enqueue_jobs_sync
+        from app.db.models.notification_log import NotifEvent
+        jobs = NotificationService(db).dispatch(
+            lead.tenant_id, NotifEvent.MEETING_BOOKED,
+            entity_type="meeting", entity_id=meeting.id,
+        )
+        enqueue_jobs_sync(jobs)
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"meeting notification dispatch failed (non-fatal): {exc}")
     resp = BookMeetingResponse(
         meeting=BookedMeeting(
             scheduled_at=meeting.scheduled_at,
