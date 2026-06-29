@@ -71,8 +71,9 @@ SALES_RESPONSE_SCHEMA: dict = {
                 "requested_demo": {"type": "boolean"},
                 "mentioned_competitor": {"type": "boolean"},
                 "ready_to_buy": {"type": "boolean"},
+                "offer_meeting": {"type": "boolean"},
             },
-            "required": ["asked_features", "requested_demo", "mentioned_competitor", "ready_to_buy"],
+            "required": ["asked_features", "requested_demo", "mentioned_competitor", "ready_to_buy", "offer_meeting"],
         },
         "captured": {
             "type": "object",
@@ -130,6 +131,9 @@ def build_sales_directive(qualification_questions: list) -> str:
         "resolving the support issue.\n"
         "5. Populate `captured` and `signals` only with facts the prospect has "
         "explicitly stated — do not infer or hallucinate missing values.\n"
+        "6. Set signals.offer_meeting to true ONLY when the prospect wants a live "
+        "demo or call (e.g. DEMO_REQUEST) and scheduling is the natural next step; "
+        "otherwise false.\n"
     )
 
 

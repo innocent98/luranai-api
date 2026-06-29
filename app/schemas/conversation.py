@@ -94,7 +94,7 @@ class MessageResponse(MessageBase):
     token_count: int | None = None
     meta: dict | None = Field(
         None,
-        description="Additional metadata; may include 'lead_captured' (LeadCapturedMeta shape) when email first captured in sales mode",
+        description="Additional metadata; may include 'lead_captured' (LeadCapturedMeta shape) when email first captured in sales mode; may include 'offer_meeting' (bool) when the agent offers the inline meeting picker",
     )
     created_at: datetime
 
