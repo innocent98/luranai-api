@@ -12,6 +12,7 @@ from app.db.models.audit import AuditReport, AuditScope
 from app.db.models.lead import Lead
 from app.schemas.auditor import LeadCaptureRequest, PublicAuditRequest, PublicReportResponse
 from app.services.email_service import email_service
+from app.services.lead_service import LeadService
 from app.utils.http_rate_limiter import create_rate_limit_dependency
 from app.utils.rate_limiter import RedisRateLimiter
 
@@ -129,6 +130,7 @@ def capture_lead(
         source="public_auditor",
         audit_report_id=report.id,
     )
+    LeadService(db).apply_score(lead)
     db.add(lead)
     db.flush()
     report.email = email

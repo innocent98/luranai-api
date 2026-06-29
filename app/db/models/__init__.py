@@ -67,6 +67,7 @@ from app.db.models.review import FeedbackCategory, PlatformFeedback, SessionRati
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.subscription_plan import SubscriptionPlan
 from app.db.models.lead import Lead, LeadStatus
+from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.db.models.visit_analytics import DailyVisit
 
 # Import all models to ensure they're registered with SQLAlchemy
@@ -157,6 +158,8 @@ __all__ = [
     # Lead models
     "Lead",
     "LeadStatus",
+    # Sales agent config
+    "TenantSalesAgentConfig",
     # Auditor models
     "BusinessProfile",
     "BusinessProfileSource",
