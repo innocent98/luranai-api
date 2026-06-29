@@ -18,6 +18,7 @@ from app.api.v1.endpoints import (
     jobs,
     knowledge,
     leads,
+    meetings,
     platform_admin_auth,
     public,
     public_auditor,
@@ -284,3 +285,6 @@ api_router.include_router(leads.router, prefix="/leads", tags=["leads"])
 
 # Sales agent configuration endpoints
 api_router.include_router(sales.router, prefix="/sales", tags=["sales"])
+
+# Public widget meeting booking endpoints (Stage 3 Slice 3)
+api_router.include_router(meetings.router, prefix="/chat", tags=["meetings"])
