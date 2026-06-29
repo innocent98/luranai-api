@@ -54,7 +54,9 @@ from app.sales.intent import is_trigger_intent
 from app.services.conversation_service import ConversationService
 from app.services.chat_automation_orchestrator import ChatAutomationOrchestrator
 from app.services.flow_engine import FlowEngine
+from app.sales.pricing import compute_quote
 from app.services.lead_service import LeadService
+from app.services.quote_service import QuoteService
 from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
 from app.services.ticket_service import TicketService
@@ -2071,6 +2073,7 @@ async def send_message(
 
         # Sales lead orchestration — SALES MODE only.
         # Runs after ai_response_text is finalized so it never blocks the reply.
+        lead: Lead | None = None  # resolved below; reused by quote orchestration
         _lead_captured_meta: dict | None = None
         if _sales_mode and _sales_meta is not None:
             try:
@@ -2178,6 +2181,35 @@ async def send_message(
             _signals = _sales_meta.get("signals") or {}
             if bool(_signals.get("offer_meeting")) and getattr(sales_agent_config, "meeting_booking_enabled", False):
                 _message_meta["offer_meeting"] = True
+            if bool(_signals.get("offer_quote")) and getattr(sales_agent_config, "quotation_enabled", False):
+                try:
+                    _ts_raw = (
+                        (lead.team_size if lead is not None else None)
+                        or (_sales_meta.get("captured") or {}).get("team_size")
+                    )
+                    _team_size: int | None = None
+                    if _ts_raw is not None:
+                        _m = re.search(r"\d+", str(_ts_raw))
+                        _team_size = int(_m.group()) if _m else None
+                    if _team_size is not None:
+                        _q = compute_quote(
+                            sales_agent_config.pricing_tiers or [],
+                            getattr(sales_agent_config, "annual_discount_pct", 0),
+                            sales_agent_config.currency,
+                            team_size=_team_size,
+                            plan_interest=(_sales_meta.get("captured") or {}).get("plan_interest"),
+                        )
+                        if _q is not None and lead is not None:
+                            QuoteService(db).create_quote(
+                                session.tenant_id,
+                                lead,
+                                currency=_q["currency"],
+                                line_items=_q["line_items"],
+                                total=_q["total"],
+                            )
+                            _message_meta["quote"] = _q
+                except Exception as _quote_exc:
+                    logger.error(f"Quote orchestration error (non-fatal): {_quote_exc}")
 
         assistant_message = conversation_service.add_message(
             session_id=session_id,
