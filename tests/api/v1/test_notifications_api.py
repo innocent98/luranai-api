@@ -6,7 +6,7 @@ fixtures from conftest.py (Postgres-backed, savepoint-rolled-back per test).
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.db.models.notification_log import NotifChannel, NotifEvent, NotifStatus, NotificationLog
 
@@ -145,15 +145,33 @@ def test_list_tenant_scoped(pg_client, db_session):
 
 
 def test_list_newest_first(pg_client, db_session):
-    """Notifications are returned newest-first (created_at desc)."""
+    """Notifications are returned newest-first (created_at desc).
+
+    Uses explicit, spaced created_at values so all three rows have distinct
+    timestamps. Asserts on row identity (title) order — a flip to ascending
+    order would return ["Notification 2", "Notification 1", "Notification 0"]
+    which would fail this assertion.
+    """
     user, token = _make_tenant_user(db_session)
-    _seed_notifs(db_session, user.tenant_id, n=3)
+    rows = _seed_notifs(db_session, user.tenant_id, n=3)
+
+    # Assign distinct created_at values: row 0 newest, row 2 oldest
+    base = datetime.now(timezone.utc)
+    for i, row in enumerate(rows):
+        row.created_at = base - timedelta(minutes=i)
+    db_session.flush()
 
     resp = pg_client.get("/api/v1/notifications", headers=_auth(token))
     assert resp.status_code == 200
     items = resp.json()["data"]["items"]
-    timestamps = [item["created_at"] for item in items]
-    assert timestamps == sorted(timestamps, reverse=True)
+    assert len(items) == 3
+
+    # Newest-first means: row 0 (base), row 1 (base-1min), row 2 (base-2min)
+    assert [item["title"] for item in items] == [
+        "Notification 0",
+        "Notification 1",
+        "Notification 2",
+    ]
 
 
 def test_list_envelope_shape(pg_client, db_session):
@@ -369,6 +387,8 @@ def test_mark_all_read_marks_all_unread(pg_client, db_session):
 
 def test_mark_all_read_tenant_scoped(pg_client, db_session):
     """read-all only touches the calling tenant's unread rows."""
+    from sqlalchemy import and_, select
+
     user_me, token_me = _make_tenant_user(db_session)
     user_other, _ = _make_tenant_user(db_session)
 
@@ -379,8 +399,18 @@ def test_mark_all_read_tenant_scoped(pg_client, db_session):
     assert resp.status_code == 200
     assert resp.json()["data"]["updated"] == 2
 
-    # Other tenant's notifications must be untouched — just check their count is still 5
-    # (we don't have their token here, but we can trust the DB-level scope)
+    # Confirm the other tenant's 5 in-app rows are still unread in the DB
+    db_session.expire_all()
+    other_unread_count = db_session.execute(
+        select(NotificationLog).where(
+            and_(
+                NotificationLog.tenant_id == user_other.tenant_id,
+                NotificationLog.channel == NotifChannel.IN_APP,
+                NotificationLog.read_at.is_(None),
+            )
+        )
+    ).scalars().all()
+    assert len(other_unread_count) == 5
 
 
 def test_mark_all_read_no_unread_returns_zero(pg_client, db_session):
