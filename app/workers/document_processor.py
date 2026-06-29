@@ -1198,6 +1198,7 @@ class WorkerSettings:
 
     from app.workers.sales_notifications import (  # type: ignore[misc]
         send_rep_alert,
+        send_slack_notification,
         send_visitor_meeting_confirmation,
     )
 
@@ -1205,6 +1206,7 @@ class WorkerSettings:
         process_document_ingestion,
         run_website_audit,
         send_rep_alert,
+        send_slack_notification,
         send_visitor_meeting_confirmation,
         auto_abandon_inactive_conversations,
         auto_resolve_stale_tickets,
