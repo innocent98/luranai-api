@@ -102,6 +102,7 @@ def book_meeting(payload: BookMeetingRequest, db: Session = Depends(get_db)):
             visitor_timezone=payload.visitor_timezone,
             use_case=payload.use_case,
             duration_min=int(cfg.availability.get("slot_minutes", 30)),
+            availability=cfg.availability,
         )
     except SlotUnavailable as exc:
         return _err("SLOT_UNAVAILABLE", str(exc), 409)

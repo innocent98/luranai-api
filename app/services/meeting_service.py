@@ -48,11 +48,14 @@ class MeetingService:
         self, tenant_id: UUID, lead: Lead, *,
         scheduled_at: datetime, visitor_timezone: str | None,
         use_case: str | None, duration_min: int,
+        availability: dict,
     ) -> Meeting:
         """Book a meeting slot for the given lead.
 
-        Raises SlotUnavailable if the slot is in the past, already taken, or if
-        scheduled_at is naive (timezone-aware datetime required).
+        Raises SlotUnavailable if the slot is in the past, already taken, not
+        within the tenant's availability windows, not aligned to a slot boundary,
+        or within buffer_minutes of an existing meeting. scheduled_at must be
+        timezone-aware.
 
         NOTE: calls db.commit() on success — this commits any other pending
         work in the session, so callers should not hold unrelated dirty state.
@@ -68,6 +71,15 @@ class MeetingService:
         existing = self._existing_future_meeting(tenant_id, lead.id, now)
         if existing is not None:
             return existing
+
+        # Slot membership guard: scheduled_at must be one of the tenant's computed
+        # valid slots — this enforces weekday, hours, alignment, past-exclusion, AND
+        # inter-meeting buffer in one shot.  The days window is computed from the
+        # request so far-future valid slots are never excluded.
+        days = max(1, (scheduled_at.date() - now.date()).days + 1)
+        valid_slots = set(self.compute_availability(tenant_id, availability, now=now, days=days))
+        if scheduled_at not in valid_slots:
+            raise SlotUnavailable("Not an available slot")
 
         # Transactional double-booking guard: re-check then insert; the unique
         # partial index is the final arbiter under concurrency.
