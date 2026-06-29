@@ -48,6 +48,7 @@ class Lead(Base, UUIDMixin, TimestampMixin):
     utm: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     crm_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     meeting_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
+    quote_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True)
     audit_report_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("audit_reports.id", ondelete="SET NULL"), nullable=True
     )
