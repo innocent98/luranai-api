@@ -83,10 +83,11 @@ def _resp(code):
 
 
 async def test_slack_2xx_marks_sent(db_session, monkeypatch):
-    """2xx response → status SENT; POST called with header + section blocks."""
+    """2xx response → status SENT; POST called with header + section + dashboard-link blocks."""
     log_id = _seed(db_session)
 
     import app.workers.sales_notifications as notif_mod
+    from app.core.config import settings
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
@@ -99,6 +100,12 @@ async def test_slack_2xx_marks_sent(db_session, monkeypatch):
     blocks = payload["blocks"]
     assert any(b["type"] == "header" for b in blocks)
     assert any(b["type"] == "section" for b in blocks)
+    # dashboard-link context block must be present and contain the dashboard URL
+    context_blocks = [b for b in blocks if b["type"] == "context"]
+    assert context_blocks, "expected a context block with the dashboard link"
+    link_text = context_blocks[0]["elements"][0]["text"]
+    assert settings.FRONTEND_URL in link_text
+    assert "View in dashboard" in link_text
     assert db_session.get(NotificationLog, log_id).status == NotifStatus.SENT
 
 

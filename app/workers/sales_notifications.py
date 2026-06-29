@@ -6,6 +6,7 @@ import uuid
 import httpx
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.db.session import SessionLocal
 from app.db.models.lead import Lead
 from app.db.models.meeting import Meeting
@@ -183,26 +184,37 @@ async def send_visitor_meeting_confirmation(ctx, notification_log_id: str) -> No
 # Slack delivery (Stage 3 Slice 5d)
 # ---------------------------------------------------------------------------
 
-def _slack_blocks(title: str | None, body: str | None) -> dict:
-    """Build a minimal Block Kit payload with a header and section block."""
-    return {
-        "blocks": [
-            {
-                "type": "header",
-                "text": {
-                    "type": "plain_text",
-                    "text": (title or "Sales notification")[:150],
-                },
+def _slack_blocks(title: str | None, body: str | None, dashboard_url: str = "") -> dict:
+    """Build a minimal Block Kit payload with a header, section, and dashboard link block."""
+    blocks: list[dict] = [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": (title or "Sales notification")[:150],
             },
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": (body or "")[:2000] or "—",
-                },
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (body or "")[:2000] or "—",
             },
-        ]
-    }
+        },
+    ]
+    if dashboard_url:
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"<{dashboard_url}|View in dashboard>",
+                    }
+                ],
+            }
+        )
+    return {"blocks": blocks}
 
 
 async def send_slack_notification(ctx, notification_log_id: str) -> None:
@@ -236,9 +248,10 @@ async def send_slack_notification(ctx, notification_log_id: str) -> None:
             db.commit()
             return
 
+        dashboard_url = f"{settings.FRONTEND_URL}/sales/leads"
         try:
             with httpx.Client(timeout=10) as client:
-                resp = client.post(url, json=_slack_blocks(log.title, log.body))
+                resp = client.post(url, json=_slack_blocks(log.title, log.body, dashboard_url))
         except Exception as exc:  # network / timeout — transient, retry
             log.status = NotifStatus.FAILED
             log.error = f"slack network error: {type(exc).__name__}"
