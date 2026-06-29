@@ -72,8 +72,9 @@ SALES_RESPONSE_SCHEMA: dict = {
                 "mentioned_competitor": {"type": "boolean"},
                 "ready_to_buy": {"type": "boolean"},
                 "offer_meeting": {"type": "boolean"},
+                "offer_quote": {"type": "boolean"},
             },
-            "required": ["asked_features", "requested_demo", "mentioned_competitor", "ready_to_buy", "offer_meeting"],
+            "required": ["asked_features", "requested_demo", "mentioned_competitor", "ready_to_buy", "offer_meeting", "offer_quote"],
         },
         "captured": {
             "type": "object",
@@ -84,8 +85,9 @@ SALES_RESPONSE_SCHEMA: dict = {
                 "company": {"type": ["string", "null"]},
                 "team_size": {"type": ["string", "null"]},
                 "industry": {"type": ["string", "null"]},
+                "plan_interest": {"type": ["string", "null"]},
             },
-            "required": ["name", "email", "company", "team_size", "industry"],
+            "required": ["name", "email", "company", "team_size", "industry", "plan_interest"],
         },
     },
     "required": ["reply", "intent", "signals", "captured"],
@@ -134,6 +136,9 @@ def build_sales_directive(qualification_questions: list) -> str:
         "6. Set signals.offer_meeting to true ONLY when the prospect wants a live "
         "demo or call (e.g. DEMO_REQUEST) and scheduling is the natural next step; "
         "otherwise false.\n"
+        "7. For pricing/purchase intent: gather the prospect's team size and which "
+        "plan they're interested in, then set signals.offer_quote=true once you have "
+        "enough to quote. Put the plan name in captured.plan_interest.\n"
     )
 
 
