@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import cast, func
+from sqlalchemy import cast, func, select
 from sqlalchemy import Integer as SAInteger
 from sqlalchemy.orm import Session
 
 from app.db.models.lead import Lead, LeadStatus
+from app.sales.intent import normalize_intent
 from app.sales.scoring import TIER_THRESHOLDS, score_lead
+
+# Same pattern as CONTACT_EMAIL_PATTERN in app/api/v1/endpoints/chat.py.
+# Kept here (not imported) to avoid reversing the service→endpoint dependency.
+_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+
+_CAPTURED_FIELDS = ("name", "email", "company", "team_size", "industry")
 
 
 class LeadNotFound(ValueError):
@@ -68,6 +76,89 @@ class LeadService:
         result = score_lead(_LeadProxy(lead), signals)
         lead.lead_score = result["score"]
         lead.score_breakdown = result["breakdown"]
+
+    # ------------------------------------------------------------------
+    # get_or_create_by_conversation
+    # ------------------------------------------------------------------
+
+    def get_or_create_by_conversation(
+        self,
+        tenant_id: UUID,
+        conversation_id: UUID,
+        *,
+        intent: str,
+        source: str = "chat_widget",
+        utm: dict | None = None,
+    ) -> Lead:
+        """Return the existing lead for this conversation, or create a new one.
+
+        Idempotent per (tenant_id, conversation_id) pair.
+        """
+        existing = self.db.execute(
+            select(Lead).where(
+                Lead.tenant_id == tenant_id,
+                Lead.conversation_id == conversation_id,
+            )
+        ).scalar_one_or_none()
+
+        if existing is not None:
+            return existing
+
+        lead = Lead(
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            intent=normalize_intent(intent),
+            source=source,
+            utm=utm or {},
+            status=LeadStatus.NEW,
+        )
+        self.apply_score(lead)
+        self.db.add(lead)
+        self.db.flush()
+        return lead
+
+    # ------------------------------------------------------------------
+    # enrich_from_chat
+    # ------------------------------------------------------------------
+
+    def enrich_from_chat(
+        self,
+        lead: Lead,
+        *,
+        intent: str,
+        captured: dict,
+        signals: dict,
+    ) -> Lead:
+        """Update lead fields from a chat-widget turn and re-score.
+
+        Rules:
+        - Only set a field if the incoming value is non-empty.
+        - For email: only store if it passes the standard email-format check.
+        - Never overwrite an existing non-empty field with null/empty.
+        """
+        for field in _CAPTURED_FIELDS:
+            incoming = captured.get(field)
+            if not incoming:
+                # None, empty string, or absent — skip
+                continue
+
+            if field == "email":
+                stripped = incoming.strip().lower()
+                if not _EMAIL_PATTERN.fullmatch(stripped):
+                    continue
+                # Only set if lead.email is currently empty
+                if not getattr(lead, "email", None):
+                    lead.email = stripped
+            else:
+                # For all non-email fields: only fill empty slots
+                if not getattr(lead, field, None):
+                    setattr(lead, field, incoming)
+
+        lead.intent = normalize_intent(intent)
+        self.apply_score(lead, signals=signals)
+        self.db.commit()
+        self.db.refresh(lead)
+        return lead
 
     # ------------------------------------------------------------------
     # list_leads

@@ -18,6 +18,13 @@ class ConversationSessionBase(BaseModel):
     meta: dict | None = Field(None, description="Additional context metadata")
 
 
+class LeadCapturedMeta(BaseModel):
+    """Schema for lead_captured metadata."""
+
+    name: str | None = None
+    email: str
+
+
 class MessageBase(BaseModel):
     """Base message schema."""
 
@@ -85,7 +92,10 @@ class MessageResponse(MessageBase):
     session_id: UUID
     retrieved_chunk_ids: list[UUID] | None = None
     token_count: int | None = None
-    meta: dict | None = None
+    meta: dict | None = Field(
+        None,
+        description="Additional metadata; may include 'lead_captured' (LeadCapturedMeta shape) when email first captured in sales mode",
+    )
     created_at: datetime
 
 
