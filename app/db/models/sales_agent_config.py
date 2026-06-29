@@ -22,6 +22,15 @@ _DEFAULT_QUALIFICATION_QUESTIONS: list[dict] = [
 
 _DEFAULT_NOTIFY_CHANNELS: dict = {"email": True, "slack": False, "in_app": False}
 
+_DEFAULT_AVAILABILITY: dict = {
+    "weekdays": [1, 2, 3, 4, 5],
+    "start": "09:00",
+    "end": "17:00",
+    "slot_minutes": 30,
+    "buffer_minutes": 15,
+    "tenant_timezone": "UTC",
+}
+
 
 class TenantSalesAgentConfig(Base, UUIDMixin, TimestampMixin):
     """Per-tenant configuration for the AI sales agent."""
@@ -112,6 +121,12 @@ class TenantSalesAgentConfig(Base, UUIDMixin, TimestampMixin):
         default="NGN",
         comment="ISO 4217 currency code used in quotations (default NGN)",
     )
+    availability: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=lambda: dict(_DEFAULT_AVAILABILITY),
+        comment="Bookable-window rules for the meeting picker",
+    )
 
     def __repr__(self) -> str:
         return f"<TenantSalesAgentConfig(tenant_id={self.tenant_id}, agent_enabled={self.agent_enabled})>"
@@ -130,4 +145,5 @@ class TenantSalesAgentConfig(Base, UUIDMixin, TimestampMixin):
             qualification_questions=list(_DEFAULT_QUALIFICATION_QUESTIONS),
             pricing_tiers=[],
             currency="NGN",
+            availability=dict(_DEFAULT_AVAILABILITY),
         )
