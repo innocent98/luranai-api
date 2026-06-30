@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import JSON, Boolean, ForeignKey, String
+from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -121,6 +121,12 @@ class TenantSalesAgentConfig(Base, UUIDMixin, TimestampMixin):
         default="NGN",
         comment="ISO 4217 currency code used in quotations (default NGN)",
     )
+    annual_discount_pct: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Annual-commitment discount percent applied to quotes",
+    )
     availability: Mapped[dict] = mapped_column(
         JSON,
         nullable=False,
@@ -145,5 +151,6 @@ class TenantSalesAgentConfig(Base, UUIDMixin, TimestampMixin):
             qualification_questions=list(_DEFAULT_QUALIFICATION_QUESTIONS),
             pricing_tiers=[],
             currency="NGN",
+            annual_discount_pct=0,
             availability=dict(_DEFAULT_AVAILABILITY),
         )

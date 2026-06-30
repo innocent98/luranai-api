@@ -6,9 +6,9 @@ def test_schema_has_required_keys():
     assert set(props) == {"reply", "intent", "signals", "captured"}
     assert set(props["signals"]["properties"]) == {
         "asked_features", "requested_demo", "mentioned_competitor", "ready_to_buy",
-        "offer_meeting"}
+        "offer_meeting", "offer_quote"}
     assert set(props["captured"]["properties"]) == {
-        "name", "email", "company", "team_size", "industry"}
+        "name", "email", "company", "team_size", "industry", "plan_interest"}
 
 
 def test_directive_mentions_one_question_and_no_forms():
@@ -23,7 +23,7 @@ def test_directive_accepts_plain_string_question():
 
 
 def test_parse_valid_and_invalid():
-    good = '{"reply":"Hi","intent":"PRICING_INQUIRY","signals":{"asked_features":false,"requested_demo":false,"mentioned_competitor":false,"ready_to_buy":false},"captured":{"name":null,"email":null,"company":null,"team_size":null,"industry":null}}'
+    good = '{"reply":"Hi","intent":"PRICING_INQUIRY","signals":{"asked_features":false,"requested_demo":false,"mentioned_competitor":false,"ready_to_buy":false,"offer_meeting":false,"offer_quote":false},"captured":{"name":null,"email":null,"company":null,"team_size":null,"industry":null,"plan_interest":null}}'
     out = parse_sales_output(good)
     assert out["intent"] == "PRICING_INQUIRY" and out["reply"] == "Hi"
     assert parse_sales_output("not json") is None
