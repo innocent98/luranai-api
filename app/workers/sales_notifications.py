@@ -1,13 +1,18 @@
-"""ARQ jobs that deliver sales notification emails (Stage 3 Slice 5a)."""
+"""ARQ jobs that deliver sales notification emails and Slack messages (Stage 3 Slice 5a/5d)."""
 
 import logging
 import uuid
 
+import httpx
+from sqlalchemy import select
+
+from app.core.config import settings
 from app.db.session import SessionLocal
 from app.db.models.lead import Lead
 from app.db.models.meeting import Meeting
 from app.db.models.quote import Quote
 from app.db.models.notification_log import NotificationLog, NotifEvent, NotifStatus
+from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.services.email_service import EmailService
 from app.services.quote_pdf_service import render_quote_pdf
 
@@ -170,6 +175,109 @@ async def send_visitor_meeting_confirmation(ctx, notification_log_id: str) -> No
                 db.commit()
         except Exception:
             pass
+        raise
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Slack delivery (Stage 3 Slice 5d)
+# ---------------------------------------------------------------------------
+
+def _slack_blocks(title: str | None, body: str | None, dashboard_url: str = "") -> dict:
+    """Build a minimal Block Kit payload with a header, section, and dashboard link block."""
+    blocks: list[dict] = [
+        {
+            "type": "header",
+            "text": {
+                "type": "plain_text",
+                "text": (title or "Sales notification")[:150],
+            },
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (body or "")[:2000] or "—",
+            },
+        },
+    ]
+    if dashboard_url:
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"<{dashboard_url}|View in dashboard>",
+                    }
+                ],
+            }
+        )
+    return {"blocks": blocks}
+
+
+async def send_slack_notification(ctx, notification_log_id: str) -> None:
+    """POST a Block Kit message to the tenant's Slack webhook.
+
+    Idempotent: exits early if the log is missing or already SENT.
+    Status-based retry strategy:
+      - 2xx  → SENT, return.
+      - 5xx or network/timeout → FAILED + raise _EmailSendFailed (ARQ retries).
+      - 4xx  → FAILED, return (permanent client error, no retry).
+      - no webhook URL configured → FAILED, return (no raise).
+
+    The webhook URL is NEVER written to the log.
+    """
+    db = SessionLocal()
+    try:
+        log = db.get(NotificationLog, uuid.UUID(notification_log_id))
+        if log is None or log.status == NotifStatus.SENT:
+            return
+
+        cfg = db.execute(
+            select(TenantSalesAgentConfig).where(
+                TenantSalesAgentConfig.tenant_id == log.tenant_id
+            )
+        ).scalar_one_or_none()
+        url = cfg.slack_webhook_url if cfg else None
+
+        if not url:
+            log.status = NotifStatus.FAILED
+            log.error = "no slack webhook configured"
+            db.commit()
+            return
+
+        dashboard_url = f"{settings.FRONTEND_URL}/sales/leads"
+        try:
+            with httpx.Client(timeout=10) as client:
+                resp = client.post(url, json=_slack_blocks(log.title, log.body, dashboard_url))
+        except Exception as exc:  # network / timeout — transient, retry
+            log.status = NotifStatus.FAILED
+            log.error = f"slack network error: {type(exc).__name__}"
+            db.commit()
+            raise _EmailSendFailed("slack network error") from exc
+
+        if 200 <= resp.status_code < 300:
+            log.status = NotifStatus.SENT
+            db.commit()
+            return
+
+        if resp.status_code >= 500:
+            log.status = NotifStatus.FAILED
+            log.error = f"slack {resp.status_code}"
+            db.commit()
+            raise _EmailSendFailed(f"slack {resp.status_code}")  # 5xx → ARQ retry
+
+        # 4xx — permanent client error, mark failed, do not retry
+        log.status = NotifStatus.FAILED
+        log.error = f"slack {resp.status_code}"
+        db.commit()
+
+    except _EmailSendFailed:
+        raise  # already persisted FAILED; skip fallback
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"send_slack_notification failed: {exc}")
         raise
     finally:
         db.close()

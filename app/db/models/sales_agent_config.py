@@ -95,6 +95,11 @@ class TenantSalesAgentConfig(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         comment="Email address for sales notifications (overrides tenant owner email)",
     )
+    slack_webhook_url: Mapped[str | None] = mapped_column(
+        String(512),
+        nullable=True,
+        comment="Per-tenant Slack Incoming Webhook URL for sales notifications",
+    )
 
     # Agent behaviour
     trigger_intents: Mapped[list] = mapped_column(
@@ -147,6 +152,7 @@ class TenantSalesAgentConfig(Base, UUIDMixin, TimestampMixin):
             meeting_booking_enabled=False,
             quotation_enabled=False,
             notify_channels=dict(_DEFAULT_NOTIFY_CHANNELS),
+            slack_webhook_url=None,
             trigger_intents=list(_DEFAULT_TRIGGER_INTENTS),
             qualification_questions=list(_DEFAULT_QUALIFICATION_QUESTIONS),
             pricing_tiers=[],
