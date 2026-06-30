@@ -425,7 +425,13 @@ class ChatAutomationOrchestrator:
             "Decide whether the customer's latest message requests one of the "
             "available actions, and if so call exactly one tool with the values "
             "the customer has provided. Only extract values the customer actually "
-            "gave. If no action clearly applies, do not call any tool."
+            "gave. If no action clearly applies, do not call any tool. "
+            "Do NOT call any tool for sales, pricing, demo, quotation, or "
+            "purchase-intent messages (e.g. asking about plans/pricing, requesting "
+            "a demo or quote, wanting to buy/upgrade/switch) — those are handled by "
+            "a separate sales agent, not by these actions. Only route when the "
+            "customer is clearly requesting a transactional support task that one "
+            "of the available actions actually performs."
         )
         messages: list[dict] = [{"role": "system", "content": system}]
         for item in conversation_history[-6:]:
