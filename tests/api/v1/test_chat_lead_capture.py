@@ -23,11 +23,17 @@ from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities
 # ---------------------------------------------------------------------------
 
 
-def _make_tenant(db: Session, *, sales_enabled: bool) -> UUID:
+def _make_tenant(
+    db: Session,
+    *,
+    sales_enabled: bool,
+    meeting_booking_enabled: bool = False,
+) -> UUID:
     """Create a Tenant + TenantAIConfig + TenantCapabilities.
 
     If sales_enabled, also persist a TenantSalesAgentConfig with
-    agent_enabled=True, lead_capture_enabled=True.
+    agent_enabled=True, lead_capture_enabled=True and the given
+    meeting_booking_enabled flag (default False).
 
     Returns the tenant UUID so callers don't hold a detached ORM object.
     """
@@ -69,6 +75,7 @@ def _make_tenant(db: Session, *, sales_enabled: bool) -> UUID:
             tenant_id=tenant.id,
             agent_enabled=True,
             lead_capture_enabled=True,
+            meeting_booking_enabled=meeting_booking_enabled,
             trigger_intents=[
                 "PRICING_INQUIRY",
                 "DEMO_REQUEST",
@@ -312,3 +319,77 @@ def test_lead_captured_not_re_emitted_on_subsequent_turns(client, db: Session):
         )
     assert r3.status_code == 200, r3.text
     assert "lead_captured" not in (r3.json()["message"]["meta"] or {})
+
+
+# ---------------------------------------------------------------------------
+# Task 5 (Slice 3): offer_meeting gate tests
+# ---------------------------------------------------------------------------
+
+_OFFER_MEETING_SIGNALS = {
+    "asked_features": False,
+    "requested_demo": True,
+    "mentioned_competitor": False,
+    "ready_to_buy": False,
+    "offer_meeting": True,
+}
+
+
+def test_offer_meeting_gate_off_suppresses_flag(client, db: Session):
+    """sales_mode=ON, signals.offer_meeting=True, meeting_booking_enabled=False
+    → meta must NOT contain 'offer_meeting'.
+
+    This is the authoritative server-side gate test: the model signals a meeting
+    but the tenant has not enabled the meeting-booking feature, so the flag must
+    be stripped before it reaches the client.
+    """
+    tenant_id = _make_tenant(db, sales_enabled=True, meeting_booking_enabled=False)
+
+    with (
+        _sales_llm_patch("DEMO_REQUEST", {}, _OFFER_MEETING_SIGNALS),
+        _retrieval_patch(),
+        _automation_patch(),
+    ):
+        r = client.post(
+            "/api/v1/chat/message",
+            json={
+                "message": "I'd love to book a demo",
+                "tenant_id": str(tenant_id),
+                "user_identifier": "v1",
+            },
+        )
+
+    assert r.status_code == 200, r.text
+    meta = r.json()["message"]["meta"] or {}
+    assert "offer_meeting" not in meta, (
+        f"offer_meeting must be absent when meeting_booking_enabled=False; got meta={meta}"
+    )
+
+
+def test_offer_meeting_gate_on_surfaces_flag(client, db: Session):
+    """sales_mode=ON, signals.offer_meeting=True, meeting_booking_enabled=True
+    → meta['offer_meeting'] is True.
+
+    Companion positive test: when the tenant has enabled meeting booking, the
+    signal propagates to the response meta so the widget can surface the CTA.
+    """
+    tenant_id = _make_tenant(db, sales_enabled=True, meeting_booking_enabled=True)
+
+    with (
+        _sales_llm_patch("DEMO_REQUEST", {}, _OFFER_MEETING_SIGNALS),
+        _retrieval_patch(),
+        _automation_patch(),
+    ):
+        r = client.post(
+            "/api/v1/chat/message",
+            json={
+                "message": "I'd love to book a demo",
+                "tenant_id": str(tenant_id),
+                "user_identifier": "v1",
+            },
+        )
+
+    assert r.status_code == 200, r.text
+    meta = r.json()["message"]["meta"] or {}
+    assert meta.get("offer_meeting") is True, (
+        f"offer_meeting must be True when meeting_booking_enabled=True; got meta={meta}"
+    )

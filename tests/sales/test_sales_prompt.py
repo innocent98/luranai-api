@@ -5,7 +5,8 @@ def test_schema_has_required_keys():
     props = SALES_RESPONSE_SCHEMA["properties"]
     assert set(props) == {"reply", "intent", "signals", "captured"}
     assert set(props["signals"]["properties"]) == {
-        "asked_features", "requested_demo", "mentioned_competitor", "ready_to_buy"}
+        "asked_features", "requested_demo", "mentioned_competitor", "ready_to_buy",
+        "offer_meeting"}
     assert set(props["captured"]["properties"]) == {
         "name", "email", "company", "team_size", "industry"}
 

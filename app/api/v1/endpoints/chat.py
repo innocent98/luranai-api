@@ -2174,6 +2174,10 @@ async def send_message(
         }
         if _lead_captured_meta is not None:
             _message_meta["lead_captured"] = _lead_captured_meta
+        if _sales_mode and _sales_meta is not None:
+            _signals = _sales_meta.get("signals") or {}
+            if bool(_signals.get("offer_meeting")) and getattr(sales_agent_config, "meeting_booking_enabled", False):
+                _message_meta["offer_meeting"] = True
 
         assistant_message = conversation_service.add_message(
             session_id=session_id,
