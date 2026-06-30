@@ -69,6 +69,7 @@ When the lead crosses sales-ready, dispatch fires for every enabled channel. Ver
 | # | Stage/Slice | What | Severity | Owner | Status |
 |---|-------------|------|----------|-------|--------|
 | 1 | Env / 5e | Dev DB (5432) missing `crm_webhook_url` — never under alembic, `create_all` doesn't ALTER existing tables. Only that one column had drifted (notification_logs 5c fields + leads FKs were present). | Medium (env, not code) | Claude | **FIXED** — `ALTER TABLE … ADD COLUMN crm_webhook_url TEXT`. Proper fix pending: bring dev DB under alembic (entrypoint `alembic upgrade head`, or stamp head). |
+| 2 | Infra / dev compose | `docker-compose.yml` api healthcheck used `curl -f`, but the runtime image has no `curl` (only the builder stage installs it) → api always reported `unhealthy` despite serving 200. Prod compose already used a python probe; dev was stale. | Medium (dev only; prod unaffected) | Claude | **FIXED** (commit) — dev healthcheck now uses the same `python -c urllib.request.urlopen('…/api/v1/health')` probe as prod; api now reports `healthy`. |
 
 ## Claude's automated backend pass — results (5e, live stack)
 
