@@ -1,4 +1,4 @@
-"""ARQ jobs that deliver sales notification emails and Slack messages (Stage 3 Slice 5a/5d)."""
+"""ARQ jobs that deliver sales notification emails, Slack messages, and CRM webhooks (Stage 3 Slice 5a/5d/5e)."""
 
 import logging
 import uuid
@@ -278,6 +278,122 @@ async def send_slack_notification(ctx, notification_log_id: str) -> None:
         raise  # already persisted FAILED; skip fallback
     except Exception as exc:  # noqa: BLE001
         logger.error(f"send_slack_notification failed: {exc}")
+        raise
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# CRM webhook delivery (Stage 3 Slice 5e)
+# ---------------------------------------------------------------------------
+
+_CRM_ID_KEYS = ("id", "crm_id", "contactId", "vid")
+
+
+def _crm_payload(lead: Lead) -> dict:
+    """Build the outbound lead payload. Contains decrypted PII — never log this."""
+    return {
+        "lead_id": str(lead.id),
+        "tenant_id": str(lead.tenant_id) if lead.tenant_id else None,
+        "name": lead.name,
+        "email": lead.email,
+        "company": lead.company,
+        "team_size": lead.team_size,
+        "industry": lead.industry,
+        "intent": lead.intent,
+        "lead_score": lead.lead_score,
+        "status": lead.status.value if lead.status else None,
+        "source": lead.source,
+        "utm": lead.utm,
+        "created_at": lead.created_at.isoformat() if lead.created_at else None,
+    }
+
+
+def _extract_crm_id(resp) -> str | None:
+    """Best-effort: pull an id-ish value from a 2xx JSON body. Never raises."""
+    try:
+        data = resp.json()
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    for key in _CRM_ID_KEYS:
+        if data.get(key):
+            return str(data[key])
+    return None
+
+
+async def sync_lead_to_crm(ctx, notification_log_id: str) -> None:
+    """POST a sales-ready lead payload to the tenant's CRM webhook.
+
+    Idempotent: exits early if the log is missing or already SENT.
+    Status-based retry (mirrors send_slack_notification):
+      - 2xx  → SENT (best-effort Lead.crm_id write-back from the response JSON).
+      - 5xx or network/timeout → FAILED + raise _EmailSendFailed (ARQ retries).
+      - 4xx  → FAILED, return (permanent client error, no retry).
+      - no webhook URL configured → FAILED, return (no raise).
+
+    The webhook URL and the PII payload are NEVER written to the log.
+    """
+    db = SessionLocal()
+    try:
+        log = db.get(NotificationLog, uuid.UUID(notification_log_id))
+        if log is None or log.status == NotifStatus.SENT:
+            return
+
+        cfg = db.execute(
+            select(TenantSalesAgentConfig).where(
+                TenantSalesAgentConfig.tenant_id == log.tenant_id
+            )
+        ).scalar_one_or_none()
+        url = cfg.crm_webhook_url if cfg else None
+
+        if not url:
+            log.status = NotifStatus.FAILED
+            log.error = "no crm webhook configured"
+            db.commit()
+            return
+
+        lead = db.get(Lead, log.entity_id)
+        if lead is None:
+            log.status = NotifStatus.FAILED
+            log.error = "lead not found"
+            db.commit()
+            return
+
+        payload = _crm_payload(lead)
+        try:
+            with httpx.Client(timeout=10) as client:
+                resp = client.post(url, json=payload)
+        except Exception as exc:  # network / timeout — transient, retry
+            log.status = NotifStatus.FAILED
+            log.error = f"crm network error: {type(exc).__name__}"
+            db.commit()
+            raise _EmailSendFailed("crm network error") from exc
+
+        if 200 <= resp.status_code < 300:
+            crm_id = _extract_crm_id(resp)
+            if crm_id:
+                lead.crm_id = crm_id
+            log.status = NotifStatus.SENT
+            db.commit()
+            return
+
+        if resp.status_code >= 500:
+            log.status = NotifStatus.FAILED
+            log.error = f"crm {resp.status_code}"
+            db.commit()
+            raise _EmailSendFailed(f"crm {resp.status_code}")  # 5xx → ARQ retry
+
+        # 4xx — permanent client error, mark failed, do not retry
+        log.status = NotifStatus.FAILED
+        log.error = f"crm {resp.status_code}"
+        db.commit()
+
+    except _EmailSendFailed:
+        raise  # already persisted FAILED; skip fallback
+    except Exception as exc:  # noqa: BLE001
+        logger.error(f"sync_lead_to_crm failed: {exc}")
         raise
     finally:
         db.close()

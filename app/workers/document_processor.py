@@ -1200,6 +1200,7 @@ class WorkerSettings:
         send_rep_alert,
         send_slack_notification,
         send_visitor_meeting_confirmation,
+        sync_lead_to_crm,
     )
 
     functions = [
@@ -1208,6 +1209,7 @@ class WorkerSettings:
         send_rep_alert,
         send_slack_notification,
         send_visitor_meeting_confirmation,
+        sync_lead_to_crm,
         auto_abandon_inactive_conversations,
         auto_resolve_stale_tickets,
         check_trial_expiration_3days,
