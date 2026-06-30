@@ -143,3 +143,15 @@ async def test_crm_already_sent_is_noop(db_session, monkeypatch):
 
     post.assert_not_called()
     assert db_session.get(NotificationLog, log_id).status == NotifStatus.SENT
+
+
+async def test_crm_blocked_host_marks_failed_no_post(db_session, monkeypatch):
+    log_id, _ = _seed(db_session, url="http://169.254.169.254/latest/meta-data/")
+    import app.workers.sales_notifications as notif_mod
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+    with patch("httpx.Client.post") as post:
+        await sync_lead_to_crm({}, str(log_id))  # must NOT raise
+    post.assert_not_called()
+    log = db_session.get(NotificationLog, log_id)
+    assert log.status == NotifStatus.FAILED
+    assert log.error == "blocked webhook host"
