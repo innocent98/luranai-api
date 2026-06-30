@@ -1,5 +1,6 @@
 """Tests for the CRM webhook ARQ job (Stage 3 Slice 5e Task 3)."""
 import pytest
+import httpx
 from uuid import uuid4
 from unittest.mock import patch, MagicMock
 
@@ -155,3 +156,53 @@ async def test_crm_blocked_host_marks_failed_no_post(db_session, monkeypatch):
     log = db_session.get(NotificationLog, log_id)
     assert log.status == NotifStatus.FAILED
     assert log.error == "blocked webhook host"
+
+
+async def test_crm_network_timeout_raises_and_marks_failed(db_session, monkeypatch):
+    """Network/timeout branch: raises for ARQ retry and marks FAILED."""
+    log_id, _ = _seed(db_session)
+    import app.workers.sales_notifications as notif_mod
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+
+    with patch("httpx.Client.post", side_effect=httpx.TimeoutException("timeout")):
+        with pytest.raises(Exception):
+            await sync_lead_to_crm({}, str(log_id))
+
+    assert db_session.get(NotificationLog, log_id).status == NotifStatus.FAILED
+
+
+async def test_crm_2xx_contact_id_key_writes_back(db_session, monkeypatch):
+    """Non-`id` key: `contactId` in the 2xx body is written back to lead.crm_id."""
+    log_id, lead_id = _seed(db_session)
+    import app.workers.sales_notifications as notif_mod
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+
+    with patch("httpx.Client.post", return_value=_resp(200, {"contactId": "hub-42"})):
+        await sync_lead_to_crm({}, str(log_id))
+
+    assert db_session.get(NotificationLog, log_id).status == NotifStatus.SENT
+    assert db_session.get(Lead, lead_id).crm_id == "hub-42"
+
+
+async def test_crm_missing_log_is_noop(db_session, monkeypatch):
+    """log is None early-return: no HTTP call and no exception."""
+    import app.workers.sales_notifications as notif_mod
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+
+    with patch("httpx.Client.post") as post:
+        await sync_lead_to_crm({}, str(uuid4()))  # no log seeded
+
+    post.assert_not_called()
+
+
+async def test_crm_2xx_zero_integer_id_writes_back(db_session, monkeypatch):
+    """Regression for id=0: truthy check would skip 0; is-not-None must write '0'."""
+    log_id, lead_id = _seed(db_session)
+    import app.workers.sales_notifications as notif_mod
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+
+    with patch("httpx.Client.post", return_value=_resp(200, {"id": 0})):
+        await sync_lead_to_crm({}, str(log_id))
+
+    assert db_session.get(NotificationLog, log_id).status == NotifStatus.SENT
+    assert db_session.get(Lead, lead_id).crm_id == "0"

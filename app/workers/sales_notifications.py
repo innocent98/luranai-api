@@ -319,7 +319,7 @@ def _extract_crm_id(resp) -> str | None:
     if not isinstance(data, dict):
         return None
     for key in _CRM_ID_KEYS:
-        if data.get(key):
+        if data.get(key) is not None:
             return str(data[key])
     return None
 
