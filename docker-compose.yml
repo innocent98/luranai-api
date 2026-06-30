@@ -53,8 +53,10 @@ services:
         max-file: "3"
 
   worker:
+    # Reuse the image the `api` service builds (same Dockerfile + context) rather
+    # than declaring a second build. `depends_on: api` guarantees the image exists
+    # even when the worker is started on its own (e.g. `docker compose up worker`).
     image: ${API_IMAGE:-luran-api:latest}
-    build: .
     container_name: ${COMPOSE_PROJECT_NAME:-luran}_worker
     command: python worker.py
     volumes:
@@ -66,6 +68,8 @@ services:
     env_file:
       - .env
     depends_on:
+      api:
+        condition: service_started
       db:
         condition: service_healthy
       redis:
