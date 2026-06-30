@@ -53,7 +53,7 @@ def test_default_for_notify_channels(db_session):
     db_session.commit()
     db_session.refresh(cfg)
 
-    assert cfg.notify_channels == {"email": True, "slack": False, "in_app": False}
+    assert cfg.notify_channels == {"email": True, "slack": False, "in_app": False, "crm": False}
 
 
 def test_default_for_trigger_intents(db_session):

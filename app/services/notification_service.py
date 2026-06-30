@@ -129,6 +129,16 @@ class NotificationService:
             if log_id is not None:
                 jobs.append((log_id, "send_slack_notification"))
 
+        if (event == NotifEvent.SALES_READY_LEAD
+                and channels.get("crm")
+                and getattr(config, "crm_webhook_url", None)):
+            title, body = self._render_in_app_text(event, entity_type, entity_id)
+            log_id = self._try_log(tenant_id=tenant_id, event=event, channel=NotifChannel.CRM,
+                                   entity_type=entity_type, entity_id=entity_id, recipient="crm",
+                                   status=NotifStatus.PENDING, title=title, body=body)
+            if log_id is not None:
+                jobs.append((log_id, "sync_lead_to_crm"))
+
         # Logs are committed BEFORE the caller enqueues into Redis. If Redis is
         # down, the log row persists as PENDING with no queued job. A stale-PENDING
         # sweeper (requeue on startup / periodic scan) is a later-slice follow-up.
