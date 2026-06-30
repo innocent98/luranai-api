@@ -176,6 +176,60 @@ def test_patch_pricing_tiers_and_roundtrip(pg_client, db_session):
     assert g.json()["data"]["pricing_tiers"][0]["price"] == 45000
 
 
+def test_patch_webhook_availability_discount_roundtrip(pg_client, db_session):
+    """Regression: slack_webhook_url, crm_webhook_url, availability, and
+    annual_discount_pct must round-trip through PATCH→DB→GET.
+
+    These four model columns (Slices 3/4/5d/5e) were silently dropped by the
+    SalesConfig/SalesConfigPatch schemas — the dashboard sent them but they
+    never persisted. This locks the schema↔model parity for them.
+    """
+    from app.db.models.sales_agent_config import TenantSalesAgentConfig
+    from sqlalchemy import select
+
+    user, token = _make_tenant_user(db_session)
+
+    avail = {
+        "weekdays": [1, 2, 3],
+        "start": "10:00",
+        "end": "16:00",
+        "slot_minutes": 30,
+        "buffer_minutes": 15,
+        "tenant_timezone": "Africa/Lagos",
+    }
+    p = pg_client.patch(
+        "/api/v1/sales/config",
+        json={
+            "slack_webhook_url": "https://hooks.slack.com/services/T/B/x",
+            "crm_webhook_url": "https://hooks.zapier.com/hooks/catch/1/x",
+            "annual_discount_pct": 15,
+            "availability": avail,
+        },
+        headers=_auth(token),
+    )
+    assert p.status_code == 200
+
+    # Persisted to the DB row.
+    db_session.expire_all()
+    row = db_session.execute(
+        select(TenantSalesAgentConfig).where(
+            TenantSalesAgentConfig.tenant_id == user.tenant_id
+        )
+    ).scalar_one()
+    assert row.slack_webhook_url == "https://hooks.slack.com/services/T/B/x"
+    assert row.crm_webhook_url == "https://hooks.zapier.com/hooks/catch/1/x"
+    assert row.annual_discount_pct == 15
+    assert row.availability["start"] == "10:00"
+
+    # Returned by GET (read schema includes them; crm decrypts transparently).
+    g = pg_client.get("/api/v1/sales/config", headers=_auth(token))
+    data = g.json()["data"]
+    assert data["slack_webhook_url"] == "https://hooks.slack.com/services/T/B/x"
+    assert data["crm_webhook_url"] == "https://hooks.zapier.com/hooks/catch/1/x"
+    assert data["annual_discount_pct"] == 15
+    assert data["availability"]["start"] == "10:00"
+
+
 def test_patch_partial_update_only_touches_provided_fields(pg_client, db_session):
     """PATCH only mutates fields explicitly provided; other defaults remain."""
     user, token = _make_tenant_user(db_session)

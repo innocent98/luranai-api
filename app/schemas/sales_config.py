@@ -27,12 +27,16 @@ class SalesConfig(BaseModel):
     # Notification settings
     notify_channels: dict
     notification_email: str | None = None
+    slack_webhook_url: str | None = None
+    crm_webhook_url: str | None = None
 
     # Agent behaviour
     trigger_intents: list
     qualification_questions: list
     pricing_tiers: list
     currency: str
+    annual_discount_pct: int = 0
+    availability: dict = {}
 
     # Timestamps (None when serializing an unpersisted default)
     created_at: datetime | None = None
@@ -54,8 +58,12 @@ class SalesConfigPatch(BaseModel):
 
     notify_channels: dict | None = None
     notification_email: str | None = None
+    slack_webhook_url: str | None = None
+    crm_webhook_url: str | None = None
 
     trigger_intents: list | None = None
     qualification_questions: list | None = None
     pricing_tiers: list | None = None
     currency: str | None = None
+    annual_discount_pct: int | None = None
+    availability: dict | None = None
