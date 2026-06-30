@@ -16,6 +16,7 @@
 - **`crm_webhook_url` stored ENCRYPTED at rest** via the existing `app.core.encryption.EncryptedString` TypeDecorator (Fernet, impl `Text`). It decrypts transparently on read, so `/sales/config` returns plaintext.
 - **Gate:** crm row/job only when `event == SALES_READY_LEAD` AND `channels.get("crm")` AND `config.crm_webhook_url` is set. Idempotent (savepoint) + tenant-scoped via the existing dedupe index.
 - **NEVER log the webhook URL or the payload** (the payload carries decrypted lead PII). Log status/HTTP-code only.
+- **SSRF guard:** before POSTing, validate the URL with `app.utils.network_security.ensure_safe_outbound_url` (reuse — same guard the action-call `flow_engine`/`url_scraper` paths use). `ValueError` → mark `FAILED` "blocked webhook host", return (no raise). Added in Task 3 (security hardening, flagged by automated commit review).
 - `NotifChannel.CRM` already exists (`app/db/models/notification_log.py:23`). `Lead.crm_id` already exists (`app/db/models/lead.py:49`, `String(255)`).
 - 5a–5d behavior must be unchanged. No Claude co-author trailer on commits.
 - Branch `feat/stage3-crm-webhook-backend` stacks on `feat/stage3-slack-notif-backend` (Slice 5d PR #39). Already created; HEAD is the spec commit.

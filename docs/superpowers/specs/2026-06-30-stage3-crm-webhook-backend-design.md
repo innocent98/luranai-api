@@ -51,6 +51,7 @@ Email/Slack/in-app behavior + their job-returns unchanged.
 `sync_lead_to_crm(ctx, notification_log_id)` (`app/workers/sales_notifications.py`, registered in `WorkerSettings.functions`):
 - Fresh `SessionLocal()`; load the `NotificationLog`; missing OR already `SENT` → return (idempotent).
 - Load the `Lead` by `log.entity_id`. Load the tenant's `crm_webhook_url` **at send time** (decrypts via `EncryptedString`). No URL → mark `FAILED` "no crm webhook", return (no raise).
+- **SSRF guard (before any POST):** validate the URL via the existing `app.utils.network_security.ensure_safe_outbound_url` (the same guard the action-call `flow_engine`/`url_scraper` paths use) — rejects non-http(s) schemes and any host resolving to loopback/private/link-local/multicast/metadata IPs. On `ValueError` → mark `FAILED` "blocked webhook host" and return (no raise; a blocked host is a permanent misconfiguration, like a 4xx). The URL is never echoed into the error.
 - Build the payload dict: `{lead_id, tenant_id, name, email, company, team_size, industry, intent, lead_score, status, source, utm, created_at}` (name/email read off the Lead decrypt transparently). `httpx.Client(timeout=10).post(url, json=payload)`.
 - **Outcome mapping (mirror 5d):** 2xx → `SENT`; 5xx/network/timeout → `FAILED` + raise `_EmailSendFailed` (ARQ retries); 4xx → `FAILED`, no raise. `_EmailSendFailed` re-raised first by the outer handler (no double-commit). `finally: db.close()`.
 - **`crm_id` write-back:** on 2xx, attempt `resp.json()`; if it's a dict with an id-ish key (`id` / `crm_id` / `contactId` / `vid`), set `lead.crm_id = str(that value)` before commit. Any parse failure / absent id → skip silently (the 2xx still marks `SENT`).
@@ -62,6 +63,7 @@ Email/Slack/in-app behavior + their job-returns unchanged.
 
 - Crm row/job only on sales-ready when `notify_channels.crm` AND `crm_webhook_url` set; idempotent; tenant-scoped.
 - Webhook URL encrypted at rest; never logged. Payload contains decrypted lead PII (name/email) — sent only to the tenant's own configured endpoint; never logged.
+- **SSRF-validated:** the outbound URL is checked with `ensure_safe_outbound_url` before the POST; tenant-configured URLs cannot reach loopback/private/link-local/cloud-metadata addresses.
 - Non-blocking: dispatch writes the row + returns the job; the POST runs in the worker. A CRM failure never affects the chat response or other channels.
 - 5a–5d behavior unchanged.
 
