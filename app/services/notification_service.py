@@ -40,8 +40,9 @@ class NotificationService:
         lead = self.db.get(Lead, m.lead_id)
         return lead.email if lead is not None and lead.email else None
 
-    def _try_log(self, *, tenant_id, event, channel, entity_type, entity_id, recipient) -> uuid.UUID | None:
-        """INSERT a pending log; return its id, or None if it already exists (idempotent).
+    def _try_log(self, *, tenant_id, event, channel, entity_type, entity_id, recipient,
+                 status=NotifStatus.PENDING, title=None, body=None) -> uuid.UUID | None:
+        """INSERT a log row; return its id, or None if it already exists (idempotent).
 
         Uses a nested SAVEPOINT so only the duplicate INSERT is rolled back — the
         caller's (outer) session state is left intact regardless of outcome.
@@ -50,7 +51,7 @@ class NotificationService:
         log = NotificationLog(
             tenant_id=tenant_id, event=event, channel=channel,
             entity_type=entity_type, entity_id=entity_id, recipient=recipient,
-            status=NotifStatus.PENDING)
+            status=status, title=title, body=body)
         self.db.add(log)
         try:
             self.db.flush()
@@ -60,6 +61,37 @@ class NotificationService:
         else:
             nested.commit()
         return log.id
+
+    def _render_in_app_text(self, event, entity_type, entity_id) -> tuple[str, str]:
+        """Return (title, body) strings for an in-app notification row.
+
+        Loads the relevant entity from the DB; if the entity is missing a safe
+        generic string is returned so dispatch never crashes.
+        """
+        from app.db.models.meeting import Meeting
+        from app.db.models.quote import Quote
+
+        if event == NotifEvent.SALES_READY_LEAD:
+            lead = self.db.get(Lead, entity_id)
+            name = (lead.name if lead else None) or "A lead"
+            company = (lead.company if lead else None) or "—"
+            score = lead.lead_score if lead else "—"
+            return "New sales-ready lead", f"{name} · {company} · score {score}"
+
+        if event == NotifEvent.MEETING_BOOKED:
+            m = self.db.get(Meeting, entity_id)
+            lead = self.db.get(Lead, m.lead_id) if m else None
+            who = (lead.name if lead else None) or (lead.company if lead else None) or "a prospect"
+            when = m.scheduled_at.strftime("%a %d %b · %H:%M UTC") if m and m.scheduled_at else ""
+            return "Demo booked", f"{who} · {when}".strip(" ·")
+
+        # quote_generated (default)
+        from app.sales.pricing import _currency_symbol
+        q = self.db.get(Quote, entity_id)
+        lead = self.db.get(Lead, q.lead_id) if q else None
+        company = (lead.company if lead else None) or "a prospect"
+        total = f"{_currency_symbol(q.currency)}{int(q.total or 0):,}" if q else ""
+        return "New quote", f"{total} · {company}".strip(" ·")
 
     def dispatch(self, tenant_id, event, *, entity_type, entity_id) -> list[tuple[uuid.UUID, str]]:
         config = self.db.execute(
@@ -82,6 +114,12 @@ class NotificationService:
                                            entity_type=entity_type, entity_id=entity_id, recipient=visitor)
                     if log_id is not None:
                         jobs.append((log_id, "send_visitor_meeting_confirmation"))
+
+        if channels.get("in_app"):
+            title, body = self._render_in_app_text(event, entity_type, entity_id)
+            self._try_log(tenant_id=tenant_id, event=event, channel=NotifChannel.IN_APP,
+                          entity_type=entity_type, entity_id=entity_id, recipient="in_app",
+                          status=NotifStatus.SENT, title=title, body=body)
 
         # Logs are committed BEFORE the caller enqueues into Redis. If Redis is
         # down, the log row persists as PENDING with no queued job. A stale-PENDING

@@ -19,6 +19,7 @@ from app.api.v1.endpoints import (
     knowledge,
     leads,
     meetings,
+    notifications,
     platform_admin_auth,
     public,
     public_auditor,
@@ -285,6 +286,9 @@ api_router.include_router(leads.router, prefix="/leads", tags=["leads"])
 
 # Sales agent configuration endpoints
 api_router.include_router(sales.router, prefix="/sales", tags=["sales"])
+
+# In-app notifications read API (Stage 3 Slice 5c)
+api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
 
 # Public widget meeting booking endpoints (Stage 3 Slice 3)
 api_router.include_router(meetings.router, prefix="/chat", tags=["meetings"])

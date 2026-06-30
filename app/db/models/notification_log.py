@@ -2,8 +2,9 @@
 
 import enum
 import uuid
+from datetime import datetime
 
-from sqlalchemy import Enum as SQLEnum, ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin, UUIDMixin
@@ -47,6 +48,9 @@ class NotificationLog(Base, UUIDMixin, TimestampMixin):
         SQLEnum(NotifStatus, name="notif_status", values_callable=lambda x: [e.value for e in x]),
         default=NotifStatus.PENDING, nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    title: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    body: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     def __repr__(self) -> str:
         return f"<NotificationLog(event={self.event}, channel={self.channel}, status={self.status})>"
