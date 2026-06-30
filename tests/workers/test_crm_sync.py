@@ -206,3 +206,37 @@ async def test_crm_2xx_zero_integer_id_writes_back(db_session, monkeypatch):
 
     assert db_session.get(NotificationLog, log_id).status == NotifStatus.SENT
     assert db_session.get(Lead, lead_id).crm_id == "0"
+
+
+async def test_crm_never_logs_url_or_pii(db_session, monkeypatch, caplog):
+    """Spec §6 acceptance: the webhook URL and the PII payload must never appear in log output.
+
+    Drives both a logging error path (network failure → _EmailSendFailed) and the
+    SENT path with a token-bearing URL, then asserts the secret token and the lead
+    PII (email/name) are absent from everything captured by the logging framework.
+    """
+    import logging
+
+    # Same publicly-resolving host the other tests use (passes the SSRF guard),
+    # with the secret embedded in the path so we can assert it never reaches a log.
+    secret_url = "https://hooks.zapier.com/hooks/catch/1/SECRET-TOKEN-zzz999"
+    import app.workers.sales_notifications as notif_mod
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+
+    # Error path: network failure sets log.error + raises (worker may log).
+    log_id, _ = _seed(db_session, url=secret_url)
+    with caplog.at_level(logging.DEBUG):
+        with patch("httpx.Client.post", side_effect=httpx.ConnectError("boom")):
+            with pytest.raises(Exception):
+                await sync_lead_to_crm({}, str(log_id))
+
+        # SENT path: a successful POST with the same secret URL.
+        log_id2, _ = _seed(db_session, url=secret_url)
+        with patch("httpx.Client.post", return_value=_resp(200)):
+            await sync_lead_to_crm({}, str(log_id2))
+
+    assert "SECRET-TOKEN-zzz999" not in caplog.text
+    assert "d@co.com" not in caplog.text  # lead email PII
+    assert "Dana" not in caplog.text       # lead name PII
+    # DB error field stays a generic, URL-free string.
+    assert db_session.get(NotificationLog, log_id).error == "crm network error: ConnectError"
