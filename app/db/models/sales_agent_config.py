@@ -5,6 +5,7 @@ import uuid
 from sqlalchemy import JSON, Boolean, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.core.encryption import EncryptedString
 from app.db.base import Base, TimestampMixin, UUIDMixin
 
 _DEFAULT_TRIGGER_INTENTS: list[str] = [
@@ -20,7 +21,7 @@ _DEFAULT_QUALIFICATION_QUESTIONS: list[dict] = [
     {"key": "timeline", "question": "What is your expected timeline to get started?", "type": "text"},
 ]
 
-_DEFAULT_NOTIFY_CHANNELS: dict = {"email": True, "slack": False, "in_app": False}
+_DEFAULT_NOTIFY_CHANNELS: dict = {"email": True, "slack": False, "in_app": False, "crm": False}
 
 _DEFAULT_AVAILABILITY: dict = {
     "weekdays": [1, 2, 3, 4, 5],
@@ -100,6 +101,11 @@ class TenantSalesAgentConfig(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         comment="Per-tenant Slack Incoming Webhook URL for sales notifications",
     )
+    crm_webhook_url: Mapped[str | None] = mapped_column(
+        EncryptedString,
+        nullable=True,
+        comment="Per-tenant CRM/Zapier/Make webhook URL (encrypted at rest) for sales-ready lead push",
+    )
 
     # Agent behaviour
     trigger_intents: Mapped[list] = mapped_column(
@@ -153,6 +159,7 @@ class TenantSalesAgentConfig(Base, UUIDMixin, TimestampMixin):
             quotation_enabled=False,
             notify_channels=dict(_DEFAULT_NOTIFY_CHANNELS),
             slack_webhook_url=None,
+            crm_webhook_url=None,
             trigger_intents=list(_DEFAULT_TRIGGER_INTENTS),
             qualification_questions=list(_DEFAULT_QUALIFICATION_QUESTIONS),
             pricing_tiers=[],
