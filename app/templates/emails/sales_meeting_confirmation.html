@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}You're booked — demo confirmed{% endblock %}
+
+{% block content %}
+<h1>You're booked!</h1>
+
+<p>Your demo has been scheduled. Here are your booking details:</p>
+
+<div class="credential-box">
+  {% if scheduled_at %}
+  <div style="margin-bottom: 12px;">
+    <div class="credential-label">Date &amp; Time</div>
+    <div class="credential-value">{{ scheduled_at }}</div>
+  </div>
+  {% endif %}
+  {% if visitor_timezone %}
+  <div style="margin-bottom: 12px;">
+    <div class="credential-label">Your Timezone</div>
+    <div class="credential-value">{{ visitor_timezone }}</div>
+  </div>
+  {% endif %}
+</div>
+
+<p>We look forward to speaking with you. If you need to reschedule, just reply to this email.</p>
+
+<p style="color: #6b7280; font-size: 14px; text-align: center;">
+  A calendar invite has been sent to this address.
+</p>
+{% endblock %}

@@ -69,6 +69,7 @@ from app.db.models.subscription_plan import SubscriptionPlan
 from app.db.models.lead import Lead, LeadStatus
 from app.db.models.meeting import Meeting, MeetingStatus
 from app.db.models.quote import Quote, QuoteStatus
+from app.db.models.notification_log import NotificationLog, NotifEvent, NotifChannel, NotifStatus
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.db.models.visit_analytics import DailyVisit
 
@@ -168,6 +169,11 @@ __all__ = [
     "QuoteStatus",
     # Sales agent config
     "TenantSalesAgentConfig",
+    # Notification log models
+    "NotificationLog",
+    "NotifEvent",
+    "NotifChannel",
+    "NotifStatus",
     # Auditor models
     "BusinessProfile",
     "BusinessProfileSource",

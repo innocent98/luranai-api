@@ -1196,9 +1196,16 @@ class WorkerSettings:
 
     from app.auditor.pipeline import run_website_audit  # type: ignore[misc]
 
+    from app.workers.sales_notifications import (  # type: ignore[misc]
+        send_rep_alert,
+        send_visitor_meeting_confirmation,
+    )
+
     functions = [
         process_document_ingestion,
         run_website_audit,
+        send_rep_alert,
+        send_visitor_meeting_confirmation,
         auto_abandon_inactive_conversations,
         auto_resolve_stale_tickets,
         check_trial_expiration_3days,

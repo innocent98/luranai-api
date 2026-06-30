@@ -306,6 +306,15 @@ class LeadService:
             "status_counts": status_counts,
         }
 
+    # ------------------------------------------------------------------
+    # crossed_sales_ready
+    # ------------------------------------------------------------------
+
+    def crossed_sales_ready(self, prior_score: int | None, lead: Lead) -> bool:
+        """True iff the lead's score first reached the sales_ready threshold this update."""
+        threshold = TIER_THRESHOLDS["sales_ready"]
+        return (prior_score or 0) < threshold <= (lead.lead_score or 0)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
