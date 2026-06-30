@@ -9,6 +9,7 @@ from app.db.models.meeting import Meeting
 from app.db.models.quote import Quote
 from app.db.models.notification_log import NotificationLog, NotifEvent, NotifStatus
 from app.services.email_service import EmailService
+from app.services.quote_pdf_service import render_quote_pdf
 
 logger = logging.getLogger(__name__)
 
@@ -73,12 +74,37 @@ async def send_rep_alert(ctx, notification_log_id: str) -> None:
         if log is None or log.status == NotifStatus.SENT:
             return
         ctx_data = _entity_context(db, log)
-        ok = EmailService().send_templated_email(
-            to_email=log.recipient,
-            subject=_REP_SUBJECT.get(log.event, "Sales notification"),
-            template_name="sales_rep_alert.html",
-            context=ctx_data,
-        )
+        if log.event == NotifEvent.QUOTE_GENERATED:
+            quote = db.get(Quote, log.entity_id)
+            lead = db.get(Lead, quote.lead_id) if quote else None
+            pdf_bytes = None
+            try:
+                if quote is not None:
+                    pdf_bytes = render_quote_pdf(quote, lead=lead)
+            except Exception as pdf_exc:  # noqa: BLE001 — PDF is an enhancement, never block the alert
+                logger.warning(f"quote PDF render failed (sending text alert): {pdf_exc}")
+            if pdf_bytes:
+                ok = EmailService().send_templated_email_with_attachments(
+                    to_email=log.recipient,
+                    subject=_REP_SUBJECT.get(log.event, "Sales notification"),
+                    template_name="sales_rep_alert.html",
+                    context=ctx_data,
+                    attachments=[(f"quote-{log.entity_id}.pdf", pdf_bytes, "application/pdf")],
+                )
+            else:
+                ok = EmailService().send_templated_email(
+                    to_email=log.recipient,
+                    subject=_REP_SUBJECT.get(log.event, "Sales notification"),
+                    template_name="sales_rep_alert.html",
+                    context=ctx_data,
+                )
+        else:
+            ok = EmailService().send_templated_email(
+                to_email=log.recipient,
+                subject=_REP_SUBJECT.get(log.event, "Sales notification"),
+                template_name="sales_rep_alert.html",
+                context=ctx_data,
+            )
         if not ok:
             log.status = NotifStatus.FAILED
             log.error = "send_templated_email returned False"

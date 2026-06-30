@@ -76,7 +76,11 @@ def _seed_quote_log(db):
 
 
 async def test_send_rep_alert_marks_sent(db_session, monkeypatch):
-    """send_rep_alert flips status to SENT and calls send_templated_email once."""
+    """send_rep_alert flips status to SENT and calls send_templated_email once.
+
+    render_quote_pdf is forced to fail so the fallback plain-email path is used;
+    the SENT outcome is what this test asserts.
+    """
     log_id = _seed_quote_log(db_session)
 
     import app.workers.sales_notifications as notif_mod
@@ -84,9 +88,13 @@ async def test_send_rep_alert_marks_sent(db_session, monkeypatch):
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
     with patch(
-        "app.services.email_service.EmailService.send_templated_email", return_value=True
-    ) as send:
-        await send_rep_alert({}, str(log_id))
+        "app.workers.sales_notifications.render_quote_pdf",
+        side_effect=RuntimeError("pdf unavailable in test"),
+    ):
+        with patch(
+            "app.services.email_service.EmailService.send_templated_email", return_value=True
+        ) as send:
+            await send_rep_alert({}, str(log_id))
 
     send.assert_called_once()
     log = db_session.get(NotificationLog, log_id)
@@ -114,7 +122,11 @@ async def test_send_rep_alert_idempotent_if_already_sent(db_session, monkeypatch
 
 
 async def test_send_rep_alert_marks_failed_on_email_error(db_session, monkeypatch):
-    """send_rep_alert marks FAILED and raises RuntimeError when EmailService returns False."""
+    """send_rep_alert marks FAILED and raises RuntimeError when EmailService returns False.
+
+    render_quote_pdf is forced to fail so the plain-email fallback is reached;
+    that call then returns False, producing the FAILED outcome this test asserts.
+    """
     log_id = _seed_quote_log(db_session)
 
     import app.workers.sales_notifications as notif_mod
@@ -122,10 +134,14 @@ async def test_send_rep_alert_marks_failed_on_email_error(db_session, monkeypatc
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
     with patch(
-        "app.services.email_service.EmailService.send_templated_email", return_value=False
+        "app.workers.sales_notifications.render_quote_pdf",
+        side_effect=RuntimeError("pdf unavailable in test"),
     ):
-        with pytest.raises(RuntimeError, match="email send failed"):
-            await send_rep_alert({}, str(log_id))
+        with patch(
+            "app.services.email_service.EmailService.send_templated_email", return_value=False
+        ):
+            with pytest.raises(RuntimeError, match="email send failed"):
+                await send_rep_alert({}, str(log_id))
 
     log = db_session.get(NotificationLog, log_id)
     assert log.status == NotifStatus.FAILED

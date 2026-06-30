@@ -3,6 +3,7 @@
 import smtplib
 import ssl
 from datetime import datetime
+from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -34,6 +35,7 @@ class EmailService:
         subject: str,
         html_content: str,
         text_content: str | None = None,
+        attachments: list[tuple[str, bytes, str]] | None = None,
     ) -> bool:
         """
         Send an email using SMTP.
@@ -43,21 +45,36 @@ class EmailService:
             subject: Email subject
             html_content: HTML content of the email
             text_content: Plain text fallback (optional)
+            attachments: Optional list of (filename, content_bytes, mime_type) tuples
 
         Returns:
             True if sent successfully, False otherwise
         """
         try:
-            # Create message
-            msg = MIMEMultipart("alternative")
-            msg["From"] = f"{settings.EMAILS_FROM_NAME} <{settings.EMAILS_FROM_EMAIL}>"
-            msg["To"] = to_email
-            msg["Subject"] = subject
-
-            # Attach text and HTML parts
-            if text_content:
-                msg.attach(MIMEText(text_content, "plain"))
-            msg.attach(MIMEText(html_content, "html"))
+            # Build message — mixed (with attachments) or alternative (plain)
+            if attachments:
+                msg = MIMEMultipart("mixed")
+                msg["From"] = f"{settings.EMAILS_FROM_NAME} <{settings.EMAILS_FROM_EMAIL}>"
+                msg["To"] = to_email
+                msg["Subject"] = subject
+                body = MIMEMultipart("alternative")
+                if text_content:
+                    body.attach(MIMEText(text_content, "plain"))
+                body.attach(MIMEText(html_content, "html"))
+                msg.attach(body)
+                for filename, content, mime in attachments:
+                    subtype = mime.split("/", 1)[1] if "/" in mime else "octet-stream"
+                    part = MIMEApplication(content, _subtype=subtype)
+                    part.add_header("Content-Disposition", "attachment", filename=filename)
+                    msg.attach(part)
+            else:
+                msg = MIMEMultipart("alternative")
+                msg["From"] = f"{settings.EMAILS_FROM_NAME} <{settings.EMAILS_FROM_EMAIL}>"
+                msg["To"] = to_email
+                msg["Subject"] = subject
+                if text_content:
+                    msg.attach(MIMEText(text_content, "plain"))
+                msg.attach(MIMEText(html_content, "html"))
 
             # Send email based on configuration
             # Note: Port 465 uses SSL (implicit), port 587 uses STARTTLS
@@ -109,6 +126,23 @@ class EmailService:
             subject=subject,
             html_content=html_content,
             text_content=text_content,
+        )
+
+    def send_templated_email_with_attachments(
+        self,
+        to_email: str,
+        subject: str,
+        template_name: str,
+        context: dict[str, Any],
+        attachments: list[tuple[str, bytes, str]] | None = None,
+    ) -> bool:
+        """Render and send a templated email with optional binary attachments."""
+        html_content = self.render_template(template_name, **context)
+        return self._send_email(
+            to_email=to_email,
+            subject=subject,
+            html_content=html_content,
+            attachments=attachments,
         )
 
     def send_platform_broadcast_email(
