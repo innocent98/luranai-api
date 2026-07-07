@@ -34,6 +34,18 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
+# Install Playwright's Chromium browser + its OS libraries for the website
+# auditor. The playwright pip package (installed in the builder stage) ships
+# only the Python client and Node driver; the browser binary is a separate
+# ~110MB download. Without this the auditor's render_page() cannot launch a
+# browser, silently scans 0 pages, and reports a misleading 0% score.
+# PLAYWRIGHT_BROWSERS_PATH pins a shared, root-owned, world-readable location so
+# the non-root appuser can launch the browser at runtime (the default per-user
+# cache would be empty for appuser). Must run as root, before USER appuser.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN playwright install --with-deps chromium && \
+    chmod -R a+rx /opt/ms-playwright
+
 # Copy application
 COPY ./app /app/app
 COPY ./worker.py /app/worker.py
