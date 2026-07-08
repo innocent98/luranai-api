@@ -101,7 +101,9 @@ async def test_render_page_timeout_handled_gracefully(monkeypatch):
     monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
     monkeypatch.setattr(
         "app.auditor.crawler.settings",
-        type("S", (), {"AUDITOR_PER_PAGE_TIMEOUT_S": 0, "AUDITOR_CRAWL_RPS": 1})(),
+        type("S", (), {"AUDITOR_PER_PAGE_TIMEOUT_S": 0,
+                       "AUDITOR_CRAWL_RPS": 1,
+                       "AUDITOR_HYDRATION_SETTLE_MS": 0})(),
     )
 
     async def slow_renderer(url):
@@ -586,3 +588,99 @@ async def test_playwright_route_handler_continues_safe_host():
 
     mock_route_safe.continue_.assert_called_once()
     mock_route_safe.abort.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# error_kind classification
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_render_page_success_sets_error_kind_ok(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+
+    async def renderer(url):
+        return 200, "<html>ok</html>"
+
+    page = await crawler.render_page("https://x.com/a", page_renderer=renderer)
+    assert page.error is None
+    assert page.error_kind == crawler.RawPageError.OK
+
+
+@pytest.mark.asyncio
+async def test_render_page_unsafe_url_error_kind_blocked(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: False)
+
+    async def renderer(url):
+        return 200, "<html></html>"
+
+    page = await crawler.render_page("http://169.254.169.254/", page_renderer=renderer)
+    assert page.error == "UNSAFE_URL"
+    assert page.error_kind == crawler.RawPageError.BLOCKED
+
+
+@pytest.mark.asyncio
+async def test_render_page_timeout_error_kind_timeout(monkeypatch):
+    import asyncio
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+    monkeypatch.setattr(
+        "app.auditor.crawler.settings",
+        type("S", (), {"AUDITOR_PER_PAGE_TIMEOUT_S": 0,
+                       "AUDITOR_CRAWL_RPS": 1,
+                       "AUDITOR_HYDRATION_SETTLE_MS": 0})(),
+    )
+
+    async def slow(url):
+        await asyncio.sleep(100)
+        return 200, "<html></html>"
+
+    page = await crawler.render_page("https://x.com/s", page_renderer=slow)
+    assert page.error == "TIMEOUT"
+    assert page.error_kind == crawler.RawPageError.TIMEOUT
+
+
+@pytest.mark.asyncio
+async def test_render_page_launch_failure_error_kind_launch_failed(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+
+    async def broken(url):
+        raise Exception(
+            "BrowserType.launch: Executable doesn't exist at "
+            "/home/appuser/.cache/ms-playwright/chromium/headless_shell"
+        )
+
+    page = await crawler.render_page("https://x.com/b", page_renderer=broken)
+    assert page.error_kind == crawler.RawPageError.LAUNCH_FAILED
+
+
+@pytest.mark.asyncio
+async def test_render_page_generic_error_kind_http_error(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+
+    async def broken(url):
+        raise ConnectionError("Network unreachable")
+
+    page = await crawler.render_page("https://x.com/c", page_renderer=broken)
+    assert page.error_kind == crawler.RawPageError.HTTP_ERROR
+
+
+@pytest.mark.asyncio
+async def test_render_page_size_cap_error_kind(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+
+    async def big(url):
+        return 200, "x" * 50
+
+    page = await crawler.render_page("https://x.com/a", page_renderer=big, max_bytes=10)
+    assert page.error == "SIZE_CAP_EXCEEDED"
+    assert page.error_kind == crawler.RawPageError.SIZE_CAP
+
+
+@pytest.mark.asyncio
+async def test_render_page_non_2xx_status_error_kind_http_error(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+
+    async def renderer(url):
+        return 404, "<html>not found</html>"
+
+    page = await crawler.render_page("https://x.com/missing", page_renderer=renderer)
+    assert page.error_kind == crawler.RawPageError.HTTP_ERROR

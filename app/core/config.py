@@ -212,6 +212,7 @@ class Settings(BaseSettings):
     AUDITOR_UNCLAIMED_PURGE_DAYS: int = 30
     AUDITOR_PER_PAGE_TIMEOUT_S: int = 10
     AUDITOR_CRAWL_RPS: int = 1
+    AUDITOR_HYDRATION_SETTLE_MS: int = 3000
     AUDITOR_MODEL_PROFILE: str = "gpt-4o"
     AUDITOR_MODEL_CLASSIFY: str = "gpt-4o-mini"
     AUDITOR_MODEL_GAPS: str = "gpt-4o"
