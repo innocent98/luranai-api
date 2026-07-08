@@ -8,9 +8,9 @@ def test_auditor_settings_defaults():
     assert settings.AUDITOR_UNCLAIMED_PURGE_DAYS == 30
     assert settings.AUDITOR_PER_PAGE_TIMEOUT_S == 10
     assert settings.AUDITOR_CRAWL_RPS == 1
-    assert settings.AUDITOR_MODEL_PROFILE == "gpt-4o"
+    assert settings.AUDITOR_MODEL_PROFILE == "gpt-4.1-mini"
     assert settings.AUDITOR_MODEL_CLASSIFY == "gpt-4o-mini"
-    assert settings.AUDITOR_MODEL_GAPS == "gpt-4o"
+    assert settings.AUDITOR_MODEL_GAPS == "gpt-4.1-mini"
 
 
 def test_auditor_dependencies_importable():
