@@ -1,9 +1,8 @@
-"""URL discovery: sitemap-first, BFS depth-3 fallback, structural prune, SSRF guard."""
+"""URL discovery: sitemap-first seeding, structural prune, SSRF guard."""
 
 from __future__ import annotations
 
 import re
-from collections import deque
 from urllib.parse import urljoin, urlparse, urlunparse, parse_qsl, urlencode
 
 import httpx
@@ -17,7 +16,6 @@ _PRUNE_PATH_RE = re.compile(
     re.IGNORECASE,
 )
 _ASSET_RE = re.compile(r"\.(js|css|png|jpe?g|gif|svg|ico|woff2?|ttf|pdf|zip|mp4|webp)(\?|$)", re.I)
-_MAX_DEPTH = 3
 
 
 def normalize_url(raw: str, base: str | None = None) -> str | None:
@@ -134,19 +132,13 @@ def _extract_links(html: str, base: str) -> list[str]:
     return out
 
 
-async def discover(root_url: str, max_pages: int, fetch_text=None) -> list[str]:
-    """Return up to max_pages discovered, pruned, SSRF-guarded URLs rooted at root_url.
+async def seed_urls(root_url: str, max_pages: int, fetch_text=None) -> list[str]:
+    """Return seed URLs for the crawl: the root plus sitemap.xml <loc> URLs.
 
-    Algorithm:
-      1. Normalize and SSRF-guard the root URL; return [] if it fails.
-      2. Fetch sitemap.xml; parse all <loc> URLs.
-      3. BFS depth-3 link-following to fill remaining budget.
-      4. All candidate URLs are structurally pruned and SSRF-guarded before inclusion.
-
-    Args:
-        root_url: The root URL to start discovery from.
-        max_pages: Maximum number of URLs to return (caller supplies plan cap).
-        fetch_text: Optional async callable(url) -> str|None for testing injection.
+    Cheap HTTP-only seeding. Link discovery on rendered pages is done later by
+    crawler.crawl_site (which can see JS-injected links). All candidate URLs are
+    normalized, structurally pruned, SSRF-guarded, same-host filtered, deduped,
+    and capped at max_pages.
     """
     fetch_text = fetch_text or _default_fetch_text
     root = normalize_url(root_url)
@@ -174,14 +166,12 @@ async def discover(root_url: str, max_pages: int, fetch_text=None) -> list[str]:
         seen.add(root)
         found.append(root)
 
-    # Phase 1: sitemap.xml
-    # SSRF guard: validate the sitemap URL host before fetching.
     sitemap_url = urljoin(root + "/", "sitemap.xml")
     if not guard_url(sitemap_url):
-        logger.warning("discover SSRF guard blocked sitemap URL: {}", sitemap_url)
-        sitemap = None
-    else:
-        sitemap = await fetch_text(sitemap_url)
+        logger.warning("seed_urls SSRF guard blocked sitemap URL: {}", sitemap_url)
+        return found[:max_pages]
+
+    sitemap = await fetch_text(sitemap_url)
     if sitemap:
         for loc in _parse_sitemap(sitemap):
             n = normalize_url(loc)
@@ -190,22 +180,5 @@ async def discover(root_url: str, max_pages: int, fetch_text=None) -> list[str]:
                 found.append(n)
                 if len(found) >= max_pages:
                     return found[:max_pages]
-
-    # Phase 2: BFS depth-3 fallback to fill remaining budget
-    queue: deque[tuple[str, int]] = deque((u, 0) for u in list(found))
-    while queue and len(found) < max_pages:
-        url, depth = queue.popleft()
-        if depth >= _MAX_DEPTH:
-            continue
-        html = await fetch_text(url)
-        if not html:
-            continue
-        for link in _extract_links(html, url):
-            if len(found) >= max_pages:
-                break
-            if _accept(link):
-                seen.add(link)
-                found.append(link)
-                queue.append((link, depth + 1))
 
     return found[:max_pages]
