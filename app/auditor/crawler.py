@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 from urllib.parse import urljoin, urlparse
@@ -13,6 +14,7 @@ from playwright.async_api import async_playwright
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from app.core.config import settings
+from app.auditor import discovery
 from app.auditor.discovery import guard_url
 from app.utils.network_security import resolve_and_validate_host
 
@@ -25,6 +27,9 @@ class RawPageError(str, Enum):
     BLOCKED = "blocked"               # SSRF pre-guard or post-redirect guard
     SIZE_CAP = "size_cap"
     ROBOTS = "robots"
+
+
+_MAX_DEPTH = 3  # PRD 4.1: follow internal links up to 3 levels deep
 
 
 @dataclass
@@ -314,5 +319,85 @@ async def crawl(
         pages.append(page)
         if delay:
             await asyncio.sleep(delay)
+
+    return pages
+
+
+async def crawl_site(
+    seeds: list[str],
+    max_pages: int,
+    *,
+    page_renderer=None,
+    robots_disallowed: set[str] | None = None,
+    rps: int | None = None,
+    skip_urls: set[str] | None = None,
+) -> list[RawPage]:
+    """Render + BFS-expand from seed URLs in a single loop.
+
+    Renders each same-host, non-pruned, SSRF-safe URL exactly once (browser),
+    then extracts links from the *rendered* HTML and enqueues newly discovered
+    same-host links up to _MAX_DEPTH and max_pages. Reuses the rendered pages so
+    the caller need not fetch them again.
+
+    Args:
+        seeds: Seed URLs (root + sitemap locs). The first seed's host defines the
+            same-host boundary for the whole crawl.
+        max_pages: Hard cap on the number of pages rendered.
+        page_renderer: Injectable async ``(url) -> (status, html[, final_url])``.
+        robots_disallowed: Disallowed path prefixes from fetch_robots().
+        rps: Requests/sec cap (defaults to settings.AUDITOR_CRAWL_RPS).
+        skip_urls: URLs to never render (already-seen entries during an
+            incremental resume). They are pre-marked seen so they are neither
+            rendered nor enqueued.
+    """
+    rps = rps if rps is not None else settings.AUDITOR_CRAWL_RPS
+    delay = 1.0 / rps if rps > 0 else 0.0
+    robots_disallowed = robots_disallowed or set()
+
+    seen: set[str] = {n for n in (discovery.normalize_url(u) for u in (skip_urls or set())) if n}
+
+    frontier: deque[tuple[str, int]] = deque()
+    root_host = ""
+    for raw in seeds:
+        n = discovery.normalize_url(raw)
+        if not n or n in seen:
+            continue
+        if not root_host:
+            root_host = urlparse(n).netloc
+        seen.add(n)
+        frontier.append((n, 0))
+
+    pages: list[RawPage] = []
+    while frontier and len(pages) < max_pages:
+        url, depth = frontier.popleft()
+
+        if not is_allowed_by_robots(url, robots_disallowed):
+            pages.append(
+                RawPage(url=url, status=0, html=None, bytes_len=0,
+                        error="ROBOTS_BLOCKED", error_kind=RawPageError.ROBOTS)
+            )
+            continue
+
+        page = await render_page(url, page_renderer=page_renderer)
+        pages.append(page)
+        if delay:
+            await asyncio.sleep(delay)
+
+        if not page.html or depth + 1 > _MAX_DEPTH:
+            continue
+
+        for link in discovery._extract_links(page.html, url):
+            if link in seen:
+                continue
+            if urlparse(link).netloc != root_host:
+                continue
+            if discovery.is_structurally_prunable(link):
+                seen.add(link)
+                continue
+            if not discovery.guard_url(link):
+                seen.add(link)
+                continue
+            seen.add(link)
+            frontier.append((link, depth + 1))
 
     return pages

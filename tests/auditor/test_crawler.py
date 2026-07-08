@@ -741,3 +741,127 @@ async def test_playwright_render_waits_networkidle_then_captures(monkeypatch):
     assert status == 200
     assert html == "<html>hydrated</html>"          # captured despite settle timeout
     assert goto_kwargs.get("wait_until") == "load"   # not domcontentloaded
+
+
+# ---------------------------------------------------------------------------
+# crawl_site — unified render + link expansion
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_crawl_site_expands_frontier_from_rendered_links(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+    monkeypatch.setattr("app.auditor.discovery.guard_url", lambda url: True)
+
+    html_by_url = {
+        "https://x.com/": '<html><a href="/features">F</a><a href="/faq">Q</a></html>',
+        "https://x.com/features": "<html>features</html>",
+        "https://x.com/faq": "<html>faq</html>",
+    }
+
+    async def renderer(url):
+        return 200, html_by_url.get(url, "<html>empty</html>")
+
+    pages = await crawler.crawl_site(
+        ["https://x.com/"], max_pages=50, rps=1000, page_renderer=renderer
+    )
+    urls = {p.url for p in pages}
+    assert "https://x.com/" in urls
+    assert "https://x.com/features" in urls   # discovered from rendered root
+    assert "https://x.com/faq" in urls
+
+
+@pytest.mark.asyncio
+async def test_crawl_site_respects_max_pages_budget(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+    monkeypatch.setattr("app.auditor.discovery.guard_url", lambda url: True)
+
+    async def renderer(url):
+        # every page links to two fresh pages -> unbounded without a cap
+        return 200, f'<html><a href="{url}a">A</a><a href="{url}b">B</a></html>'
+
+    pages = await crawler.crawl_site(
+        ["https://x.com/"], max_pages=5, rps=1000, page_renderer=renderer
+    )
+    assert len(pages) == 5
+
+
+@pytest.mark.asyncio
+async def test_crawl_site_enforces_depth_cap(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+    monkeypatch.setattr("app.auditor.discovery.guard_url", lambda url: True)
+
+    # A chain deeper than _MAX_DEPTH: / -> /1 -> /2 -> /3 -> /4
+    chain = {
+        "https://x.com/": '<html><a href="/1">1</a></html>',
+        "https://x.com/1": '<html><a href="/2">2</a></html>',
+        "https://x.com/2": '<html><a href="/3">3</a></html>',
+        "https://x.com/3": '<html><a href="/4">4</a></html>',
+        "https://x.com/4": "<html>deep</html>",
+    }
+
+    async def renderer(url):
+        return 200, chain.get(url, "<html>x</html>")
+
+    pages = await crawler.crawl_site(
+        ["https://x.com/"], max_pages=50, rps=1000, page_renderer=renderer
+    )
+    urls = {p.url for p in pages}
+    # depth 0..3 reachable (/, /1, /2, /3); /4 is depth 4 -> excluded
+    assert "https://x.com/3" in urls
+    assert "https://x.com/4" not in urls
+
+
+@pytest.mark.asyncio
+async def test_crawl_site_stays_on_same_host(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+    monkeypatch.setattr("app.auditor.discovery.guard_url", lambda url: True)
+
+    async def renderer(url):
+        return 200, '<html><a href="https://evil.com/x">E</a><a href="/ok">O</a></html>'
+
+    pages = await crawler.crawl_site(
+        ["https://x.com/"], max_pages=50, rps=1000, page_renderer=renderer
+    )
+    urls = {p.url for p in pages}
+    assert "https://x.com/ok" in urls
+    assert not any("evil.com" in u for u in urls)
+
+
+@pytest.mark.asyncio
+async def test_crawl_site_skips_urls_and_dedupes(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+    monkeypatch.setattr("app.auditor.discovery.guard_url", lambda url: True)
+
+    rendered = []
+
+    async def renderer(url):
+        rendered.append(url)
+        return 200, '<html><a href="/seen">S</a><a href="/new">N</a></html>'
+
+    pages = await crawler.crawl_site(
+        ["https://x.com/", "https://x.com/"],   # duplicate seed
+        max_pages=50, rps=1000, page_renderer=renderer,
+        skip_urls={"https://x.com/seen"},
+    )
+    # root rendered once (dedup); /seen skipped; /new rendered
+    assert rendered.count("https://x.com/") == 1
+    assert "https://x.com/seen" not in rendered
+    assert "https://x.com/new" in rendered
+
+
+@pytest.mark.asyncio
+async def test_crawl_site_respects_robots(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+    monkeypatch.setattr("app.auditor.discovery.guard_url", lambda url: True)
+
+    async def renderer(url):
+        return 200, '<html><a href="/private/x">P</a><a href="/pub">Y</a></html>'
+
+    pages = await crawler.crawl_site(
+        ["https://x.com/"], max_pages=50, rps=1000, page_renderer=renderer,
+        robots_disallowed={"/private"},
+    )
+    blocked = [p for p in pages if "/private" in p.url]
+    # /private/x is enqueued (link found) but rendered as ROBOTS-blocked, no html
+    assert blocked and blocked[0].error == "ROBOTS_BLOCKED"
+    assert blocked[0].html is None
