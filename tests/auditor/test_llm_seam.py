@@ -8,10 +8,10 @@ from app.auditor import llm
 
 
 def test_model_for_task_routes_to_configured_models():
-    assert llm.model_for_task("profile_synthesis") == "gpt-4o"
+    assert llm.model_for_task("profile_synthesis") == "gpt-4.1-mini"
     assert llm.model_for_task("page_classify") == "gpt-4o-mini"
-    assert llm.model_for_task("gap_analysis") == "gpt-4o"
-    assert llm.model_for_task("expected_map") == "gpt-4o"
+    assert llm.model_for_task("gap_analysis") == "gpt-4.1-mini"
+    assert llm.model_for_task("expected_map") == "gpt-4.1-mini"
 
 
 def test_model_for_task_unknown_raises():
