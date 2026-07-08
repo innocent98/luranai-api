@@ -865,3 +865,42 @@ async def test_crawl_site_respects_robots(monkeypatch):
     # /private/x is enqueued (link found) but rendered as ROBOTS-blocked, no html
     assert blocked and blocked[0].error == "ROBOTS_BLOCKED"
     assert blocked[0].html is None
+
+
+@pytest.mark.asyncio
+async def test_crawl_site_rejects_off_host_seed(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+    monkeypatch.setattr("app.auditor.discovery.guard_url", lambda url: True)
+
+    rendered = []
+
+    async def renderer(url):
+        rendered.append(url)
+        return 200, "<html>ok</html>"
+
+    pages = await crawler.crawl_site(
+        ["https://x.com/", "https://evil.com/x"],  # second seed is off-host
+        max_pages=50, rps=1000, page_renderer=renderer,
+    )
+    assert "https://x.com/" in rendered
+    assert not any("evil.com" in u for u in rendered)
+
+
+@pytest.mark.asyncio
+async def test_crawl_site_no_html_page_skips_expansion_without_crash(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+    monkeypatch.setattr("app.auditor.discovery.guard_url", lambda url: True)
+
+    async def renderer(url):
+        if url.endswith("/boom"):
+            raise ConnectionError("network down")  # -> render_page returns html=None, HTTP_ERROR
+        return 200, '<html><a href="/boom">B</a><a href="/ok">O</a></html>'
+
+    pages = await crawler.crawl_site(
+        ["https://x.com/"], max_pages=50, rps=1000, page_renderer=renderer,
+    )
+    boom = next(p for p in pages if p.url.endswith("/boom"))
+    assert boom.html is None                     # errored render, no html
+    assert boom.error_kind == crawler.RawPageError.HTTP_ERROR
+    # crawl did not crash extracting links from the no-html page
+    assert any(p.url.endswith("/ok") for p in pages)

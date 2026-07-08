@@ -362,8 +362,17 @@ async def crawl_site(
         n = discovery.normalize_url(raw)
         if not n or n in seen:
             continue
+        host = urlparse(n).netloc
         if not root_host:
-            root_host = urlparse(n).netloc
+            root_host = host           # first valid seed defines the same-host boundary
+        elif host != root_host:
+            continue                    # off-host seed rejected
+        if discovery.is_structurally_prunable(n):
+            seen.add(n)
+            continue
+        if not discovery.guard_url(n):
+            seen.add(n)
+            continue
         seen.add(n)
         frontier.append((n, 0))
 
@@ -390,6 +399,7 @@ async def crawl_site(
             if link in seen:
                 continue
             if urlparse(link).netloc != root_host:
+                seen.add(link)
                 continue
             if discovery.is_structurally_prunable(link):
                 seen.add(link)
