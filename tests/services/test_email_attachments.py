@@ -21,10 +21,19 @@ def test_send_email_with_attachment_builds_mixed_message():
         def login(self, *a):
             pass
 
+        def starttls(self, *a, **k):
+            pass
+
         def send_message(self, msg):
             fake_send_message(msg)
 
-    with patch("app.services.email_service.smtplib.SMTP_SSL", return_value=FakeServer()):
+    # Patch BOTH transports: _send_email picks SMTP_SSL (port 465) or SMTP
+    # (STARTTLS, port 587 default) based on settings.SMTP_PORT, which is
+    # environment-dependent. Patching both makes the test port-independent.
+    with (
+        patch("app.services.email_service.smtplib.SMTP_SSL", return_value=FakeServer()),
+        patch("app.services.email_service.smtplib.SMTP", return_value=FakeServer()),
+    ):
         ok = EmailService()._send_email(
             to_email="rep@co.com",
             subject="Quote",
@@ -50,10 +59,16 @@ def test_send_email_without_attachment_is_alternative():
         def login(self, *a):
             pass
 
+        def starttls(self, *a, **k):
+            pass
+
         def send_message(self, msg):
             pass
 
-    with patch("app.services.email_service.smtplib.SMTP_SSL", return_value=FakeServer()):
+    with (
+        patch("app.services.email_service.smtplib.SMTP_SSL", return_value=FakeServer()),
+        patch("app.services.email_service.smtplib.SMTP", return_value=FakeServer()),
+    ):
         ok = EmailService()._send_email(
             to_email="r@co.com",
             subject="s",
