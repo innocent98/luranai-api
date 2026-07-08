@@ -206,13 +206,18 @@ class Settings(BaseSettings):
     AUTOMATION_OUTBOUND_HOST_ALLOWLIST: str = ""
 
     # AI Website Auditor (Stage 4)
-    AUDITOR_PUBLIC_MAX_PAGES: int = 50
+    # Public teaser scan: small page budget keeps it fast + token-frugal (only
+    # a score + teaser gaps are shown; the full scan runs later in-dashboard).
+    # Rate-limited to 3/day/IP, so per-visitor token exposure is tightly bounded.
+    AUDITOR_PUBLIC_MAX_PAGES: int = 10
     AUDITOR_DASHBOARD_DEFAULT_MAX_PAGES: int = 500
     AUDITOR_CLAIM_STALENESS_DAYS: int = 7
     AUDITOR_UNCLAIMED_PURGE_DAYS: int = 30
     AUDITOR_PER_PAGE_TIMEOUT_S: int = 10
     AUDITOR_CRAWL_RPS: int = 1
-    AUDITOR_HYDRATION_SETTLE_MS: int = 3000
+    # Best-effort per-page hydration wait for SPAs; capped low because content
+    # sites never reach network-idle (ads/trackers), so the full wait is wasted.
+    AUDITOR_HYDRATION_SETTLE_MS: int = 1500
     AUDITOR_THIN_MIN_CONTENT_CHARS: int = 800
     AUDITOR_MODEL_PROFILE: str = "gpt-4.1-mini"
     AUDITOR_MODEL_CLASSIFY: str = "gpt-4o-mini"

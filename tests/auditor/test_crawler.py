@@ -10,23 +10,48 @@ from app.auditor import crawler
 async def test_ssrf_route_handler_aborts_non_http_and_internal_continues_safe():
     # non-http scheme -> abort, never validated
     route = AsyncMock()
-    await crawler._ssrf_route_handler(route, SimpleNamespace(url="data:text/html,hi"))
+    await crawler._ssrf_route_handler(
+        route, SimpleNamespace(url="data:text/html,hi", resource_type="document")
+    )
     route.abort.assert_awaited_once()
     route.continue_.assert_not_awaited()
 
     # internal host (guard raises) -> abort
     route2 = AsyncMock()
     with patch("app.auditor.crawler.resolve_and_validate_host", side_effect=ValueError("private")):
-        await crawler._ssrf_route_handler(route2, SimpleNamespace(url="http://10.0.0.1/x.js"))
+        await crawler._ssrf_route_handler(
+            route2, SimpleNamespace(url="http://10.0.0.1/x", resource_type="document")
+        )
     route2.abort.assert_awaited_once()
     route2.continue_.assert_not_awaited()
 
     # safe public host -> continue
     route3 = AsyncMock()
     with patch("app.auditor.crawler.resolve_and_validate_host", return_value="93.184.216.34"):
-        await crawler._ssrf_route_handler(route3, SimpleNamespace(url="https://example.com/s.css"))
+        await crawler._ssrf_route_handler(
+            route3, SimpleNamespace(url="https://example.com/page", resource_type="document")
+        )
     route3.continue_.assert_awaited_once()
     route3.abort.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ssrf_route_handler_aborts_heavy_resource_types():
+    """image/media/font/stylesheet are aborted before any DNS validation (perf +
+    reduced SSRF surface); allowed types still get validated."""
+    for rtype in ("image", "media", "font", "stylesheet"):
+        route = AsyncMock()
+        resolved = []
+        with patch(
+            "app.auditor.crawler.resolve_and_validate_host",
+            side_effect=lambda h: resolved.append(h) or "1.2.3.4",
+        ):
+            await crawler._ssrf_route_handler(
+                route, SimpleNamespace(url="https://cdn.example.com/a", resource_type=rtype)
+            )
+        route.abort.assert_awaited_once()
+        route.continue_.assert_not_awaited()
+        assert resolved == [], f"{rtype} must be aborted WITHOUT a DNS lookup"
 
 
 def test_robots_blocks_disallowed_path():
