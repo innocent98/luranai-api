@@ -338,7 +338,7 @@ async def test_incremental_resume_appends_only_new_urls(db):
         patch("app.auditor.classify.complete_json", cls_mock),
         patch("app.auditor.gaps.complete_json", gaps_mock),
         patch(
-            "app.auditor.discovery.discover",
+            "app.auditor.discovery.seed_urls",
             AsyncMock(return_value=all_discovered),
         ),
     ):
@@ -439,3 +439,115 @@ async def test_score_and_gaps_agree_on_category_label_match(db):
     assert out.support_score is not None and out.support_score > 0, (
         f"Item found by category match must contribute to support score; got {out.support_score}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Test 8: scan outcome — unreachable root fails the audit with a reason
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_run_audit_unreachable_root_fails_with_reason(db):
+    from app.db.models.audit import ScanQuality
+    job, report = _make_job_and_report(db, tenant_id=uuid.uuid4())
+
+    async def refusing_renderer(url):
+        raise ConnectionError("connection refused")
+
+    async def no_sitemap(url):
+        return None
+
+    out = await pipeline.run_audit(
+        db, report.id, page_renderer=refusing_renderer, fetch_text=no_sitemap
+    )
+    db.refresh(out)
+    assert out.status == AuditStatus.FAILED
+    assert out.scan_quality == ScanQuality.UNREACHABLE
+    assert out.scan_quality_reason  # non-empty
+
+
+# ---------------------------------------------------------------------------
+# Test 9: scan outcome — browser launch failure => render_failed
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_run_audit_launch_failure_is_render_failed(db):
+    from app.db.models.audit import ScanQuality
+    job, report = _make_job_and_report(db, tenant_id=uuid.uuid4())
+
+    async def no_browser(url):
+        raise Exception("BrowserType.launch: Executable doesn't exist at /x")
+
+    async def no_sitemap(url):
+        return None
+
+    out = await pipeline.run_audit(
+        db, report.id, page_renderer=no_browser, fetch_text=no_sitemap
+    )
+    db.refresh(out)
+    assert out.status == AuditStatus.FAILED
+    assert out.scan_quality == ScanQuality.RENDER_FAILED
+
+
+# ---------------------------------------------------------------------------
+# Test 10: scan outcome — thin content completes but is flagged
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_run_audit_thin_content_completes_flagged(db):
+    from app.db.models.audit import ScanQuality
+    job, report = _make_job_and_report(db, tenant_id=uuid.uuid4())
+
+    async def tiny_renderer(url):
+        return 200, "<html><body><p>hi</p></body></html>"
+
+    async def no_sitemap(url):
+        return None
+
+    with (
+        patch("app.auditor.profile.complete_json", AsyncMock(return_value=_PROF)),
+        patch("app.auditor.classify.complete_json", AsyncMock(return_value=_CLS)),
+        patch("app.auditor.gaps.complete_json", AsyncMock(return_value=_EXPECTED)),
+    ):
+        out = await pipeline.run_audit(
+            db, report.id, page_renderer=tiny_renderer, fetch_text=no_sitemap
+        )
+    db.refresh(out)
+    assert out.status == AuditStatus.COMPLETED
+    assert out.scan_quality == ScanQuality.THIN
+
+
+# ---------------------------------------------------------------------------
+# Test 11: scan outcome — rich multi-page SPA => ok, multiple pages scanned
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_run_audit_multipage_ok(db):
+    from app.db.models.audit import ScanQuality
+    job, report = _make_job_and_report(db, tenant_id=uuid.uuid4())
+
+    long_text = "Luran builds AI customer agents. " * 60  # > 800 chars/page
+    html_by_url = {
+        "https://ex.com/": f'<html><body><article><p>{long_text}</p>'
+                           f'<a href="/features">F</a></article></body></html>',
+        "https://ex.com/features": f'<html><body><article><p>{long_text} features</p>'
+                                   f'</article></body></html>',
+    }
+
+    async def spa_renderer(url):
+        return 200, html_by_url.get(url, "<html><body><p>x</p></body></html>")
+
+    async def no_sitemap(url):
+        return None
+
+    with (
+        patch("app.auditor.profile.complete_json", AsyncMock(return_value=_PROF)),
+        patch("app.auditor.classify.complete_json", AsyncMock(return_value=_CLS)),
+        patch("app.auditor.gaps.complete_json", AsyncMock(return_value=_EXPECTED)),
+    ):
+        out = await pipeline.run_audit(
+            db, report.id, page_renderer=spa_renderer, fetch_text=no_sitemap
+        )
+    db.refresh(out)
+    assert out.status == AuditStatus.COMPLETED
+    assert out.scan_quality == ScanQuality.OK
+    assert out.pages_scanned >= 2  # root + /features discovered from rendered link
