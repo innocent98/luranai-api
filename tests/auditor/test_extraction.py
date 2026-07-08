@@ -80,3 +80,22 @@ def test_extracted_page_has_correct_fields():
     assert page.title == "My Page"
     assert isinstance(page.text, str)
     assert len(page.content_hash) == 64
+
+
+def test_extract_pages_skips_non_2xx_error_pages():
+    """A 404/403 body (error_kind HTTP_ERROR) must be skipped even though it has
+    html and no `error` string — it must not pollute the KB or inflate scores."""
+    from app.auditor.crawler import RawPageError
+
+    ok_html = "<html><head><title>OK</title></head><body><article><p>Real product page content.</p></article></body></html>"
+    err_html = "<html><head><title>404</title></head><body><article><p>Page not found sorry.</p></article></body></html>"
+    pages = [
+        RawPage(url="https://x.com/ok", status=200, html=ok_html, bytes_len=len(ok_html),
+                error_kind=RawPageError.OK),
+        RawPage(url="https://x.com/missing", status=404, html=err_html, bytes_len=len(err_html),
+                error_kind=RawPageError.HTTP_ERROR),
+    ]
+    out = extraction.extract_pages(pages)
+    urls = [p.url for p in out]
+    assert "https://x.com/ok" in urls
+    assert "https://x.com/missing" not in urls

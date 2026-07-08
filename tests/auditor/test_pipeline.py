@@ -551,3 +551,116 @@ async def test_run_audit_multipage_ok(db):
     assert out.status == AuditStatus.COMPLETED
     assert out.scan_quality == ScanQuality.OK
     assert out.pages_scanned >= 2  # root + /features discovered from rendered link
+
+
+# ---------------------------------------------------------------------------
+# Fix A: empty expected_map + real content => FAILED, not a fake 0-score report
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_empty_expected_map_with_content_fails_not_zero(db):
+    from app.db.models.audit import ScanQuality
+    job, report = _make_job_and_report(db, tenant_id=uuid.uuid4())
+    with (
+        patch("app.auditor.profile.complete_json", AsyncMock(return_value=_PROF)),
+        patch("app.auditor.classify.complete_json", AsyncMock(return_value=_CLS)),
+        # expected_map empty on every retry -> analyze failure
+        patch("app.auditor.gaps.complete_json", AsyncMock(return_value={"expected": []})),
+    ):
+        out = await pipeline.run_audit(
+            db, report.id, page_renderer=_fake_renderer, fetch_text=_fake_fetch
+        )
+    db.refresh(out)
+    # Must NOT publish a confident 0 — it's a failed analysis.
+    assert out.status == AuditStatus.FAILED
+    assert out.scan_quality == ScanQuality.RENDER_FAILED
+    assert out.overall_score is None  # scoring never ran
+
+
+# ---------------------------------------------------------------------------
+# Fix B: a fresh re-run preserves the user's active-source selections
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_fresh_rerun_preserves_active_selections(db):
+    tid = uuid.uuid4()
+    job, report = _make_job_and_report(db, tenant_id=tid)
+    # Pre-seed an ACTIVE entry at the root URL the fresh crawl will re-create.
+    db.add(
+        AuditEntry(
+            audit_report_id=report.id, tenant_id=tid, url="https://ex.com/",
+            title="Home", category="about", kind=AuditEntryKind.PRODUCT,
+            content="c", content_hash="h" * 64, importance_rank=1,
+            status=AuditEntryStatus.ACTIVE, meta={},
+        )
+    )
+    db.flush()
+    with (
+        patch("app.auditor.profile.complete_json", AsyncMock(return_value=_PROF)),
+        patch("app.auditor.classify.complete_json", AsyncMock(return_value=_CLS)),
+        patch("app.auditor.gaps.complete_json", AsyncMock(return_value=_EXPECTED)),
+        patch("app.auditor.pipeline._active_source_cap", return_value=None),  # unlimited
+    ):
+        await pipeline.run_audit(
+            db, report.id, page_renderer=_fake_renderer, fetch_text=_fake_fetch, resume=False
+        )
+    entries = db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).all()
+    active_urls = {e.url for e in entries if e.status == AuditEntryStatus.ACTIVE}
+    assert "https://ex.com/" in active_urls, (
+        f"active selection not preserved across fresh re-run: "
+        f"{[(e.url, e.status.value) for e in entries]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_fresh_rerun_caps_restored_actives_at_plan_limit(db):
+    """Restoring active selections on a fresh re-crawl must NOT exceed the plan
+    cap — a downgraded tenant can't be pushed over max_knowledge_sources."""
+    tid = uuid.uuid4()
+    job, report = _make_job_and_report(db, tenant_id=tid)
+    for u in ("https://ex.com/a", "https://ex.com/b"):
+        db.add(
+            AuditEntry(
+                audit_report_id=report.id, tenant_id=tid, url=u, title=u,
+                category="about", kind=AuditEntryKind.PRODUCT, content="c",
+                content_hash="hash-" + u, importance_rank=1,
+                status=AuditEntryStatus.ACTIVE, meta={},
+            )
+        )
+    db.flush()
+
+    async def fetch_ab(url):
+        if url.endswith("sitemap.xml"):
+            return (
+                "<urlset><url><loc>https://ex.com/a</loc></url>"
+                "<url><loc>https://ex.com/b</loc></url></urlset>"
+            )
+        return None
+
+    async def distinct_renderer(url):
+        return (
+            200,
+            f"<html><head><title>{url}</title></head><body><article>"
+            f"<p>Unique readable content for {url} with several words to extract.</p>"
+            f"</article></body></html>",
+        )
+
+    with (
+        patch("app.auditor.profile.complete_json", AsyncMock(return_value=_PROF)),
+        patch("app.auditor.classify.complete_json", AsyncMock(return_value=_CLS)),
+        patch("app.auditor.gaps.complete_json", AsyncMock(return_value=_EXPECTED)),
+        patch("app.auditor.pipeline._active_source_cap", return_value=1),  # plan cap = 1
+    ):
+        await pipeline.run_audit(
+            db, report.id, page_renderer=distinct_renderer, fetch_text=fetch_ab, resume=False
+        )
+
+    active = (
+        db.query(AuditEntry)
+        .filter(
+            AuditEntry.audit_report_id == report.id,
+            AuditEntry.status == AuditEntryStatus.ACTIVE,
+        )
+        .count()
+    )
+    assert active == 1, f"restored actives must be capped at the plan limit; got {active}"

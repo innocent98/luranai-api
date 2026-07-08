@@ -20,6 +20,20 @@ from app.db.models.audit import (
 from app.db.models.job import JobStatus, ProcessingJob
 
 
+def _active_source_cap(db: Session, tenant_id) -> int | None:
+    """Plan cap on active knowledge sources (None == unlimited, 0 == none).
+
+    Mirrors AuditService._max_sources; kept here as a small seam so the re-crawl
+    activation-restore can enforce the same cap and tests can patch it.
+    """
+    from app.db.models.tenant import TenantCapabilities
+
+    cap = (
+        db.query(TenantCapabilities).filter(TenantCapabilities.tenant_id == tenant_id).one_or_none()
+    )
+    return cap.max_knowledge_sources if cap else 0
+
+
 def _max_pages(db: Session, report: AuditReport) -> int:
     if report.scope == AuditScope.PUBLIC:
         return settings.AUDITOR_PUBLIC_MAX_PAGES
@@ -99,7 +113,20 @@ async def run_audit(
             if not existing_entries:
                 resume = False
 
+        # Preserve the user's active-source selections across a fresh re-crawl:
+        # capture which URLs were ACTIVE before wiping, then re-activate the
+        # matching new entries after classification (Phase 4).
+        preserved_active_urls: set[str] = set()
         if not resume:
+            preserved_active_urls = {
+                e.url
+                for e in db.query(AuditEntry)
+                .filter(
+                    AuditEntry.audit_report_id == report.id,
+                    AuditEntry.status == AuditEntryStatus.ACTIVE,
+                )
+                .all()
+            }
             # Fresh run: wipe any pre-existing entries so we never duplicate
             db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).delete()
             db.commit()
@@ -248,12 +275,45 @@ async def run_audit(
             )
         db.flush()
 
+        # Restore the user's prior active-source selections onto the matching
+        # freshly-created entries (see the capture in Phase 1a), but NEVER exceed
+        # the plan's active-source cap — mirrors the PATCH/import/preselect guards
+        # so a re-crawl can't silently push a downgraded tenant over the limit.
+        # Restore the most important matches first (importance_rank asc), up to cap.
+        if preserved_active_urls and report.tenant_id is not None:
+            max_sources = _active_source_cap(db, report.tenant_id)
+            candidates = (
+                db.query(AuditEntry)
+                .filter(
+                    AuditEntry.audit_report_id == report.id,
+                    AuditEntry.url.in_(preserved_active_urls),
+                    AuditEntry.status == AuditEntryStatus.PROPOSED,
+                )
+                .order_by(AuditEntry.importance_rank.asc())
+            )
+            if max_sources is not None:  # None == unlimited
+                candidates = candidates.limit(max_sources)
+            for entry in candidates.all():
+                entry.status = AuditEntryStatus.ACTIVE
+            db.flush()
+
         total_entry_count = len(existing_entries) + len(classified)
 
         # ------------------------------------------------------------------ #
         # Phase 5: expected-content map                                        #
         # ------------------------------------------------------------------ #
         expected_map = await gaps.build_expected_map(profile_dict, unanswered_questions=[])
+
+        # A failed expected-map (empty despite real content) must NOT publish a
+        # misleading 0-score/0-gap report. build_expected_map already retries; if
+        # it is still empty while we have content, the analyze step failed — fail
+        # the audit with a reason so the UI shows "retry", not a fake 0.
+        if not expected_map and total_entry_count > 0:
+            # ScanUnreadable + ScanQuality already imported in Phase 2b above.
+            report.scan_quality = ScanQuality.RENDER_FAILED
+            report.scan_quality_reason = "We couldn't finish analyzing your site. Please try again."
+            db.commit()
+            raise ScanUnreadable(ScanQuality.RENDER_FAILED, "empty expected_map with content")
 
         # ------------------------------------------------------------------ #
         # Phase 6: gap analysis                                               #

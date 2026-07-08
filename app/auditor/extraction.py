@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import trafilatura
 from bs4 import BeautifulSoup
 
-from app.auditor.crawler import RawPage
+from app.auditor.crawler import RawPage, RawPageError
 
 
 @dataclass
@@ -36,7 +36,9 @@ def extract_pages(pages: list[RawPage]) -> list[ExtractedPage]:
     out: list[ExtractedPage] = []
     seen_hashes: set[str] = set()
     for page in pages:
-        if page.error or not page.html:
+        # Skip errored, empty, or non-2xx pages — a 404/403 body (error_kind
+        # HTTP_ERROR) must not pollute the knowledge base or inflate scores.
+        if page.error or not page.html or page.error_kind != RawPageError.OK:
             continue
         title, text = extract_main(page.html)
         if not text:

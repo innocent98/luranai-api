@@ -42,17 +42,24 @@ def classify_scan_outcome(
 ) -> tuple[ScanQuality, str]:
     """Return (quality, reason) for a completed crawl.
 
-    - RENDER_FAILED: our renderer could not launch, or the root page is missing.
-    - UNREACHABLE:   the root page timed out, errored, or was SSRF-blocked.
-    - THIN:          the root rendered but total extracted content is below the
-                     threshold (e.g. only an empty SPA shell was captured).
-    - OK:            otherwise.
+    Content-first: if the crawl produced usable content, the site was reachable
+    AND rendered, regardless of the ROOT page's status — a 403/soft-404 homepage
+    with readable subpages must not be flagged unreachable. Only when there is no
+    usable content do we diagnose the failure from the root page.
+
+    - OK:            total extracted content ≥ threshold.
+    - THIN:          some content but below threshold (incl. rendered-but-empty root).
+    - UNREACHABLE:   no content and the root timed out / errored / was SSRF-blocked.
+    - RENDER_FAILED: no content and our renderer couldn't launch (or no root page).
     """
+    total_chars = sum(len(p.text) for p in extracted)
+    if total_chars >= thin_min_content_chars:
+        return ScanQuality.OK, ""
+    if total_chars > 0:
+        return ScanQuality.THIN, _THIN_REASON
+    # No usable content — diagnose the failure from the root page.
     if root_page is None or root_page.error_kind == RawPageError.LAUNCH_FAILED:
         return ScanQuality.RENDER_FAILED, _RENDER_FAILED_REASON
     if root_page.error_kind in _UNREACHABLE_KINDS:
         return ScanQuality.UNREACHABLE, _UNREACHABLE_REASON
-    total_chars = sum(len(p.text) for p in extracted)
-    if total_chars < thin_min_content_chars:
-        return ScanQuality.THIN, _THIN_REASON
-    return ScanQuality.OK, ""
+    return ScanQuality.THIN, _THIN_REASON
