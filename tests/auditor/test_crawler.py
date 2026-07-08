@@ -684,3 +684,60 @@ async def test_render_page_non_2xx_status_error_kind_http_error(monkeypatch):
 
     page = await crawler.render_page("https://x.com/missing", page_renderer=renderer)
     assert page.error_kind == crawler.RawPageError.HTTP_ERROR
+
+
+@pytest.mark.asyncio
+async def test_playwright_render_waits_networkidle_then_captures(monkeypatch):
+    """goto uses wait_until='load'; a networkidle settle is attempted; a settle
+    timeout is swallowed and content() is still captured."""
+    from unittest.mock import AsyncMock, MagicMock
+    from playwright.async_api import TimeoutError as PWTimeout
+
+    goto_kwargs = {}
+
+    def make_mock_playwright():
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+
+        mock_page = AsyncMock()
+
+        async def fake_goto(url, **kwargs):
+            goto_kwargs.update(kwargs)
+            return mock_resp
+
+        mock_page.goto = fake_goto
+        # networkidle never settles -> raises PWTimeout, which must be swallowed.
+        mock_page.wait_for_load_state = AsyncMock(side_effect=PWTimeout("no idle"))
+        mock_page.content = AsyncMock(return_value="<html>hydrated</html>")
+        mock_page.url = "https://example.com/"
+        mock_page.route = AsyncMock()
+
+        mock_browser = AsyncMock()
+        mock_browser.new_page = AsyncMock(return_value=mock_page)
+        mock_browser.close = AsyncMock()
+
+        mock_chromium = AsyncMock()
+
+        async def fake_launch(headless, args):
+            return mock_browser
+
+        mock_chromium.launch = fake_launch
+        mock_p = MagicMock()
+        mock_p.chromium = mock_chromium
+
+        class FakeCtx:
+            async def __aenter__(self):
+                return mock_p
+
+            async def __aexit__(self, *_):
+                pass
+
+        return FakeCtx()
+
+    with patch("app.auditor.crawler.resolve_and_validate_host", return_value="1.2.3.4"):
+        with patch("app.auditor.crawler.async_playwright", side_effect=make_mock_playwright):
+            status, html, final_url = await crawler._playwright_render("https://example.com/")
+
+    assert status == 200
+    assert html == "<html>hydrated</html>"          # captured despite settle timeout
+    assert goto_kwargs.get("wait_until") == "load"   # not domcontentloaded

@@ -10,6 +10,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from loguru import logger
 from playwright.async_api import async_playwright
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from app.core.config import settings
 from app.auditor.discovery import guard_url
@@ -181,8 +182,19 @@ async def _playwright_render(url: str) -> tuple[int, str, str]:
             resp = await page.goto(
                 url,
                 timeout=settings.AUDITOR_PER_PAGE_TIMEOUT_S * 1000,
-                wait_until="domcontentloaded",
+                wait_until="load",
             )
+            # Give client-rendered (SPA) pages time to hydrate so JS-injected
+            # content and links are present. Best-effort: if the page never
+            # reaches network idle (persistent connections, analytics, sockets),
+            # swallow the timeout and snapshot whatever has rendered so far.
+            try:
+                await page.wait_for_load_state(
+                    "networkidle",
+                    timeout=settings.AUDITOR_HYDRATION_SETTLE_MS,
+                )
+            except PlaywrightTimeoutError:
+                pass
             html = await page.content()
             final_url = page.url or url
             return (resp.status if resp else 0), html, final_url
