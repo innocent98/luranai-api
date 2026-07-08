@@ -25,9 +25,7 @@ def model_for_task(task: str) -> str:
         raise ValueError(f"Unknown auditor LLM task: {task}") from exc
 
 
-async def complete_json(
-    task: str, system: str, user: str, *, temperature: float = 0.2
-) -> dict:
+async def complete_json(task: str, system: str, user: str, *, temperature: float = 0.2) -> dict:
     """Call the task's configured model and parse a JSON object response."""
     model = model_for_task(task)
     await openai_llm_rate_limiter.acquire()

@@ -74,7 +74,14 @@ SALES_RESPONSE_SCHEMA: dict = {
                 "offer_meeting": {"type": "boolean"},
                 "offer_quote": {"type": "boolean"},
             },
-            "required": ["asked_features", "requested_demo", "mentioned_competitor", "ready_to_buy", "offer_meeting", "offer_quote"],
+            "required": [
+                "asked_features",
+                "requested_demo",
+                "mentioned_competitor",
+                "ready_to_buy",
+                "offer_meeting",
+                "offer_quote",
+            ],
         },
         "captured": {
             "type": "object",
@@ -126,7 +133,7 @@ def build_sales_directive(qualification_questions: list) -> str:
         "## Sales Engagement Directive\n\n"
         "When the conversation involves a sales intent (e.g. pricing, demo, purchase):\n\n"
         f"1. Answer the prospect's question clearly and helpfully.\n"
-        f"2. Ask exactly one qualifying question: \"{first_question}\"\n"
+        f'2. Ask exactly one qualifying question: "{first_question}"\n'
         "3. Once the prospect has answered, ask for their name and email "
         "conversationally — no forms — just reply here.\n"
         "4. Never sell or upsell when the intent is SUPPORT; focus solely on "

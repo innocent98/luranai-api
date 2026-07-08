@@ -12,7 +12,13 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_tenant_admin, get_db
 from app.db.models.lead import LeadStatus
 from app.sales.scoring import tier_for
-from app.schemas.lead import LeadDetail, LeadListItem, LeadListResponse, LeadStatusPatch, LeadsSummary
+from app.schemas.lead import (
+    LeadDetail,
+    LeadListItem,
+    LeadListResponse,
+    LeadStatusPatch,
+    LeadsSummary,
+)
 from app.schemas.user import UserResponse
 from app.services.lead_service import IllegalStatusTransition, LeadNotFound, LeadService
 

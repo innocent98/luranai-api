@@ -35,9 +35,7 @@ def get_sales_config(
     If no row exists, returns the default config serialized — does NOT persist it.
     """
     row = db.execute(
-        select(TenantSalesAgentConfig).where(
-            TenantSalesAgentConfig.tenant_id == user.tenant_id
-        )
+        select(TenantSalesAgentConfig).where(TenantSalesAgentConfig.tenant_id == user.tenant_id)
     ).scalar_one_or_none()
 
     if row is None:
@@ -59,9 +57,7 @@ def patch_sales_config(
     Only non-None fields in the patch body are applied.
     """
     row = db.execute(
-        select(TenantSalesAgentConfig).where(
-            TenantSalesAgentConfig.tenant_id == user.tenant_id
-        )
+        select(TenantSalesAgentConfig).where(TenantSalesAgentConfig.tenant_id == user.tenant_id)
     ).scalar_one_or_none()
 
     if row is None:

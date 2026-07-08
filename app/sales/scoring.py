@@ -1,25 +1,27 @@
 from typing import TypedDict
 
 SIGNALS: list[tuple[str, str, int]] = [
-    ("provided_email",       "Provided email",                20),
-    ("company_name",         "Mentioned company name",        10),
-    ("team_over_50",         "Team size > 50",                15),
-    ("enterprise",           "Enterprise / corporate",        20),
-    ("asked_features",       "Asked about specific features", 10),
-    ("requested_demo",       "Requested a demo",              15),
-    ("mentioned_competitor", "Mentioned a competitor",        10),
-    ("ready_to_buy",         'Said "ready to buy"',           25),
-    ("paid_ad",              "Came from a paid ad (UTM)",      5),
+    ("provided_email", "Provided email", 20),
+    ("company_name", "Mentioned company name", 10),
+    ("team_over_50", "Team size > 50", 15),
+    ("enterprise", "Enterprise / corporate", 20),
+    ("asked_features", "Asked about specific features", 10),
+    ("requested_demo", "Requested a demo", 15),
+    ("mentioned_competitor", "Mentioned a competitor", 10),
+    ("ready_to_buy", 'Said "ready to buy"', 25),
+    ("paid_ad", "Came from a paid ad (UTM)", 5),
 ]
 
 TIER_THRESHOLDS = {"warm": 31, "hot": 61, "sales_ready": 86}
 _ENTERPRISE_HINTS = ("bank", "enterprise", "corporate", "corp", "plc", "group")
 _PAID_HINTS = ("cpc", "ppc", "paid", "ad", "ads", "adwords", "google_ads")
 
+
 class ScoreResult(TypedDict):
     score: int
     tier: str
     breakdown: list[dict]
+
 
 def tier_for(score: int) -> str:
     if score >= TIER_THRESHOLDS["sales_ready"]:
@@ -30,14 +32,19 @@ def tier_for(score: int) -> str:
         return "warm"
     return "cold"
 
+
 def _enterprise(lead) -> bool:
-    blob = " ".join(filter(None, [getattr(lead, "industry", None), getattr(lead, "company", None)])).lower()
+    blob = " ".join(
+        filter(None, [getattr(lead, "industry", None), getattr(lead, "company", None)])
+    ).lower()
     return any(h in blob for h in _ENTERPRISE_HINTS)
+
 
 def _paid_ad(lead) -> bool:
     utm = getattr(lead, "utm", None) or {}
     vals = " ".join(str(v).lower() for v in utm.values())
     return any(h in vals for h in _PAID_HINTS)
+
 
 def score_lead(lead, signals: dict | None = None) -> ScoreResult:
     signals = signals or {}

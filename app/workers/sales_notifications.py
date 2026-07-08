@@ -87,7 +87,9 @@ async def send_rep_alert(ctx, notification_log_id: str) -> None:
             try:
                 if quote is not None:
                     pdf_bytes = render_quote_pdf(quote, lead=lead)
-            except Exception as pdf_exc:  # noqa: BLE001 — PDF is an enhancement, never block the alert
+            except (
+                Exception
+            ) as pdf_exc:  # noqa: BLE001 — PDF is an enhancement, never block the alert
                 logger.warning(f"quote PDF render failed (sending text alert): {pdf_exc}")
             if pdf_bytes:
                 ok = EmailService().send_templated_email_with_attachments(
@@ -185,6 +187,7 @@ async def send_visitor_meeting_confirmation(ctx, notification_log_id: str) -> No
 # Slack delivery (Stage 3 Slice 5d)
 # ---------------------------------------------------------------------------
 
+
 def _slack_blocks(title: str | None, body: str | None, dashboard_url: str = "") -> dict:
     """Build a minimal Block Kit payload with a header, section, and dashboard link block."""
     blocks: list[dict] = [
@@ -237,9 +240,7 @@ async def send_slack_notification(ctx, notification_log_id: str) -> None:
             return
 
         cfg = db.execute(
-            select(TenantSalesAgentConfig).where(
-                TenantSalesAgentConfig.tenant_id == log.tenant_id
-            )
+            select(TenantSalesAgentConfig).where(TenantSalesAgentConfig.tenant_id == log.tenant_id)
         ).scalar_one_or_none()
         url = cfg.slack_webhook_url if cfg else None
 
@@ -343,9 +344,7 @@ async def sync_lead_to_crm(ctx, notification_log_id: str) -> None:
             return
 
         cfg = db.execute(
-            select(TenantSalesAgentConfig).where(
-                TenantSalesAgentConfig.tenant_id == log.tenant_id
-            )
+            select(TenantSalesAgentConfig).where(TenantSalesAgentConfig.tenant_id == log.tenant_id)
         ).scalar_one_or_none()
         url = cfg.crm_webhook_url if cfg else None
 

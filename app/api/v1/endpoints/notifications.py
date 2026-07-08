@@ -1,6 +1,6 @@
 """Authenticated tenant-admin endpoints for in-app notifications (Stage 3 Slice 5c)."""
 
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -46,9 +46,7 @@ def list_notifications(
 
     total = db.execute(select(func.count()).select_from(stmt.subquery())).scalar_one()
     rows = (
-        db.execute(
-            stmt.order_by(NotificationLog.created_at.desc()).limit(limit).offset(offset)
-        )
+        db.execute(stmt.order_by(NotificationLog.created_at.desc()).limit(limit).offset(offset))
         .scalars()
         .all()
     )
@@ -94,7 +92,7 @@ def mark_all_read(
             NotificationLog.channel == NotifChannel.IN_APP,
             NotificationLog.read_at.is_(None),
         )
-        .values(read_at=datetime.now(timezone.utc))
+        .values(read_at=datetime.now(UTC))
     )
     db.commit()
     return {"success": True, "data": {"updated": res.rowcount or 0}}
@@ -108,16 +106,14 @@ def mark_read(
 ):
     """Mark a single in-app notification as read (404 if not found or wrong tenant)."""
     row = (
-        db.execute(
-            _base_stmt(user.tenant_id).where(NotificationLog.id == notification_id)
-        )
+        db.execute(_base_stmt(user.tenant_id).where(NotificationLog.id == notification_id))
         .scalars()
         .first()
     )
     if row is None:
         return _err("NOTIFICATION_NOT_FOUND", "Not found", 404)
     if row.read_at is None:
-        row.read_at = datetime.now(timezone.utc)
+        row.read_at = datetime.now(UTC)
         db.commit()
     return {
         "success": True,

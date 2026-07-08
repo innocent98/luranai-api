@@ -18,7 +18,11 @@ _DEFAULT_TRIGGER_INTENTS: list[str] = [
 _DEFAULT_QUALIFICATION_QUESTIONS: list[dict] = [
     {"key": "company_size", "question": "How large is your team?", "type": "text"},
     {"key": "use_case", "question": "What problem are you trying to solve?", "type": "text"},
-    {"key": "timeline", "question": "What is your expected timeline to get started?", "type": "text"},
+    {
+        "key": "timeline",
+        "question": "What is your expected timeline to get started?",
+        "type": "text",
+    },
 ]
 
 _DEFAULT_NOTIFY_CHANNELS: dict = {"email": True, "slack": False, "in_app": False, "crm": False}
