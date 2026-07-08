@@ -160,6 +160,13 @@ class AuditStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+class ScanQuality(str, enum.Enum):
+    OK = "ok"
+    THIN = "thin"
+    UNREACHABLE = "unreachable"
+    RENDER_FAILED = "render_failed"
+
+
 class AuditEntryStatus(str, enum.Enum):
     PROPOSED = "proposed"
     ACTIVE = "active"
@@ -232,6 +239,10 @@ class AuditReport(Base, UUIDMixin, TimestampMixin):
     completed_at: Mapped["datetime | None"] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    scan_quality: Mapped[ScanQuality | None] = mapped_column(
+        _audit_enum(ScanQuality, "audit_scan_quality"), nullable=True, default=None
+    )
+    scan_quality_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     entries: Mapped[list["AuditEntry"]] = relationship(
         "AuditEntry", back_populates="report", cascade="all, delete-orphan"

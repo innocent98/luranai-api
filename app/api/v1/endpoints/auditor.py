@@ -134,6 +134,9 @@ def list_audits(
                 "url": r.url,
                 "status": r.status.value,
                 "overall_score": r.overall_score,
+                "pages_scanned": r.pages_scanned,
+                "scan_quality": r.scan_quality.value if r.scan_quality else None,
+                "scan_quality_reason": r.scan_quality_reason,
                 "created_at": r.created_at.isoformat(),
             }
             for r in rows

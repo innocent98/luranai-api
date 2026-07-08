@@ -108,41 +108,65 @@ async def run_audit(
             already_have = set()
 
         # ------------------------------------------------------------------ #
-        # Phase 1b: URL discovery                                             #
+        # Phase 1b: seed URLs (root + sitemap.xml)                            #
         # ------------------------------------------------------------------ #
-        all_urls = await discovery.discover(
-            report.url,
-            _max_pages(db, report),
-            fetch_text=fetch_text,
-        )
-        # For incremental resume, only crawl URLs we haven't seen yet
-        urls = [u for u in all_urls if u not in already_have] if resume else all_urls
+        cap = _max_pages(db, report)
+        seeds = await discovery.seed_urls(report.url, cap, fetch_text=fetch_text)
 
-        report.pages_discovered = len(all_urls)
+        report.pages_discovered = len(already_have) + len(seeds)
         _update_job(
             db, report.processing_job_id,
-            total_items=len(existing_entries) + len(urls),
+            total_items=len(existing_entries) + len(seeds),
             processed_items=0,
         )
         db.commit()
 
         # ------------------------------------------------------------------ #
-        # Phase 2: render / crawl + extract (new URLs only when resuming)     #
+        # Phase 2: render-crawl (BFS from seeds) + extract                    #
         # ------------------------------------------------------------------ #
         robots = await crawler.fetch_robots(report.url, fetch_text=fetch_text)
-        raw_pages = await crawler.crawl(
-            urls,
+        raw_pages = await crawler.crawl_site(
+            seeds,
+            cap,
             page_renderer=page_renderer,
             robots_disallowed=robots,
+            skip_urls=already_have if resume else None,
         )
+        # pages_discovered now reflects what the crawl actually reached.
+        report.pages_discovered = len(already_have) + len(raw_pages)
         extracted = extraction.extract_pages(raw_pages)
-        # pages_scanned reflects the total across existing + new
         report.pages_scanned = len(existing_entries) + len(extracted)
         _update_job(
             db, report.processing_job_id,
             processed_items=len(existing_entries) + len(extracted),
         )
         db.commit()
+
+        # ------------------------------------------------------------------ #
+        # Phase 2b: classify scan outcome (honest states)                    #
+        # ------------------------------------------------------------------ #
+        from app.auditor.scan_quality import classify_scan_outcome, ScanUnreadable
+        from app.db.models.audit import ScanQuality
+
+        if resume:
+            report.scan_quality = ScanQuality.OK
+            report.scan_quality_reason = None
+            db.commit()
+        else:
+            root_norm = discovery.normalize_url(report.url)
+            root_page = next(
+                (p for p in raw_pages if p.url == root_norm),
+                raw_pages[0] if raw_pages else None,
+            )
+            quality, reason = classify_scan_outcome(
+                root_page, extracted,
+                thin_min_content_chars=settings.AUDITOR_THIN_MIN_CONTENT_CHARS,
+            )
+            report.scan_quality = quality
+            report.scan_quality_reason = reason or None
+            db.commit()  # persist BEFORE any raise so the FAILED path keeps it
+            if quality in (ScanQuality.UNREACHABLE, ScanQuality.RENDER_FAILED):
+                raise ScanUnreadable(quality, reason)
 
         # ------------------------------------------------------------------ #
         # Phase 3: business profile synthesis / reuse                         #

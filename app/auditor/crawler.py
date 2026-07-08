@@ -3,16 +3,33 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from dataclasses import dataclass
+from enum import Enum
 from urllib.parse import urljoin, urlparse
 
 import httpx
 from loguru import logger
 from playwright.async_api import async_playwright
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from app.core.config import settings
+from app.auditor import discovery
 from app.auditor.discovery import guard_url
 from app.utils.network_security import resolve_and_validate_host
+
+
+class RawPageError(str, Enum):
+    OK = "ok"
+    LAUNCH_FAILED = "launch_failed"   # browser binary / launch failure (our infra)
+    TIMEOUT = "timeout"
+    HTTP_ERROR = "http_error"         # network error, or status 0 / >= 400
+    BLOCKED = "blocked"               # SSRF pre-guard or post-redirect guard
+    SIZE_CAP = "size_cap"
+    ROBOTS = "robots"
+
+
+_MAX_DEPTH = 3  # PRD 4.1: follow internal links up to 3 levels deep
 
 
 @dataclass
@@ -26,6 +43,7 @@ class RawPage:
     # Added for post-redirect SSRF guard; safe to ignore by callers that don't
     # care about redirects.
     final_url: str | None = None
+    error_kind: RawPageError = RawPageError.OK
 
 
 async def _default_fetch_text(url: str) -> str | None:
@@ -169,8 +187,19 @@ async def _playwright_render(url: str) -> tuple[int, str, str]:
             resp = await page.goto(
                 url,
                 timeout=settings.AUDITOR_PER_PAGE_TIMEOUT_S * 1000,
-                wait_until="domcontentloaded",
+                wait_until="load",
             )
+            # Give client-rendered (SPA) pages time to hydrate so JS-injected
+            # content and links are present. Best-effort: if the page never
+            # reaches network idle (persistent connections, analytics, sockets),
+            # swallow the timeout and snapshot whatever has rendered so far.
+            try:
+                await page.wait_for_load_state(
+                    "networkidle",
+                    timeout=settings.AUDITOR_HYDRATION_SETTLE_MS,
+                )
+            except PlaywrightTimeoutError:
+                pass
             html = await page.content()
             final_url = page.url or url
             return (resp.status if resp else 0), html, final_url
@@ -204,19 +233,30 @@ async def render_page(
     # Pre-render SSRF guard.
     if not guard_url(url):
         logger.warning("render_page SSRF pre-guard blocked: {}", url)
-        return RawPage(url=url, status=0, html=None, bytes_len=0, error="UNSAFE_URL")
+        return RawPage(url=url, status=0, html=None, bytes_len=0,
+                       error="UNSAFE_URL", error_kind=RawPageError.BLOCKED)
 
     renderer = page_renderer or _playwright_render
     try:
         result = await asyncio.wait_for(
             renderer(url),
-            timeout=settings.AUDITOR_PER_PAGE_TIMEOUT_S + 2,
+            timeout=settings.AUDITOR_PER_PAGE_TIMEOUT_S
+            + settings.AUDITOR_HYDRATION_SETTLE_MS / 1000
+            + 2,
         )
     except TimeoutError:
-        return RawPage(url=url, status=0, html=None, bytes_len=0, error="TIMEOUT")
+        return RawPage(url=url, status=0, html=None, bytes_len=0,
+                       error="TIMEOUT", error_kind=RawPageError.TIMEOUT)
     except Exception as exc:
         logger.debug("render_page error {}: {}", url, exc)
-        return RawPage(url=url, status=0, html=None, bytes_len=0, error=str(exc))
+        msg = str(exc).lower()
+        kind = (
+            RawPageError.LAUNCH_FAILED
+            if ("executable doesn't exist" in msg or "browsertype.launch" in msg)
+            else RawPageError.HTTP_ERROR
+        )
+        return RawPage(url=url, status=0, html=None, bytes_len=0,
+                       error=str(exc), error_kind=kind)
 
     # Support both 2-tuple (status, html) and 3-tuple (status, html, final_url).
     if len(result) == 3:
@@ -228,19 +268,19 @@ async def render_page(
     # Post-redirect SSRF guard — discard body if the browser landed on an unsafe host.
     if final_url != url and not guard_url(final_url):
         logger.warning("render_page SSRF post-redirect guard blocked: {} -> {}", url, final_url)
-        return RawPage(url=url, status=0, html=None, bytes_len=0, error="UNSAFE_REDIRECT", final_url=final_url)
+        return RawPage(url=url, status=0, html=None, bytes_len=0,
+                       error="UNSAFE_REDIRECT", error_kind=RawPageError.BLOCKED,
+                       final_url=final_url)
 
     byte_len = len(html.encode("utf-8"))
     if byte_len > max_bytes:
-        return RawPage(
-            url=url,
-            status=status,
-            html=None,
-            bytes_len=byte_len,
-            error="SIZE_CAP_EXCEEDED",
-            final_url=final_url,
-        )
-    return RawPage(url=url, status=status, html=html, bytes_len=byte_len, final_url=final_url)
+        return RawPage(url=url, status=status, html=None, bytes_len=byte_len,
+                       error="SIZE_CAP_EXCEEDED", error_kind=RawPageError.SIZE_CAP,
+                       final_url=final_url)
+
+    error_kind = RawPageError.OK if 200 <= status < 400 else RawPageError.HTTP_ERROR
+    return RawPage(url=url, status=status, html=html, bytes_len=byte_len,
+                   error_kind=error_kind, final_url=final_url)
 
 
 async def crawl(
@@ -271,12 +311,103 @@ async def crawl(
         if not is_allowed_by_robots(url, robots_disallowed):
             logger.debug("robots blocked: {}", url)
             pages.append(
-                RawPage(url=url, status=0, html=None, bytes_len=0, error="ROBOTS_BLOCKED")
+                RawPage(url=url, status=0, html=None, bytes_len=0,
+                        error="ROBOTS_BLOCKED", error_kind=RawPageError.ROBOTS)
             )
             continue
         page = await render_page(url, page_renderer=page_renderer)
         pages.append(page)
         if delay:
             await asyncio.sleep(delay)
+
+    return pages
+
+
+async def crawl_site(
+    seeds: list[str],
+    max_pages: int,
+    *,
+    page_renderer=None,
+    robots_disallowed: set[str] | None = None,
+    rps: int | None = None,
+    skip_urls: set[str] | None = None,
+) -> list[RawPage]:
+    """Render + BFS-expand from seed URLs in a single loop.
+
+    Renders each same-host, non-pruned, SSRF-safe URL exactly once (browser),
+    then extracts links from the *rendered* HTML and enqueues newly discovered
+    same-host links up to _MAX_DEPTH and max_pages. Reuses the rendered pages so
+    the caller need not fetch them again.
+
+    Args:
+        seeds: Seed URLs (root + sitemap locs). The first seed's host defines the
+            same-host boundary for the whole crawl.
+        max_pages: Hard cap on the number of pages rendered.
+        page_renderer: Injectable async ``(url) -> (status, html[, final_url])``.
+        robots_disallowed: Disallowed path prefixes from fetch_robots().
+        rps: Requests/sec cap (defaults to settings.AUDITOR_CRAWL_RPS).
+        skip_urls: URLs to never render (already-seen entries during an
+            incremental resume). They are pre-marked seen so they are neither
+            rendered nor enqueued.
+    """
+    rps = rps if rps is not None else settings.AUDITOR_CRAWL_RPS
+    delay = 1.0 / rps if rps > 0 else 0.0
+    robots_disallowed = robots_disallowed or set()
+
+    seen: set[str] = {n for n in (discovery.normalize_url(u) for u in (skip_urls or set())) if n}
+
+    frontier: deque[tuple[str, int]] = deque()
+    root_host = ""
+    for raw in seeds:
+        n = discovery.normalize_url(raw)
+        if not n or n in seen:
+            continue
+        host = urlparse(n).netloc
+        if not root_host:
+            root_host = host           # first valid seed defines the same-host boundary
+        elif host != root_host:
+            continue                    # off-host seed rejected
+        if discovery.is_structurally_prunable(n):
+            seen.add(n)
+            continue
+        if not discovery.guard_url(n):
+            seen.add(n)
+            continue
+        seen.add(n)
+        frontier.append((n, 0))
+
+    pages: list[RawPage] = []
+    while frontier and len(pages) < max_pages:
+        url, depth = frontier.popleft()
+
+        if not is_allowed_by_robots(url, robots_disallowed):
+            pages.append(
+                RawPage(url=url, status=0, html=None, bytes_len=0,
+                        error="ROBOTS_BLOCKED", error_kind=RawPageError.ROBOTS)
+            )
+            continue
+
+        page = await render_page(url, page_renderer=page_renderer)
+        pages.append(page)
+        if delay:
+            await asyncio.sleep(delay)
+
+        if not page.html or depth + 1 > _MAX_DEPTH:
+            continue
+
+        for link in discovery._extract_links(page.html, url):
+            if link in seen:
+                continue
+            if urlparse(link).netloc != root_host:
+                seen.add(link)
+                continue
+            if discovery.is_structurally_prunable(link):
+                seen.add(link)
+                continue
+            if not discovery.guard_url(link):
+                seen.add(link)
+                continue
+            seen.add(link)
+            frontier.append((link, depth + 1))
 
     return pages

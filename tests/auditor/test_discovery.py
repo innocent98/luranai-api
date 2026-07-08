@@ -129,7 +129,7 @@ def test_guard_url_calls_resolve_with_correct_hostname():
 
 
 # ---------------------------------------------------------------------------
-# discover — sitemap + prune + cap + SSRF guard
+# seed_urls — sitemap + prune + cap + SSRF guard
 # ---------------------------------------------------------------------------
 
 
@@ -148,7 +148,7 @@ async def test_discover_uses_sitemap_prunes_caps_and_guards(monkeypatch):
         return pages.get(url)
 
     monkeypatch.setattr(discovery, "guard_url", lambda u: True)
-    found = await discovery.discover("https://ex.com", max_pages=2, fetch_text=fake_fetch)
+    found = await discovery.seed_urls("https://ex.com", max_pages=2, fetch_text=fake_fetch)
     assert "https://ex.com/login" not in found  # pruned
     assert len(found) == 2  # capped
     assert "https://ex.com/" in found
@@ -162,7 +162,7 @@ async def test_discover_drops_ssrf_blocked_urls(monkeypatch):
         return pages.get(url)
 
     monkeypatch.setattr(discovery, "guard_url", lambda u: False)
-    found = await discovery.discover("https://ex.com", max_pages=10, fetch_text=fake_fetch)
+    found = await discovery.seed_urls("https://ex.com", max_pages=10, fetch_text=fake_fetch)
     assert found == []  # everything blocked by SSRF guard
 
 
@@ -188,7 +188,7 @@ async def test_discover_ssrf_guard_called_for_every_candidate_url():
         return True
 
     with patch("app.auditor.discovery.guard_url", side_effect=tracking_guard):
-        await discovery.discover("https://ex.com", max_pages=10, fetch_text=fake_fetch)
+        await discovery.seed_urls("https://ex.com", max_pages=10, fetch_text=fake_fetch)
 
     # Root + every sitemap loc must be guarded
     assert "https://ex.com" in guarded or "https://ex.com/" in guarded
@@ -218,7 +218,7 @@ async def test_discover_rejected_urls_excluded_from_result():
         return True
 
     with patch("app.auditor.discovery.guard_url", side_effect=selective_guard):
-        found = await discovery.discover("https://ex.com", max_pages=50, fetch_text=fake_fetch)
+        found = await discovery.seed_urls("https://ex.com", max_pages=50, fetch_text=fake_fetch)
 
     assert "https://internal.local/secret" not in found
     assert "https://ex.com/safe" in found
@@ -238,7 +238,7 @@ async def test_discover_respects_max_pages_cap():
         return pages.get(url)
 
     with patch("app.auditor.discovery.guard_url", return_value=True):
-        found = await discovery.discover("https://ex.com", max_pages=5, fetch_text=fake_fetch)
+        found = await discovery.seed_urls("https://ex.com", max_pages=5, fetch_text=fake_fetch)
 
     assert len(found) <= 5
 
@@ -251,7 +251,7 @@ async def test_discover_returns_empty_when_root_fails_guard():
         return None
 
     with patch("app.auditor.discovery.guard_url", return_value=False):
-        found = await discovery.discover("https://private.local", max_pages=10, fetch_text=fake_fetch)
+        found = await discovery.seed_urls("https://private.local", max_pages=10, fetch_text=fake_fetch)
 
     assert found == []
 
@@ -273,29 +273,19 @@ async def test_discover_deduplicates_urls():
         return pages.get(url)
 
     with patch("app.auditor.discovery.guard_url", return_value=True):
-        found = await discovery.discover("https://ex.com", max_pages=50, fetch_text=fake_fetch)
+        found = await discovery.seed_urls("https://ex.com", max_pages=50, fetch_text=fake_fetch)
 
     assert found.count("https://ex.com/about") == 1
 
 
 @pytest.mark.asyncio
-async def test_discover_bfs_fallback_when_no_sitemap():
-    """When sitemap is absent, BFS link-following is used as fallback."""
-    pages = {
-        "https://ex.com/sitemap.xml": None,  # no sitemap
-        "https://ex.com/": '<html><a href="/about">About</a><a href="/pricing">Pricing</a></html>',
-        "https://ex.com/about": "<html><p>About us</p></html>",
-        "https://ex.com/pricing": "<html><p>Pricing</p></html>",
-    }
-
+async def test_seed_urls_no_sitemap_returns_root_only(monkeypatch):
     async def fake_fetch(url):
-        return pages.get(url)
+        return None  # no sitemap
 
-    with patch("app.auditor.discovery.guard_url", return_value=True):
-        found = await discovery.discover("https://ex.com", max_pages=10, fetch_text=fake_fetch)
-
-    assert "https://ex.com/about" in found
-    assert "https://ex.com/pricing" in found
+    monkeypatch.setattr(discovery, "guard_url", lambda u: True)
+    found = await discovery.seed_urls("https://ex.com", max_pages=10, fetch_text=fake_fetch)
+    assert found == ["https://ex.com/"]
 
 
 @pytest.mark.asyncio
@@ -314,7 +304,7 @@ async def test_discover_excludes_cross_domain_urls():
         return pages.get(url)
 
     with patch("app.auditor.discovery.guard_url", return_value=True):
-        found = await discovery.discover("https://ex.com", max_pages=50, fetch_text=fake_fetch)
+        found = await discovery.seed_urls("https://ex.com", max_pages=50, fetch_text=fake_fetch)
 
     assert "https://other.com/evil" not in found
     assert "https://ex.com/about" in found
@@ -339,7 +329,7 @@ async def test_discover_sitemap_ssrf_blocked_host_skips_fetch():
         return "sitemap" not in url
 
     with patch("app.auditor.discovery.guard_url", side_effect=selective_guard):
-        await discovery.discover("https://ex.com", max_pages=10, fetch_text=spy_fetch)
+        await discovery.seed_urls("https://ex.com", max_pages=10, fetch_text=spy_fetch)
 
     # fetch_text should NOT have been called for sitemap.xml
     assert not any("sitemap" in c for c in fetch_calls), (

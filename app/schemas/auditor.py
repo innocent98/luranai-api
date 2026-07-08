@@ -28,6 +28,8 @@ class PublicReportResponse(AuditScoresResponse):
     status: str
     pages_scanned: int
     gaps: list[BlurredGap]
+    scan_quality: str | None = None
+    scan_quality_reason: str | None = None
 
 
 class LeadCaptureRequest(BaseModel):
