@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import Enum
 from urllib.parse import urljoin, urlparse
@@ -127,9 +128,21 @@ def is_allowed_by_robots(url: str, disallowed: set[str]) -> bool:
     return not any(path.startswith(rule) for rule in disallowed)
 
 
+# Resource types the auditor never needs (it reads DOM text + links, not
+# pixels/styling). Aborting them makes "load" fire far sooner on ad/image-heavy
+# pages and shrinks the per-subresource SSRF-validation surface — the single
+# biggest render-speed win on content sites (news, blogs). Documents, scripts,
+# XHR/fetch (needed for SPA hydration) are always allowed through the guard.
+_BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font", "stylesheet"})
+
+
 async def _ssrf_route_handler(route, request) -> None:
-    """Playwright request interceptor: abort any subresource/redirect to a
+    """Playwright request interceptor: abort heavy resource types the auditor
+    doesn't need, then abort any remaining subresource/redirect to a
     non-http(s) or unvalidated/internal host (defense-in-depth vs subresource SSRF)."""
+    if request.resource_type in _BLOCKED_RESOURCE_TYPES:
+        await route.abort()
+        return
     req_url = request.url
     req_parsed = urlparse(req_url)
     req_host = req_parsed.hostname or ""
@@ -144,19 +157,77 @@ async def _ssrf_route_handler(route, request) -> None:
         await route.abort()
 
 
+async def _render_page_in_browser(browser, url: str) -> tuple[int, str, str]:
+    """Render one URL in an already-launched browser and return
+    (status, html, final_url). Opens and closes a fresh page (tab), applies the
+    SSRF/asset route guard, waits for hydration best-effort, and snapshots.
+    """
+    page = await browser.new_page()
+    try:
+        # Block unneeded resources + SSRF-guard remaining subresources/redirects.
+        await page.route("**/*", _ssrf_route_handler)
+
+        resp = await page.goto(
+            url,
+            timeout=settings.AUDITOR_PER_PAGE_TIMEOUT_S * 1000,
+            wait_until="load",
+        )
+        # Give client-rendered (SPA) pages time to hydrate so JS-injected
+        # content and links are present. Best-effort: if the page never
+        # reaches network idle (persistent connections, analytics, sockets),
+        # swallow the timeout and snapshot whatever has rendered so far.
+        try:
+            await page.wait_for_load_state(
+                "networkidle",
+                timeout=settings.AUDITOR_HYDRATION_SETTLE_MS,
+            )
+        except PlaywrightTimeoutError:
+            pass
+        html = await page.content()
+        final_url = page.url or url
+        return (resp.status if resp else 0), html, final_url
+    finally:
+        await page.close()
+
+
+@asynccontextmanager
+async def _browser_render_session(host: str, safe_ip: str):
+    """Launch ONE headless Chromium for a whole same-host crawl and yield a
+    per-URL renderer that reuses it.
+
+    Reusing one browser across the crawl (instead of launching/tearing one down
+    per page) removes ~1s+ of process overhead per page and prevents the render
+    slowdown-under-load that pushed pages past the per-page timeout on large
+    sites. The DNS-rebinding pin (--host-resolver-rules) is set once for the
+    crawl's single host — safe because crawl_site is same-host only.
+    """
+    resolver_rule = f"MAP {host} {safe_ip}, EXCLUDE localhost"
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[f"--host-resolver-rules={resolver_rule}"],
+        )
+        try:
+
+            async def _render(url: str) -> tuple[int, str, str]:
+                return await _render_page_in_browser(browser, url)
+
+            yield _render
+        finally:
+            await browser.close()
+
+
 async def _playwright_render(url: str) -> tuple[int, str, str]:
-    """Default page renderer using Playwright headless Chromium.
+    """Default single-page renderer: launch a browser, render one URL, close.
 
-    Returns (status, html, final_url) where final_url is the URL the browser
-    landed on after any redirects.
+    Used for standalone renders (the legacy ``crawl``/direct ``render_page``
+    path). ``crawl_site`` uses ``_browser_render_session`` instead to reuse one
+    browser across the whole crawl.
 
-    DNS-rebinding protection:
-    - Resolves the target hostname ONCE before launching the browser and pins
-      the browser's DNS resolver to that validated IP via --host-resolver-rules.
-      The browser cannot re-resolve at connect time, closing the rebinding window.
-    - Route interception validates every subresource / redirect request's host
-      via resolve_and_validate_host; any internal host aborts the request.
-    - Returns (0, "", url) on ValueError so render_page treats it as blocked.
+    DNS-rebinding protection: resolves the hostname ONCE before launch and pins
+    the browser's resolver to that IP via --host-resolver-rules; the route
+    handler validates every remaining subresource/redirect. Returns (0, "", url)
+    on a pre-launch SSRF failure so render_page treats it as blocked.
     """
     parsed = urlparse(url)
     host = parsed.hostname or ""
@@ -169,42 +240,8 @@ async def _playwright_render(url: str) -> tuple[int, str, str]:
         logger.warning("_playwright_render SSRF guard blocked pre-launch: {}", url)
         return 0, "", url
 
-    # Pin the browser's resolver for this specific host to the validated IP.
-    # EXCLUDE localhost so internal browser tooling is unaffected.
-    resolver_rule = f"MAP {host} {safe_ip}, EXCLUDE localhost"
-
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[f"--host-resolver-rules={resolver_rule}"],
-        )
-        try:
-            page = await browser.new_page()
-
-            # Block subresource / redirect requests to unvalidated hosts.
-            await page.route("**/*", _ssrf_route_handler)
-
-            resp = await page.goto(
-                url,
-                timeout=settings.AUDITOR_PER_PAGE_TIMEOUT_S * 1000,
-                wait_until="load",
-            )
-            # Give client-rendered (SPA) pages time to hydrate so JS-injected
-            # content and links are present. Best-effort: if the page never
-            # reaches network idle (persistent connections, analytics, sockets),
-            # swallow the timeout and snapshot whatever has rendered so far.
-            try:
-                await page.wait_for_load_state(
-                    "networkidle",
-                    timeout=settings.AUDITOR_HYDRATION_SETTLE_MS,
-                )
-            except PlaywrightTimeoutError:
-                pass
-            html = await page.content()
-            final_url = page.url or url
-            return (resp.status if resp else 0), html, final_url
-        finally:
-            await browser.close()
+    async with _browser_render_session(host, safe_ip) as render:
+        return await render(url)
 
 
 async def render_page(
@@ -393,6 +430,7 @@ async def crawl_site(
 
     frontier: deque[tuple[str, int]] = deque()
     root_host = ""
+    root_hostname = ""
     for raw in seeds:
         n = discovery.normalize_url(raw)
         if not n or n in seen:
@@ -400,6 +438,7 @@ async def crawl_site(
         host = urlparse(n).netloc
         if not root_host:
             root_host = host  # first valid seed defines the same-host boundary
+            root_hostname = urlparse(n).hostname or ""  # host w/o port, for the resolver pin
         elif host != root_host:
             continue  # off-host seed rejected
         if discovery.is_structurally_prunable(n):
@@ -411,44 +450,59 @@ async def crawl_site(
         seen.add(n)
         frontier.append((n, 0))
 
-    pages: list[RawPage] = []
-    while frontier and len(pages) < max_pages:
-        url, depth = frontier.popleft()
+    async def _run(renderer) -> list[RawPage]:
+        pages: list[RawPage] = []
+        while frontier and len(pages) < max_pages:
+            url, depth = frontier.popleft()
 
-        if not is_allowed_by_robots(url, robots_disallowed):
-            pages.append(
-                RawPage(
-                    url=url,
-                    status=0,
-                    html=None,
-                    bytes_len=0,
-                    error="ROBOTS_BLOCKED",
-                    error_kind=RawPageError.ROBOTS,
+            if not is_allowed_by_robots(url, robots_disallowed):
+                pages.append(
+                    RawPage(
+                        url=url,
+                        status=0,
+                        html=None,
+                        bytes_len=0,
+                        error="ROBOTS_BLOCKED",
+                        error_kind=RawPageError.ROBOTS,
+                    )
                 )
-            )
-            continue
-
-        page = await render_page(url, page_renderer=page_renderer)
-        pages.append(page)
-        if delay:
-            await asyncio.sleep(delay)
-
-        if not page.html or depth + 1 > _MAX_DEPTH:
-            continue
-
-        for link in discovery._extract_links(page.html, url):
-            if link in seen:
                 continue
-            if urlparse(link).netloc != root_host:
+
+            page = await render_page(url, page_renderer=renderer)
+            pages.append(page)
+            if delay:
+                await asyncio.sleep(delay)
+
+            if not page.html or depth + 1 > _MAX_DEPTH:
+                continue
+
+            for link in discovery._extract_links(page.html, url):
+                if link in seen:
+                    continue
+                if urlparse(link).netloc != root_host:
+                    seen.add(link)
+                    continue
+                if discovery.is_structurally_prunable(link):
+                    seen.add(link)
+                    continue
+                if not discovery.guard_url(link):
+                    seen.add(link)
+                    continue
                 seen.add(link)
-                continue
-            if discovery.is_structurally_prunable(link):
-                seen.add(link)
-                continue
-            if not discovery.guard_url(link):
-                seen.add(link)
-                continue
-            seen.add(link)
-            frontier.append((link, depth + 1))
+                frontier.append((link, depth + 1))
 
-    return pages
+        return pages
+
+    # Injected renderer (tests) or empty frontier: no shared browser needed.
+    if page_renderer is not None or not root_hostname:
+        return await _run(page_renderer)
+
+    # Production: launch ONE browser for the whole same-host crawl and reuse it
+    # across every page (avoids a browser launch per page).
+    try:
+        safe_ip = resolve_and_validate_host(root_hostname)
+    except ValueError:
+        logger.warning("crawl_site SSRF guard blocked root host: {}", root_hostname)
+        return []
+    async with _browser_render_session(root_hostname, safe_ip) as renderer:
+        return await _run(renderer)

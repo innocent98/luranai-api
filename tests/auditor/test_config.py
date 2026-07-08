@@ -2,7 +2,7 @@ from app.core.config import settings
 
 
 def test_auditor_settings_defaults():
-    assert settings.AUDITOR_PUBLIC_MAX_PAGES == 50
+    assert settings.AUDITOR_PUBLIC_MAX_PAGES == 10
     assert settings.AUDITOR_DASHBOARD_DEFAULT_MAX_PAGES == 500
     assert settings.AUDITOR_CLAIM_STALENESS_DAYS == 7
     assert settings.AUDITOR_UNCLAIMED_PURGE_DAYS == 30
