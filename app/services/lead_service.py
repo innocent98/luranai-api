@@ -56,6 +56,7 @@ class LeadService:
         compares it numerically (> 50).  We coerce here so real Lead rows work
         identically to SimpleNamespace fixtures in unit tests.
         """
+
         # Proxy object that presents team_size as an int so the engine works
         # even when the DB column holds a string value.
         class _LeadProxy:
@@ -289,14 +290,12 @@ class LeadService:
 
         # New this week
         one_week_ago = datetime.now(UTC) - timedelta(days=7)
-        new_this_week: int = (
-            base.filter(Lead.created_at >= one_week_ago).count()
-        )
+        new_this_week: int = base.filter(Lead.created_at >= one_week_ago).count()
 
         # Sales-ready count (score >= 86)
-        sales_ready_count: int = (
-            base.filter(Lead.lead_score >= TIER_THRESHOLDS["sales_ready"]).count()
-        )
+        sales_ready_count: int = base.filter(
+            Lead.lead_score >= TIER_THRESHOLDS["sales_ready"]
+        ).count()
 
         return {
             "new_this_week": new_this_week,
@@ -320,14 +319,15 @@ class LeadService:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _tier_score_range(tier: str) -> tuple[int, int]:
     """Map tier name to inclusive [lo, hi] score range."""
     if tier == "cold":
-        return 0, TIER_THRESHOLDS["warm"] - 1          # 0–30
+        return 0, TIER_THRESHOLDS["warm"] - 1  # 0–30
     if tier == "warm":
-        return TIER_THRESHOLDS["warm"], TIER_THRESHOLDS["hot"] - 1   # 31–60
+        return TIER_THRESHOLDS["warm"], TIER_THRESHOLDS["hot"] - 1  # 31–60
     if tier == "hot":
         return TIER_THRESHOLDS["hot"], TIER_THRESHOLDS["sales_ready"] - 1  # 61–85
     if tier == "sales_ready":
-        return TIER_THRESHOLDS["sales_ready"], 100      # 86–100
+        return TIER_THRESHOLDS["sales_ready"], 100  # 86–100
     raise ValueError(f"Unknown tier: {tier!r}")

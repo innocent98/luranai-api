@@ -13,9 +13,7 @@ _UNREACHABLE_KINDS = {
     RawPageError.BLOCKED,
 }
 
-_RENDER_FAILED_REASON = (
-    "Something went wrong on our end while reading your site. Please try again."
-)
+_RENDER_FAILED_REASON = "Something went wrong on our end while reading your site. Please try again."
 _UNREACHABLE_REASON = "We couldn't reach your website. Check the URL and try again."
 _THIN_REASON = (
     "We could only partially read your site — you may get a fuller picture by "

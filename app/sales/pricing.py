@@ -43,21 +43,27 @@ def compute_quote(
     discount = subtotal * pct // 100
     total = subtotal - discount
 
-    line_items = [{
-        "label": tier["name"],
-        "detail": f"{int(tier['min_users'])}–{max_users} users",
-        "amount": base,
-    }]
+    line_items = [
+        {
+            "label": tier["name"],
+            "detail": f"{int(tier['min_users'])}–{max_users} users",
+            "amount": base,
+        }
+    ]
     if overage_seats > 0:
-        line_items.append({
-            "label": f"Extra seats (×{overage_seats})",
-            "detail": f"{_currency_symbol(currency)}{rate:,} / seat",
-            "amount": overage,
-        })
+        line_items.append(
+            {
+                "label": f"Extra seats (×{overage_seats})",
+                "detail": f"{_currency_symbol(currency)}{rate:,} / seat",
+                "amount": overage,
+            }
+        )
     if pct > 0 and discount > 0:
-        line_items.append({
-            "label": "Annual discount",
-            "detail": f"−{pct}%",
-            "amount": -discount,
-        })
+        line_items.append(
+            {
+                "label": "Annual discount",
+                "detail": f"−{pct}%",
+                "amount": -discount,
+            }
+        )
     return {"currency": currency, "line_items": line_items, "total": total}

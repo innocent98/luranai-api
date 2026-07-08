@@ -91,9 +91,7 @@ class AuditService:
         )
         return cap.max_knowledge_sources if cap else 0
 
-    def preselect_entries(
-        self, audit_report_id: UUID
-    ) -> tuple[list[AuditEntry], list[AuditEntry]]:
+    def preselect_entries(self, audit_report_id: UUID) -> tuple[list[AuditEntry], list[AuditEntry]]:
         """Initialization-only preselection: assign ACTIVE/LOCKED only to PROPOSED entries.
 
         N is determined by TenantCapabilities.max_knowledge_sources.
@@ -271,7 +269,6 @@ class AuditService:
             .count()
         )
         return max(0, limit - active_count)
-
 
     async def claim_audit(self, claim_token: str, tenant_id: UUID) -> AuditReport:
         """Re-parent a public audit to a tenant after sign-up.

@@ -48,7 +48,9 @@ async def synthesize_profile(pages: list[ExtractedPage], *, max_sample_chars: in
     }
 
 
-def persist_profile(db: Session, tenant_id: UUID, data: dict, *, model_version: str) -> BusinessProfile:
+def persist_profile(
+    db: Session, tenant_id: UUID, data: dict, *, model_version: str
+) -> BusinessProfile:
     """Upsert one BusinessProfile row per tenant; bump refreshed_at on every call."""
     bp = db.query(BusinessProfile).filter(BusinessProfile.tenant_id == tenant_id).one_or_none()
     if bp is None:
@@ -83,7 +85,9 @@ async def synthesize_or_reuse(
     should call synthesize_profile() directly and keep the result in memory.
     """
     sig = content_signature(pages)
-    existing = db.query(BusinessProfile).filter(BusinessProfile.tenant_id == tenant_id).one_or_none()
+    existing = (
+        db.query(BusinessProfile).filter(BusinessProfile.tenant_id == tenant_id).one_or_none()
+    )
     if existing is not None and prior_signature == sig:
         return existing, sig
     data = await synthesize_profile(pages)

@@ -6,7 +6,7 @@ from app.auditor.llm import complete_json
 
 _SYSTEM = (
     "You define the content a business like this SHOULD publish to serve and convert customers. "
-    "Return JSON {\"expected\": [...]} where each item has: item (string), dimensions (subset of "
+    'Return JSON {"expected": [...]} where each item has: item (string), dimensions (subset of '
     "[knowledge, support, conversion]), weight (0-1 float importance), kind (faq|policy|product|"
     "pricing|guide|contact|testimonial|other), why_it_matters (string), recommended_content (string), "
     "demand_count (int, 0 unless a question count is supplied). Adapt to THIS business."

@@ -236,9 +236,7 @@ class AuditReport(Base, UUIDMixin, TimestampMixin):
     processing_job_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("processing_jobs.id", ondelete="SET NULL"), nullable=True
     )
-    completed_at: Mapped["datetime | None"] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    completed_at: Mapped["datetime | None"] = mapped_column(DateTime(timezone=True), nullable=True)
     scan_quality: Mapped[ScanQuality | None] = mapped_column(
         _audit_enum(ScanQuality, "audit_scan_quality"), nullable=True, default=None
     )
