@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.auditor.service import AuditService
+from app.core.config import settings
 from app.db.models.audit import AuditReport, AuditScope
 from app.db.models.lead import Lead
 from app.schemas.auditor import LeadCaptureRequest, PublicAuditRequest, PublicReportResponse
@@ -140,6 +141,15 @@ def capture_lead(
     report.lead_id = lead.id
     db.commit()
     gap_titles = [g.get("title") for g in (report.gaps or []) if g.get("title")]
+    # Signup/unlock link: use the configured frontend (luranai.com in prod), the
+    # real /register route (matches the public report CTA), and carry the report's
+    # claim token so signing up claims this scan and resumes the full audit.
+    base = settings.FRONTEND_URL.rstrip("/")
+    signup_url = (
+        f"{base}/register?claim_token={report.claim_token}"
+        if report.claim_token
+        else f"{base}/register"
+    )
     email_service.send_templated_email(
         to_email=email,
         subject="Your AI Website Audit report",
@@ -154,7 +164,7 @@ def capture_lead(
             "overall_score": report.overall_score,
             "projected_score": report.projected_score,
             "gap_titles": gap_titles,
-            "signup_url": "https://app.luranai.com/signup",
+            "signup_url": signup_url,
             "current_year": 2026,
         },
     )
