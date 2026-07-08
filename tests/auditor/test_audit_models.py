@@ -56,3 +56,36 @@ def test_processing_job_allows_null_tenant(db):
     db.refresh(job)
     assert job.id is not None
     assert job.tenant_id is None
+
+
+def test_audit_report_scan_quality_fields(db):
+    import uuid
+    from app.db.models.audit import AuditReport, AuditScope, AuditStatus, ScanQuality
+
+    r = AuditReport(
+        tenant_id=None,
+        url="https://ex.com",
+        domain="ex.com",
+        scope=AuditScope.PUBLIC,
+        status=AuditStatus.COMPLETED,
+        scan_quality=ScanQuality.THIN,
+        scan_quality_reason="Only the homepage could be read.",
+    )
+    db.add(r)
+    db.flush()
+    db.refresh(r)
+    assert r.scan_quality == ScanQuality.THIN
+    assert r.scan_quality_reason == "Only the homepage could be read."
+
+
+def test_audit_report_scan_quality_defaults_none(db):
+    import uuid
+    from app.db.models.audit import AuditReport, AuditScope, AuditStatus
+
+    r = AuditReport(tenant_id=None, url="https://ex.com", domain="ex.com",
+                    scope=AuditScope.PUBLIC, status=AuditStatus.QUEUED)
+    db.add(r)
+    db.flush()
+    db.refresh(r)
+    assert r.scan_quality is None
+    assert r.scan_quality_reason is None
