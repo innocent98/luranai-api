@@ -29,17 +29,20 @@ def normalize_url(raw: str, base: str | None = None) -> str | None:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return None
     query_pairs = [
-        (k, v) for k, v in parse_qsl(parsed.query)
+        (k, v)
+        for k, v in parse_qsl(parsed.query)
         if not any(k.lower().startswith(p) for p in _TRACKING_PREFIXES)
     ]
-    return urlunparse((
-        parsed.scheme,
-        parsed.netloc.lower(),
-        parsed.path.rstrip("/") or "/",
-        "",
-        urlencode(query_pairs),
-        "",
-    ))
+    return urlunparse(
+        (
+            parsed.scheme,
+            parsed.netloc.lower(),
+            parsed.path.rstrip("/") or "/",
+            "",
+            urlencode(query_pairs),
+            "",
+        )
+    )
 
 
 def is_structurally_prunable(url: str) -> bool:

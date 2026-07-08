@@ -66,9 +66,7 @@ async def register_company(
 
     if registration_data.claim_token:
         try:
-            await AuditService(db).claim_audit(
-                registration_data.claim_token, response.tenant_id
-            )
+            await AuditService(db).claim_audit(registration_data.claim_token, response.tenant_id)
             logger.info(
                 f"Claimed public audit (token=…{registration_data.claim_token[-6:]}) "
                 f"for tenant {response.tenant_id}"

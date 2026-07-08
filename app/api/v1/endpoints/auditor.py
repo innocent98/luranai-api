@@ -9,7 +9,13 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_db
 from app.auditor.service import AuditService
-from app.db.models.audit import AuditEntry, AuditEntryKind, AuditEntryStatus, AuditReport, AuditScope
+from app.db.models.audit import (
+    AuditEntry,
+    AuditEntryKind,
+    AuditEntryStatus,
+    AuditReport,
+    AuditScope,
+)
 from app.schemas.auditor import DashboardAuditRequest, EntryDetailResponse, EntryEditRequest
 from app.schemas.user import UserResponse
 
@@ -48,9 +54,7 @@ def _check_monthly_audit_limit(db: Session, tenant_id: UUID) -> None:
     from app.db.models.tenant import TenantCapabilities
 
     cap = (
-        db.query(TenantCapabilities)
-        .filter(TenantCapabilities.tenant_id == tenant_id)
-        .one_or_none()
+        db.query(TenantCapabilities).filter(TenantCapabilities.tenant_id == tenant_id).one_or_none()
     )
     if cap is None or cap.max_audits_per_month is None:
         # No capabilities row or unlimited — allow.

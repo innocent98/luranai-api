@@ -1,6 +1,6 @@
 """MeetingService — availability lookup + transactional booking (Stage 3 Slice 3)."""
 
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
@@ -22,12 +22,16 @@ class MeetingService:
         self.db = db
 
     def _booked_slots(self, tenant_id: UUID) -> list[datetime]:
-        rows = self.db.execute(
-            select(Meeting.scheduled_at).where(
-                Meeting.tenant_id == tenant_id,
-                Meeting.status == MeetingStatus.SCHEDULED,
+        rows = (
+            self.db.execute(
+                select(Meeting.scheduled_at).where(
+                    Meeting.tenant_id == tenant_id,
+                    Meeting.status == MeetingStatus.SCHEDULED,
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         return list(rows)
 
     def compute_availability(
@@ -35,20 +39,31 @@ class MeetingService:
     ) -> list[datetime]:
         return generate_slots(availability, self._booked_slots(tenant_id), now=now, days=days)
 
-    def _existing_future_meeting(self, tenant_id: UUID, lead_id: UUID, now: datetime) -> Meeting | None:
-        return self.db.execute(
-            select(Meeting).where(
-                Meeting.tenant_id == tenant_id,
-                Meeting.lead_id == lead_id,
-                Meeting.status == MeetingStatus.SCHEDULED,
-                Meeting.scheduled_at > now,
+    def _existing_future_meeting(
+        self, tenant_id: UUID, lead_id: UUID, now: datetime
+    ) -> Meeting | None:
+        return (
+            self.db.execute(
+                select(Meeting).where(
+                    Meeting.tenant_id == tenant_id,
+                    Meeting.lead_id == lead_id,
+                    Meeting.status == MeetingStatus.SCHEDULED,
+                    Meeting.scheduled_at > now,
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
 
     def book(
-        self, tenant_id: UUID, lead: Lead, *,
-        scheduled_at: datetime, visitor_timezone: str | None,
-        use_case: str | None, duration_min: int,
+        self,
+        tenant_id: UUID,
+        lead: Lead,
+        *,
+        scheduled_at: datetime,
+        visitor_timezone: str | None,
+        use_case: str | None,
+        duration_min: int,
         availability: dict,
     ) -> Meeting:
         """Book a meeting slot for the given lead.
@@ -61,10 +76,10 @@ class MeetingService:
         NOTE: calls db.commit() on success — this commits any other pending
         work in the session, so callers should not hold unrelated dirty state.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if scheduled_at.tzinfo is None:
             raise SlotUnavailable("scheduled_at must be timezone-aware")
-        scheduled_at = scheduled_at.astimezone(timezone.utc)
+        scheduled_at = scheduled_at.astimezone(UTC)
         if scheduled_at <= now:
             raise SlotUnavailable("Slot is in the past")
 
@@ -100,9 +115,13 @@ class MeetingService:
             raise SlotUnavailable("Slot just taken")
 
         meeting = Meeting(
-            tenant_id=tenant_id, lead_id=lead.id, conversation_id=lead.conversation_id,
-            scheduled_at=scheduled_at, duration_min=duration_min,
-            visitor_timezone=visitor_timezone, use_case=use_case,
+            tenant_id=tenant_id,
+            lead_id=lead.id,
+            conversation_id=lead.conversation_id,
+            scheduled_at=scheduled_at,
+            duration_min=duration_min,
+            visitor_timezone=visitor_timezone,
+            use_case=use_case,
             status=MeetingStatus.SCHEDULED,
         )
         self.db.add(meeting)

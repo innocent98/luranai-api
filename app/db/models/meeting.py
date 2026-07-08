@@ -43,10 +43,14 @@ class Meeting(Base, UUIDMixin, TimestampMixin):
     visitor_timezone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     use_case: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[MeetingStatus] = mapped_column(
-        SQLEnum(MeetingStatus, name="meeting_status", values_callable=lambda x: [e.value for e in x]),
+        SQLEnum(
+            MeetingStatus, name="meeting_status", values_callable=lambda x: [e.value for e in x]
+        ),
         default=MeetingStatus.SCHEDULED,
         nullable=False,
     )
 
     def __repr__(self) -> str:
-        return f"<Meeting(id={self.id}, tenant_id={self.tenant_id}, scheduled_at={self.scheduled_at})>"
+        return (
+            f"<Meeting(id={self.id}, tenant_id={self.tenant_id}, scheduled_at={self.scheduled_at})>"
+        )

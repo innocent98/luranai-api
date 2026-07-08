@@ -68,6 +68,36 @@ def client(db):
     app.dependency_overrides.clear()
 
 
+@pytest.fixture(scope="function", autouse=True)
+def _reset_http_rate_limits():
+    """Clear HTTP rate-limit counters before each test.
+
+    Every HTTP rate limiter keys on the caller IP, and TestClient uses a single
+    fixed client host, so counters accumulate across the full-suite run and push
+    later tests over the limit (e.g. registration is 3/hour in the ``test`` env,
+    but the suite issues several registrations). Clearing the rate-limit keys
+    before each test isolates them, while still letting a single test build up to
+    its own 429 assertion (e.g. the public-auditor limit tests).
+
+    Only rate-limit keys are removed (not a full FLUSHDB) so unrelated Redis
+    state is left intact. Fails open if Redis is unavailable so suites without a
+    Redis server still run.
+    """
+    try:
+        import redis as _redis
+
+        from app.core.config import settings as _settings
+
+        _client = _redis.Redis.from_url(_settings.REDIS_URL)
+        for pattern in ("http_*", "public_audit*", "openai_*_api*"):
+            for key in _client.scan_iter(match=pattern, count=500):
+                _client.delete(key)
+        _client.close()
+    except Exception:
+        pass
+    yield
+
+
 # ---------------------------------------------------------------------------
 # Postgres-backed fixtures for promotional-grants tests
 # ---------------------------------------------------------------------------

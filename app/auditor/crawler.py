@@ -21,10 +21,10 @@ from app.utils.network_security import resolve_and_validate_host
 
 class RawPageError(str, Enum):
     OK = "ok"
-    LAUNCH_FAILED = "launch_failed"   # browser binary / launch failure (our infra)
+    LAUNCH_FAILED = "launch_failed"  # browser binary / launch failure (our infra)
     TIMEOUT = "timeout"
-    HTTP_ERROR = "http_error"         # network error, or status 0 / >= 400
-    BLOCKED = "blocked"               # SSRF pre-guard or post-redirect guard
+    HTTP_ERROR = "http_error"  # network error, or status 0 / >= 400
+    BLOCKED = "blocked"  # SSRF pre-guard or post-redirect guard
     SIZE_CAP = "size_cap"
     ROBOTS = "robots"
 
@@ -233,8 +233,14 @@ async def render_page(
     # Pre-render SSRF guard.
     if not guard_url(url):
         logger.warning("render_page SSRF pre-guard blocked: {}", url)
-        return RawPage(url=url, status=0, html=None, bytes_len=0,
-                       error="UNSAFE_URL", error_kind=RawPageError.BLOCKED)
+        return RawPage(
+            url=url,
+            status=0,
+            html=None,
+            bytes_len=0,
+            error="UNSAFE_URL",
+            error_kind=RawPageError.BLOCKED,
+        )
 
     renderer = page_renderer or _playwright_render
     try:
@@ -245,8 +251,14 @@ async def render_page(
             + 2,
         )
     except TimeoutError:
-        return RawPage(url=url, status=0, html=None, bytes_len=0,
-                       error="TIMEOUT", error_kind=RawPageError.TIMEOUT)
+        return RawPage(
+            url=url,
+            status=0,
+            html=None,
+            bytes_len=0,
+            error="TIMEOUT",
+            error_kind=RawPageError.TIMEOUT,
+        )
     except Exception as exc:
         logger.debug("render_page error {}: {}", url, exc)
         msg = str(exc).lower()
@@ -255,8 +267,7 @@ async def render_page(
             if ("executable doesn't exist" in msg or "browsertype.launch" in msg)
             else RawPageError.HTTP_ERROR
         )
-        return RawPage(url=url, status=0, html=None, bytes_len=0,
-                       error=str(exc), error_kind=kind)
+        return RawPage(url=url, status=0, html=None, bytes_len=0, error=str(exc), error_kind=kind)
 
     # Support both 2-tuple (status, html) and 3-tuple (status, html, final_url).
     if len(result) == 3:
@@ -268,19 +279,37 @@ async def render_page(
     # Post-redirect SSRF guard — discard body if the browser landed on an unsafe host.
     if final_url != url and not guard_url(final_url):
         logger.warning("render_page SSRF post-redirect guard blocked: {} -> {}", url, final_url)
-        return RawPage(url=url, status=0, html=None, bytes_len=0,
-                       error="UNSAFE_REDIRECT", error_kind=RawPageError.BLOCKED,
-                       final_url=final_url)
+        return RawPage(
+            url=url,
+            status=0,
+            html=None,
+            bytes_len=0,
+            error="UNSAFE_REDIRECT",
+            error_kind=RawPageError.BLOCKED,
+            final_url=final_url,
+        )
 
     byte_len = len(html.encode("utf-8"))
     if byte_len > max_bytes:
-        return RawPage(url=url, status=status, html=None, bytes_len=byte_len,
-                       error="SIZE_CAP_EXCEEDED", error_kind=RawPageError.SIZE_CAP,
-                       final_url=final_url)
+        return RawPage(
+            url=url,
+            status=status,
+            html=None,
+            bytes_len=byte_len,
+            error="SIZE_CAP_EXCEEDED",
+            error_kind=RawPageError.SIZE_CAP,
+            final_url=final_url,
+        )
 
     error_kind = RawPageError.OK if 200 <= status < 400 else RawPageError.HTTP_ERROR
-    return RawPage(url=url, status=status, html=html, bytes_len=byte_len,
-                   error_kind=error_kind, final_url=final_url)
+    return RawPage(
+        url=url,
+        status=status,
+        html=html,
+        bytes_len=byte_len,
+        error_kind=error_kind,
+        final_url=final_url,
+    )
 
 
 async def crawl(
@@ -311,8 +340,14 @@ async def crawl(
         if not is_allowed_by_robots(url, robots_disallowed):
             logger.debug("robots blocked: {}", url)
             pages.append(
-                RawPage(url=url, status=0, html=None, bytes_len=0,
-                        error="ROBOTS_BLOCKED", error_kind=RawPageError.ROBOTS)
+                RawPage(
+                    url=url,
+                    status=0,
+                    html=None,
+                    bytes_len=0,
+                    error="ROBOTS_BLOCKED",
+                    error_kind=RawPageError.ROBOTS,
+                )
             )
             continue
         page = await render_page(url, page_renderer=page_renderer)
@@ -364,9 +399,9 @@ async def crawl_site(
             continue
         host = urlparse(n).netloc
         if not root_host:
-            root_host = host           # first valid seed defines the same-host boundary
+            root_host = host  # first valid seed defines the same-host boundary
         elif host != root_host:
-            continue                    # off-host seed rejected
+            continue  # off-host seed rejected
         if discovery.is_structurally_prunable(n):
             seen.add(n)
             continue
@@ -382,8 +417,14 @@ async def crawl_site(
 
         if not is_allowed_by_robots(url, robots_disallowed):
             pages.append(
-                RawPage(url=url, status=0, html=None, bytes_len=0,
-                        error="ROBOTS_BLOCKED", error_kind=RawPageError.ROBOTS)
+                RawPage(
+                    url=url,
+                    status=0,
+                    html=None,
+                    bytes_len=0,
+                    error="ROBOTS_BLOCKED",
+                    error_kind=RawPageError.ROBOTS,
+                )
             )
             continue
 

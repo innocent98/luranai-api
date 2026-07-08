@@ -1032,13 +1032,13 @@ Instructions:
             await openai_llm_rate_limiter.acquire()
             client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
-            kwargs: dict = dict(
-                model=model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=0.2,
-                top_p=0.8,
-            )
+            kwargs: dict = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": 0.2,
+                "top_p": 0.8,
+            }
             if response_format is not None:
                 kwargs["response_format"] = response_format
 
@@ -1129,9 +1129,7 @@ Instructions:
             max_tokens=max_tokens,
         )
         if not is_api_error:
-            logger.debug(
-                f"Generated AI response using {model} with {token_count} tokens"
-            )
+            logger.debug(f"Generated AI response using {model} with {token_count} tokens")
             logger.debug(
                 f"Response text length: {len(response_text)} chars, "
                 f"{len(response_text.split())} words"
@@ -1198,7 +1196,9 @@ Instructions:
 
         parsed = parse_sales_output(raw_text)
         if parsed is None:
-            logger.warning("generate_sales_response: parse_sales_output returned None; using raw text")
+            logger.warning(
+                "generate_sales_response: parse_sales_output returned None; using raw text"
+            )
             return raw_text, None, token_count, False
 
         sales_meta = {

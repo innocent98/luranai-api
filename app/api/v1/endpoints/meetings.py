@@ -5,7 +5,7 @@ only offered after a lead exists, so the lead is the natural, tenant-scoped anch
 No authentication required — these are public widget endpoints.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -36,21 +36,13 @@ def _err(code: str, message: str, http: int) -> JSONResponse:
     )
 
 
-def _resolve(
-    db: Session, conversation_id: UUID
-) -> tuple[Lead, TenantSalesAgentConfig] | None:
+def _resolve(db: Session, conversation_id: UUID) -> tuple[Lead, TenantSalesAgentConfig] | None:
     """Return (lead, cfg) for this conversation_id, or None if either is missing."""
-    lead = (
-        db.execute(select(Lead).where(Lead.conversation_id == conversation_id))
-        .scalars()
-        .first()
-    )
+    lead = db.execute(select(Lead).where(Lead.conversation_id == conversation_id)).scalars().first()
     if lead is None or lead.tenant_id is None:
         return None
     cfg = db.execute(
-        select(TenantSalesAgentConfig).where(
-            TenantSalesAgentConfig.tenant_id == lead.tenant_id
-        )
+        select(TenantSalesAgentConfig).where(TenantSalesAgentConfig.tenant_id == lead.tenant_id)
     ).scalar_one_or_none()
     return (lead, cfg) if cfg is not None else None
 
@@ -73,11 +65,9 @@ def get_availability(
     if not cfg.meeting_booking_enabled:
         return {"success": True, "data": {"slots": []}}
     slots = MeetingService(db).compute_availability(
-        lead.tenant_id, cfg.availability, now=datetime.now(timezone.utc), days=days
+        lead.tenant_id, cfg.availability, now=datetime.now(UTC), days=days
     )
-    payload = AvailabilityResponse(
-        slots=[AvailabilitySlot(start_utc=s) for s in slots]
-    )
+    payload = AvailabilityResponse(slots=[AvailabilitySlot(start_utc=s) for s in slots])
     return {"success": True, "data": payload.model_dump()}
 
 
@@ -111,9 +101,12 @@ def book_meeting(payload: BookMeetingRequest, db: Session = Depends(get_db)):
         from app.services.notification_service import NotificationService
         from app.services.notification_enqueue import enqueue_jobs_sync
         from app.db.models.notification_log import NotifEvent
+
         jobs = NotificationService(db).dispatch(
-            lead.tenant_id, NotifEvent.MEETING_BOOKED,
-            entity_type="meeting", entity_id=meeting.id,
+            lead.tenant_id,
+            NotifEvent.MEETING_BOOKED,
+            entity_type="meeting",
+            entity_id=meeting.id,
         )
         enqueue_jobs_sync(jobs)
     except Exception as exc:  # noqa: BLE001

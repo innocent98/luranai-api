@@ -17,9 +17,12 @@ def _fmt(amount: int, currency: str) -> str:
 def render_quote_pdf(quote, *, lead=None) -> bytes:
     """Render `quote` to PDF bytes. Raises RuntimeError if generation fails."""
     items = [
-        {"label": li.get("label", ""), "detail": li.get("detail", ""),
-         "amount_fmt": _fmt(int(li.get("amount", 0)), quote.currency),
-         "negative": int(li.get("amount", 0)) < 0}
+        {
+            "label": li.get("label", ""),
+            "detail": li.get("detail", ""),
+            "amount_fmt": _fmt(int(li.get("amount", 0)), quote.currency),
+            "negative": int(li.get("amount", 0)) < 0,
+        }
         for li in (quote.line_items or [])
     ]
     ctx = {

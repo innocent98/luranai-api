@@ -701,9 +701,7 @@ async def send_message(
 
     # Load sales agent config (may be None if tenant has not configured it).
     sales_agent_config = db.execute(
-        select(TenantSalesAgentConfig).where(
-            TenantSalesAgentConfig.tenant_id == session.tenant_id
-        )
+        select(TenantSalesAgentConfig).where(TenantSalesAgentConfig.tenant_id == session.tenant_id)
     ).scalar_one_or_none()
     _sales_mode = bool(
         sales_agent_config is not None
@@ -2088,12 +2086,9 @@ async def send_message(
                     )
                 ).scalar_one_or_none()
 
-                _should_create = (
-                    _existing is not None
-                    or is_trigger_intent(
-                        _sales_meta["intent"],
-                        sales_agent_config.trigger_intents,
-                    )
+                _should_create = _existing is not None or is_trigger_intent(
+                    _sales_meta["intent"],
+                    sales_agent_config.trigger_intents,
                 )
 
                 if _should_create:
@@ -2137,13 +2132,18 @@ async def send_message(
                             from app.services.notification_service import NotificationService
                             from app.services.notification_enqueue import enqueue_jobs_async
                             from app.db.models.notification_log import NotifEvent
+
                             _sr_jobs = NotificationService(db).dispatch(
-                                session.tenant_id, NotifEvent.SALES_READY_LEAD,
-                                entity_type="lead", entity_id=lead.id,
+                                session.tenant_id,
+                                NotifEvent.SALES_READY_LEAD,
+                                entity_type="lead",
+                                entity_id=lead.id,
                             )
                             await enqueue_jobs_async(_sr_jobs)
                     except Exception as _sr_exc:  # noqa: BLE001
-                        logger.error(f"sales_ready notification dispatch failed (non-fatal): {_sr_exc}")
+                        logger.error(
+                            f"sales_ready notification dispatch failed (non-fatal): {_sr_exc}"
+                        )
 
             except Exception as _lead_exc:
                 logger.error(f"Sales lead orchestration error (non-fatal): {_lead_exc}")
@@ -2177,8 +2177,7 @@ async def send_message(
             "token_breakdown": {
                 "prompt_tokens": (
                     prompt_components.prompt_tokens
-                    if prompt_components is not None
-                    and prompt_components.prompt_tokens is not None
+                    if prompt_components is not None and prompt_components.prompt_tokens is not None
                     else 0
                 ),
                 "completion_tokens": (
@@ -2195,14 +2194,17 @@ async def send_message(
             _message_meta["lead_captured"] = _lead_captured_meta
         if _sales_mode and _sales_meta is not None:
             _signals = _sales_meta.get("signals") or {}
-            if bool(_signals.get("offer_meeting")) and getattr(sales_agent_config, "meeting_booking_enabled", False):
+            if bool(_signals.get("offer_meeting")) and getattr(
+                sales_agent_config, "meeting_booking_enabled", False
+            ):
                 _message_meta["offer_meeting"] = True
-            if bool(_signals.get("offer_quote")) and getattr(sales_agent_config, "quotation_enabled", False):
+            if bool(_signals.get("offer_quote")) and getattr(
+                sales_agent_config, "quotation_enabled", False
+            ):
                 try:
-                    _ts_raw = (
-                        (lead.team_size if lead is not None else None)
-                        or (_sales_meta.get("captured") or {}).get("team_size")
-                    )
+                    _ts_raw = (lead.team_size if lead is not None else None) or (
+                        _sales_meta.get("captured") or {}
+                    ).get("team_size")
                     _team_size: int | None = None
                     if _ts_raw is not None:
                         _m = re.search(r"\d+", str(_ts_raw))
@@ -2228,13 +2230,18 @@ async def send_message(
                                 from app.services.notification_service import NotificationService
                                 from app.services.notification_enqueue import enqueue_jobs_async
                                 from app.db.models.notification_log import NotifEvent
+
                                 _qn_jobs = NotificationService(db).dispatch(
-                                    session.tenant_id, NotifEvent.QUOTE_GENERATED,
-                                    entity_type="quote", entity_id=_created_quote.id,
+                                    session.tenant_id,
+                                    NotifEvent.QUOTE_GENERATED,
+                                    entity_type="quote",
+                                    entity_id=_created_quote.id,
                                 )
                                 await enqueue_jobs_async(_qn_jobs)
                             except Exception as _qn_exc:  # noqa: BLE001
-                                logger.error(f"quote notification dispatch failed (non-fatal): {_qn_exc}")
+                                logger.error(
+                                    f"quote notification dispatch failed (non-fatal): {_qn_exc}"
+                                )
                 except Exception as _quote_exc:
                     logger.error(f"Quote orchestration error (non-fatal): {_quote_exc}")
 

@@ -32,25 +32,42 @@ class NotifStatus(str, enum.Enum):
 class NotificationLog(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "notification_logs"
     __table_args__ = (
-        Index("uq_notification_dedupe", "tenant_id", "event", "channel", "entity_id", "recipient", unique=True),
+        Index(
+            "uq_notification_dedupe",
+            "tenant_id",
+            "event",
+            "channel",
+            "entity_id",
+            "recipient",
+            unique=True,
+        ),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("tenants.id", ondelete="CASCADE"), index=True, nullable=False)
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True, nullable=False
+    )
     event: Mapped[NotifEvent] = mapped_column(
-        SQLEnum(NotifEvent, name="notif_event", values_callable=lambda x: [e.value for e in x]), nullable=False)
+        SQLEnum(NotifEvent, name="notif_event", values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+    )
     channel: Mapped[NotifChannel] = mapped_column(
-        SQLEnum(NotifChannel, name="notif_channel", values_callable=lambda x: [e.value for e in x]), nullable=False)
+        SQLEnum(NotifChannel, name="notif_channel", values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+    )
     entity_type: Mapped[str] = mapped_column(String(20), nullable=False)
     entity_id: Mapped[uuid.UUID] = mapped_column(index=True, nullable=False)
     recipient: Mapped[str] = mapped_column(String(320), nullable=False)
     status: Mapped[NotifStatus] = mapped_column(
         SQLEnum(NotifStatus, name="notif_status", values_callable=lambda x: [e.value for e in x]),
-        default=NotifStatus.PENDING, nullable=False)
+        default=NotifStatus.PENDING,
+        nullable=False,
+    )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     title: Mapped[str | None] = mapped_column(String(160), nullable=True)
     body: Mapped[str | None] = mapped_column(String(400), nullable=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     def __repr__(self) -> str:
-        return f"<NotificationLog(event={self.event}, channel={self.channel}, status={self.status})>"
+        return (
+            f"<NotificationLog(event={self.event}, channel={self.channel}, status={self.status})>"
+        )

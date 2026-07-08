@@ -79,7 +79,8 @@ async def run_audit(
         report.status = AuditStatus.CRAWLING
         db.commit()
         _update_job(
-            db, report.processing_job_id,
+            db,
+            report.processing_job_id,
             status=JobStatus.PROCESSING,
             started_at=datetime.now(UTC),
         )
@@ -91,9 +92,7 @@ async def run_audit(
         already_have: set[str] = set()
         if resume:
             existing_entries = (
-                db.query(AuditEntry)
-                .filter(AuditEntry.audit_report_id == report.id)
-                .all()
+                db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).all()
             )
             already_have = {e.url for e in existing_entries}
             # Edge case: no existing entries → fall through to fresh-run behaviour
@@ -115,7 +114,8 @@ async def run_audit(
 
         report.pages_discovered = len(already_have) + len(seeds)
         _update_job(
-            db, report.processing_job_id,
+            db,
+            report.processing_job_id,
             total_items=len(existing_entries) + len(seeds),
             processed_items=0,
         )
@@ -137,7 +137,8 @@ async def run_audit(
         extracted = extraction.extract_pages(raw_pages)
         report.pages_scanned = len(existing_entries) + len(extracted)
         _update_job(
-            db, report.processing_job_id,
+            db,
+            report.processing_job_id,
             processed_items=len(existing_entries) + len(extracted),
         )
         db.commit()
@@ -159,7 +160,8 @@ async def run_audit(
                 raw_pages[0] if raw_pages else None,
             )
             quality, reason = classify_scan_outcome(
-                root_page, extracted,
+                root_page,
+                extracted,
                 thin_min_content_chars=settings.AUDITOR_THIN_MIN_CONTENT_CHARS,
             )
             report.scan_quality = quality
@@ -251,9 +253,7 @@ async def run_audit(
         # ------------------------------------------------------------------ #
         # Phase 5: expected-content map                                        #
         # ------------------------------------------------------------------ #
-        expected_map = await gaps.build_expected_map(
-            profile_dict, unanswered_questions=[]
-        )
+        expected_map = await gaps.build_expected_map(profile_dict, unanswered_questions=[])
 
         # ------------------------------------------------------------------ #
         # Phase 6: gap analysis                                               #
@@ -293,7 +293,8 @@ async def run_audit(
         report.completed_at = datetime.now(UTC)
         db.commit()
         _update_job(
-            db, report.processing_job_id,
+            db,
+            report.processing_job_id,
             status=JobStatus.COMPLETED,
             completed_at=datetime.now(UTC),
         )
@@ -343,14 +344,16 @@ async def run_website_audit(ctx: dict, audit_report_id: str) -> dict:
     try:
         # Read resume flag from the processing job's input_data so claim_audit's
         # decision (stale=fresh crawl, fresh=incremental) is honoured by the worker.
-        report_obj = db.query(AuditReport).filter(
-            AuditReport.id == UUID(audit_report_id)
-        ).one_or_none()
+        report_obj = (
+            db.query(AuditReport).filter(AuditReport.id == UUID(audit_report_id)).one_or_none()
+        )
         resume = False
         if report_obj and report_obj.processing_job_id:
-            job = db.query(ProcessingJob).filter(
-                ProcessingJob.id == report_obj.processing_job_id
-            ).one_or_none()
+            job = (
+                db.query(ProcessingJob)
+                .filter(ProcessingJob.id == report_obj.processing_job_id)
+                .one_or_none()
+            )
             if job and job.input_data:
                 resume = bool(job.input_data.get("resume", False))
 

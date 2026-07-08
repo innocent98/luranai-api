@@ -3,7 +3,7 @@
 No DB access — takes config + already-booked datetimes, returns UTC slot starts.
 """
 
-from datetime import datetime, time, timedelta, timezone
+from datetime import datetime, time, timedelta, UTC
 from zoneinfo import ZoneInfo
 
 
@@ -30,9 +30,9 @@ def generate_slots(
     step = int(availability.get("slot_minutes", 30))
     buffer = int(availability.get("buffer_minutes", 0))
 
-    now_utc = now.astimezone(timezone.utc)
+    now_utc = now.astimezone(UTC)
     today_local = now.astimezone(tz).date()
-    booked_utc = [b.astimezone(timezone.utc) for b in booked]
+    booked_utc = [b.astimezone(UTC) for b in booked]
     out: list[datetime] = []
 
     for offset in range(days):
@@ -42,7 +42,7 @@ def generate_slots(
         cursor = datetime.combine(day, start_t, tzinfo=tz)
         end = datetime.combine(day, end_t, tzinfo=tz)
         while cursor < end:
-            slot_utc = cursor.astimezone(timezone.utc)
+            slot_utc = cursor.astimezone(UTC)
             if slot_utc > now_utc and not _within_buffer(slot_utc, booked_utc, buffer):
                 out.append(slot_utc)
             cursor += timedelta(minutes=step)
@@ -51,4 +51,4 @@ def generate_slots(
 
 def _within_buffer(slot: datetime, booked: list[datetime], buffer_min: int) -> bool:
     window = timedelta(minutes=buffer_min)
-    return any(abs((slot - b)) <= window for b in booked)
+    return any(abs(slot - b) <= window for b in booked)
