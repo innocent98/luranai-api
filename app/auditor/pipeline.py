@@ -99,7 +99,20 @@ async def run_audit(
             if not existing_entries:
                 resume = False
 
+        # Preserve the user's active-source selections across a fresh re-crawl:
+        # capture which URLs were ACTIVE before wiping, then re-activate the
+        # matching new entries after classification (Phase 4).
+        preserved_active_urls: set[str] = set()
         if not resume:
+            preserved_active_urls = {
+                e.url
+                for e in db.query(AuditEntry)
+                .filter(
+                    AuditEntry.audit_report_id == report.id,
+                    AuditEntry.status == AuditEntryStatus.ACTIVE,
+                )
+                .all()
+            }
             # Fresh run: wipe any pre-existing entries so we never duplicate
             db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).delete()
             db.commit()
@@ -248,12 +261,35 @@ async def run_audit(
             )
         db.flush()
 
+        # Restore the user's prior active-source selections onto the matching
+        # freshly-created entries (see the capture in Phase 1a).
+        if preserved_active_urls:
+            db.query(AuditEntry).filter(
+                AuditEntry.audit_report_id == report.id,
+                AuditEntry.url.in_(preserved_active_urls),
+                AuditEntry.status == AuditEntryStatus.PROPOSED,
+            ).update({AuditEntry.status: AuditEntryStatus.ACTIVE}, synchronize_session=False)
+            db.flush()
+
         total_entry_count = len(existing_entries) + len(classified)
 
         # ------------------------------------------------------------------ #
         # Phase 5: expected-content map                                        #
         # ------------------------------------------------------------------ #
         expected_map = await gaps.build_expected_map(profile_dict, unanswered_questions=[])
+
+        # A failed expected-map (empty despite real content) must NOT publish a
+        # misleading 0-score/0-gap report. build_expected_map already retries; if
+        # it is still empty while we have content, the analyze step failed — fail
+        # the audit with a reason so the UI shows "retry", not a fake 0.
+        if not expected_map and total_entry_count > 0:
+            from app.auditor.scan_quality import ScanUnreadable
+            from app.db.models.audit import ScanQuality as _ScanQuality
+
+            report.scan_quality = _ScanQuality.RENDER_FAILED
+            report.scan_quality_reason = "We couldn't finish analyzing your site. Please try again."
+            db.commit()
+            raise ScanUnreadable(_ScanQuality.RENDER_FAILED, "empty expected_map with content")
 
         # ------------------------------------------------------------------ #
         # Phase 6: gap analysis                                               #

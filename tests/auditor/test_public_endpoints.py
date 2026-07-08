@@ -202,6 +202,8 @@ def test_post_email_creates_lead_with_email_hash(client, db):
     body = resp.json()
     assert body["success"] is True
     assert "lead_id" in body["data"]
+    # Fix D: the email outcome is surfaced (here the send was mocked to succeed).
+    assert body["data"]["email_sent"] is True
 
     # Lead row has email_hash (set by the before_insert event listener)
     leads = db.query(Lead).filter(Lead.audit_report_id == report.id).all()
@@ -227,6 +229,33 @@ def test_post_email_creates_lead_with_email_hash(client, db):
     assert ctx["conversion_score"] == 80
     assert ctx["projected_score"] == 91
     assert "Refund policy" in ctx["gap_titles"]
+
+
+def test_post_email_reports_send_failure_but_still_captures_lead(client, db):
+    """If the report email fails to send, the lead is still captured and the
+    response reports email_sent=False instead of silently claiming success."""
+    from app.db.models.lead import Lead
+
+    report = AuditReport(
+        url="https://ex2.com", domain="ex2.com", scope=AuditScope.PUBLIC,
+        status=AuditStatus.COMPLETED, overall_score=50, gaps=[],
+    )
+    db.add(report)
+    db.commit()
+
+    with patch(
+        "app.api.v1.endpoints.public_auditor.email_service.send_templated_email",
+        return_value=False,
+    ):
+        resp = client.post(
+            f"/api/v1/public/audit/{report.id}/email",
+            json={"email": "owner2@example.com"},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["email_sent"] is False
+    assert db.query(Lead).filter(Lead.audit_report_id == report.id).count() == 1
 
 
 def test_post_email_report_not_found(client, db):

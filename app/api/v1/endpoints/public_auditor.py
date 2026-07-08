@@ -1,9 +1,11 @@
 """Public (no-auth) Website Auditor endpoints."""
 
+from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
+from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -151,7 +153,7 @@ def capture_lead(
         if report.claim_token
         else f"{base}/register"
     )
-    email_service.send_templated_email(
+    sent = email_service.send_templated_email(
         to_email=email,
         subject="Your AI Website Audit report",
         template_name="audit_report.html",
@@ -166,7 +168,11 @@ def capture_lead(
             "projected_score": report.projected_score,
             "gap_titles": gap_titles,
             "signup_url": signup_url,
-            "current_year": 2026,
+            "current_year": datetime.now(UTC).year,
         },
     )
-    return {"success": True, "data": {"lead_id": str(lead.id)}}
+    # The lead is captured regardless (primary action); surface the email
+    # outcome instead of silently claiming success when the send failed.
+    if not sent:
+        logger.warning("Audit report email failed to send for lead {}", lead.id)
+    return {"success": True, "data": {"lead_id": str(lead.id), "email_sent": bool(sent)}}

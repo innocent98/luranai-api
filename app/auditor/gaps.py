@@ -29,8 +29,16 @@ async def build_expected_map(
     """
     questions = unanswered_questions or []
     user = f"BUSINESS PROFILE: {profile}\n\nUNANSWERED CUSTOMER QUESTIONS: {questions}"
-    data = await complete_json("expected_map", _SYSTEM, user, temperature=0.1)
-    return data.get("expected") or []
+    # Retry on an empty result: complete_json returns {} on a malformed/non-JSON
+    # LLM response, and an empty expected-map silently zeroes the score + gaps.
+    # A real business profile always has expected content, so empty ⇒ transient
+    # failure worth retrying before the caller treats it as a failed analysis.
+    for _ in range(3):
+        data = await complete_json("expected_map", _SYSTEM, user, temperature=0.1)
+        expected = data.get("expected") or []
+        if expected:
+            return expected
+    return []
 
 
 def compute_gaps(

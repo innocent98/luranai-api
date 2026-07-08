@@ -283,7 +283,7 @@ class AuditService:
         from datetime import UTC, datetime, timedelta
 
         from app.core.config import settings
-        from app.db.models.audit import AuditEntry, AuditReport
+        from app.db.models.audit import AuditEntry, AuditReport, AuditScope
         from app.db.models.business_profile import BusinessProfile
         from app.db.models.job import JobType, ProcessingJob
         from app.utils.datetime import ensure_utc_aware
@@ -296,8 +296,12 @@ class AuditService:
         if report is None:
             raise ValueError("Invalid or already-claimed token")
 
-        # Re-parent the report and all its entries
+        # Re-parent the report and all its entries. Promote to DASHBOARD scope:
+        # it is now a tenant-owned report, and the post-claim re-crawl should use
+        # the full dashboard page budget (not the 10-page public teaser) — PRD 4.5
+        # "full scan resumes on sign-up".
         report.tenant_id = tenant_id
+        report.scope = AuditScope.DASHBOARD
         self.db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).update(
             {AuditEntry.tenant_id: tenant_id}
         )

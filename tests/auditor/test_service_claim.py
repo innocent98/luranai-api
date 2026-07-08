@@ -32,6 +32,8 @@ async def test_claim_fresh_reparents_report_and_entries(db):
         claimed = await AuditService(db).claim_audit("tok123", tid)
     db.flush()
     assert claimed.tenant_id == tid
+    # Claim promotes the report to DASHBOARD scope (full scan on sign-up, PRD 4.5).
+    assert claimed.scope == AuditScope.DASHBOARD
     entries = db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).all()
     assert all(e.tenant_id == tid for e in entries)
 

@@ -217,3 +217,20 @@ async def test_build_expected_map_uses_expected_map_task():
         await gaps.build_expected_map({"industry": "saas"})
     task_arg = m.call_args.args[0]
     assert task_arg == "expected_map"
+
+
+@pytest.mark.asyncio
+async def test_build_expected_map_retries_on_empty_then_succeeds():
+    """An empty (malformed) LLM response is retried; a later non-empty result wins."""
+    calls = []
+
+    async def flaky(task, system, user, *, temperature=0.2):
+        calls.append(task)
+        if len(calls) < 2:
+            return {}  # transient empty
+        return {"expected": [{"item": "Pricing", "kind": "pricing", "weight": 1.0}]}
+
+    with patch("app.auditor.gaps.complete_json", flaky):
+        out = await gaps.build_expected_map({"industry": "retail"})
+    assert len(out) == 1
+    assert len(calls) == 2  # retried once before succeeding
