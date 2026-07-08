@@ -28,6 +28,10 @@ class PublicReportResponse(AuditScoresResponse):
     status: str
     pages_scanned: int
     gaps: list[BlurredGap]
+    # Found-content teaser: {"kinds": [...], "entries": N}. Powers the
+    # "What we found" section — without it the FE has no found-data and
+    # wrongly falls back to showing the gaps as if they were found.
+    summary_stats: dict | None = None
     scan_quality: str | None = None
     scan_quality_reason: str | None = None
 
