@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from app.auditor.crawler import RawPage, RawPageError
 from app.db.models.audit import ScanQuality
 
@@ -36,7 +38,7 @@ class ScanUnreadable(Exception):
 
 def classify_scan_outcome(
     root_page: RawPage | None,
-    extracted,
+    extracted: Sequence,
     *,
     thin_min_content_chars: int,
 ) -> tuple[ScanQuality, str]:

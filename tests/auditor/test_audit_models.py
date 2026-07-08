@@ -59,7 +59,6 @@ def test_processing_job_allows_null_tenant(db):
 
 
 def test_audit_report_scan_quality_fields(db):
-    import uuid
     from app.db.models.audit import AuditReport, AuditScope, AuditStatus, ScanQuality
 
     r = AuditReport(
@@ -79,7 +78,6 @@ def test_audit_report_scan_quality_fields(db):
 
 
 def test_audit_report_scan_quality_defaults_none(db):
-    import uuid
     from app.db.models.audit import AuditReport, AuditScope, AuditStatus
 
     r = AuditReport(tenant_id=None, url="https://ex.com", domain="ex.com",

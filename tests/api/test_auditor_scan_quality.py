@@ -1,7 +1,5 @@
 """API exposes scan_quality on public + dashboard auditor responses."""
 
-import uuid
-
 from app.db.models.audit import AuditReport, AuditScope, AuditStatus, ScanQuality
 
 
