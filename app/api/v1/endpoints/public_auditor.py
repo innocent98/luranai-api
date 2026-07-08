@@ -99,6 +99,7 @@ def get_public_report(audit_id: UUID, db: Session = Depends(get_db)):
         overall_score=report.overall_score,
         projected_score=report.projected_score,
         gaps=blurred,
+        summary_stats=report.summary_stats or {},
         scan_quality=report.scan_quality.value if report.scan_quality else None,
         scan_quality_reason=report.scan_quality_reason,
     )
