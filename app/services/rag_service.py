@@ -1168,7 +1168,12 @@ Instructions:
         )
 
         model = model_name or settings.OPENAI_LLM_MODEL
-        sales_directive = build_sales_directive(config.qualification_questions)
+        sales_directive = build_sales_directive(
+            config.qualification_questions,
+            pricing_tiers=getattr(config, "pricing_tiers", None),
+            currency=getattr(config, "currency", "NGN") or "NGN",
+            annual_discount_pct=getattr(config, "annual_discount_pct", 0) or 0,
+        )
         system_content = self.RUNTIME_SYSTEM_MESSAGE + "\n\n" + sales_directive
 
         messages = [

@@ -112,17 +112,48 @@ def _extract_question(item: dict | str) -> str:
     return _FALLBACK_QUESTION
 
 
-def build_sales_directive(qualification_questions: list) -> str:
+def _plans_block(pricing_tiers: list | None, currency: str, annual_discount_pct: int) -> str:
+    """Render the tenant's configured pricing tiers into a prompt section so the
+    agent can answer plan questions directly instead of deflecting."""
+    if not pricing_tiers:
+        return ""
+    from app.sales.pricing import _currency_symbol
+
+    sym = _currency_symbol(currency)
+    lines: list[str] = []
+    for t in pricing_tiers:
+        if not isinstance(t, dict):
+            continue
+        name = str(t.get("name", "")).strip()
+        if not name:
+            continue
+        base = int(t.get("base_price", 0) or 0)
+        mn = int(t.get("min_users", 0) or 0)
+        mx = int(t.get("max_users", 0) or 0)
+        over = int(t.get("per_seat_overage_price", 0) or 0)
+        lines.append(
+            f"- {name}: {sym}{base:,} base for {mn}–{mx} users "
+            f"({sym}{over:,} per additional seat)."
+        )
+    if not lines:
+        return ""
+    block = "\n## Available Plans\n" + "\n".join(lines)
+    if annual_discount_pct:
+        block += f"\nAnnual billing gets {annual_discount_pct}% off."
+    return block + "\n"
+
+
+def build_sales_directive(
+    qualification_questions: list,
+    pricing_tiers: list | None = None,
+    currency: str = "NGN",
+    annual_discount_pct: int = 0,
+) -> str:
     """Return a system-prompt addendum for sales-intent conversations.
 
-    Instructs the model to:
-    1. Answer the prospect's question normally.
-    2. Ask exactly ONE qualifying question (taken from the first configured
-       question; falls back to a default if the list is empty or malformed).
-    3. Once the prospect answers, request name + email conversationally with
-       the phrase "no forms — just reply here".
-    4. Never pitch on a SUPPORT intent.
-    5. Extract only stated facts into ``captured`` / ``signals`` — no hallucination.
+    Injects the tenant's configured plans so the agent can answer plan questions,
+    and instructs the model on qualifying, contact capture, meeting/quote signals,
+    one-question-per-reply pacing, and single-offer human escalation.
     """
     if qualification_questions:
         first_question = _extract_question(qualification_questions[0])
@@ -132,20 +163,28 @@ def build_sales_directive(qualification_questions: list) -> str:
     return (
         "## Sales Engagement Directive\n\n"
         "When the conversation involves a sales intent (e.g. pricing, demo, purchase):\n\n"
-        f"1. Answer the prospect's question clearly and helpfully.\n"
-        f'2. Ask exactly one qualifying question: "{first_question}"\n'
+        "1. Answer the prospect's question clearly and helpfully, using the plan "
+        "details below when the question is about plans or pricing.\n"
+        "2. Ask AT MOST ONE question per reply. Never combine a qualifying question "
+        "with an offer to connect them with a human in the same message. Your "
+        f'qualifying question is: "{first_question}"\n'
         "3. Once the prospect has answered, ask for their name and email "
         "conversationally — no forms — just reply here.\n"
         "4. Never sell or upsell when the intent is SUPPORT; focus solely on "
         "resolving the support issue.\n"
         "5. Populate `captured` and `signals` only with facts the prospect has "
         "explicitly stated — do not infer or hallucinate missing values.\n"
-        "6. Set signals.offer_meeting to true ONLY when the prospect wants a live "
-        "demo or call (e.g. DEMO_REQUEST) and scheduling is the natural next step; "
-        "otherwise false.\n"
-        "7. For pricing/purchase intent: gather the prospect's team size and which "
-        "plan they're interested in, then set signals.offer_quote=true once you have "
-        "enough to quote. Put the plan name in captured.plan_interest.\n"
+        "6. Set signals.offer_meeting to true ONLY when the prospect explicitly asks "
+        "for a live demo or call. Do NOT set it for pricing/plan questions, and do "
+        "NOT set it just because you are collecting a name/email to hand off — "
+        "collecting contact info is not a meeting.\n"
+        "7. For pricing/purchase intent: answer plan questions directly from the plan "
+        "details below, gather the prospect's team size and which plan they want, then "
+        "set signals.offer_quote=true once you can quote. Put the plan name in "
+        "captured.plan_interest.\n"
+        "8. Offer to connect the prospect with your team ONCE, and only when you "
+        "genuinely cannot help further — never as a routine sign-off on every reply.\n"
+        + _plans_block(pricing_tiers, currency, annual_discount_pct)
     )
 
 
