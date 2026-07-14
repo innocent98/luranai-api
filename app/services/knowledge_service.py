@@ -475,12 +475,16 @@ class KnowledgeService:
                 },
             )
 
-        # Count existing sources (files + URLs combined)
+        # Count existing sources (files + URLs combined). Count PROCESSING as well
+        # as ACTIVE: an in-flight import/upload will become ACTIVE, so excluding it
+        # here would let a tenant overshoot the cap while ingestion is pending
+        # (e.g. import audit findings, then upload files before the imports finish).
+        # Matches AuditService._existing_source_count for the shared cap.
         total_sources = (
             self.db.query(KnowledgeSource)
             .filter(
                 KnowledgeSource.tenant_id == tenant_id,
-                KnowledgeSource.status == SourceStatus.ACTIVE,
+                KnowledgeSource.status.in_([SourceStatus.ACTIVE, SourceStatus.PROCESSING]),
             )
             .count()
         )

@@ -12,8 +12,24 @@ from app.db.models.audit import (
     AuditScope,
     AuditStatus,
 )
-from app.db.models.knowledge import KnowledgeSource
+from app.db.models.knowledge import KnowledgeSource, SourceStatus, SourceType
 from app.db.models.tenant import TenantCapabilities
+
+
+def _add_file_source(db, tenant_id, *, i, content_hash=None, status=SourceStatus.ACTIVE):
+    """Simulate an already-uploaded knowledge source (file/URL) for a tenant."""
+    src = KnowledgeSource(
+        tenant_id=tenant_id,
+        name=f"file-{i}",
+        source_type=SourceType.OTHER,
+        source_category="file",
+        content_hash=content_hash or f"file{i:060d}",
+        version=1,
+        status=status,
+    )
+    db.add(src)
+    db.flush()
+    return src
 
 
 def _setup(db, max_sources):
@@ -69,10 +85,7 @@ async def test_import_is_idempotent(db):
     assert len(first) == 2
     assert second == []  # nothing new imported
     assert (
-        db.query(KnowledgeSource)
-        .filter(KnowledgeSource.tenant_id == report.tenant_id)
-        .count()
-        == 2
+        db.query(KnowledgeSource).filter(KnowledgeSource.tenant_id == report.tenant_id).count() == 2
     )
 
 
@@ -116,7 +129,9 @@ async def test_preselect_preserves_manual_swap_on_reimport(db):
     db.refresh(rank1)
     db.refresh(rank2)
     db.refresh(rank3)
-    assert rank1.status == AuditEntryStatus.LOCKED, "rank-1 should still be LOCKED after re-preselect"
+    assert (
+        rank1.status == AuditEntryStatus.LOCKED
+    ), "rank-1 should still be LOCKED after re-preselect"
     assert rank2.status == AuditEntryStatus.ACTIVE, "rank-2 should remain ACTIVE"
     assert rank3.status == AuditEntryStatus.ACTIVE, "rank-3 should remain ACTIVE (tenant activated)"
 
@@ -151,11 +166,90 @@ async def test_import_caps_at_limit_even_if_db_has_excess_active(db):
 
     assert len(imported_ids) == 2, f"Expected 2 imports (cap), got {len(imported_ids)}"
     ks_count = (
-        db.query(KnowledgeSource)
-        .filter(KnowledgeSource.tenant_id == report.tenant_id)
-        .count()
+        db.query(KnowledgeSource).filter(KnowledgeSource.tenant_id == report.tenant_id).count()
     )
     assert ks_count == 2, f"Expected 2 KnowledgeSource rows, got {ks_count}"
+
+
+async def test_import_counts_existing_files_toward_budget(db):
+    """A tenant already at max_knowledge_sources via uploaded files gets ZERO
+    audit imports — audit sources share the tenant-global source budget.
+
+    Reproduces the reported bug: trial (cap 2) uploads 2 files, then imports
+    audit findings and ends with 4 knowledge sources.
+    """
+    tid, report = _setup(db, max_sources=2)
+    # Two uploaded files already at the trial cap.
+    _add_file_source(db, tid, i=1)
+    _add_file_source(db, tid, i=2)
+
+    # Activate all three audit entries.
+    for e in db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).all():
+        e.status = AuditEntryStatus.ACTIVE
+    db.flush()
+
+    with patch("app.auditor.service.enqueue_document_ingestion", new_callable=AsyncMock):
+        imported = await AuditService(db).import_entries(report.id)
+
+    assert imported == [], "No audit entries should import when the file cap is full"
+    ks_count = db.query(KnowledgeSource).filter(KnowledgeSource.tenant_id == tid).count()
+    assert ks_count == 2, f"Expected 2 sources (files only), got {ks_count}"
+
+
+async def test_import_partial_budget_with_existing_files(db):
+    """With cap=3 and 2 files already used, only 1 audit entry may import."""
+    tid, report = _setup(db, max_sources=3)
+    _add_file_source(db, tid, i=1)
+    _add_file_source(db, tid, i=2)
+
+    for e in db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).all():
+        e.status = AuditEntryStatus.ACTIVE
+    db.flush()
+
+    with patch("app.auditor.service.enqueue_document_ingestion", new_callable=AsyncMock):
+        imported = await AuditService(db).import_entries(report.id)
+
+    assert len(imported) == 1, f"Only 1 slot free (3-2), got {len(imported)} imports"
+    ks_count = db.query(KnowledgeSource).filter(KnowledgeSource.tenant_id == tid).count()
+    assert ks_count == 3, f"Expected 3 total sources, got {ks_count}"
+
+
+async def test_import_dedup_link_does_not_consume_budget(db):
+    """An entry that dedups onto an existing source creates no new row, so it
+    must NOT be charged against the budget even when the cap is full."""
+    tid, report = _setup(db, max_sources=1)
+    entry0 = (
+        db.query(AuditEntry)
+        .filter(AuditEntry.audit_report_id == report.id)
+        .order_by(AuditEntry.importance_rank.asc())
+        .first()
+    )
+    # Existing source shares entry0's content_hash → dedup link, cap already 1.
+    _add_file_source(db, tid, i=0, content_hash=entry0.content_hash)
+    entry0.status = AuditEntryStatus.ACTIVE
+    db.flush()
+
+    with patch("app.auditor.service.enqueue_document_ingestion", new_callable=AsyncMock):
+        imported = await AuditService(db).import_entries(report.id)
+
+    db.refresh(entry0)
+    assert imported == [], "Dedup-linked entry is not a new import"
+    assert entry0.status == AuditEntryStatus.IMPORTED
+    assert entry0.knowledge_source_id is not None
+    ks_count = db.query(KnowledgeSource).filter(KnowledgeSource.tenant_id == tid).count()
+    assert ks_count == 1, f"Dedup must not create a new source, got {ks_count}"
+
+
+def test_preselect_counts_existing_files_toward_budget(db):
+    """preselect must not auto-activate entries a tenant has no budget for."""
+    tid, report = _setup(db, max_sources=2)
+    _add_file_source(db, tid, i=1)
+    _add_file_source(db, tid, i=2)
+
+    active, locked = AuditService(db).preselect_entries(report.id)
+    db.flush()
+    assert active == [], "No budget left → nothing auto-activated"
+    assert len(locked) == 3, "All proposed entries locked when cap already full"
 
 
 def test_upgrade_unlock_counts_newly_eligible(db):
@@ -163,11 +257,7 @@ def test_upgrade_unlock_counts_newly_eligible(db):
     svc = AuditService(db)
     svc.preselect_entries(report.id)
     db.flush()
-    cap = (
-        db.query(TenantCapabilities)
-        .filter(TenantCapabilities.tenant_id == tid)
-        .one()
-    )
+    cap = db.query(TenantCapabilities).filter(TenantCapabilities.tenant_id == tid).one()
     cap.max_knowledge_sources = 3
     db.flush()
     assert svc.unlock_after_upgrade(report.id) == 1
@@ -254,11 +344,7 @@ async def test_import_worker_path_single_source(db):
     assert len(imported) == 1
 
     # Exactly 1 source must exist, still PROCESSING
-    sources_before = (
-        db.query(KnowledgeSource)
-        .filter(KnowledgeSource.tenant_id == tid)
-        .all()
-    )
+    sources_before = db.query(KnowledgeSource).filter(KnowledgeSource.tenant_id == tid).all()
     assert len(sources_before) == 1
     pre_source_id = sources_before[0].id
     assert sources_before[0].status == SourceStatus.PROCESSING
@@ -303,36 +389,20 @@ async def test_import_worker_path_single_source(db):
     assert result["success"] is True, f"Worker failed: {result}"
 
     # (a) exactly ONE KnowledgeSource
-    sources_after = (
-        db.query(KnowledgeSource)
-        .filter(KnowledgeSource.tenant_id == tid)
-        .all()
-    )
-    assert len(sources_after) == 1, (
-        f"Expected 1 KnowledgeSource, got {len(sources_after)}"
-    )
+    sources_after = db.query(KnowledgeSource).filter(KnowledgeSource.tenant_id == tid).all()
+    assert len(sources_after) == 1, f"Expected 1 KnowledgeSource, got {len(sources_after)}"
     the_source = sources_after[0]
     assert the_source.id == pre_source_id  # same source, not a new one
 
     # (b) has KnowledgeChunk rows
-    chunks = (
-        db.query(KnowledgeChunk)
-        .filter(KnowledgeChunk.source_id == the_source.id)
-        .all()
-    )
+    chunks = db.query(KnowledgeChunk).filter(KnowledgeChunk.source_id == the_source.id).all()
     assert len(chunks) > 0, "Expected at least one chunk"
 
     # (c) ends ACTIVE
     db.refresh(the_source)
-    assert the_source.status == SourceStatus.ACTIVE, (
-        f"Expected ACTIVE, got {the_source.status}"
-    )
+    assert the_source.status == SourceStatus.ACTIVE, f"Expected ACTIVE, got {the_source.status}"
 
     # (d) AuditEntry.knowledge_source_id points to it, status == IMPORTED
-    entry = (
-        db.query(AuditEntry)
-        .filter(AuditEntry.audit_report_id == report.id)
-        .one()
-    )
+    entry = db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).one()
     assert entry.knowledge_source_id == the_source.id
     assert entry.status == AuditEntryStatus.IMPORTED

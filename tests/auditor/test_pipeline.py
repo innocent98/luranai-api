@@ -21,6 +21,7 @@ from app.db.models.job import JobStatus, JobType, ProcessingJob
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_job_and_report(db, *, tenant_id=None, scope=AuditScope.DASHBOARD):
     """Create a ProcessingJob + AuditReport pair flushed to *db*."""
     job = ProcessingJob(
@@ -49,6 +50,7 @@ def _fake_fetch_with_sitemap(url):
         if u.endswith("sitemap.xml"):
             return "<urlset><url><loc>https://ex.com/about</loc></url></urlset>"
         return None
+
     return _inner(url)
 
 
@@ -96,6 +98,7 @@ _EXPECTED = {
 # Test 1: happy-path tenant audit
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_run_audit_end_to_end_with_mocked_llm(db):
     tenant_id = uuid.uuid4()
@@ -126,6 +129,7 @@ async def test_run_audit_end_to_end_with_mocked_llm(db):
 # Test 2: failure path — BOTH report AND job must end FAILED
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_run_audit_failure_marks_job_and_report_failed(db):
     """A phase failure must mark the report FAILED and job FAILED; must not raise."""
@@ -153,6 +157,7 @@ async def test_run_audit_failure_marks_job_and_report_failed(db):
     assert out.status == AuditStatus.FAILED
     # Re-query the job too — the test's local `job` reference may be stale after rollback.
     from app.db.models.job import ProcessingJob as PJob
+
     fresh_job = db.query(PJob).filter(PJob.id == job.id).one()
     assert fresh_job.status == JobStatus.FAILED
 
@@ -160,6 +165,7 @@ async def test_run_audit_failure_marks_job_and_report_failed(db):
 # ---------------------------------------------------------------------------
 # Test 3: reuse — second audit over SAME pages must NOT re-call profile LLM
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_run_audit_reuse_skips_profile_llm_on_unchanged_pages(db):
@@ -200,6 +206,7 @@ async def test_run_audit_reuse_skips_profile_llm_on_unchanged_pages(db):
 # Test 4: public path — tenant_id=None, no BusinessProfile row, job COMPLETED
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_run_audit_public_path(db):
     """Public audit (tenant_id=None): in-memory profile, no BusinessProfile row, entries saved."""
@@ -223,12 +230,15 @@ async def test_run_audit_public_path(db):
     db.refresh(out)
 
     # (a) No persisted BusinessProfile row for this non-existent tenant
-    bp_count = db.query(BusinessProfile).filter(BusinessProfile.tenant_id == None).count()  # noqa: E711
+    bp_count = (
+        db.query(BusinessProfile).filter(BusinessProfile.tenant_id == None).count()
+    )  # noqa: E711
     assert bp_count == 0, "Public audit must not persist a BusinessProfile row"
     assert out.business_profile_id is None, "Public report must have no business_profile_id"
 
     # (b) AuditEntry rows have tenant_id=None
     from app.db.models.audit import AuditEntry
+
     entries = db.query(AuditEntry).filter(AuditEntry.audit_report_id == out.id).all()
     assert len(entries) >= 1
     assert all(e.tenant_id is None for e in entries)
@@ -244,6 +254,7 @@ async def test_run_audit_public_path(db):
 # ---------------------------------------------------------------------------
 # Test 5: fresh re-run must not duplicate AuditEntry rows
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_fresh_rerun_no_duplicate_entries(db):
@@ -278,14 +289,15 @@ async def test_fresh_rerun_no_duplicate_entries(db):
             db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).count()
         )
 
-    assert count_after_second == count_after_first, (
-        f"Fresh re-run doubled entries: {count_after_first} → {count_after_second}"
-    )
+    assert (
+        count_after_second == count_after_first
+    ), f"Fresh re-run doubled entries: {count_after_first} → {count_after_second}"
 
 
 # ---------------------------------------------------------------------------
 # Test 6: incremental resume — only new URLs crawled, existing entries kept
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_incremental_resume_appends_only_new_urls(db):
@@ -349,15 +361,15 @@ async def test_incremental_resume_appends_only_new_urls(db):
     db.refresh(out)
 
     # (a) Only the new URL was passed to the renderer
-    assert crawled_urls == [new_url], (
-        f"Expected only [{new_url!r}] to be crawled; got {crawled_urls}"
-    )
+    assert crawled_urls == [
+        new_url
+    ], f"Expected only [{new_url!r}] to be crawled; got {crawled_urls}"
 
     # (b) + (c) existing entries survive and total == N + M (M=1 new)
     all_entries = db.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).all()
-    assert len(all_entries) == n_existing + 1, (
-        f"Expected {n_existing + 1} entries total; got {len(all_entries)}"
-    )
+    assert (
+        len(all_entries) == n_existing + 1
+    ), f"Expected {n_existing + 1} entries total; got {len(all_entries)}"
     persisted_urls = {e.url for e in all_entries}
     for url in existing_urls:
         assert url in persisted_urls, f"Existing entry {url!r} was deleted"
@@ -373,14 +385,15 @@ async def test_incremental_resume_appends_only_new_urls(db):
     # as the unchanged pages).  profile_mock.call_count covers synthesize calls only;
     # for this test we assert it was called at most once (reuse path keeps it at 0 or 1
     # depending on whether a profile row exists; the key invariant is no duplicate call).
-    assert profile_mock.call_count <= 1, (
-        f"Profile LLM called {profile_mock.call_count} times; expected ≤1 (reuse)"
-    )
+    assert (
+        profile_mock.call_count <= 1
+    ), f"Profile LLM called {profile_mock.call_count} times; expected ≤1 (reuse)"
 
 
 # ---------------------------------------------------------------------------
 # Test 7: scoring/gaps alignment — category-label match counts in both
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_score_and_gaps_agree_on_category_label_match(db):
@@ -395,10 +408,10 @@ async def test_score_and_gaps_agree_on_category_label_match(db):
     expected_category_match = {
         "expected": [
             {
-                "item": "FAQs",           # label — lowercase "faqs" will match category below
+                "item": "FAQs",  # label — lowercase "faqs" will match category below
                 "dimensions": ["support"],
                 "weight": 1.0,
-                "kind": "faq",            # kind NOT in found_kinds (crawler returns "product")
+                "kind": "faq",  # kind NOT in found_kinds (crawler returns "product")
                 "why_it_matters": "answers questions",
                 "recommended_content": "add faq page",
                 "demand_count": 0,
@@ -408,8 +421,8 @@ async def test_score_and_gaps_agree_on_category_label_match(db):
 
     # Classify returns kind=product but category="faqs" — matches item label "faqs"
     cls_category_match = {
-        "category": "faqs",    # lowercase matches item label "FAQs"
-        "kind": "product",     # different from expected kind "faq"
+        "category": "faqs",  # lowercase matches item label "FAQs"
+        "kind": "product",  # different from expected kind "faq"
         "importance_rank": 1,
         "keep": True,
     }
@@ -431,23 +444,23 @@ async def test_score_and_gaps_agree_on_category_label_match(db):
     assert out.status == AuditStatus.COMPLETED
 
     # Gaps: item found by category label → NOT in gap list
-    assert out.gaps == [], (
-        f"Item found by category match must not appear in gaps; got {out.gaps}"
-    )
+    assert out.gaps == [], f"Item found by category match must not appear in gaps; got {out.gaps}"
 
     # Score: item found by category label → support dimension score must be > 0
-    assert out.support_score is not None and out.support_score > 0, (
-        f"Item found by category match must contribute to support score; got {out.support_score}"
-    )
+    assert (
+        out.support_score is not None and out.support_score > 0
+    ), f"Item found by category match must contribute to support score; got {out.support_score}"
 
 
 # ---------------------------------------------------------------------------
 # Test 8: scan outcome — unreachable root fails the audit with a reason
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_run_audit_unreachable_root_fails_with_reason(db):
     from app.db.models.audit import ScanQuality
+
     job, report = _make_job_and_report(db, tenant_id=uuid.uuid4())
 
     async def refusing_renderer(url):
@@ -469,9 +482,11 @@ async def test_run_audit_unreachable_root_fails_with_reason(db):
 # Test 9: scan outcome — browser launch failure => render_failed
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_run_audit_launch_failure_is_render_failed(db):
     from app.db.models.audit import ScanQuality
+
     job, report = _make_job_and_report(db, tenant_id=uuid.uuid4())
 
     async def no_browser(url):
@@ -480,9 +495,7 @@ async def test_run_audit_launch_failure_is_render_failed(db):
     async def no_sitemap(url):
         return None
 
-    out = await pipeline.run_audit(
-        db, report.id, page_renderer=no_browser, fetch_text=no_sitemap
-    )
+    out = await pipeline.run_audit(db, report.id, page_renderer=no_browser, fetch_text=no_sitemap)
     db.refresh(out)
     assert out.status == AuditStatus.FAILED
     assert out.scan_quality == ScanQuality.RENDER_FAILED
@@ -492,9 +505,11 @@ async def test_run_audit_launch_failure_is_render_failed(db):
 # Test 10: scan outcome — thin content completes but is flagged
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_run_audit_thin_content_completes_flagged(db):
     from app.db.models.audit import ScanQuality
+
     job, report = _make_job_and_report(db, tenant_id=uuid.uuid4())
 
     async def tiny_renderer(url):
@@ -520,17 +535,19 @@ async def test_run_audit_thin_content_completes_flagged(db):
 # Test 11: scan outcome — rich multi-page SPA => ok, multiple pages scanned
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_run_audit_multipage_ok(db):
     from app.db.models.audit import ScanQuality
+
     job, report = _make_job_and_report(db, tenant_id=uuid.uuid4())
 
     long_text = "Luran builds AI customer agents. " * 60  # > 800 chars/page
     html_by_url = {
-        "https://ex.com/": f'<html><body><article><p>{long_text}</p>'
-                           f'<a href="/features">F</a></article></body></html>',
-        "https://ex.com/features": f'<html><body><article><p>{long_text} features</p>'
-                                   f'</article></body></html>',
+        "https://ex.com/": f"<html><body><article><p>{long_text}</p>"
+        f'<a href="/features">F</a></article></body></html>',
+        "https://ex.com/features": f"<html><body><article><p>{long_text} features</p>"
+        f"</article></body></html>",
     }
 
     async def spa_renderer(url):
@@ -557,9 +574,11 @@ async def test_run_audit_multipage_ok(db):
 # Fix A: empty expected_map + real content => FAILED, not a fake 0-score report
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_empty_expected_map_with_content_fails_not_zero(db):
     from app.db.models.audit import ScanQuality
+
     job, report = _make_job_and_report(db, tenant_id=uuid.uuid4())
     with (
         patch("app.auditor.profile.complete_json", AsyncMock(return_value=_PROF)),
@@ -581,6 +600,7 @@ async def test_empty_expected_map_with_content_fails_not_zero(db):
 # Fix B: a fresh re-run preserves the user's active-source selections
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_fresh_rerun_preserves_active_selections(db):
     tid = uuid.uuid4()
@@ -588,10 +608,17 @@ async def test_fresh_rerun_preserves_active_selections(db):
     # Pre-seed an ACTIVE entry at the root URL the fresh crawl will re-create.
     db.add(
         AuditEntry(
-            audit_report_id=report.id, tenant_id=tid, url="https://ex.com/",
-            title="Home", category="about", kind=AuditEntryKind.PRODUCT,
-            content="c", content_hash="h" * 64, importance_rank=1,
-            status=AuditEntryStatus.ACTIVE, meta={},
+            audit_report_id=report.id,
+            tenant_id=tid,
+            url="https://ex.com/",
+            title="Home",
+            category="about",
+            kind=AuditEntryKind.PRODUCT,
+            content="c",
+            content_hash="h" * 64,
+            importance_rank=1,
+            status=AuditEntryStatus.ACTIVE,
+            meta={},
         )
     )
     db.flush()
@@ -621,10 +648,17 @@ async def test_fresh_rerun_caps_restored_actives_at_plan_limit(db):
     for u in ("https://ex.com/a", "https://ex.com/b"):
         db.add(
             AuditEntry(
-                audit_report_id=report.id, tenant_id=tid, url=u, title=u,
-                category="about", kind=AuditEntryKind.PRODUCT, content="c",
-                content_hash="hash-" + u, importance_rank=1,
-                status=AuditEntryStatus.ACTIVE, meta={},
+                audit_report_id=report.id,
+                tenant_id=tid,
+                url=u,
+                title=u,
+                category="about",
+                kind=AuditEntryKind.PRODUCT,
+                content="c",
+                content_hash="hash-" + u,
+                importance_rank=1,
+                status=AuditEntryStatus.ACTIVE,
+                meta={},
             )
         )
     db.flush()
@@ -664,3 +698,80 @@ async def test_fresh_rerun_caps_restored_actives_at_plan_limit(db):
         .count()
     )
     assert active == 1, f"restored actives must be capped at the plan limit; got {active}"
+
+
+@pytest.mark.asyncio
+async def test_fresh_rerun_restore_counts_existing_knowledge_sources(db):
+    """Restore must respect the tenant-GLOBAL budget: an uploaded file already at
+    the cap leaves zero slots for restored audit actives (no silent over-select)."""
+    from app.db.models.knowledge import KnowledgeSource, SourceStatus, SourceType
+
+    tid = uuid.uuid4()
+    job, report = _make_job_and_report(db, tenant_id=tid)
+    # An uploaded file already consuming the single cap slot.
+    db.add(
+        KnowledgeSource(
+            tenant_id=tid,
+            name="f",
+            source_type=SourceType.OTHER,
+            source_category="file",
+            content_hash="file-0",
+            version=1,
+            status=SourceStatus.ACTIVE,
+        )
+    )
+    for u in ("https://ex.com/a", "https://ex.com/b"):
+        db.add(
+            AuditEntry(
+                audit_report_id=report.id,
+                tenant_id=tid,
+                url=u,
+                title=u,
+                category="about",
+                kind=AuditEntryKind.PRODUCT,
+                content="c",
+                content_hash="hash-" + u,
+                importance_rank=1,
+                status=AuditEntryStatus.ACTIVE,
+                meta={},
+            )
+        )
+    db.flush()
+
+    async def fetch_ab(url):
+        if url.endswith("sitemap.xml"):
+            return (
+                "<urlset><url><loc>https://ex.com/a</loc></url>"
+                "<url><loc>https://ex.com/b</loc></url></urlset>"
+            )
+        return None
+
+    async def distinct_renderer(url):
+        return (
+            200,
+            f"<html><head><title>{url}</title></head><body><article>"
+            f"<p>Unique readable content for {url} with several words to extract.</p>"
+            f"</article></body></html>",
+        )
+
+    with (
+        patch("app.auditor.profile.complete_json", AsyncMock(return_value=_PROF)),
+        patch("app.auditor.classify.complete_json", AsyncMock(return_value=_CLS)),
+        patch("app.auditor.gaps.complete_json", AsyncMock(return_value=_EXPECTED)),
+        patch("app.auditor.pipeline._active_source_cap", return_value=1),  # plan cap = 1
+    ):
+        await pipeline.run_audit(
+            db, report.id, page_renderer=distinct_renderer, fetch_text=fetch_ab, resume=False
+        )
+
+    active = (
+        db.query(AuditEntry)
+        .filter(
+            AuditEntry.audit_report_id == report.id,
+            AuditEntry.status == AuditEntryStatus.ACTIVE,
+        )
+        .count()
+    )
+    assert (
+        active == 0
+    ), f"uploaded file already fills the cap → no budget for restored actives; got {active}"

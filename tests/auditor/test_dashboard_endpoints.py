@@ -130,9 +130,11 @@ def test_post_audit_starts_dashboard_scope(pg_client, regular_user_token, db_ses
     assert "audit_report_id" in body["data"]
 
     # Verify scope was set to DASHBOARD in DB
-    report = db_session.query(AuditReport).filter(
-        AuditReport.id == uuid.UUID(body["data"]["audit_report_id"])
-    ).one()
+    report = (
+        db_session.query(AuditReport)
+        .filter(AuditReport.id == uuid.UUID(body["data"]["audit_report_id"]))
+        .one()
+    )
     assert report.scope == AuditScope.DASHBOARD
 
 
@@ -284,9 +286,7 @@ def test_patch_entry_edits_fields(pg_client, db_session):
     report = _make_report(db_session, user.tenant_id, with_entries=True)
     db_session.flush()
 
-    entry = db_session.query(AuditEntry).filter(
-        AuditEntry.audit_report_id == report.id
-    ).first()
+    entry = db_session.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).first()
 
     resp = pg_client.patch(
         f"/api/v1/audit/entries/{entry.id}",
@@ -310,9 +310,7 @@ def test_patch_entry_updates_title_and_kind(pg_client, db_session):
     report = _make_report(db_session, user.tenant_id, with_entries=True)
     db_session.flush()
 
-    entry = db_session.query(AuditEntry).filter(
-        AuditEntry.audit_report_id == report.id
-    ).first()
+    entry = db_session.query(AuditEntry).filter(AuditEntry.audit_report_id == report.id).first()
 
     # Valid update: change title and kind
     resp = pg_client.patch(
@@ -349,9 +347,7 @@ def test_patch_entry_cross_tenant_blocked(pg_client, db_session):
     report_b = _make_report(db_session, user_b.tenant_id, with_entries=True)
     db_session.flush()
 
-    entry_b = db_session.query(AuditEntry).filter(
-        AuditEntry.audit_report_id == report_b.id
-    ).first()
+    entry_b = db_session.query(AuditEntry).filter(AuditEntry.audit_report_id == report_b.id).first()
 
     # Tenant A tries to edit Tenant B's entry
     resp = pg_client.patch(
@@ -407,9 +403,7 @@ def test_generate_outline_is_forward_stub(pg_client, db_session):
     )
     db_session.flush()
 
-    resp = pg_client.post(
-        f"/api/v1/audit/{report.id}/gaps/0/outline", headers=_auth(token)
-    )
+    resp = pg_client.post(f"/api/v1/audit/{report.id}/gaps/0/outline", headers=_auth(token))
     assert resp.status_code == 501
     assert "Stage 6" in resp.json()["detail"]
 
@@ -424,9 +418,7 @@ def test_generate_outline_cross_tenant_returns_404(pg_client, db_session):
     )
     db_session.flush()
 
-    resp = pg_client.post(
-        f"/api/v1/audit/{report_a.id}/gaps/0/outline", headers=_auth(token_b)
-    )
+    resp = pg_client.post(f"/api/v1/audit/{report_a.id}/gaps/0/outline", headers=_auth(token_b))
     assert resp.status_code == 404
 
 
@@ -459,6 +451,48 @@ def test_patch_active_limit_rejected_when_at_cap(pg_client, db_session):
     # Attempt to activate the 3rd entry → should be rejected
     resp = pg_client.patch(
         f"/api/v1/audit/entries/{entries[2].id}",
+        json={"status": "active"},
+        headers=_auth(token),
+    )
+    assert resp.status_code == 403
+    body = resp.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "ACTIVE_LIMIT_REACHED"
+
+
+def test_patch_active_blocked_when_files_fill_cap(pg_client, db_session):
+    """A tenant already at max_knowledge_sources via uploaded files cannot
+    activate ANY audit entry — audit sources share the global source budget."""
+    from app.db.models.knowledge import KnowledgeSource, SourceStatus, SourceType
+
+    user, token = _make_tenant_user(db_session)
+    db_session.add(TenantCapabilities(tenant_id=user.tenant_id, max_knowledge_sources=2))
+    # Two uploaded files already at the cap.
+    for i in range(2):
+        db_session.add(
+            KnowledgeSource(
+                tenant_id=user.tenant_id,
+                name=f"file-{i}",
+                source_type=SourceType.OTHER,
+                source_category="file",
+                content_hash=f"file{i:060d}",
+                version=1,
+                status=SourceStatus.ACTIVE,
+            )
+        )
+    db_session.flush()
+
+    report = _make_report(db_session, user.tenant_id, with_entries=True)
+    db_session.flush()
+    entries = (
+        db_session.query(AuditEntry)
+        .filter(AuditEntry.audit_report_id == report.id)
+        .order_by(AuditEntry.importance_rank.asc())
+        .all()
+    )
+
+    resp = pg_client.patch(
+        f"/api/v1/audit/entries/{entries[0].id}",
         json={"status": "active"},
         headers=_auth(token),
     )
@@ -512,9 +546,7 @@ def test_cross_tenant_audit_full_isolation(pg_client, db_session):
     user_a, token_a = _make_tenant_user(db_session)
     user_b, token_b = _make_tenant_user(db_session)
 
-    report_a = _make_report(
-        db_session, user_a.tenant_id, with_entries=True, gaps=[{"title": "g"}]
-    )
+    report_a = _make_report(db_session, user_a.tenant_id, with_entries=True, gaps=[{"title": "g"}])
     db_session.flush()
 
     audit_id = report_a.id
