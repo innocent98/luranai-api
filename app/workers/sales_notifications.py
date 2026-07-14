@@ -31,7 +31,7 @@ class _EmailSendFailed(RuntimeError):
 
 _REP_SUBJECT = {
     NotifEvent.SALES_READY_LEAD: "New sales-ready lead",
-    NotifEvent.MEETING_BOOKED: "New demo booked",
+    NotifEvent.MEETING_BOOKED: "New meeting booked",
     NotifEvent.QUOTE_GENERATED: "New quote generated",
 }
 
@@ -152,7 +152,7 @@ async def send_visitor_meeting_confirmation(ctx, notification_log_id: str) -> No
         m = db.get(Meeting, log.entity_id)
         ok = EmailService().send_templated_email(
             to_email=log.recipient,
-            subject="Your demo is booked",
+            subject="Your meeting is booked",
             template_name="sales_meeting_confirmation.html",
             context={
                 "scheduled_at": m.scheduled_at if m else None,

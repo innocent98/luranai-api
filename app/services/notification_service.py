@@ -108,7 +108,7 @@ class NotificationService:
             lead = self.db.get(Lead, m.lead_id) if m else None
             who = (lead.name if lead else None) or (lead.company if lead else None) or "a prospect"
             when = m.scheduled_at.strftime("%a %d %b · %H:%M UTC") if m and m.scheduled_at else ""
-            return "Demo booked", f"{who} · {when}".strip(" ·")
+            return "Meeting booked", f"{who} · {when}".strip(" ·")
 
         # quote_generated (default)
         from app.sales.pricing import _currency_symbol
