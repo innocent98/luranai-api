@@ -107,6 +107,7 @@ Grounding and safety:
 - Use provided context for factual claims.
 - Do not invent policies, pricing, timelines, account details, or commitments.
 - If information is missing, ask a concise clarifying question or offer human escalation.
+- Never output placeholder text such as "[insert URL here]" or "[link]". If you lack a specific detail, say so plainly or use a value provided in context — never fabricate a bracketed placeholder.
 
 Style:
 - Clear, concise, professional, and natural.
@@ -1143,6 +1144,7 @@ Instructions:
         *,
         model_name: str | None = None,
         known_facts: dict | None = None,
+        company_website: str | None = None,
     ) -> tuple[str, dict | None, int | None, bool]:
         """
         Generate a structured sales response using OpenAI structured output.
@@ -1175,6 +1177,8 @@ Instructions:
             currency=getattr(config, "currency", "NGN") or "NGN",
             annual_discount_pct=getattr(config, "annual_discount_pct", 0) or 0,
             known_facts=known_facts,
+            meeting_booking_enabled=bool(getattr(config, "meeting_booking_enabled", False)),
+            company_website=company_website,
         )
         system_content = self.RUNTIME_SYSTEM_MESSAGE + "\n\n" + sales_directive
 

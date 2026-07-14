@@ -83,11 +83,11 @@ def test_directive_escalation_offered_once():
 
 
 def test_directive_offer_meeting_not_for_pricing_or_escalation():
-    """Issue 3a: a pricing chat or a name/email handoff must NOT trigger a meeting."""
-    d = build_sales_directive(["Q?"]).lower()
-    # meeting is only for an explicit demo/call, not contact-collection or pricing
+    """Issue 3a: even when scheduling IS enabled, a pricing chat or contact
+    collection must NOT trigger a meeting — only an explicit meeting request."""
+    d = build_sales_directive(["Q?"], meeting_booking_enabled=True).lower()
     assert "offer_meeting" in d
-    assert "collecting" in d or "contact info is not a meeting" in d
+    assert "pricing" in d and "contact collection" in d
 
 
 def test_directive_includes_known_facts_and_no_reask():
@@ -114,6 +114,32 @@ def test_directive_recommends_higher_tier_on_overlap():
     """Tenant policy: when a team size fits multiple plans, recommend the higher one."""
     d = build_sales_directive(["Q?"]).lower()
     assert "higher" in d and "plan" in d
+
+
+def test_directive_offers_scheduling_when_meeting_enabled():
+    """When meeting booking is enabled, the agent must know it CAN schedule and
+    offer it — not deflect to 'contact support' (the observed bug)."""
+    d = build_sales_directive(["Q?"], meeting_booking_enabled=True).lower()
+    assert "offer_meeting" in d
+    assert "available times" in d
+    assert "schedule" in d  # it can schedule right here
+
+
+def test_directive_no_scheduling_claim_when_meeting_disabled():
+    d = build_sales_directive(["Q?"], meeting_booking_enabled=False).lower()
+    assert "not available" in d or "cannot schedule" in d
+    assert "connect" in d  # offer team handoff instead
+
+
+def test_directive_includes_company_website():
+    d = build_sales_directive(["Q?"], company_website="https://weysure.example.com")
+    assert "https://weysure.example.com" in d
+
+
+def test_directive_forbids_placeholder_output():
+    """No more '[insert URL here]' — the model must not fabricate placeholders."""
+    d = build_sales_directive(["Q?"]).lower()
+    assert "placeholder" in d or "[insert" in d
 
 
 def test_parse_valid_and_invalid():
