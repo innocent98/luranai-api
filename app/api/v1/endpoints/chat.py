@@ -2008,11 +2008,29 @@ async def send_message(
             prompt_components.full_prompt = f"{prompt_components.full_prompt}{directive_block}"
 
             if _sales_mode:
+                # State-threading: pin facts already captured this conversation so
+                # the agent never re-asks them (fixes "how large is your team?" twice).
+                _known_facts: dict | None = None
+                _existing_lead = db.execute(
+                    select(Lead).where(
+                        Lead.tenant_id == session.tenant_id,
+                        Lead.conversation_id == session_id,
+                    )
+                ).scalar_one_or_none()
+                if _existing_lead is not None:
+                    _known_facts = {
+                        "name": _existing_lead.name,
+                        "email": _existing_lead.email,
+                        "company": _existing_lead.company,
+                        "team_size": _existing_lead.team_size,
+                        "industry": _existing_lead.industry,
+                    }
                 ai_response_text, _sales_meta, token_count, is_api_error = (
                     await rag_service.generate_sales_response(
                         prompt=prompt_components,
                         config=sales_agent_config,
                         model_name=settings.OPENAI_LLM_MODEL,
+                        known_facts=_known_facts,
                     )
                 )
             else:
