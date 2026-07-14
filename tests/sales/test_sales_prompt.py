@@ -90,6 +90,32 @@ def test_directive_offer_meeting_not_for_pricing_or_escalation():
     assert "collecting" in d or "contact info is not a meeting" in d
 
 
+def test_directive_includes_known_facts_and_no_reask():
+    """State-threading: facts already captured must be pinned so the agent
+    stops re-asking (the 'How large is your team?' twice bug)."""
+    d = build_sales_directive(
+        ["How large is your team?"],
+        known_facts={"team_size": "10-15", "plan_interest": "Basic"},
+    )
+    assert "10-15" in d and "Basic" in d
+    low = d.lower()
+    assert "do not ask" in low or "don't ask" in low or "already" in low
+
+
+def test_directive_no_known_facts_block_when_empty():
+    marker = "already provided this conversation"
+    assert marker not in build_sales_directive(["Q?"], known_facts={})
+    assert marker not in build_sales_directive(["Q?"], known_facts=None)
+    # An all-empty dict must also render no block.
+    assert marker not in build_sales_directive(["Q?"], known_facts={"team_size": None, "name": ""})
+
+
+def test_directive_recommends_higher_tier_on_overlap():
+    """Tenant policy: when a team size fits multiple plans, recommend the higher one."""
+    d = build_sales_directive(["Q?"]).lower()
+    assert "higher" in d and "plan" in d
+
+
 def test_parse_valid_and_invalid():
     good = '{"reply":"Hi","intent":"PRICING_INQUIRY","signals":{"asked_features":false,"requested_demo":false,"mentioned_competitor":false,"ready_to_buy":false,"offer_meeting":false,"offer_quote":false},"captured":{"name":null,"email":null,"company":null,"team_size":null,"industry":null,"plan_interest":null}}'
     out = parse_sales_output(good)

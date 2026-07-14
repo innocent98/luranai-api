@@ -461,22 +461,29 @@ class VisitorService:
         """Return the latest visitor-linked conversation and recent transcript."""
         from app.db.models.conversation import ConversationSession
 
-        session = self.db.execute(
-            select(ConversationSession)
-            .where(
-                ConversationSession.tenant_id == tenant_id,
-                ConversationSession.visitor_id == visitor_id,
-                ConversationSession.status.in_(
-                    [
-                        SessionStatus.ACTIVE,
-                        SessionStatus.ESCALATED,
-                        SessionStatus.RESOLVED,
-                        SessionStatus.ABANDONED,
-                    ]
-                ),
+        # A visitor commonly has MANY past sessions — take the most recent one.
+        # (scalar_one_or_none raised MultipleResultsFound and 500'd bootstrap.)
+        session = (
+            self.db.execute(
+                select(ConversationSession)
+                .where(
+                    ConversationSession.tenant_id == tenant_id,
+                    ConversationSession.visitor_id == visitor_id,
+                    ConversationSession.status.in_(
+                        [
+                            SessionStatus.ACTIVE,
+                            SessionStatus.ESCALATED,
+                            SessionStatus.RESOLVED,
+                            SessionStatus.ABANDONED,
+                        ]
+                    ),
+                )
+                .order_by(ConversationSession.last_message_at.desc())
+                .limit(1)
             )
-            .order_by(ConversationSession.last_message_at.desc())
-        ).scalar_one_or_none()
+            .scalars()
+            .first()
+        )
 
         if not session:
             return None

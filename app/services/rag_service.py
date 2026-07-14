@@ -1142,6 +1142,7 @@ Instructions:
         config: Any,
         *,
         model_name: str | None = None,
+        known_facts: dict | None = None,
     ) -> tuple[str, dict | None, int | None, bool]:
         """
         Generate a structured sales response using OpenAI structured output.
@@ -1173,6 +1174,7 @@ Instructions:
             pricing_tiers=getattr(config, "pricing_tiers", None),
             currency=getattr(config, "currency", "NGN") or "NGN",
             annual_discount_pct=getattr(config, "annual_discount_pct", 0) or 0,
+            known_facts=known_facts,
         )
         system_content = self.RUNTIME_SYSTEM_MESSAGE + "\n\n" + sales_directive
 

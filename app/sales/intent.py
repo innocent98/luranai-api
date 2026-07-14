@@ -143,17 +143,46 @@ def _plans_block(pricing_tiers: list | None, currency: str, annual_discount_pct:
     return block + "\n"
 
 
+_KNOWN_FACT_LABELS: dict[str, str] = {
+    "name": "name",
+    "email": "email",
+    "company": "company",
+    "team_size": "team size",
+    "industry": "industry",
+    "plan_interest": "plan of interest",
+}
+
+
+def _known_facts_block(known_facts: dict | None) -> str:
+    """Pin facts already gathered this conversation so the agent never re-asks."""
+    if not known_facts:
+        return ""
+    lines = [
+        f"- {_KNOWN_FACT_LABELS.get(k, k)}: {v}"
+        for k, v in known_facts.items()
+        if v not in (None, "", []) and k in _KNOWN_FACT_LABELS
+    ]
+    if not lines:
+        return ""
+    return (
+        "\n## Known facts (already provided this conversation — do NOT ask for "
+        "these again; use them directly)\n" + "\n".join(lines) + "\n"
+    )
+
+
 def build_sales_directive(
     qualification_questions: list,
     pricing_tiers: list | None = None,
     currency: str = "NGN",
     annual_discount_pct: int = 0,
+    known_facts: dict | None = None,
 ) -> str:
     """Return a system-prompt addendum for sales-intent conversations.
 
-    Injects the tenant's configured plans so the agent can answer plan questions,
-    and instructs the model on qualifying, contact capture, meeting/quote signals,
-    one-question-per-reply pacing, and single-offer human escalation.
+    Injects the tenant's configured plans and any facts already captured this
+    conversation, and instructs the model on qualifying, contact capture,
+    meeting/quote signals, one-question-per-reply pacing, higher-tier
+    recommendation, and single-offer human escalation.
     """
     if qualification_questions:
         first_question = _extract_question(qualification_questions[0])
@@ -182,9 +211,16 @@ def build_sales_directive(
         "details below, gather the prospect's team size and which plan they want, then "
         "set signals.offer_quote=true once you can quote. Put the plan name in "
         "captured.plan_interest.\n"
-        "8. Offer to connect the prospect with your team ONCE, and only when you "
+        "8. When a team size fits more than one plan, recommend the HIGHER plan and "
+        "briefly say why (more headroom / room to grow). Be helpful, never pushy — "
+        "if the prospect prefers the smaller plan, respect that.\n"
+        "9. Never ask for something the prospect has already provided (see Known "
+        "facts, if present). Acknowledge what you know and move the conversation "
+        "forward rather than repeating a question.\n"
+        "10. Offer to connect the prospect with your team ONCE, and only when you "
         "genuinely cannot help further — never as a routine sign-off on every reply.\n"
         + _plans_block(pricing_tiers, currency, annual_discount_pct)
+        + _known_facts_block(known_facts)
     )
 
 
