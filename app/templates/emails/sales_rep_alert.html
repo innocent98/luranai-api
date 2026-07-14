@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}
-  {% if kind == "meeting" %}New demo booked
+  {% if kind == "meeting" %}New meeting booked
   {% elif kind == "quote" %}New quote generated
   {% else %}New sales-ready lead
   {% endif %}
@@ -9,7 +9,7 @@
 
 {% block content %}
 <h1>
-  {% if kind == "meeting" %}New demo booked
+  {% if kind == "meeting" %}New meeting booked
   {% elif kind == "quote" %}New quote generated
   {% else %}New sales-ready lead
   {% endif %}
