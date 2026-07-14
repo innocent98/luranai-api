@@ -2025,12 +2025,23 @@ async def send_message(
                         "team_size": _existing_lead.team_size,
                         "industry": _existing_lead.industry,
                     }
+                # Surface the tenant's website (from their latest audit) so the agent
+                # gives the real URL instead of a "[insert URL here]" placeholder.
+                from app.db.models.audit import AuditReport
+
+                _company_website = db.execute(
+                    select(AuditReport.url)
+                    .where(AuditReport.tenant_id == session.tenant_id)
+                    .order_by(AuditReport.created_at.desc())
+                    .limit(1)
+                ).scalar_one_or_none()
                 ai_response_text, _sales_meta, token_count, is_api_error = (
                     await rag_service.generate_sales_response(
                         prompt=prompt_components,
                         config=sales_agent_config,
                         model_name=settings.OPENAI_LLM_MODEL,
                         known_facts=_known_facts,
+                        company_website=_company_website,
                     )
                 )
             else:

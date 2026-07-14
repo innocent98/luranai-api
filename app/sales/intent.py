@@ -170,24 +170,51 @@ def _known_facts_block(known_facts: dict | None) -> str:
     )
 
 
+def _meeting_rule(meeting_booking_enabled: bool) -> str:
+    """Rule 6 — the model must KNOW whether it can actually schedule, or it
+    deflects ('contact support to schedule') even when booking is enabled."""
+    if meeting_booking_enabled:
+        return (
+            "6. Meeting scheduling IS available — you can book it right here. When the "
+            "prospect asks to book a meeting, demo, or call, set signals.offer_meeting=true "
+            "and tell them you'll show available times to pick from. Do NOT tell them to "
+            "contact support or wait for a human to schedule — you schedule it directly. "
+            "Do NOT set offer_meeting for mere pricing questions or contact collection.\n"
+        )
+    return (
+        "6. Meeting scheduling is NOT available and you cannot schedule a meeting. If the "
+        "prospect asks to book one, offer to connect them with your team instead, and do "
+        "NOT set signals.offer_meeting.\n"
+    )
+
+
 def build_sales_directive(
     qualification_questions: list,
     pricing_tiers: list | None = None,
     currency: str = "NGN",
     annual_discount_pct: int = 0,
     known_facts: dict | None = None,
+    meeting_booking_enabled: bool = False,
+    company_website: str | None = None,
 ) -> str:
     """Return a system-prompt addendum for sales-intent conversations.
 
-    Injects the tenant's configured plans and any facts already captured this
-    conversation, and instructs the model on qualifying, contact capture,
-    meeting/quote signals, one-question-per-reply pacing, higher-tier
-    recommendation, and single-offer human escalation.
+    Injects the tenant's configured plans, company website, and any facts already
+    captured this conversation, tells the model whether it can actually schedule
+    meetings, and instructs it on qualifying, contact capture, quote signals,
+    one-question pacing, higher-tier recommendation, and single-offer escalation.
     """
     if qualification_questions:
         first_question = _extract_question(qualification_questions[0])
     else:
         first_question = _FALLBACK_QUESTION
+
+    website_block = ""
+    if company_website:
+        website_block = (
+            f"\n## Company website\n{company_website} — share this exact URL when a "
+            "prospect asks where to sign up, register, or learn more.\n"
+        )
 
     return (
         "## Sales Engagement Directive\n\n"
@@ -203,11 +230,8 @@ def build_sales_directive(
         "resolving the support issue.\n"
         "5. Populate `captured` and `signals` only with facts the prospect has "
         "explicitly stated — do not infer or hallucinate missing values.\n"
-        "6. Set signals.offer_meeting to true ONLY when the prospect explicitly asks "
-        "for a live demo or call. Do NOT set it for pricing/plan questions, and do "
-        "NOT set it just because you are collecting a name/email to hand off — "
-        "collecting contact info is not a meeting.\n"
-        "7. For pricing/purchase intent: answer plan questions directly from the plan "
+        + _meeting_rule(meeting_booking_enabled)
+        + "7. For pricing/purchase intent: answer plan questions directly from the plan "
         "details below, gather the prospect's team size and which plan they want, then "
         "set signals.offer_quote=true once you can quote. Put the plan name in "
         "captured.plan_interest.\n"
@@ -219,6 +243,10 @@ def build_sales_directive(
         "forward rather than repeating a question.\n"
         "10. Offer to connect the prospect with your team ONCE, and only when you "
         "genuinely cannot help further — never as a routine sign-off on every reply.\n"
+        "11. Never output placeholder text such as '[insert URL here]' or '[link]'. If "
+        "you do not have a specific detail, say so plainly or use the company website "
+        "below — never invent a bracketed placeholder.\n"
+        + website_block
         + _plans_block(pricing_tiers, currency, annual_discount_pct)
         + _known_facts_block(known_facts)
     )
