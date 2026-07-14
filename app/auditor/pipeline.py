@@ -34,6 +34,25 @@ def _active_source_cap(db: Session, tenant_id) -> int | None:
     return cap.max_knowledge_sources if cap else 0
 
 
+def _existing_source_count(db: Session, tenant_id) -> int:
+    """Count KnowledgeSource rows already consuming the tenant's source budget.
+
+    Mirrors AuditService._existing_source_count (ACTIVE + PROCESSING) so the
+    re-crawl activation-restore subtracts sources already used by uploaded files
+    and prior imports — audit findings share the single max_knowledge_sources cap.
+    """
+    from app.db.models.knowledge import KnowledgeSource, SourceStatus
+
+    return (
+        db.query(KnowledgeSource)
+        .filter(
+            KnowledgeSource.tenant_id == tenant_id,
+            KnowledgeSource.status.in_([SourceStatus.ACTIVE, SourceStatus.PROCESSING]),
+        )
+        .count()
+    )
+
+
 def _max_pages(db: Session, report: AuditReport) -> int:
     if report.scope == AuditScope.PUBLIC:
         return settings.AUDITOR_PUBLIC_MAX_PAGES
@@ -292,7 +311,11 @@ async def run_audit(
                 .order_by(AuditEntry.importance_rank.asc())
             )
             if max_sources is not None:  # None == unlimited
-                candidates = candidates.limit(max_sources)
+                # Subtract sources already consumed tenant-wide (uploaded files +
+                # prior imports) so restore respects the same global cap as
+                # import_entries/preselect — never re-activate beyond real budget.
+                remaining = max(0, max_sources - _existing_source_count(db, report.tenant_id))
+                candidates = candidates.limit(remaining)
             for entry in candidates.all():
                 entry.status = AuditEntryStatus.ACTIVE
             db.flush()

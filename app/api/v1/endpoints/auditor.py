@@ -278,24 +278,20 @@ def edit_entry(
                 status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
         # Guard: activating a non-ACTIVE entry must not exceed the plan limit.
+        # Audit findings share the tenant-global max_knowledge_sources cap with
+        # uploaded files/URLs, so usage counts BOTH (not just this report's entries).
         if new_status == AuditEntryStatus.ACTIVE and entry.status != AuditEntryStatus.ACTIVE:
-            max_sources = AuditService(db)._max_sources(user.tenant_id)
+            svc = AuditService(db)
+            max_sources = svc._max_sources(user.tenant_id)
             if max_sources is not None:
-                active_count = (
-                    db.query(AuditEntry)
-                    .filter(
-                        AuditEntry.audit_report_id == entry.audit_report_id,
-                        AuditEntry.status == AuditEntryStatus.ACTIVE,
-                    )
-                    .count()
-                )
-                if active_count >= max_sources:
+                usage = svc._source_usage(user.tenant_id, entry.audit_report_id)
+                if usage >= max_sources:
                     return _err(
                         "ACTIVE_LIMIT_REACHED",
                         (
-                            f"Your plan allows {max_sources} active "
-                            "knowledge source(s) per audit. "
-                            "Lock another entry first, then activate this one."
+                            f"Your plan allows {max_sources} knowledge source(s) total "
+                            "(uploaded files plus audit findings). "
+                            "Remove a source or lock another finding first."
                         ),
                         status.HTTP_403_FORBIDDEN,
                     )

@@ -91,10 +91,55 @@ class AuditService:
         )
         return cap.max_knowledge_sources if cap else 0
 
+    def _existing_source_count(self, tenant_id: UUID) -> int:
+        """Count KnowledgeSource rows already consuming the tenant's source budget.
+
+        Audit-imported findings materialize into the SAME KnowledgeSource table as
+        uploaded files/URLs, so they share the single ``max_knowledge_sources`` cap.
+        ACTIVE and PROCESSING rows both count (PROCESSING = an in-flight import that
+        will become ACTIVE); INACTIVE and FAILED do not.
+        """
+        from app.db.models.knowledge import KnowledgeSource, SourceStatus
+
+        return (
+            self.db.query(KnowledgeSource)
+            .filter(
+                KnowledgeSource.tenant_id == tenant_id,
+                KnowledgeSource.status.in_([SourceStatus.ACTIVE, SourceStatus.PROCESSING]),
+            )
+            .count()
+        )
+
+    def _source_usage(self, tenant_id: UUID, audit_report_id: UUID) -> int:
+        """Total source-budget consumed for staging decisions on this report.
+
+        = materialized KnowledgeSource rows (files + already-imported findings)
+          + staged ACTIVE audit entries in this report not yet imported.
+
+        This is the tenant-global figure the plan cap is compared against, so a
+        tenant who filled ``max_knowledge_sources`` with uploaded files has no room
+        left to activate or import audit findings.
+        """
+        from app.db.models.audit import AuditEntry, AuditEntryStatus
+
+        staged = (
+            self.db.query(AuditEntry)
+            .filter(
+                AuditEntry.audit_report_id == audit_report_id,
+                AuditEntry.status == AuditEntryStatus.ACTIVE,
+                AuditEntry.knowledge_source_id.is_(None),
+            )
+            .count()
+        )
+        return self._existing_source_count(tenant_id) + staged
+
     def preselect_entries(self, audit_report_id: UUID) -> tuple[list[AuditEntry], list[AuditEntry]]:
         """Initialization-only preselection: assign ACTIVE/LOCKED only to PROPOSED entries.
 
-        N is determined by TenantCapabilities.max_knowledge_sources.
+        N is the tenant's REMAINING source budget: max_knowledge_sources minus the
+        sources already consumed tenant-wide (uploaded files/URLs + already-imported
+        findings + this report's staged ACTIVE entries). Audit findings share the
+        single max_knowledge_sources cap with uploaded knowledge.
         None = unlimited; missing capabilities row = 0 (no sources allowed).
 
         Idempotency guarantee: entries already in ACTIVE, LOCKED, or IMPORTED status
@@ -110,15 +155,9 @@ class AuditService:
         report = self.db.query(AuditReport).filter(AuditReport.id == audit_report_id).one()
         limit = self._max_sources(report.tenant_id)
 
-        # Count how many slots are already consumed by tenant-curated ACTIVE entries
-        already_active_count = (
-            self.db.query(AuditEntry)
-            .filter(
-                AuditEntry.audit_report_id == audit_report_id,
-                AuditEntry.status == AuditEntryStatus.ACTIVE,
-            )
-            .count()
-        )
+        # Slots already consumed = tenant-global source usage (uploaded files +
+        # already-imported findings + this report's staged ACTIVE entries).
+        already_consumed = self._source_usage(report.tenant_id, audit_report_id)
 
         # Only operate on entries still in PROPOSED — never touch ACTIVE/LOCKED/IMPORTED
         proposed = (
@@ -133,7 +172,7 @@ class AuditService:
 
         active: list = []
         locked: list = []
-        remaining_slots = (limit - already_active_count) if limit is not None else None
+        remaining_slots = max(0, limit - already_consumed) if limit is not None else None
         for entry in proposed:
             if remaining_slots is None or remaining_slots > 0:
                 entry.status = AuditEntryStatus.ACTIVE
@@ -166,15 +205,23 @@ class AuditService:
 
         report = self.db.query(AuditReport).filter(AuditReport.id == audit_report_id).one()
         limit = self._max_sources(report.tenant_id)
-        active_query = (
+        # Remaining tenant-global budget: max_knowledge_sources minus sources
+        # already materialized (uploaded files/URLs + prior imports). Audit findings
+        # share the single max_knowledge_sources cap, so a tenant who filled it with
+        # uploaded files imports nothing here. Dedup-links (below) create no new row
+        # and therefore do not draw down this budget.
+        budget = (
+            None if limit is None else max(0, limit - self._existing_source_count(report.tenant_id))
+        )
+        active = (
             self.db.query(AuditEntry)
             .filter(
                 AuditEntry.audit_report_id == audit_report_id,
                 AuditEntry.status == AuditEntryStatus.ACTIVE,
             )
             .order_by(AuditEntry.importance_rank.asc())
+            .all()
         )
-        active = active_query.all() if limit is None else active_query.limit(limit).all()
         imported_ids: list[UUID] = []
         for entry in active:
             # Idempotency: already imported in a prior call — skip entirely
@@ -196,6 +243,12 @@ class AuditService:
                 entry.knowledge_source_id = dup.id
                 continue
 
+            # No budget left for a NEW source — leave the entry ACTIVE (staged) so a
+            # later plan upgrade can import it. Keep scanning: subsequent entries may
+            # still dedup-link (no new row) within the same call.
+            if budget is not None and budget <= 0:
+                continue
+
             source = KnowledgeSource(
                 tenant_id=report.tenant_id,
                 name=entry.title or entry.url,
@@ -212,6 +265,8 @@ class AuditService:
             self.db.flush()
             entry.status = AuditEntryStatus.IMPORTED
             entry.knowledge_source_id = source.id
+            if budget is not None:
+                budget -= 1
 
             job = ProcessingJob(
                 tenant_id=report.tenant_id,
@@ -260,15 +315,9 @@ class AuditService:
                 )
                 .count()
             )
-        active_count = (
-            self.db.query(AuditEntry)
-            .filter(
-                AuditEntry.audit_report_id == audit_report_id,
-                AuditEntry.status == AuditEntryStatus.ACTIVE,
-            )
-            .count()
-        )
-        return max(0, limit - active_count)
+        # Newly-eligible slots = remaining tenant-global budget after existing
+        # sources and this report's already-staged ACTIVE entries.
+        return max(0, limit - self._source_usage(report.tenant_id, audit_report_id))
 
     async def claim_audit(self, claim_token: str, tenant_id: UUID) -> AuditReport:
         """Re-parent a public audit to a tenant after sign-up.
