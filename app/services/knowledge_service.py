@@ -425,6 +425,10 @@ class KnowledgeService:
 
         if status:
             stmt = stmt.where(KnowledgeSource.status == status)
+        else:
+            # Default listing hides tombstones: INACTIVE = soft-deleted or a
+            # superseded old version, neither of which the user can act on.
+            stmt = stmt.where(KnowledgeSource.status != SourceStatus.INACTIVE)
 
         stmt = stmt.order_by(KnowledgeSource.created_at.desc())
 
