@@ -107,9 +107,24 @@ def _only_lead(db: Session, tenant_id: UUID) -> Lead:
 
 
 def _sales_llm_patch(intent: str, captured: dict, signals: dict):
-    """Return a patcher for RAGService.generate_sales_response."""
+    """Return a patcher for RAGService.generate_sales_response.
 
-    async def _fake(self, prompt, config, *, model_name=None):
+    Keep the keyword-only params in step with the real signature. The endpoint
+    funnels every exception into meta["error"] and still answers 200, so a
+    signature drift here surfaces as an opaque assertion on meta rather than a
+    TypeError — see tests/api/v1/test_chat_sales_wiring.py, which pins the
+    kwargs the endpoint actually passes.
+    """
+
+    async def _fake(
+        self,
+        prompt,
+        config,
+        *,
+        model_name=None,
+        known_facts=None,
+        company_website=None,
+    ):
         reply = "Sounds great! Let me help you."
         sales_meta = {"intent": intent, "captured": captured, "signals": signals}
         return reply, sales_meta, 50, False

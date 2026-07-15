@@ -118,3 +118,11 @@ addopts = "-v --strict-markers --cov=app --cov-report=term-missing --cov-report=
 markers = [
     "e2e: live end-to-end tests against a deployed environment",
 ]
+
+[tool.coverage.run]
+# Jinja2 compiles every template into a Python code object whose co_filename is
+# the template's own path, so coverage traces the .html files as if they were
+# Python sources. --cov-report=html then re-reads each one and ast.parse()s it
+# for syntax highlighting, which blows up on the first CSS line and aborts the
+# whole run with an INTERNALERROR (exit 3) even when every test passed.
+omit = ["app/templates/*"]
