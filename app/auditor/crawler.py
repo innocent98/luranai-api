@@ -502,6 +502,7 @@ async def crawl_site(
             if not page.html or depth + 1 > _MAX_DEPTH:
                 continue
 
+            new_links: list[str] = []
             for link in discovery._extract_links(page.html, url):
                 if link in seen:
                     continue
@@ -515,6 +516,25 @@ async def crawl_site(
                     seen.add(link)
                     continue
                 seen.add(link)
+                new_links.append(link)
+
+            # Enqueue the pages that decide the score first. The budget is small
+            # (10 pages for a public audit) and DOM order is the site's nav
+            # order, not ours: on stage.luranai.com the nav lists /platform,
+            # /auditor and five /solutions/* pages before the footer's /faq, so
+            # a FIFO frontier spent the whole budget before reaching it — and
+            # the report then called /faq, /contact and /security missing.
+            #
+            # Ranking the sitemap seeds did not cover this: that site's sitemap
+            # lists 4 URLs and hardcodes the luranai.com host, so auditing
+            # stage.luranai.com filters them all out as off-host and the crawl
+            # frontier chooses every page.
+            #
+            # This only reorders; it never admits a link. Same-host, prune, SSRF
+            # and robots all still apply. Stable sort keeps DOM order within a
+            # rank.
+            new_links.sort(key=discovery.signal_rank)
+            for link in new_links:
                 frontier.append((link, depth + 1))
 
         return pages
