@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -20,7 +19,12 @@ from app.schemas.lead import (
     LeadsSummary,
 )
 from app.schemas.user import UserResponse
-from app.services.lead_service import IllegalStatusTransition, LeadNotFound, LeadService
+from app.services.lead_service import (
+    IllegalStatusTransition,
+    LeadNotFound,
+    LeadService,
+    SortKey,
+)
 
 router = APIRouter()
 
@@ -40,7 +44,7 @@ def list_leads(
     status: LeadStatus | None = Query(default=None),
     intent: str | None = Query(default=None),
     tier: str | None = Query(default=None),
-    sort: Literal["score", "captured"] = Query(default="score"),
+    sort: SortKey = Query(default="score_desc"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
