@@ -7,8 +7,8 @@ Legend: **[A]** automated (Playwright / pytest), **[L]** live-data manual, **[R]
 
 ## 0. Setup / preconditions
 
-- [ ] Stack up: `docker compose ps` → api/worker/db/redis/qdrant healthy; `GET /api/v1/health` → 200. **[R]** api shows **healthy** (not "unhealthy" — healthcheck curl→python fix).
-- [ ] Dashboard up: `cd luran-dashboard && npm run dev` → http://localhost:3000.
+- [√] Stack up: `docker compose ps` → api/worker/db/redis/qdrant healthy; `GET /api/v1/health` → 200. **[R]** api shows **healthy** (not "unhealthy" — healthcheck curl→python fix).
+- [√] Dashboard up: `cd luran-dashboard && npm run dev` → http://localhost:3000.
 - [ ] Seed fixtures: `docker compose exec -e PYTHONPATH=/app api python scripts/seed_staging_e2e.py` → `staging-e2e-pro@luranai.com` / `StagingE2E123$` + platform admins.
 - [ ] CRM/Slack receivers: a https://webhook.site URL (CRM) + a real Slack Incoming Webhook (or public echo like `https://postman-echo.com/post` for both).
 - [ ] Sales config (dashboard → Grow → Sales): enable agent + lead capture + meeting booking + quotation; enable **Email + In-app + Slack + CRM**; set notification email, Slack URL, CRM webhook URL, pricing tiers, availability, annual discount. **Save.**
@@ -19,16 +19,16 @@ Legend: **[A]** automated (Playwright / pytest), **[L]** live-data manual, **[R]
 ## 1. Stage 4 — Website Auditor
 
 ### Public auditor
-- [ ] **[A][L]** Submit a real public URL → audit runs, overall score shown.
-- [ ] **[A]** Limit-reached view renders on a 429 from the start call.
+- [√] **[A][L]** Submit a real public URL → audit runs, overall score shown.
+- [√] **[A]** Limit-reached view renders on a 429 from the start call.
 - [ ] **[L]** Worker `run_website_audit` completes (no traceback); report row created.
 - [ ] **[L]** SSRF negative: submit `http://localhost` / `http://169.254.169.254` → rejected, not crawled.
 
 ### Dashboard auditor (Grow → Auditor)
-- [ ] **[A]** Completed audit appears in history with adaptive category tags; placeholder controls disabled.
-- [ ] **[A]** Edit modal opens + loads entry content; "Save changes" sends PATCH.
-- [ ] **[A]** "Confirm & go live" triggers import + confirmation.
-- [ ] **[A]** Gaps page lists gap card with disabled "Generate outline".
+- [√] **[A]** Completed audit appears in history with adaptive category tags; placeholder controls disabled.
+- [√] **[A]** Edit modal opens + loads entry content; "Save changes" sends PATCH.
+- [√] **[A]** "Confirm & go live" triggers import + confirmation.
+- [√] **[A]** Gaps page lists gap card with disabled "Generate outline".
 - [ ] **[L]** If contact captured, a `Lead` is created with `audit_report_id` set (auditor→lead link).
 
 ---
