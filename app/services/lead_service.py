@@ -236,6 +236,25 @@ class LeadService:
             .one_or_none()
         )
 
+    def get_crm_log(self, tenant_id: UUID, lead_id: UUID):
+        """Return this lead's most recent CRM push record, or None if never tried.
+
+        Scoped by channel and entity_id so a Slack or email notification for the
+        same lead is never mistaken for a CRM delivery.
+        """
+        from app.db.models.notification_log import NotifChannel, NotificationLog
+
+        return (
+            self.db.query(NotificationLog)
+            .filter(
+                NotificationLog.tenant_id == tenant_id,
+                NotificationLog.channel == NotifChannel.CRM,
+                NotificationLog.entity_id == lead_id,
+            )
+            .order_by(NotificationLog.created_at.desc())
+            .first()
+        )
+
     # ------------------------------------------------------------------
     # set_status
     # ------------------------------------------------------------------
