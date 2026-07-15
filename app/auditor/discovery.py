@@ -17,6 +17,37 @@ _PRUNE_PATH_RE = re.compile(
 )
 _ASSET_RE = re.compile(r"\.(js|css|png|jpe?g|gif|svg|ico|woff2?|ttf|pdf|zip|mp4|webp)(\?|$)", re.I)
 
+# Paths worth spending a limited page budget on.
+#
+# The budget is small (10 pages for a public audit) and the sitemap is not
+# ordered for us. A real audit of stage.luranai.com spent all 10 pages on the
+# homepage, /pricing, /platform, /auditor and five sibling /solutions/* pages,
+# and never fetched /faq, /contact or /security — which the site has. The report
+# then listed all three as gaps, because the scorer reads "no faq kind found" as
+# "no FAQ exists".
+#
+# These patterns map onto the score's dimensions (knowledge / support /
+# conversion), so a page matching one carries far more signal than the Nth
+# member of a product family. This ranks candidates; it never adds any. The
+# structural prune and the SSRF guard still decide what is eligible at all.
+_HIGH_SIGNAL_PATH_RE = re.compile(
+    r"/(faq|faqs|help|support|contact|pricing|plans?|security|privacy|terms|legal"
+    r"|policy|policies|about|docs?|documentation|guides?|tutorials?|getting-started)\b",
+    re.IGNORECASE,
+)
+
+
+def _seed_rank(url: str, root: str) -> int:
+    """Sort key for seeding: lower is fetched first.
+
+    0 = the root (scan-quality diagnosis reads it), 1 = a high-signal page,
+    2 = everything else. Python's sort is stable, so pages sharing a rank keep
+    their sitemap order.
+    """
+    if url == root:
+        return 0
+    return 1 if _HIGH_SIGNAL_PATH_RE.search(urlparse(url).path) else 2
+
 
 def normalize_url(raw: str, base: str | None = None) -> str | None:
     """Lowercase host, strip fragment, drop tracking query params.
@@ -176,12 +207,16 @@ async def seed_urls(root_url: str, max_pages: int, fetch_text=None) -> list[str]
 
     sitemap = await fetch_text(sitemap_url)
     if sitemap:
+        # Collect every eligible URL before truncating. Stopping at max_pages
+        # here is what lost /faq to a product family: the cap fell where the
+        # sitemap happened to list things, so the pages that decide the score
+        # were never even candidates.
         for loc in _parse_sitemap(sitemap):
             n = normalize_url(loc)
             if n and _accept(n):
                 seen.add(n)
                 found.append(n)
-                if len(found) >= max_pages:
-                    return found[:max_pages]
 
+    # Rank, then cut. Stable sort keeps sitemap order within each rank.
+    found.sort(key=lambda u: _seed_rank(u, root))
     return found[:max_pages]
