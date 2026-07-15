@@ -37,16 +37,25 @@ _HIGH_SIGNAL_PATH_RE = re.compile(
 )
 
 
-def _seed_rank(url: str, root: str) -> int:
-    """Sort key for seeding: lower is fetched first.
+def signal_rank(url: str) -> int:
+    """Sort key when the page budget is smaller than the site: 0 = high-signal.
 
-    0 = the root (scan-quality diagnosis reads it), 1 = a high-signal page,
-    2 = everything else. Python's sort is stable, so pages sharing a rank keep
-    their sitemap order.
+    Used for both sitemap seeds and links discovered mid-crawl — the budget can
+    run out on either path, and on a site whose sitemap is thin or off-host it
+    is the crawl frontier that decides everything.
+
+    Python's sort is stable, so equal-ranked URLs keep their original order
+    (sitemap order, or DOM order for discovered links).
     """
+    return 0 if _HIGH_SIGNAL_PATH_RE.search(urlparse(url).path) else 1
+
+
+def _seed_rank(url: str, root: str) -> int:
+    """Seed ordering: the root first (the scan-quality diagnosis reads it), then
+    high-signal pages, then the rest."""
     if url == root:
         return 0
-    return 1 if _HIGH_SIGNAL_PATH_RE.search(urlparse(url).path) else 2
+    return 1 + signal_rank(url)
 
 
 def normalize_url(raw: str, base: str | None = None) -> str | None:
