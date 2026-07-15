@@ -103,7 +103,9 @@ def get_lead(
         svc.apply_score(lead)
         db.commit()
 
-    detail = LeadDetail.from_lead(lead, tier_for(lead.lead_score or 0))
+    detail = LeadDetail.from_lead(
+        lead, tier_for(lead.lead_score or 0), svc.get_crm_log(user.tenant_id, lead.id)
+    )
     return {"success": True, "data": detail.model_dump()}
 
 
@@ -132,7 +134,9 @@ def patch_lead_status(
     except IllegalStatusTransition as exc:
         return _err("INVALID_STATUS_TRANSITION", str(exc), 422)
 
-    detail = LeadDetail.from_lead(lead, tier_for(lead.lead_score or 0))
+    detail = LeadDetail.from_lead(
+        lead, tier_for(lead.lead_score or 0), svc.get_crm_log(user.tenant_id, lead.id)
+    )
     return {"success": True, "data": detail.model_dump()}
 
 
@@ -155,5 +159,7 @@ def recompute_lead_score(
     except LeadNotFound:
         return _err("LEAD_NOT_FOUND", "Lead not found", 404)
 
-    detail = LeadDetail.from_lead(lead, tier_for(lead.lead_score or 0))
+    detail = LeadDetail.from_lead(
+        lead, tier_for(lead.lead_score or 0), svc.get_crm_log(user.tenant_id, lead.id)
+    )
     return {"success": True, "data": detail.model_dump()}

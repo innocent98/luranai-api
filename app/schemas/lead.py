@@ -89,7 +89,37 @@ class LeadSourceInfo(BaseModel):
 
 
 class LeadCrm(BaseModel):
+    """CRM delivery state for one lead.
+
+    ``status`` is the real signal, read from the lead's CRM NotificationLog:
+    "sent" | "failed" | "pending", or None when no push was ever attempted —
+    which is deliberately distinct from a failure.
+
+    ``connected`` is retained with its original bool(crm_id) meaning so this
+    payload stays additive for other /api/v1 clients. Prefer ``status``: crm_id
+    is only written when the webhook echoes an id back, and Zapier/Make answer
+    2xx with no id, so ``connected`` reads False for leads that did deliver.
+    """
+
     connected: bool = False
+    status: str | None = None
+    synced_at: datetime | None = None
+    error: str | None = None
+
+
+def _crm_state(lead, crm_log) -> LeadCrm:
+    """Map a lead + its CRM NotificationLog to the payload's crm block."""
+    if crm_log is None:
+        # Never attempted. Not a failure — the UI must distinguish the two.
+        return LeadCrm(connected=bool(lead.crm_id))
+
+    status = crm_log.status
+    return LeadCrm(
+        connected=bool(lead.crm_id),
+        status=status.value if hasattr(status, "value") else str(status),
+        synced_at=crm_log.updated_at or crm_log.created_at,
+        error=crm_log.error,
+    )
 
 
 class LeadDetail(BaseModel):
@@ -120,7 +150,13 @@ class LeadDetail(BaseModel):
     model_config = {"from_attributes": True}
 
     @classmethod
-    def from_lead(cls, lead, tier: str) -> LeadDetail:
+    def from_lead(cls, lead, tier: str, crm_log=None) -> LeadDetail:
+        """Build the detail payload.
+
+        ``crm_log`` is the lead's CRM NotificationLog row, or None when no push
+        was attempted. Passed in rather than queried here so this schema stays
+        free of database access.
+        """
         breakdown = [
             LeadSignal(
                 key=s["key"],
@@ -161,7 +197,7 @@ class LeadDetail(BaseModel):
             source=source_info,
             meeting=None,
             quote=None,
-            crm=LeadCrm(connected=bool(lead.crm_id)),
+            crm=_crm_state(lead, crm_log),
         )
 
 
