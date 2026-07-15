@@ -215,6 +215,12 @@ class Settings(BaseSettings):
     AUDITOR_UNCLAIMED_PURGE_DAYS: int = 30
     AUDITOR_PER_PAGE_TIMEOUT_S: int = 10
     AUDITOR_CRAWL_RPS: int = 1
+    # Concurrent Chromium instances across all audits in one worker. Bounded by
+    # WORKER_MEM_LIMIT, not CPU: a browser measured 394 MiB, the worker baseline
+    # is ~160 MiB, so N crawls need 160 + 394*N MiB. Default 2 = 948 MiB, which
+    # fits the 1200m ceiling; 3 would be 1342 MiB and get OOM-killed. Raise this
+    # only alongside WORKER_MEM_LIMIT.
+    AUDITOR_MAX_CONCURRENT_CRAWLS: int = 2
     # Best-effort per-page hydration wait for SPAs; capped low because content
     # sites never reach network-idle (ads/trackers), so the full wait is wasted.
     AUDITOR_HYDRATION_SETTLE_MS: int = 1500

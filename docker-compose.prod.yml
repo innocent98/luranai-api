@@ -3,7 +3,19 @@ services:
     image: ${API_IMAGE:-luran-api:latest}
     container_name: ${COMPOSE_PROJECT_NAME:-luran}_api
     ports:
-      - "${API_PORT:-8000}:8000"
+      # Bind to loopback only. Without the 127.0.0.1 prefix Docker publishes on
+      # 0.0.0.0, so http://<vps-ip>:8000 answers straight from FastAPI —
+      # bypassing nginx and everything it enforces (TLS, HSTS and the other
+      # security headers, edge rate limits, access logs). A firewall does not
+      # cover this: Docker inserts its own iptables rules in the DOCKER chain,
+      # which is evaluated before ufw's, so `ufw deny 8000` does not apply to a
+      # published port.
+      #
+      # Nothing needs the public bind: nginx runs on the host and proxies to
+      # 127.0.0.1:${API_PORT}, CD's health check curls localhost over SSH on the
+      # box itself, and the worker reaches the API over the compose network by
+      # service name.
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     env_file:
       - .env
     depends_on:

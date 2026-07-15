@@ -19,6 +19,26 @@ from app.auditor import discovery
 from app.auditor.discovery import guard_url
 from app.utils.network_security import resolve_and_validate_host
 
+# How many crawls may hold a Chromium at once.
+#
+# The bound is memory, not CPU. A browser with one page measured 394 MiB in the
+# worker container, and the worker's ARQ settings allow max_jobs=5 — five audits
+# can start together and ask for five browsers. Against WORKER_MEM_LIMIT=1200m:
+#   1 crawl   554 MiB (160 base + 394)   fits
+#   2 crawls  948 MiB                    fits
+#   3 crawls 1342 MiB                    OOM kill
+# and an OOM is not quiet — ARQ retries (max_tries=3), so the audit burns its
+# retries and reports "failed" to the tenant.
+#
+# max_jobs stays at 5 so the cheap jobs (email, Slack, CRM) keep their slots;
+# only the expensive one is throttled. Raise this only together with
+# WORKER_MEM_LIMIT: 160 + 394 * N MiB.
+MAX_CONCURRENT_CRAWLS: int = settings.AUDITOR_MAX_CONCURRENT_CRAWLS
+
+# Module-level and shared by every job in the worker: ARQ runs max_jobs as
+# asyncio tasks in a single process and event loop, so one semaphore gates them.
+_CRAWL_SLOTS = asyncio.Semaphore(MAX_CONCURRENT_CRAWLS)
+
 
 class RawPageError(str, Enum):
     OK = "ok"
@@ -202,19 +222,25 @@ async def _browser_render_session(host: str, safe_ip: str):
     crawl's single host — safe because crawl_site is same-host only.
     """
     resolver_rule = f"MAP {host} {safe_ip}, EXCLUDE localhost"
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[f"--host-resolver-rules={resolver_rule}"],
-        )
-        try:
+    # Hold a slot for the whole crawl, not per page: the browser lives for the
+    # crawl's duration, so that is the span that costs 394 MiB. `async with`
+    # returns the permit on every exit path — a crawl that raises mid-page must
+    # not leak one, or the worker deadlocks after MAX_CONCURRENT_CRAWLS
+    # failures and every later audit hangs to job_timeout (1h).
+    async with _CRAWL_SLOTS:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[f"--host-resolver-rules={resolver_rule}"],
+            )
+            try:
 
-            async def _render(url: str) -> tuple[int, str, str]:
-                return await _render_page_in_browser(browser, url)
+                async def _render(url: str) -> tuple[int, str, str]:
+                    return await _render_page_in_browser(browser, url)
 
-            yield _render
-        finally:
-            await browser.close()
+                yield _render
+            finally:
+                await browser.close()
 
 
 async def _playwright_render(url: str) -> tuple[int, str, str]:
