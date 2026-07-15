@@ -38,7 +38,19 @@ _ALLOWED_TRANSITIONS: dict[LeadStatus, set[LeadStatus]] = {
     LeadStatus.CONVERTED: set(),
 }
 
-SortKey = Literal["score", "captured"]
+# The dashboard's sort control emits the first four. "score" and "captured" are
+# the original v1 names, kept as aliases rather than removed: /api/v1 has other
+# clients, so dropping them would be a breaking change instead of an additive one.
+SortKey = Literal[
+    "score_desc",
+    "score_asc",
+    "created_desc",
+    "created_asc",
+    "score",
+    "captured",
+]
+
+_SORT_ALIASES: dict[str, str] = {"score": "score_desc", "captured": "created_desc"}
 
 
 class LeadService:
@@ -198,10 +210,16 @@ class LeadService:
 
         total: int = query.count()
 
-        if sort == "captured":
+        # NULL scores sink to the bottom either way — an unscored lead is not
+        # "the lowest-scoring lead", so it should not head the ascending list.
+        key = _SORT_ALIASES.get(sort, sort)
+        if key == "created_desc":
             query = query.order_by(Lead.created_at.desc())
-        else:
-            # Default: sort by lead_score descending; NULL scores sink to bottom
+        elif key == "created_asc":
+            query = query.order_by(Lead.created_at.asc())
+        elif key == "score_asc":
+            query = query.order_by(Lead.lead_score.asc().nullslast())
+        else:  # score_desc
             query = query.order_by(Lead.lead_score.desc().nullslast())
 
         rows: list[Lead] = query.offset(offset).limit(limit).all()
