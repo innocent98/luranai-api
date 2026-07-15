@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+  body { font-family: Helvetica, Arial, sans-serif; color: #1a1a2e; font-size: 12px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .muted { color: #6b7280; }
+  table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #e5e7eb; }
+  td.amt, th.amt { text-align: right; }
+  .neg { color: #16a34a; }
+  tr.total td { border-top: 2px solid #1a1a2e; border-bottom: none; font-weight: bold; font-size: 14px; padding-top: 10px; }
+</style></head><body>
+  <h1>Quotation</h1>
+  <div class="muted">Prepared for {{ company }}</div>
+  <table>
+    <tr><th>Item</th><th>Detail</th><th class="amt">Amount</th></tr>
+    {% for it in items %}
+    <tr><td>{{ it.label }}</td><td class="muted">{{ it.detail }}</td>
+        <td class="amt {% if it.negative %}neg{% endif %}">{{ it.amount_fmt }}</td></tr>
+    {% endfor %}
+    <tr class="total"><td colspan="2">Estimated total</td><td class="amt">{{ total_fmt }}</td></tr>
+  </table>
+</body></html>

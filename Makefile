@@ -59,19 +59,19 @@ clean:
 	rm -rf .pytest_cache .coverage htmlcov/ .mypy_cache/ .ruff_cache/
 
 build:
-	docker-compose build
+	docker compose build
 
 up:
-	docker-compose up -d
+	docker compose up -d
 
 down:
-	docker-compose down
+	docker compose down
 
 restart:
-	docker-compose restart
+	docker compose restart
 
 logs:
-	docker-compose logs -f
+	docker compose logs -f
 
 migrate:
 	poetry run alembic upgrade head

@@ -1,9 +1,11 @@
 """Company registration endpoints for self-service signup."""
 
+from loguru import logger
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.auditor.service import AuditService
 from app.schemas.auth import (
     CompanyRegistrationRequest,
     CompanyRegistrationResponse,
@@ -26,7 +28,7 @@ router = APIRouter()
     status_code=status.HTTP_201_CREATED,
     dependencies=[Depends(registration_rate_limit)],
 )
-def register_company(
+async def register_company(
     registration_data: CompanyRegistrationRequest,
     db: Session = Depends(get_db),
 ):
@@ -35,6 +37,12 @@ def register_company(
 
     Creates a new tenant and admin user atomically, generates temporary password,
     and sends welcome email with email verification link.
+
+    If a ``claim_token`` is present in the request the corresponding public
+    audit is re-parented to the new tenant after the tenant is created.  Any
+    failure during claim (invalid/expired/already-claimed token, Redis error)
+    is logged as a warning and silently swallowed — signup is never blocked by
+    a bad claim token.
 
     Args:
         registration_data: Company and admin information
@@ -50,12 +58,28 @@ def register_company(
 
     try:
         response = registration_service.register_company(registration_data)
-        return response
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
         ) from e
+
+    if registration_data.claim_token:
+        try:
+            await AuditService(db).claim_audit(registration_data.claim_token, response.tenant_id)
+            logger.info(
+                f"Claimed public audit (token=…{registration_data.claim_token[-6:]}) "
+                f"for tenant {response.tenant_id}"
+            )
+        except Exception:
+            logger.warning(
+                "Failed to claim public audit on signup "
+                f"(token=…{registration_data.claim_token[-6:]}, "
+                f"tenant={response.tenant_id}) — signup continues",
+                exc_info=True,
+            )
+
+    return response
 
 
 @router.post(

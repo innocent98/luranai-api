@@ -153,6 +153,8 @@ class TenantService:
             can_use_webhooks=False,  # Direct API/webhook flow nodes start on higher plans
             max_flows=1,  # Allow one flow on trial
             max_webhooks_per_flow=0,  # No webhook nodes on trial
+            max_audits_per_month=2,  # 2 dashboard audits/month on trial
+            max_audit_pages_per_crawl=50,  # Shallow crawl depth on trial
         )
         self.db.add(capabilities)
 

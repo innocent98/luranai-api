@@ -24,6 +24,34 @@ def _make_tenant(db, *, is_publicly_listed: bool) -> Tenant:
     return t
 
 
+def test_latest_conversation_summary_with_multiple_sessions(db):
+    """Regression: a visitor with >1 conversation session must return the latest,
+    not raise MultipleResultsFound (which 500'd /public/visitor/bootstrap)."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.db.models.conversation import ConversationSession, SessionStatus
+
+    tenant = _make_tenant(db, is_publicly_listed=True)
+    visitor_id = uuid.uuid4()
+    now = datetime.now(UTC)
+    for i in range(2):
+        db.add(
+            ConversationSession(
+                tenant_id=tenant.id,
+                user_identifier=f"anon-{i}",
+                visitor_id=visitor_id,
+                status=SessionStatus.RESOLVED,
+                last_message_at=now - timedelta(hours=i),
+            )
+        )
+    db.commit()
+
+    svc = VisitorService(db)
+    # Must not raise; returns a summary for the most-recent session.
+    summary = svc._get_latest_conversation_summary(visitor_id, tenant.id)
+    assert summary is not None
+
+
 class TestBootstrapPrivacyGate:
     def test_bootstrap_by_slug_blocked_for_private(self, db):
         """Slug-based bootstrap is the /b/{slug} + /support/{slug} surface;

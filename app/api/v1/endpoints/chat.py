@@ -28,6 +28,7 @@ from app.db.models.conversation import (
     Ticket,
     TicketPriority,
 )
+from app.db.models.business_profile import BusinessProfile
 from app.db.models.flow import Flow, FlowExecution, FlowStatus
 from app.db.models.tenant import TenantAIConfig
 from app.db.models.user import User, UserRole
@@ -47,9 +48,15 @@ from app.schemas.ticket import TicketAssign, TicketCreate
 from app.schemas.tenant import TenantResponse
 from app.schemas.user import UserResponse
 from app.schemas.visitor import VisitorEnrichmentUpdate
+from app.db.models.lead import Lead
+from app.db.models.sales_agent_config import TenantSalesAgentConfig
+from app.sales.intent import is_trigger_intent
 from app.services.conversation_service import ConversationService
 from app.services.chat_automation_orchestrator import ChatAutomationOrchestrator
 from app.services.flow_engine import FlowEngine
+from app.sales.pricing import compute_quote
+from app.services.lead_service import LeadService
+from app.services.quote_service import QuoteService
 from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
 from app.services.ticket_service import TicketService
@@ -666,6 +673,11 @@ async def send_message(
                 },
             )
 
+    # Fetch business profile for chat grounding (one lookup per request; None when absent)
+    business_profile = db.execute(
+        select(BusinessProfile).where(BusinessProfile.tenant_id == session.tenant_id)
+    ).scalar_one_or_none()
+
     tenant_config = tenant_service.get_ai_config(session.tenant_id)
     if not tenant_config:
         raise HTTPException(
@@ -685,6 +697,16 @@ async def send_message(
     )
     require_name_before_escalation = bool(
         getattr(tenant_ai_config, "require_name_before_escalation", False)
+    )
+
+    # Load sales agent config (may be None if tenant has not configured it).
+    sales_agent_config = db.execute(
+        select(TenantSalesAgentConfig).where(TenantSalesAgentConfig.tenant_id == session.tenant_id)
+    ).scalar_one_or_none()
+    _sales_mode = bool(
+        sales_agent_config is not None
+        and getattr(sales_agent_config, "agent_enabled", False)
+        and getattr(sales_agent_config, "lead_capture_enabled", False)
     )
     linked_visitor = visitor_service.get_visitor_for_session(session_id)
     current_session_meta = dict(session_model.meta or {})
@@ -1848,6 +1870,7 @@ async def send_message(
         prompt_components = None
         policy_action = "answer"
         policy_reason = "normal_generation"
+        _sales_meta: dict | None = None  # populated only in sales mode
 
         if not scope_allowed:
             policy_action = "refuse"
@@ -1966,6 +1989,7 @@ async def send_message(
                 company_name=tenant_response.display_name,
                 company_description=tenant_response.description,
                 max_history_turns=6,
+                business_profile=business_profile,
             )
             directive_block = (
                 "\n\nRuntime policy decision for this turn:\n"
@@ -1983,11 +2007,52 @@ async def send_message(
             )
             prompt_components.full_prompt = f"{prompt_components.full_prompt}{directive_block}"
 
-            ai_response_text, token_count, is_api_error = await rag_service.generate_ai_response(
-                prompt=prompt_components,
-                max_tokens=tenant_ai_config.max_response_tokens,
-                model_name=settings.OPENAI_LLM_MODEL,
-            )
+            if _sales_mode:
+                # State-threading: pin facts already captured this conversation so
+                # the agent never re-asks them (fixes "how large is your team?" twice).
+                _known_facts: dict | None = None
+                _existing_lead = db.execute(
+                    select(Lead).where(
+                        Lead.tenant_id == session.tenant_id,
+                        Lead.conversation_id == session_id,
+                    )
+                ).scalar_one_or_none()
+                if _existing_lead is not None:
+                    _known_facts = {
+                        "name": _existing_lead.name,
+                        "email": _existing_lead.email,
+                        "company": _existing_lead.company,
+                        "team_size": _existing_lead.team_size,
+                        "industry": _existing_lead.industry,
+                    }
+                # Surface the tenant's website (from their latest audit) so the agent
+                # gives the real URL instead of a "[insert URL here]" placeholder.
+                from app.db.models.audit import AuditReport
+
+                _company_website = db.execute(
+                    select(AuditReport.url)
+                    .where(AuditReport.tenant_id == session.tenant_id)
+                    .order_by(AuditReport.created_at.desc())
+                    .limit(1)
+                ).scalar_one_or_none()
+                ai_response_text, _sales_meta, token_count, is_api_error = (
+                    await rag_service.generate_sales_response(
+                        prompt=prompt_components,
+                        config=sales_agent_config,
+                        model_name=settings.OPENAI_LLM_MODEL,
+                        known_facts=_known_facts,
+                        company_website=_company_website,
+                    )
+                )
+            else:
+                _sales_meta = None
+                ai_response_text, token_count, is_api_error = (
+                    await rag_service.generate_ai_response(
+                        prompt=prompt_components,
+                        max_tokens=tenant_ai_config.max_response_tokens,
+                        model_name=settings.OPENAI_LLM_MODEL,
+                    )
+                )
 
             if token_count and prompt_components.prompt_tokens:
                 completion_tokens = token_count - prompt_components.prompt_tokens
@@ -2033,6 +2098,85 @@ async def send_message(
             limit=20,
         )
 
+        # Sales lead orchestration — SALES MODE only.
+        # Runs after ai_response_text is finalized so it never blocks the reply.
+        lead: Lead | None = None  # resolved below; reused by quote orchestration
+        _lead_captured_meta: dict | None = None
+        if _sales_mode and _sales_meta is not None:
+            try:
+                lead_svc = LeadService(db)
+                conv_id = session_id  # conversation_id == session_id in this handler
+
+                # Determine if a lead already exists for this conversation.
+                _existing = db.execute(
+                    select(Lead).where(
+                        Lead.tenant_id == session.tenant_id,
+                        Lead.conversation_id == conv_id,
+                    )
+                ).scalar_one_or_none()
+
+                _should_create = _existing is not None or is_trigger_intent(
+                    _sales_meta["intent"],
+                    sales_agent_config.trigger_intents,
+                )
+
+                if _should_create:
+                    # Resolve UTM from visitor session metadata.
+                    _utm: dict | None = None
+                    if isinstance(message_data.metadata, dict):
+                        _utm = {
+                            k: message_data.metadata[k]
+                            for k in ("utm_source", "utm_medium", "utm_campaign")
+                            if k in message_data.metadata
+                        } or None
+
+                    lead = lead_svc.get_or_create_by_conversation(
+                        session.tenant_id,
+                        conv_id,
+                        intent=_sales_meta["intent"],
+                        source="chat_widget",
+                        utm=_utm,
+                    )
+
+                    _email_before = lead.email  # capture before enrich
+                    _prior_score = lead.lead_score  # capture before enrich for sales_ready check
+
+                    lead = lead_svc.enrich_from_chat(
+                        lead,
+                        intent=_sales_meta["intent"],
+                        captured=_sales_meta["captured"],
+                        signals=_sales_meta["signals"],
+                    )
+
+                    # Set lead_captured only on the turn the email first appears.
+                    if not _email_before and lead.email:
+                        _lead_captured_meta = {
+                            "name": lead.name,
+                            "email": lead.email,
+                        }
+
+                    # Dispatch SALES_READY_LEAD on first threshold crossing.
+                    try:
+                        if lead_svc.crossed_sales_ready(_prior_score, lead):
+                            from app.services.notification_service import NotificationService
+                            from app.services.notification_enqueue import enqueue_jobs_async
+                            from app.db.models.notification_log import NotifEvent
+
+                            _sr_jobs = NotificationService(db).dispatch(
+                                session.tenant_id,
+                                NotifEvent.SALES_READY_LEAD,
+                                entity_type="lead",
+                                entity_id=lead.id,
+                            )
+                            await enqueue_jobs_async(_sr_jobs)
+                    except Exception as _sr_exc:  # noqa: BLE001
+                        logger.error(
+                            f"sales_ready notification dispatch failed (non-fatal): {_sr_exc}"
+                        )
+
+            except Exception as _lead_exc:
+                logger.error(f"Sales lead orchestration error (non-fatal): {_lead_exc}")
+
         # Step 8: Save assistant message
         # Store as strings to keep JSON serialization safe (JSON column doesn't
         # serialize UUIDs natively).
@@ -2048,40 +2192,95 @@ async def send_message(
         retrieval_hit = (
             len(retrieved_chunks) > 0 and avg_similarity >= rag_service.MIN_RELEVANT_SIMILARITY
         )
+        _message_meta: dict = {
+            "chunks_used": len(retrieved_chunks),
+            "avg_similarity": round(avg_similarity, 3),
+            "retrieval_hit": retrieval_hit,
+            "escalation_action": escalation_decision.action.value,
+            "response_quality": {
+                "is_substantial": quality.is_substantial,
+                "has_uncertainty": quality.has_uncertainty,
+                "word_count": quality.word_count,
+                "char_count": quality.char_count,
+            },
+            "token_breakdown": {
+                "prompt_tokens": (
+                    prompt_components.prompt_tokens
+                    if prompt_components is not None and prompt_components.prompt_tokens is not None
+                    else 0
+                ),
+                "completion_tokens": (
+                    token_count - prompt_components.prompt_tokens
+                    if token_count
+                    and prompt_components is not None
+                    and prompt_components.prompt_tokens
+                    else 0
+                ),
+                "total_tokens": token_count,
+            },
+        }
+        if _lead_captured_meta is not None:
+            _message_meta["lead_captured"] = _lead_captured_meta
+        if _sales_mode and _sales_meta is not None:
+            _signals = _sales_meta.get("signals") or {}
+            if bool(_signals.get("offer_meeting")) and getattr(
+                sales_agent_config, "meeting_booking_enabled", False
+            ):
+                _message_meta["offer_meeting"] = True
+            if bool(_signals.get("offer_quote")) and getattr(
+                sales_agent_config, "quotation_enabled", False
+            ):
+                try:
+                    _ts_raw = (lead.team_size if lead is not None else None) or (
+                        _sales_meta.get("captured") or {}
+                    ).get("team_size")
+                    _team_size: int | None = None
+                    if _ts_raw is not None:
+                        _m = re.search(r"\d+", str(_ts_raw))
+                        _team_size = int(_m.group()) if _m else None
+                    if _team_size is not None:
+                        _q = compute_quote(
+                            sales_agent_config.pricing_tiers or [],
+                            getattr(sales_agent_config, "annual_discount_pct", 0),
+                            sales_agent_config.currency,
+                            team_size=_team_size,
+                            plan_interest=(_sales_meta.get("captured") or {}).get("plan_interest"),
+                        )
+                        if _q is not None and lead is not None:
+                            _created_quote = QuoteService(db).create_quote(
+                                session.tenant_id,
+                                lead,
+                                currency=_q["currency"],
+                                line_items=_q["line_items"],
+                                total=_q["total"],
+                            )
+                            _message_meta["quote"] = _q
+                            try:
+                                from app.services.notification_service import NotificationService
+                                from app.services.notification_enqueue import enqueue_jobs_async
+                                from app.db.models.notification_log import NotifEvent
+
+                                _qn_jobs = NotificationService(db).dispatch(
+                                    session.tenant_id,
+                                    NotifEvent.QUOTE_GENERATED,
+                                    entity_type="quote",
+                                    entity_id=_created_quote.id,
+                                )
+                                await enqueue_jobs_async(_qn_jobs)
+                            except Exception as _qn_exc:  # noqa: BLE001
+                                logger.error(
+                                    f"quote notification dispatch failed (non-fatal): {_qn_exc}"
+                                )
+                except Exception as _quote_exc:
+                    logger.error(f"Quote orchestration error (non-fatal): {_quote_exc}")
+
         assistant_message = conversation_service.add_message(
             session_id=session_id,
             role=MessageRole.ASSISTANT,
             content=ai_response_text,
             retrieved_chunk_ids=retrieved_chunk_ids,
             token_count=token_count,
-            meta={
-                "chunks_used": len(retrieved_chunks),
-                "avg_similarity": round(avg_similarity, 3),
-                "retrieval_hit": retrieval_hit,
-                "escalation_action": escalation_decision.action.value,
-                "response_quality": {
-                    "is_substantial": quality.is_substantial,
-                    "has_uncertainty": quality.has_uncertainty,
-                    "word_count": quality.word_count,
-                    "char_count": quality.char_count,
-                },
-                "token_breakdown": {
-                    "prompt_tokens": (
-                        prompt_components.prompt_tokens
-                        if prompt_components is not None
-                        and prompt_components.prompt_tokens is not None
-                        else 0
-                    ),
-                    "completion_tokens": (
-                        token_count - prompt_components.prompt_tokens
-                        if token_count
-                        and prompt_components is not None
-                        and prompt_components.prompt_tokens
-                        else 0
-                    ),
-                    "total_tokens": token_count,
-                },
-            },
+            meta=_message_meta,
         )
         logger.info(f"Saved assistant message: {assistant_message.id}")
 

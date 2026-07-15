@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}
+  {% if kind == "meeting" %}New meeting booked
+  {% elif kind == "quote" %}New quote generated
+  {% else %}New sales-ready lead
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+<h1>
+  {% if kind == "meeting" %}New meeting booked
+  {% elif kind == "quote" %}New quote generated
+  {% else %}New sales-ready lead
+  {% endif %}
+</h1>
+
+<div class="credential-box">
+  {% if name %}
+  <div style="margin-bottom: 12px;">
+    <div class="credential-label">Name</div>
+    <div class="credential-value">{{ name }}</div>
+  </div>
+  {% endif %}
+  {% if company %}
+  <div style="margin-bottom: 12px;">
+    <div class="credential-label">Company</div>
+    <div class="credential-value">{{ company }}</div>
+  </div>
+  {% endif %}
+  {% if kind == "lead" and score is not none %}
+  <div style="margin-bottom: 12px;">
+    <div class="credential-label">Lead Score</div>
+    <div class="credential-value">{{ score }}</div>
+  </div>
+  {% endif %}
+  {% if kind == "meeting" and scheduled_at %}
+  <div style="margin-bottom: 12px;">
+    <div class="credential-label">Scheduled At</div>
+    <div class="credential-value">{{ scheduled_at }}</div>
+  </div>
+  {% endif %}
+  {% if kind == "quote" %}
+  {% if total is not none %}
+  <div style="margin-bottom: 12px;">
+    <div class="credential-label">Quote Total</div>
+    <div class="credential-value">{{ currency }} {{ total }}</div>
+  </div>
+  {% endif %}
+  {% endif %}
+</div>
+
+<center style="margin: 32px 0;">
+  <a href="{{ dashboard_url | default('#') }}" class="button">View in Dashboard</a>
+</center>
+
+<p style="color: #6b7280; font-size: 14px; text-align: center;">
+  Log in to your Luran dashboard to respond to this lead.
+</p>
+{% endblock %}

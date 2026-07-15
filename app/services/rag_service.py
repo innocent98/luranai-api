@@ -1,6 +1,8 @@
 """RAG service for vector retrieval and prompt assembly."""
 
+import json
 import re
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
@@ -18,6 +20,15 @@ from app.utils.token_counter import count_tokens
 if TYPE_CHECKING:
     from app.db.models.conversation import EscalationAction
     from app.schemas.rag import EscalationDecision, PromptComponents, ResponseQuality
+
+
+@dataclass
+class ToolRoutingResult:
+    """Result of asking the LLM which tenant action (if any) to invoke."""
+
+    tool_name: str | None = None
+    arguments: dict[str, Any] = field(default_factory=dict)
+    is_api_error: bool = False
 
 
 class RAGService:
@@ -96,6 +107,7 @@ Grounding and safety:
 - Use provided context for factual claims.
 - Do not invent policies, pricing, timelines, account details, or commitments.
 - If information is missing, ask a concise clarifying question or offer human escalation.
+- Never output placeholder text such as "[insert URL here]" or "[link]". If you lack a specific detail, say so plainly or use a value provided in context — never fabricate a bracketed placeholder.
 
 Style:
 - Clear, concise, professional, and natural.
@@ -410,6 +422,27 @@ Instructions:
 - If required details are still missing, ask one clarifying question or offer human support.
 """
 
+    def _build_business_block(self, profile: Any, *, token_budget: int = 150) -> str:
+        """Build a compact 'About this business' grounding block from a BusinessProfile.
+
+        Enforces the token budget by iterative character truncation.
+        Intentionally stays independent of the DB — caller passes the profile in.
+        """
+        offerings = ", ".join((profile.offerings or [])[:6])
+        entities = ", ".join((profile.key_entities or [])[:6])
+        parts = ["About this business:"]
+        if profile.summary:
+            parts.append(profile.summary)
+        if offerings:
+            parts.append(f"Offerings: {offerings}")
+        if entities:
+            parts.append(f"Key entities: {entities}")
+        block = " ".join(parts)
+        # Enforce ~150-token budget by truncation
+        while count_tokens(block) > token_budget and len(block) > 0:
+            block = block[: int(len(block) * 0.9)]
+        return block
+
     def assemble_prompt(
         self,
         ai_config: TenantAIConfig,
@@ -419,6 +452,7 @@ Instructions:
         company_name: str,
         company_description: str | None = None,
         max_history_turns: int = 10,
+        business_profile: "Any | None" = None,
     ) -> "PromptComponents":
         """
         Assemble intelligent adaptive prompt with knowledge availability signaling.
@@ -442,6 +476,9 @@ Instructions:
         tenant_config_parts.append(f"Company: {company_name}")
         if company_description:
             tenant_config_parts.append(f"Description: {company_description}")
+
+        if business_profile is not None:
+            tenant_config_parts.append(self._build_business_block(business_profile))
 
         if ai_config.brand_voice:
             voice = ai_config.brand_voice
@@ -934,6 +971,131 @@ Instructions:
             logger.exception(e)  # Log full traceback for debugging
             return [], []
 
+    async def route_action_via_tools(
+        self,
+        *,
+        messages: list[dict],
+        tools: list[dict],
+        model_name: str | None = None,
+    ) -> ToolRoutingResult:
+        """
+        Ask the model whether to call a tenant action tool, and with what args.
+
+        Returns ToolRoutingResult. On any API/parse failure, is_api_error=True
+        and no tool — callers fall back to normal RAG.
+        """
+        model = model_name or settings.OPENAI_LLM_MODEL
+        try:
+            await openai_llm_rate_limiter.acquire()
+            client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+            response = await client.chat.completions.create(  # type: ignore[call-overload]
+                model=model,
+                messages=messages,
+                tools=tools or None,
+                tool_choice="auto" if tools else "none",
+                temperature=0.1,
+                max_tokens=300,
+            )
+            message = response.choices[0].message
+            tool_calls = getattr(message, "tool_calls", None)
+            if not tool_calls:
+                return ToolRoutingResult(tool_name=None, arguments={}, is_api_error=False)
+            call = tool_calls[0]
+            try:
+                args = json.loads(call.function.arguments or "{}")
+            except (ValueError, TypeError):
+                args = {}
+            if not isinstance(args, dict):
+                args = {}
+            return ToolRoutingResult(
+                tool_name=call.function.name, arguments=args, is_api_error=False
+            )
+        except Exception as exc:  # noqa: BLE001 — any failure => RAG fallback
+            logger.warning(f"Action routing LLM call failed: {exc}", exc_info=True)
+            return ToolRoutingResult(tool_name=None, arguments={}, is_api_error=True)
+
+    async def _call_openai_raw(
+        self,
+        messages: list[dict],
+        *,
+        model: str,
+        response_format: dict | None = None,
+        max_tokens: int = 800,
+    ) -> tuple[str, int | None, bool]:
+        """
+        Low-level OpenAI chat completion call shared by generate_ai_response
+        and generate_sales_response.
+
+        Returns:
+            (text, token_count, is_api_error)
+        """
+        try:
+            await openai_llm_rate_limiter.acquire()
+            client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+
+            kwargs: dict = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": 0.2,
+                "top_p": 0.8,
+            }
+            if response_format is not None:
+                kwargs["response_format"] = response_format
+
+            logger.debug(f"Calling OpenAI API with max_tokens={max_tokens}")
+            response = await client.chat.completions.create(**kwargs)
+
+            response_text = response.choices[0].message.content or ""
+
+            token_count: int | None = None
+            try:
+                if response.usage:
+                    token_count = response.usage.total_tokens
+            except Exception as token_error:
+                logger.warning(f"Failed to extract token count: {token_error}")
+
+            logger.debug(f"OpenAI response via {model}: {token_count} tokens")
+            return response_text, token_count, False
+
+        except Exception as e:
+            error_msg = str(e).lower()
+            logger.error(f"OpenAI call failed with {model}: {e}")
+
+            if "503" in error_msg or "service unavailable" in error_msg:
+                logger.warning("API service temporarily unavailable (503)")
+                return (
+                    "I apologize, but I'm temporarily unable to process requests. Please try again in a moment.",
+                    None,
+                    True,
+                )
+            elif (
+                "blocked" in error_msg
+                or "safety" in error_msg
+                or "content" in error_msg
+                or "content_filter" in error_msg
+            ):
+                logger.warning("Content blocked by safety filters")
+                return (
+                    "I'm unable to process that request. Would you like me to connect you with someone from our team?",
+                    None,
+                    True,
+                )
+            elif "rate limit" in error_msg or "quota" in error_msg:
+                logger.warning("Rate limit or quota exceeded")
+                return (
+                    "I'm experiencing high demand right now. Please try again in a moment.",
+                    None,
+                    True,
+                )
+            else:
+                logger.error(f"Unknown API error: {e}")
+                return (
+                    "I'm having trouble processing your request. Would you like me to connect you with someone from our team?",
+                    None,
+                    True,
+                )
+
     async def generate_ai_response(
         self,
         prompt: "PromptComponents",
@@ -954,92 +1116,110 @@ Instructions:
             - is_api_error=True means technical failure (503, timeout, etc.)
               Don't evaluate quality or offer escalation for API errors
         """
-        # Use provided model or default from settings
         model = model_name or settings.OPENAI_LLM_MODEL
-
-        try:
-            # Apply rate limiting (450 RPM, 90% of 500 limit)
-            await openai_llm_rate_limiter.acquire()
-
-            # Create client
-            client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-
-            # Generate response
-            logger.debug(f"Calling OpenAI API with max_tokens={max_tokens}")
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": system_message or self.RUNTIME_SYSTEM_MESSAGE,
-                    },
-                    {"role": "user", "content": prompt.full_prompt},
-                ],
-                max_tokens=max_tokens,
-                temperature=0.2,
-                top_p=0.8,
-            )
-
-            # Extract text
-            response_text = response.choices[0].message.content
-
-            # Extract token count
-            token_count = None
-            try:
-                if response.usage:
-                    token_count = response.usage.total_tokens
-            except Exception as token_error:
-                logger.warning(f"Failed to extract token count: {token_error}")
-
-            response_text = response_text or ""
+        messages = [
+            {
+                "role": "system",
+                "content": system_message or self.RUNTIME_SYSTEM_MESSAGE,
+            },
+            {"role": "user", "content": prompt.full_prompt},
+        ]
+        response_text, token_count, is_api_error = await self._call_openai_raw(
+            messages,
+            model=model,
+            max_tokens=max_tokens,
+        )
+        if not is_api_error:
             logger.debug(f"Generated AI response using {model} with {token_count} tokens")
             logger.debug(
-                f"Response text length: {len(response_text)} chars, {len(response_text.split())} words"
+                f"Response text length: {len(response_text)} chars, "
+                f"{len(response_text.split())} words"
             )
-            return response_text, token_count, False  # Success, not an API error
+        return response_text, token_count, is_api_error
 
-        except Exception as e:
-            error_msg = str(e).lower()
-            logger.error(f"Error generating AI response with {model}: {e}")
+    async def generate_sales_response(
+        self,
+        prompt: "PromptComponents",
+        config: Any,
+        *,
+        model_name: str | None = None,
+        known_facts: dict | None = None,
+        company_website: str | None = None,
+    ) -> tuple[str, dict | None, int | None, bool]:
+        """
+        Generate a structured sales response using OpenAI structured output.
 
-            # Detect specific error types
-            if "503" in error_msg or "service unavailable" in error_msg:
-                logger.warning("API service temporarily unavailable (503)")
-                return (
-                    "I apologize, but I'm temporarily unable to process requests. Please try again in a moment.",
-                    None,
-                    True,
-                )
+        Appends the sales directive to the system message and requests a
+        JSON response conforming to SALES_RESPONSE_SCHEMA.
 
-            elif (
-                "blocked" in error_msg
-                or "safety" in error_msg
-                or "content" in error_msg
-                or "content_filter" in error_msg
-            ):
-                logger.warning("Content blocked by safety filters")
-                return (
-                    "I'm unable to process that request. Would you like me to connect you with someone from our team?",
-                    None,
-                    True,
-                )
+        Args:
+            prompt: Assembled prompt components (same as generate_ai_response).
+            config: TenantSalesAgentConfig (or any object with
+                    .qualification_questions: list).
+            model_name: Override model (defaults to settings.OPENAI_LLM_MODEL).
 
-            elif "rate limit" in error_msg or "quota" in error_msg:
-                logger.warning("Rate limit or quota exceeded")
-                return (
-                    "I'm experiencing high demand right now. Please try again in a moment.",
-                    None,
-                    True,
-                )
+        Returns:
+            (reply_text, sales_meta, token_count, is_api_error)
+            - sales_meta = {intent, signals, captured} on success, or None on
+              parse/API failure.  reply_text is always populated from the raw
+              model output so the caller always has something to show.
+        """
+        from app.sales.intent import (
+            SALES_RESPONSE_SCHEMA,
+            build_sales_directive,
+            parse_sales_output,
+        )
 
-            else:
-                # Generic API error
-                logger.error(f"Unknown API error: {e}")
-                return (
-                    "I'm having trouble processing your request. Would you like me to connect you with someone from our team?",
-                    None,
-                    True,
-                )
+        model = model_name or settings.OPENAI_LLM_MODEL
+        sales_directive = build_sales_directive(
+            config.qualification_questions,
+            pricing_tiers=getattr(config, "pricing_tiers", None),
+            currency=getattr(config, "currency", "NGN") or "NGN",
+            annual_discount_pct=getattr(config, "annual_discount_pct", 0) or 0,
+            known_facts=known_facts,
+            meeting_booking_enabled=bool(getattr(config, "meeting_booking_enabled", False)),
+            company_website=company_website,
+        )
+        system_content = self.RUNTIME_SYSTEM_MESSAGE + "\n\n" + sales_directive
+
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": prompt.full_prompt},
+        ]
+        response_format: dict = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "sales_response",
+                "strict": True,
+                "schema": SALES_RESPONSE_SCHEMA,
+            },
+        }
+
+        raw_text, token_count, is_api_error = await self._call_openai_raw(
+            messages,
+            model=model,
+            response_format=response_format,
+            max_tokens=800,
+        )
+
+        if is_api_error:
+            return raw_text, None, token_count, True
+
+        parsed = parse_sales_output(raw_text)
+        if parsed is None:
+            logger.warning(
+                "generate_sales_response: parse_sales_output returned None; using raw text"
+            )
+            return raw_text, None, token_count, False
+
+        sales_meta = {
+            "intent": parsed["intent"],
+            "signals": parsed["signals"],
+            "captured": parsed["captured"],
+        }
+        reply_text = parsed["reply"]
+        logger.debug(f"Sales response parsed: intent={sales_meta['intent']}")
+        return reply_text, sales_meta, token_count, False
 
     def track_retrieval_metrics(
         self,

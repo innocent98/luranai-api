@@ -45,6 +45,9 @@ beautifulsoup4 = "^4.12.0"
 asyncpg = "^0.31.0"
 tiktoken = "^0.12.0"
 itsdangerous = "^2.2.0"
+playwright = ">=1.44"
+trafilatura = ">=1.9"
+xhtml2pdf = "^0.2.17"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.0"
@@ -102,7 +105,9 @@ exclude = [".git", ".venv", "alembic"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "C4"]
-ignore = ["B008", "E501", "I001"]
+# N818 (Error-suffix on exception names) is a stylistic convention the project
+# opts out of, consistent with the other ignored rules below.
+ignore = ["B008", "E501", "I001", "N818"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -113,3 +118,11 @@ addopts = "-v --strict-markers --cov=app --cov-report=term-missing --cov-report=
 markers = [
     "e2e: live end-to-end tests against a deployed environment",
 ]
+
+[tool.coverage.run]
+# Jinja2 compiles every template into a Python code object whose co_filename is
+# the template's own path, so coverage traces the .html files as if they were
+# Python sources. --cov-report=html then re-reads each one and ast.parse()s it
+# for syntax highlighting, which blows up on the first CSS line and aborts the
+# whole run with an INTERNALERROR (exit 3) even when every test passed.
+omit = ["app/templates/*"]

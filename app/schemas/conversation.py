@@ -18,6 +18,13 @@ class ConversationSessionBase(BaseModel):
     meta: dict | None = Field(None, description="Additional context metadata")
 
 
+class LeadCapturedMeta(BaseModel):
+    """Schema for lead_captured metadata."""
+
+    name: str | None = None
+    email: str
+
+
 class MessageBase(BaseModel):
     """Base message schema."""
 
@@ -85,7 +92,17 @@ class MessageResponse(MessageBase):
     session_id: UUID
     retrieved_chunk_ids: list[UUID] | None = None
     token_count: int | None = None
-    meta: dict | None = None
+    meta: dict | None = Field(
+        None,
+        description=(
+            "Additional metadata; may include: "
+            "'lead_captured' (LeadCapturedMeta shape) when email first captured in sales mode; "
+            "'offer_meeting' (bool) when the agent offers the inline meeting picker; "
+            "'quote' ({currency: str, line_items: list, total: int}) when the agent generates "
+            "a pricing quotation — only present when quotation_enabled=True on the tenant config "
+            "AND the model signals offer_quote AND a matching pricing tier exists."
+        ),
+    )
     created_at: datetime
 
 

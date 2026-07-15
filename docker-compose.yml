@@ -14,9 +14,12 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
-      - redis
-      - qdrant
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -30,7 +33,7 @@ services:
       API_WORKERS: ${API_WORKERS:-4}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -50,8 +53,10 @@ services:
         max-file: "3"
 
   worker:
+    # Reuse the image the `api` service builds (same Dockerfile + context) rather
+    # than declaring a second build. `depends_on: api` guarantees the image exists
+    # even when the worker is started on its own (e.g. `docker compose up worker`).
     image: ${API_IMAGE:-luran-api:latest}
-    build: .
     container_name: ${COMPOSE_PROJECT_NAME:-luran}_worker
     command: python worker.py
     volumes:
@@ -63,9 +68,14 @@ services:
     env_file:
       - .env
     depends_on:
-      - db
-      - redis
-      - qdrant
+      api:
+        condition: service_started
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
     restart: unless-stopped
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -201,10 +211,13 @@ services:
           cpus: '0.25'
           memory: 512M
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      # The qdrant image ships no curl/wget, but has bash. Probe the HTTP port
+      # with bash /dev/tcp (qdrant binds 6333 only once it is ready to serve).
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     logging:
       driver: "json-file"
       options:

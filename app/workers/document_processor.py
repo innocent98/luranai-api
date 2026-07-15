@@ -105,20 +105,37 @@ async def process_document_ingestion(
         # Initialize knowledge service
         knowledge_service = KnowledgeService(db)
 
-        # Step 1: Create source and chunk text (fast, no API calls)
+        # Step 1: Create (or reuse) source and chunk text (fast, no API calls)
         logger.info(f"Creating source and chunking document: {document_name}")
 
-        source = await knowledge_service.create_source_and_chunks(
-            tenant_id=tenant_id,
-            document_text=document_text,
-            document_name=document_name,
-            source_type=source_type,
-            document_metadata=document_metadata,
-            uploaded_by=uploaded_by,
-            source_category=source_category,
-            source_url=source_url,
-            file_size_bytes=file_size_bytes,
-        )
+        existing_source_id_str = input_data.get("knowledge_source_id")
+
+        if existing_source_id_str:
+            # Auditor-import path: import_entries already created a KnowledgeSource
+            # (status=PROCESSING). Fill chunks into THAT source instead of creating
+            # a second orphan.
+            existing_source_id = UUID(str(existing_source_id_str))
+            source = await knowledge_service.fill_existing_source_with_chunks(
+                source_id=existing_source_id,
+                document_text=document_text,
+                document_name=document_name,
+                source_type=source_type,
+                tenant_id=tenant_id,
+                document_metadata=document_metadata,
+            )
+        else:
+            # Normal file-upload path: create a brand-new source.
+            source = await knowledge_service.create_source_and_chunks(
+                tenant_id=tenant_id,
+                document_text=document_text,
+                document_name=document_name,
+                source_type=source_type,
+                document_metadata=document_metadata,
+                uploaded_by=uploaded_by,
+                source_category=source_category,
+                source_url=source_url,
+                file_size_bytes=file_size_bytes,
+            )
 
         # Update job with total chunks
         # Query chunks directly as DB objects (not Pydantic models) so we can update them
@@ -961,6 +978,19 @@ async def aggregate_daily_metrics(ctx: dict) -> dict:
         db.close()
 
 
+async def purge_unclaimed_audits(ctx: dict) -> dict:
+    """Daily: drop public audit reports with no tenant after the purge window."""
+    from app.auditor.service import purge_unclaimed_audits_sync
+
+    db = SessionLocal()
+    try:
+        removed = purge_unclaimed_audits_sync(db)
+        logger.info("purge_unclaimed_audits removed {} reports", removed)
+        return {"status": "success", "removed": removed}
+    finally:
+        db.close()
+
+
 async def send_channel_post_notifications(ctx: dict, post_id: str) -> None:
     """Send email notifications to all followers when a channel post is published."""
     from uuid import UUID
@@ -1164,8 +1194,22 @@ class WorkerSettings:
         auto_resolve_stale_tickets,
     )
 
+    from app.auditor.pipeline import run_website_audit  # type: ignore[misc]
+
+    from app.workers.sales_notifications import (  # type: ignore[misc]
+        send_rep_alert,
+        send_slack_notification,
+        send_visitor_meeting_confirmation,
+        sync_lead_to_crm,
+    )
+
     functions = [
         process_document_ingestion,
+        run_website_audit,
+        send_rep_alert,
+        send_slack_notification,
+        send_visitor_meeting_confirmation,
+        sync_lead_to_crm,
         auto_abandon_inactive_conversations,
         auto_resolve_stale_tickets,
         check_trial_expiration_3days,
@@ -1178,6 +1222,7 @@ class WorkerSettings:
         send_channel_post_notifications,
         process_promotional_grant_lifecycle,
         send_promo_granted_emails_batch,
+        purge_unclaimed_audits,
     ]
     redis_settings = get_redis_settings()
 
@@ -1258,6 +1303,13 @@ class WorkerSettings:
             process_promotional_grant_lifecycle,
             hour={9},
             minute={5},
+            run_at_startup=False,
+        ),
+        # Purge unclaimed public audit reports older than AUDITOR_UNCLAIMED_PURGE_DAYS - daily at 03:30 UTC
+        cron(
+            purge_unclaimed_audits,
+            hour=3,
+            minute=30,
             run_at_startup=False,
         ),
     ]

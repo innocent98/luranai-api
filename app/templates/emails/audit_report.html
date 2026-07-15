@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+
+{% block title %}Your AI Website Audit Report{% endblock %}
+
+{% block content %}
+<div style="display:none;max-height:0;overflow:hidden;opacity:0;">
+    Your AI readiness scores and top improvement opportunities are inside.
+</div>
+
+<div style="display:inline-block;padding:8px 12px;border-radius:999px;background-color:#1d4ed81A;color:#1d4ed8;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">
+    Website Audit
+</div>
+
+<h1 style="margin-top:20px;">Your AI Readiness Report</h1>
+
+<p style="margin:0 0 16px;">Here are your results for <strong>{{ website_url }}</strong>.</p>
+
+<!-- Score grid -->
+<table width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0;border-collapse:collapse;">
+    <tr>
+        <td width="50%" style="padding:0 8px 12px 0;vertical-align:top;">
+            <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px;text-align:center;">
+                <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#6b7280;margin-bottom:6px;">Knowledge</div>
+                <div style="font-size:32px;font-weight:700;color:#1d4ed8;">{{ knowledge_score if knowledge_score is not none else '—' }}</div>
+                <div style="font-size:11px;color:#9ca3af;">/ 100</div>
+            </div>
+        </td>
+        <td width="50%" style="padding:0 0 12px 8px;vertical-align:top;">
+            <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px;text-align:center;">
+                <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#6b7280;margin-bottom:6px;">Support</div>
+                <div style="font-size:32px;font-weight:700;color:#1d4ed8;">{{ support_score if support_score is not none else '—' }}</div>
+                <div style="font-size:11px;color:#9ca3af;">/ 100</div>
+            </div>
+        </td>
+    </tr>
+    <tr>
+        <td width="50%" style="padding:0 8px 0 0;vertical-align:top;">
+            <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:16px;text-align:center;">
+                <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#6b7280;margin-bottom:6px;">Conversion</div>
+                <div style="font-size:32px;font-weight:700;color:#1d4ed8;">{{ conversion_score if conversion_score is not none else '—' }}</div>
+                <div style="font-size:11px;color:#9ca3af;">/ 100</div>
+            </div>
+        </td>
+        <td width="50%" style="padding:0 0 0 8px;vertical-align:top;">
+            <div style="background:#1d4ed8;border-radius:8px;padding:16px;text-align:center;">
+                <div style="font-size:11px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#bfdbfe;margin-bottom:6px;">Overall</div>
+                <div style="font-size:32px;font-weight:700;color:#ffffff;">{{ overall_score if overall_score is not none else '—' }}</div>
+                <div style="font-size:11px;color:#bfdbfe;">/ 100</div>
+            </div>
+        </td>
+    </tr>
+</table>
+
+{% if projected_score is not none %}
+<div style="background:#dbeafe;border-left:4px solid #1d4ed8;border-radius:4px;padding:14px 16px;margin:0 0 24px;">
+    <p style="margin:0;font-size:15px;color:#1e40af;">
+        With Luran, your projected score could reach <strong>{{ projected_score }}/100</strong>.
+    </p>
+</div>
+{% endif %}
+
+{% if gap_titles %}
+<h2 style="font-size:18px;color:#1f2937;margin:0 0 12px;">Top improvement opportunities</h2>
+<ul style="margin:0 0 24px;padding:0 0 0 20px;color:#374151;">
+    {% for title in gap_titles %}
+    <li style="margin-bottom:6px;">{{ title }}</li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+<p style="margin:0 0 24px;color:#374151;">
+    Sign up to unlock the full report, get detailed recommendations, and deploy an AI assistant trained on your content — in minutes.
+</p>
+
+<p style="margin-top:24px;">
+    <a href="{{ signup_url }}" class="button">Unlock full report &rarr;</a>
+</p>
+{% endblock %}

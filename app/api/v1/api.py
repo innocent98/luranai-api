@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     analytics,
     api_keys,
+    auditor,
     auth,
     automation,
     automation_sandbox,
@@ -16,9 +17,14 @@ from app.api.v1.endpoints import (
     health,
     jobs,
     knowledge,
+    leads,
+    meetings,
+    notifications,
     platform_admin_auth,
     public,
+    public_auditor,
     reviews,
+    sales,
     subscription,
     tenant,
     tenant_channels,
@@ -117,6 +123,13 @@ api_router.include_router(
     public.router,
     prefix="/public",
     tags=["public"],
+)
+
+# Public auditor endpoints (no auth, rate-limited)
+api_router.include_router(
+    public_auditor.router,
+    prefix="/public",
+    tags=["public-auditor"],
 )
 
 # Platform admin tenant management endpoints
@@ -264,3 +277,18 @@ api_router.include_router(jobs.router, tags=["jobs"])
 
 # WebSocket endpoints (real-time chat)
 api_router.include_router(websocket.router, prefix="/ws", tags=["websocket"])
+
+# Authenticated tenant-dashboard auditor endpoints
+api_router.include_router(auditor.router, tags=["auditor"])
+
+# Leads pipeline endpoints
+api_router.include_router(leads.router, prefix="/leads", tags=["leads"])
+
+# Sales agent configuration endpoints
+api_router.include_router(sales.router, prefix="/sales", tags=["sales"])
+
+# In-app notifications read API (Stage 3 Slice 5c)
+api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
+
+# Public widget meeting booking endpoints (Stage 3 Slice 3)
+api_router.include_router(meetings.router, prefix="/chat", tags=["meetings"])
