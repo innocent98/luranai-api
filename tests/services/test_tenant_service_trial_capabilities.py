@@ -2,8 +2,11 @@
 
 Regression: the two tenant-creation paths hardcode trial capabilities but
 omitted max_audits_per_month / max_audit_pages_per_crawl, leaving them NULL.
-NULL is treated as "unlimited" by the auditor enforcement, so a fresh trial
-could run unlimited 500-page crawls.
+NULL means "no plan limit" to the auditor, so a fresh trial escaped both caps.
+
+This matters more since _max_pages started honouring NULL properly: a NULL page
+cap now resolves to AUDITOR_MAX_PAGES_CEILING (5000) rather than quietly
+falling back to the 500 default, so an unseeded trial would crawl 5000 pages.
 """
 
 from uuid import uuid4
@@ -28,4 +31,4 @@ def test_create_tenant_seeds_trial_audit_caps(db_session):
     assert cap.max_knowledge_sources == 2
     # The two audit caps must be seeded (not NULL = unlimited).
     assert cap.max_audits_per_month == 2, "trial should allow 2 dashboard audits/month"
-    assert cap.max_audit_pages_per_crawl == 50, "trial crawl depth should be capped at 50"
+    assert cap.max_audit_pages_per_crawl == 20, "trial crawl depth should be capped at 20"
