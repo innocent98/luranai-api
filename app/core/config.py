@@ -211,6 +211,13 @@ class Settings(BaseSettings):
     # Rate-limited to 3/day/IP, so per-visitor token exposure is tightly bounded.
     AUDITOR_PUBLIC_MAX_PAGES: int = 10
     AUDITOR_DASHBOARD_DEFAULT_MAX_PAGES: int = 500
+    # Ceiling for plans whose page cap is NULL (= no plan limit, e.g. Enterprise).
+    # "Unlimited" cannot mean unbounded here: crawl_site takes an int, and one
+    # crawl holds one of AUDITOR_MAX_CONCURRENT_CRAWLS slots for its whole run.
+    # A 50k-page site at ~2s/page would occupy half the auditor's capacity for a
+    # day and starve every other tenant, so unlimited is bounded generously
+    # rather than infinitely.
+    AUDITOR_MAX_PAGES_CEILING: int = 5000
     AUDITOR_CLAIM_STALENESS_DAYS: int = 7
     AUDITOR_UNCLAIMED_PURGE_DAYS: int = 30
     AUDITOR_PER_PAGE_TIMEOUT_S: int = 10
