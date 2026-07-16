@@ -38,6 +38,22 @@ A. Monthly audit runs (_check_monthly_audit_limit, auditor.py:47 → 403 AUDIT_L
 │ enterprise   │ unlimited    │ unlimited   │
 └──────────────┴──────────────┴─────────────┘
 
+┌──────────────┬─────────────────┬──────────────┬─────────────────────┬───────────┐
+│     Plan     │   Pages/crawl   │  Audits/mo   │     KB sources      │   KB MB   │
+├──────────────┼─────────────────┼──────────────┼─────────────────────┼───────────┤
+│ Public       │ 10              │ 3/day per IP │ —                   │ —         │
+├──────────────┼─────────────────┼──────────────┼─────────────────────┼───────────┤
+│ Trial        │ 50 → 20         │ 2            │ 2 (page copy 3 → 2) │ 10        │
+├──────────────┼─────────────────┼──────────────┼─────────────────────┼───────────┤
+│ Lite         │ 200 → 100       │ 5            │ 15 → 20             │ 50        │
+├──────────────┼─────────────────┼──────────────┼─────────────────────┼───────────┤
+│ Professional │ 500             │ 15           │ 50                  │ 200       │
+├──────────────┼─────────────────┼──────────────┼─────────────────────┼───────────┤
+│ Growth       │ 500             │ 30           │ 50 → 100            │ 500       │
+├──────────────┼─────────────────┼──────────────┼─────────────────────┼───────────┤
+│ Enterprise   │ 500 → unlimited │ unlimited    │ unlimited           │ unlimited │
+└──────────────┴─────────────────┴──────────────┴─────────────────────┴───────────┘
+
 B. Knowledge sources (separate — knowledge_service.py:435): max_knowledge_sources combined files+URLs, and can_use_url_sources = False on trial (trial can't scrape URLs as knowledge). Activating audit findings as knowledge is capped by the same max_knowledge_sources (that's the cap-enforcement fix from PR #48).
 
 - Knowledge cap limits what they can keep and use (retrieval/storage cost).
