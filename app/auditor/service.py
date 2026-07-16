@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -13,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.auditor.discovery import normalize_url
 from app.db.models.audit import AuditReport, AuditScope, AuditStatus
 from app.db.models.job import JobType, ProcessingJob
+from app.utils.network_security import HostResolutionError, resolve_and_validate_host
 
 if TYPE_CHECKING:
     from app.db.models.audit import AuditEntry
@@ -33,6 +35,37 @@ class AuditService:
     def __init__(self, db: Session):
         self.db = db
 
+    @staticmethod
+    async def _assert_target_auditable(normalized: str, domain: str) -> None:
+        """Reject a target we already know the crawler cannot audit.
+
+        The crawl guard would reject these anyway, but only after a report and
+        job exist and a worker has picked the job up ~40s later — and it lands
+        as RENDER_FAILED, which tells the user something broke on our end when
+        their domain simply does not exist. Checking here turns a typo into an
+        immediate, accurate error and leaves no orphan rows behind.
+
+        This is a pre-flight check for the user's benefit, NOT the security
+        boundary: DNS can change between here and the crawl, so crawler and
+        discovery still guard every fetch and pin the resolved IP.
+
+        Raises ValueError (both endpoints map it to 400 INVALID_URL).
+        """
+        hostname = urlparse(normalized).hostname or ""
+        try:
+            # getaddrinfo blocks; keep it off the event loop.
+            await asyncio.to_thread(resolve_and_validate_host, hostname)
+        except HostResolutionError as exc:
+            logger.info("Rejected audit target {} — does not resolve: {}", domain, exc)
+            raise ValueError(
+                f"We couldn't find {domain}. Check the address and try again."
+            ) from exc
+        except ValueError as exc:
+            # Resolves, but somewhere we refuse to send a crawler (private or
+            # reserved space). Say no without echoing the address back.
+            logger.warning("Rejected unsafe audit target {}: {}", domain, exc)
+            raise ValueError(f"{domain} can't be audited.") from exc
+
     async def start_audit(
         self, *, url: str, scope: AuditScope, tenant_id: UUID | None, created_by: UUID | None = None
     ) -> AuditReport:
@@ -40,6 +73,8 @@ class AuditService:
         if not normalized:
             raise ValueError("Invalid URL")
         domain = urlparse(normalized).netloc
+
+        await self._assert_target_auditable(normalized, domain)
 
         job = ProcessingJob(
             tenant_id=tenant_id,  # None for public (pre-signup) audits; column is nullable

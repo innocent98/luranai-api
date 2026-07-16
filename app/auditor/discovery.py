@@ -37,25 +37,42 @@ _HIGH_SIGNAL_PATH_RE = re.compile(
 )
 
 
-def signal_rank(url: str) -> int:
-    """Sort key when the page budget is smaller than the site: 0 = high-signal.
+def signal_rank(url: str) -> tuple[int, int]:
+    """Sort key for when the page budget is smaller than the site.
+
+    Returns (keyword_rank, depth): lower is fetched first.
+
+    Two signals, deliberately in this order:
+
+    1. keyword_rank — 0 if the path names something the score measures. This is
+       a convention heuristic and an English one; a site using /tarifs or /aide
+       matches nothing and scores 1 across the board.
+    2. depth — path segments. Language-independent, so it is what carries a site
+       whose vocabulary we cannot read: a top-level page outranks one buried in
+       a product family on every site, in every language. It is also what stops
+       one large family eating a small budget, which is the failure this exists
+       to prevent (/solutions/* is depth 2; /faq, /pricing, /contact are 1).
 
     Used for both sitemap seeds and links discovered mid-crawl — the budget can
-    run out on either path, and on a site whose sitemap is thin or off-host it
-    is the crawl frontier that decides everything.
+    run out on either path. Python's sort is stable, so equal-ranked URLs keep
+    their original order (sitemap order, or DOM order for discovered links).
 
-    Python's sort is stable, so equal-ranked URLs keep their original order
-    (sitemap order, or DOM order for discovered links).
+    This only ranks candidates. A site matching nothing keeps its original
+    order, so no site is ever made worse.
     """
-    return 0 if _HIGH_SIGNAL_PATH_RE.search(urlparse(url).path) else 1
+    path = urlparse(url).path
+    keyword = 0 if _HIGH_SIGNAL_PATH_RE.search(path) else 1
+    depth = len([seg for seg in path.split("/") if seg])
+    return (keyword, depth)
 
 
-def _seed_rank(url: str, root: str) -> int:
+def _seed_rank(url: str, root: str) -> tuple[int, int, int]:
     """Seed ordering: the root first (the scan-quality diagnosis reads it), then
-    high-signal pages, then the rest."""
+    by signal_rank."""
     if url == root:
-        return 0
-    return 1 + signal_rank(url)
+        return (0, 0, 0)
+    keyword, depth = signal_rank(url)
+    return (1, keyword, depth)
 
 
 def normalize_url(raw: str, base: str | None = None) -> str | None:

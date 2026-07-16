@@ -775,3 +775,36 @@ async def test_fresh_rerun_restore_counts_existing_knowledge_sources(db):
     assert (
         active == 0
     ), f"uploaded file already fills the cap → no budget for restored actives; got {active}"
+
+
+# ---------------------------------------------------------------------------
+# Guard rejection must not be reported as our renderer breaking.
+#
+# Regression: a real audit of a live, healthy site failed with RENDER_FAILED
+# ("Something went wrong on our end while reading your site. Please try again.")
+# because DNS briefly failed inside the worker. resolve_and_validate_host turns
+# a gaierror into the same rejection as a malicious URL, so guard_url said no,
+# seed_urls returned [], the crawl never ran, and classify_scan_outcome saw a
+# missing root page — its RENDER_FAILED branch. The same path hits any customer
+# whose domain is typo'd or not yet live, telling them to retry forever.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_unresolvable_root_reports_unreachable_not_render_failed(db):
+    from app.db.models.audit import ScanQuality
+    from app.utils.network_security import HostResolutionError
+
+    job, report = _make_job_and_report(db, scope=AuditScope.PUBLIC)
+    with patch(
+        "app.auditor.discovery.resolve_and_validate_host",
+        side_effect=HostResolutionError("Could not resolve hostname: ex.com"),
+    ):
+        result = await pipeline.run_audit(db, report.id, fetch_text=_fake_fetch,
+                                          page_renderer=_fake_renderer)
+
+    assert result.status == AuditStatus.FAILED
+    assert result.scan_quality == ScanQuality.UNREACHABLE
+    # The user must not be told this was our fault, nor to "try again".
+    assert "our end" not in (result.scan_quality_reason or "").lower()
+    assert result.pages_scanned == 0

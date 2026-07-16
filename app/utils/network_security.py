@@ -7,6 +7,20 @@ import socket
 from urllib.parse import urlparse
 
 
+class HostResolutionError(ValueError):
+    """A hostname could not be resolved to any IP address.
+
+    Deliberately a ValueError subclass: outbound-request gates across the spine
+    are written as ``except ValueError`` and MUST keep failing closed when DNS
+    fails. Widening the type would make every one of them fail open.
+
+    The subclass exists so callers that need to explain themselves can tell
+    "we could not look this host up" apart from "it resolves somewhere unsafe".
+    The auditor needs that distinction: a domain that does not resolve is the
+    user's typo, not a fault of our renderer, and must not be reported as one.
+    """
+
+
 def _is_disallowed_ip(ip_str: str) -> bool:
     """Return True if IP is not safe for outbound tenant-controlled traffic."""
     ip_obj = ipaddress.ip_address(ip_str)
@@ -26,7 +40,7 @@ def _resolve_ips(hostname: str) -> set[str]:
     try:
         addrinfo = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
-        raise ValueError(f"Could not resolve hostname: {hostname}") from exc
+        raise HostResolutionError(f"Could not resolve hostname: {hostname}") from exc
 
     resolved_ips: set[str] = set()
     for entry in addrinfo:
@@ -38,7 +52,7 @@ def _resolve_ips(hostname: str) -> set[str]:
             resolved_ips.add(str(ip))
 
     if not resolved_ips:
-        raise ValueError(f"No IP addresses resolved for hostname: {hostname}")
+        raise HostResolutionError(f"No IP addresses resolved for hostname: {hostname}")
     return resolved_ips
 
 
