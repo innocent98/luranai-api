@@ -39,6 +39,7 @@ def classify_scan_outcome(
     extracted: Sequence,
     *,
     thin_min_content_chars: int,
+    root_rejected: bool = False,
 ) -> tuple[ScanQuality, str]:
     """Return (quality, reason) for a completed crawl.
 
@@ -47,9 +48,16 @@ def classify_scan_outcome(
     with readable subpages must not be flagged unreachable. Only when there is no
     usable content do we diagnose the failure from the root page.
 
+    ``root_rejected`` says the guard refused the root URL, so the crawl never
+    ran and there is no root_page to read. Without it, that case falls into the
+    ``root_page is None`` branch and reports RENDER_FAILED — blaming our
+    renderer for a domain that merely failed to resolve, and telling the user to
+    "try again" on a URL that will never work.
+
     - OK:            total extracted content ≥ threshold.
     - THIN:          some content but below threshold (incl. rendered-but-empty root).
-    - UNREACHABLE:   no content and the root timed out / errored / was SSRF-blocked.
+    - UNREACHABLE:   no content and the root timed out / errored / was blocked or
+                     refused by the guard (unresolvable or unsafe host).
     - RENDER_FAILED: no content and our renderer couldn't launch (or no root page).
     """
     total_chars = sum(len(p.text) for p in extracted)
@@ -57,7 +65,11 @@ def classify_scan_outcome(
         return ScanQuality.OK, ""
     if total_chars > 0:
         return ScanQuality.THIN, _THIN_REASON
-    # No usable content — diagnose the failure from the root page.
+    # No usable content — diagnose the failure.
+    # The guard refusing the root is about THEIR url, not our renderer, so this
+    # must be checked before the root_page-is-None branch below.
+    if root_rejected:
+        return ScanQuality.UNREACHABLE, _UNREACHABLE_REASON
     if root_page is None or root_page.error_kind == RawPageError.LAUNCH_FAILED:
         return ScanQuality.RENDER_FAILED, _RENDER_FAILED_REASON
     if root_page.error_kind in _UNREACHABLE_KINDS:

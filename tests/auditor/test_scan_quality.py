@@ -69,3 +69,38 @@ def test_content_first_ok_despite_errored_root():
     q, _ = classify_scan_outcome(_root(RawPageError.HTTP_ERROR), _extracted(1200),
                                  thin_min_content_chars=800)
     assert q == ScanQuality.OK
+
+
+# ---------------------------------------------------------------------------
+# root_rejected: the guard refused the root, so the crawl never ran and there
+# is no root_page to diagnose from. Without this signal the `root_page is None`
+# branch below reports RENDER_FAILED — telling a user whose domain simply does
+# not resolve that something broke on OUR end, and inviting them to retry
+# forever. See tests/auditor/test_service_start.py for the submit-time gate
+# that catches the common (typo) case before a job is ever queued.
+# ---------------------------------------------------------------------------
+
+
+def test_root_rejected_is_unreachable_not_render_failed():
+    q, reason = classify_scan_outcome(
+        None, _extracted(0), thin_min_content_chars=800, root_rejected=True
+    )
+    assert q == ScanQuality.UNREACHABLE
+    assert "reach" in reason.lower()
+
+
+def test_root_rejected_still_reports_content_when_some_was_read():
+    """Defensive: content wins over the rejection signal, mirroring the
+    content-first rule the rest of this function follows."""
+    q, _ = classify_scan_outcome(
+        None, _extracted(5000), thin_min_content_chars=800, root_rejected=True
+    )
+    assert q == ScanQuality.OK
+
+
+def test_root_not_rejected_keeps_render_failed_for_missing_root():
+    """The RENDER_FAILED branch must still fire for a genuine renderer failure."""
+    q, _ = classify_scan_outcome(
+        None, _extracted(0), thin_min_content_chars=800, root_rejected=False
+    )
+    assert q == ScanQuality.RENDER_FAILED

@@ -157,6 +157,12 @@ async def run_audit(
         # ------------------------------------------------------------------ #
         cap = _max_pages(db, report)
         seeds = await discovery.seed_urls(report.url, cap, fetch_text=fetch_text)
+        # seed_urls yields nothing only when the guard refuses the ROOT (the
+        # host does not resolve, or resolves somewhere unsafe) — every other
+        # path returns at least the root itself. Carry that fact to Phase 2b:
+        # with no seeds there is no root page to diagnose from, and the default
+        # diagnosis for a missing root is RENDER_FAILED ("our end").
+        root_rejected = not seeds
 
         report.pages_discovered = len(already_have) + len(seeds)
         _update_job(
@@ -209,6 +215,7 @@ async def run_audit(
                 root_page,
                 extracted,
                 thin_min_content_chars=settings.AUDITOR_THIN_MIN_CONTENT_CHARS,
+                root_rejected=root_rejected,
             )
             report.scan_quality = quality
             report.scan_quality_reason = reason or None

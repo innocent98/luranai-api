@@ -64,3 +64,65 @@ async def test_start_audit_enqueue_failure_marks_report_failed_and_raises(db):
     failed = db.query(AuditReport).filter(AuditReport.status == AuditStatus.FAILED).all()
     assert len(failed) == 1
     assert failed[0].domain == "example.com"
+
+
+# ---------------------------------------------------------------------------
+# Submit-time target validation.
+#
+# The crawl guard rejects an unresolvable/unsafe host anyway, but only after a
+# report + job exist and a worker has picked the job up — and it surfaces as
+# RENDER_FAILED ("something went wrong on our end"). Catching it here turns a
+# typo into an immediate, accurate 400 and leaves no orphan rows behind.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_start_audit_rejects_unresolvable_domain(db):
+    from app.utils.network_security import HostResolutionError
+
+    with patch(
+        "app.auditor.service.resolve_and_validate_host",
+        side_effect=HostResolutionError("Could not resolve hostname: nope.example"),
+    ), patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock) as mock_enqueue:
+        svc = AuditService(db)
+        with pytest.raises(ValueError) as exc:
+            await svc.start_audit(url="https://nope.example/", scope=AuditScope.PUBLIC, tenant_id=None)
+
+    # The message must name the domain and blame the URL, not our renderer.
+    assert "nope.example" in str(exc.value)
+    assert "our end" not in str(exc.value).lower()
+    mock_enqueue.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_start_audit_creates_no_rows_when_target_invalid(db):
+    from app.utils.network_security import HostResolutionError
+
+    before_reports = db.query(AuditReport).count()
+    before_jobs = db.query(ProcessingJob).count()
+    with patch(
+        "app.auditor.service.resolve_and_validate_host",
+        side_effect=HostResolutionError("Could not resolve hostname: nope.example"),
+    ), patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock):
+        with pytest.raises(ValueError):
+            await AuditService(db).start_audit(
+                url="https://nope.example/", scope=AuditScope.PUBLIC, tenant_id=None
+            )
+    db.rollback()
+    assert db.query(AuditReport).count() == before_reports
+    assert db.query(ProcessingJob).count() == before_jobs
+
+
+@pytest.mark.asyncio
+async def test_start_audit_rejects_unsafe_host_without_leaking_internals(db):
+    with patch(
+        "app.auditor.service.resolve_and_validate_host",
+        side_effect=ValueError("URL resolves to disallowed IP: 127.0.0.1"),
+    ), patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock) as mock_enqueue:
+        with pytest.raises(ValueError) as exc:
+            await AuditService(db).start_audit(
+                url="https://rebound.example/", scope=AuditScope.PUBLIC, tenant_id=None
+            )
+    # Never echo the resolved IP or our guard's internals back to the caller.
+    assert "127.0.0.1" not in str(exc.value)
+    mock_enqueue.assert_not_awaited()
