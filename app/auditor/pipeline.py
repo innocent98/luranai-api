@@ -63,9 +63,26 @@ def _max_pages(db: Session, report: AuditReport) -> int:
         .filter(TenantCapabilities.tenant_id == report.tenant_id)
         .one_or_none()
     )
-    if cap and cap.max_audit_pages_per_crawl:
-        return cap.max_audit_pages_per_crawl
-    return settings.AUDITOR_DASHBOARD_DEFAULT_MAX_PAGES
+    if cap is None:
+        return settings.AUDITOR_DASHBOARD_DEFAULT_MAX_PAGES
+    if cap.max_audit_pages_per_crawl is None:
+        # NULL = no plan limit (Enterprise), matching how every other capability
+        # reads NULL — max_audits_per_month and max_knowledge_sources both treat
+        # it as unlimited. This branch used to fall through to the 500 default,
+        # so Enterprise silently crawled no deeper than Growth.
+        return settings.AUDITOR_MAX_PAGES_CEILING
+    if cap.max_audit_pages_per_crawl <= 0:
+        # Defensive: a 0 cap truncates the seed list to empty, which Phase 2b
+        # reads as "the guard refused the root" and reports UNREACHABLE — a
+        # wrong diagnosis for what is really a misconfigured plan. Treat a
+        # nonsensical cap as unconfigured instead.
+        logger.warning(
+            "Tenant {} has max_audit_pages_per_crawl={}; using default",
+            report.tenant_id,
+            cap.max_audit_pages_per_crawl,
+        )
+        return settings.AUDITOR_DASHBOARD_DEFAULT_MAX_PAGES
+    return cap.max_audit_pages_per_crawl
 
 
 def _update_job(db: Session, job_id: UUID | None, **fields) -> None:
