@@ -144,6 +144,7 @@ def list_audits(
             {
                 "id": str(r.id),
                 "url": r.url,
+                "entered_url": r.entered_url,
                 "status": r.status.value,
                 "overall_score": r.overall_score,
                 "pages_scanned": r.pages_scanned,

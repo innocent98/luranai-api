@@ -218,7 +218,8 @@ def test_list_audits_returns_only_own_tenant(pg_client, db_session):
     user_a, token_a = _make_tenant_user(db_session)
     user_b, token_b = _make_tenant_user(db_session)
 
-    _make_report(db_session, user_a.tenant_id)
+    redirected = _make_report(db_session, user_a.tenant_id)
+    redirected.entered_url = "https://www.example.com"
     _make_report(db_session, user_a.tenant_id)
     _make_report(db_session, user_b.tenant_id)
     db_session.flush()
@@ -228,9 +229,12 @@ def test_list_audits_returns_only_own_tenant(pg_client, db_session):
     body = resp.json()
     assert body["success"] is True
     assert len(body["data"]) == 2
-    # All returned audits belong to tenant_a
+    # All returned audits belong to tenant_a and carry entered_url
     for item in body["data"]:
         assert "id" in item
+        assert "entered_url" in item
+    redirected_row = next(item for item in body["data"] if item["id"] == str(redirected.id))
+    assert redirected_row["entered_url"] == "https://www.example.com"
 
 
 # ---------------------------------------------------------------------------
