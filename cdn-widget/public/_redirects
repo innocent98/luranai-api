@@ -1,7 +1,0 @@
-# Cloudflare Pages Redirects Configuration
-
-# Redirect /widget/latest to current version (v1)
-/widget/latest/widget.js  /widget/v1/widget.js  200
-
-# 404 fallback
-/*  /index.html  404
