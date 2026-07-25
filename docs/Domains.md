@@ -39,20 +39,21 @@ All Domains for Luran Platform
   ---                                                                                                                                                                     
   3. cdn.luranai.com (Widget Loader CDN)                                                                                                                                  
                                                                                                                                                                           
-  Purpose: Serves the widget.js loader file                                                                                                                               
-  Technology: Vanilla JavaScript (single file)                                                                                                                            
+  Purpose: Serves the widget.js loader file
+  Source of truth: the luran-widget repo (git@github.com:innocent98/luran-widget). Built with `webpack --mode production` → dist/widget.js, deployed to Vercel, served at cdn.luranai.com/widget/v1/widget.js. The old cdn-widget POC folder was removed — do not resurrect its window.luranSettings embed snippet.                                                                                                                               
+  Technology: JS bundled with webpack — exposes the global window.Luran API (init/open/close/toggle/destroy)                                                                                                                            
   Hosting Options:                                                                                                                                                        
                                                                                                                                                                           
   ✅ Yes, Vercel/Netlify CAN be used!                                                                                                                                     
                                                                                                                                                                           
   Option A: Vercel (Recommended)                                                                                                                                          
   # Project structure                                                                                                                                                     
-  cdn-widget/                                                                                                                                                             
-  ├── public/                                                                                                                                                             
-  │   └── widget/                                                                                                                                                         
-  │       └── v1/                                                                                                                                                         
-  │           └── widget.js                                                                                                                                               
-  ├── vercel.json                                                                                                                                                         
+  luran-widget/                  # src/widget-loader.js → webpack → dist/widget.js (dist gitignored, built on deploy)                                                                                                                                                             
+  ├── src/                                                                                                                                                             
+  │   ├── widget-loader.js       # prod entry (webpack-bundled)                                                                                                                                                         
+  │   └── widget-loader.dev.js   # local dev build                                                                                                                                                         
+  ├── dist/                      # webpack output (gitignored) → served as /widget/v1/widget.js                                                                                                                                               
+  ├── vercel.json                # rewrites /widget/v1/widget.js → /widget.js                                                                                                                                                         
   └── README.md                                                                                                                                                           
                                                                                                                                                                           
   # vercel.json                                                                                                                                                           
