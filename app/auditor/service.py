@@ -11,13 +11,23 @@ from uuid import UUID
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from app.auditor.discovery import normalize_url
+from app.auditor.discovery import classify_redirect, normalize_url, resolve_redirect_chain
 from app.db.models.audit import AuditReport, AuditScope, AuditStatus
 from app.db.models.job import JobType, ProcessingJob
 from app.utils.network_security import HostResolutionError, resolve_and_validate_host
 
 if TYPE_CHECKING:
     from app.db.models.audit import AuditEntry
+
+
+class RedirectConfirmationRequired(Exception):
+    """The entered URL redirects to a different host that the user must confirm
+    before we scan it. Carries the entered URL and the resolved target."""
+
+    def __init__(self, entered: str, target: str) -> None:
+        self.entered = entered
+        self.target = target
+        super().__init__(f"{entered} redirects to {target}")
 
 
 async def enqueue_audit(report_id: UUID) -> None:
@@ -67,7 +77,13 @@ class AuditService:
             raise ValueError(f"{domain} can't be audited.") from exc
 
     async def start_audit(
-        self, *, url: str, scope: AuditScope, tenant_id: UUID | None, created_by: UUID | None = None
+        self,
+        *,
+        url: str,
+        scope: AuditScope,
+        tenant_id: UUID | None,
+        created_by: UUID | None = None,
+        confirmed_target: str | None = None,
     ) -> AuditReport:
         normalized = normalize_url(url)
         if not normalized:
@@ -76,10 +92,23 @@ class AuditService:
 
         await self._assert_target_auditable(normalized, domain)
 
+        # Canonicalize host redirects (apex→www, scheme upgrade) and gate a
+        # genuinely different host behind explicit confirmation.
+        # resolve_redirect_chain re-guards every hop and raises ValueError on
+        # unsafe/loop targets.
+        resolved = await resolve_redirect_chain(normalized)
+        final_url = resolved.final_url
+        if classify_redirect(normalized, final_url) == "different_host":
+            if confirmed_target is None or normalize_url(confirmed_target) != final_url:
+                raise RedirectConfirmationRequired(entered=normalized, target=final_url)
+
+        final_domain = urlparse(final_url).netloc
+        entered_url = normalized if final_url != normalized else None
+
         job = ProcessingJob(
             tenant_id=tenant_id,  # None for public (pre-signup) audits; column is nullable
             job_type=JobType.WEBSITE_AUDIT,
-            input_data={"kind": "website_audit", "url": normalized},
+            input_data={"kind": "website_audit", "url": final_url},
             created_by=created_by,
         )
         self.db.add(job)
@@ -87,8 +116,9 @@ class AuditService:
 
         report = AuditReport(
             tenant_id=tenant_id,
-            url=normalized,
-            domain=domain,
+            url=final_url,
+            domain=final_domain,
+            entered_url=entered_url,
             scope=scope,
             status=AuditStatus.QUEUED,
             processing_job_id=job.id,

@@ -4,6 +4,7 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 
+from app.auditor.discovery import ResolvedRoot
 from app.db.models.audit import (
     AuditEntry,
     AuditEntryKind,
@@ -17,6 +18,17 @@ from app.db.models.tenant import TenantCapabilities
 
 def _auth(token):
     return {"Authorization": f"Bearer {token}"}
+
+
+async def _no_redirect(url, **kwargs):
+    """Stub resolve_redirect_chain as a no-op passthrough (no redirect).
+
+    Without this, POST /audit's real resolve_redirect_chain call would hit
+    the network for every test here, which is exactly the desk-vs-plane
+    flakiness the auditor suite's own resolve_and_validate_host stub exists
+    to avoid (see tests/auditor/conftest.py).
+    """
+    return ResolvedRoot(final_url=url, hops=(url,), changed=False)
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +130,8 @@ def test_get_audit_requires_auth(pg_client):
 
 
 def test_post_audit_starts_dashboard_scope(pg_client, regular_user_token, db_session):
-    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock):
+    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock), \
+         patch("app.auditor.service.resolve_redirect_chain", new=_no_redirect):
         resp = pg_client.post(
             "/api/v1/audit",
             json={"url": "https://example.com"},
@@ -152,7 +165,8 @@ def test_post_audit_enforces_monthly_limit(pg_client, db_session):
     db_session.flush()
 
     # Third should be rejected
-    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock):
+    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock), \
+         patch("app.auditor.service.resolve_redirect_chain", new=_no_redirect):
         resp = pg_client.post(
             "/api/v1/audit",
             json={"url": "https://example.com"},
@@ -169,7 +183,8 @@ def test_post_audit_unlimited_when_no_cap(pg_client, db_session):
     user, token = _make_tenant_user(db_session)
     # No TenantCapabilities row → unlimited
 
-    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock):
+    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock), \
+         patch("app.auditor.service.resolve_redirect_chain", new=_no_redirect):
         resp = pg_client.post(
             "/api/v1/audit",
             json={"url": "https://example.com"},
@@ -184,7 +199,8 @@ def test_post_audit_unlimited_when_cap_is_null(pg_client, db_session):
     db_session.add(TenantCapabilities(tenant_id=user.tenant_id, max_audits_per_month=None))
     db_session.flush()
 
-    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock):
+    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock), \
+         patch("app.auditor.service.resolve_redirect_chain", new=_no_redirect):
         resp = pg_client.post(
             "/api/v1/audit",
             json={"url": "https://example.com"},

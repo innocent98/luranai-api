@@ -3,8 +3,21 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 
+from app.auditor.discovery import ResolvedRoot
 from app.db.models.audit import AuditReport, AuditScope, AuditStatus
 from app.db.models.lead import Lead
+
+
+async def _no_redirect(url, **kwargs):
+    """Stub resolve_redirect_chain as a no-op passthrough (no redirect).
+
+    These endpoint tests post to hosts that either don't resolve for real
+    (example0.com etc.) or would otherwise depend on live network/DNS for a
+    behavior unrelated to what they're testing — without this,
+    AuditService.start_audit's real resolve_redirect_chain call would hit
+    the network (and fail hard for hosts that don't actually exist).
+    """
+    return ResolvedRoot(final_url=url, hops=(url,), changed=False)
 
 
 # ---------------------------------------------------------------------------
@@ -13,7 +26,8 @@ from app.db.models.lead import Lead
 
 def test_post_public_audit_starts_and_returns_id(client, db):
     """POST /public/audit creates a report and returns audit_report_id."""
-    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock):
+    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock), \
+         patch("app.auditor.service.resolve_redirect_chain", new=_no_redirect):
         resp = client.post("/api/v1/public/audit", json={"url": "https://example.com"})
     assert resp.status_code == 202
     body = resp.json()
@@ -27,7 +41,7 @@ def test_post_public_audit_enqueue_failure_returns_503(client, db):
         "app.auditor.service.enqueue_audit",
         new_callable=AsyncMock,
         side_effect=ConnectionError("Redis unavailable"),
-    ):
+    ), patch("app.auditor.service.resolve_redirect_chain", new=_no_redirect):
         resp = client.post("/api/v1/public/audit", json={"url": "https://example.com"})
 
     assert resp.status_code == 503
@@ -91,7 +105,8 @@ def test_post_public_audit_rate_limit_enforced(client, db):
     public_audit_limiter._redis = fake_redis  # type: ignore[assignment]
 
     try:
-        with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock):
+        with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock), \
+             patch("app.auditor.service.resolve_redirect_chain", new=_no_redirect):
             for i in range(3):
                 resp = client.post(
                     "/api/v1/public/audit", json={"url": f"https://example{i}.com"}
