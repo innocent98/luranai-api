@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from urllib.parse import urljoin, urlparse, urlunparse, parse_qsl, urlencode
 
 import httpx
@@ -176,6 +177,87 @@ async def _default_fetch_text(url: str) -> str | None:
     except Exception as exc:
         logger.debug("discovery fetch failed for {}: {}", url, exc)
     return None
+
+
+_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+
+
+@dataclass(frozen=True)
+class ResolvedRoot:
+    """Outcome of following a root URL's redirect chain."""
+
+    final_url: str
+    hops: tuple[str, ...]
+    changed: bool
+
+
+async def _guarded_get(url: str) -> tuple[int, str | None]:
+    """GET one URL with the SSRF/DNS-rebind pin, following NO redirects.
+
+    Returns (status_code, Location header or None). Raises ValueError if the
+    host is unsafe (via resolve_and_validate_host). Mirrors the pinning contract
+    in _default_fetch_text.
+    """
+    parsed = urlparse(url)
+    original_host = parsed.hostname or ""
+    safe_ip = resolve_and_validate_host(original_host)  # raises ValueError if unsafe
+    host_for_header = f"[{original_host}]" if ":" in original_host else original_host
+    host_header = f"{host_for_header}:{parsed.port}" if parsed.port else host_for_header
+    connect_host = safe_ip if safe_ip != original_host else original_host
+    pinned_url = httpx.URL(url).copy_with(host=connect_host)
+    req = httpx.Request("GET", pinned_url, headers={"Host": host_header})
+    if connect_host != original_host:
+        req.extensions["sni_hostname"] = original_host
+    async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
+        resp = await client.send(req)
+    return resp.status_code, resp.headers.get("location")
+
+
+async def resolve_redirect_chain(url: str, *, max_hops: int = 3, http_get=None) -> ResolvedRoot:
+    """Follow the root URL's redirect chain safely and return the final URL.
+
+    The ONLY place the auditor follows redirects. Re-guards every hop from
+    scratch (SSRF/DNS-rebind); the crawl fetch stays follow_redirects=False.
+
+    resolve_and_validate_host is called directly on every hop's hostname here
+    (not just inside the default _guarded_get) so a Location header's host is
+    never trusted without re-validation, even when a caller injects a custom
+    http_get (e.g. in tests). This makes the guard independent of the fetch
+    implementation in use.
+
+    Raises ValueError on: non-http(s) scheme, missing host, an unsafe hop
+    (propagated from resolve_and_validate_host), a redirect loop, or exceeding
+    max_hops.
+    """
+    http_get = http_get or _guarded_get
+    start = url
+    if normalize_url(start) is None:
+        raise ValueError("Invalid URL")
+    current = start
+    seen: set[str] = {current}
+    hops: list[str] = [current]
+    for hop_index in range(max_hops + 1):
+        parsed = urlparse(current)
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError("Only http/https URLs are allowed")
+        if not parsed.hostname:
+            raise ValueError("URL hostname is required")
+        # Re-guard EVERY hop: raises ValueError if the host is unsafe.
+        resolve_and_validate_host(parsed.hostname)
+        status, location = await http_get(current)
+        if status not in _REDIRECT_STATUSES or not location:
+            return ResolvedRoot(final_url=current, hops=tuple(hops), changed=current != start)
+        nxt = urljoin(current, location)
+        if normalize_url(nxt) is None:
+            raise ValueError("Invalid redirect target")
+        if nxt in seen:
+            raise ValueError("Redirect loop")
+        if hop_index == max_hops:
+            raise ValueError("Too many redirects")
+        seen.add(nxt)
+        hops.append(nxt)
+        current = nxt
+    raise ValueError("Too many redirects")
 
 
 def _parse_sitemap(xml: str) -> list[str]:
