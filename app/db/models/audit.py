@@ -204,6 +204,10 @@ class AuditReport(Base, UUIDMixin, TimestampMixin):
         ForeignKey("tenants.id", ondelete="CASCADE"), nullable=True, index=True
     )
     url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    # What the user typed, when it differs from the canonical `url` we scanned
+    # (e.g. entered luranai.com, scanned www.luranai.com after an apex→www
+    # redirect). NULL means entered == scanned. Display-only; never seeded from.
+    entered_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     domain: Mapped[str] = mapped_column(String(255), nullable=False)
     scope: Mapped[AuditScope] = mapped_column(
         _audit_enum(AuditScope, "audit_scope"), nullable=False
