@@ -195,8 +195,11 @@ async def _guarded_get(url: str) -> tuple[int, str | None]:
     """GET one URL with the SSRF/DNS-rebind pin, following NO redirects.
 
     Returns (status_code, Location header or None). Raises ValueError if the
-    host is unsafe (via resolve_and_validate_host). Mirrors the pinning contract
-    in _default_fetch_text.
+    host is unsafe (via resolve_and_validate_host) or if the request could not
+    be sent (transport failure). Mirrors the pinning contract in
+    _default_fetch_text, but RAISES on transport failure rather than returning
+    None, so the resolver fails closed instead of silently treating an
+    unreachable host as a terminal (non-redirect) response.
     """
     parsed = urlparse(url)
     original_host = parsed.hostname or ""
@@ -209,7 +212,10 @@ async def _guarded_get(url: str) -> tuple[int, str | None]:
     if connect_host != original_host:
         req.extensions["sni_hostname"] = original_host
     async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
-        resp = await client.send(req)
+        try:
+            resp = await client.send(req)
+        except httpx.HTTPError as exc:
+            raise ValueError(f"Could not reach {url}") from exc
     return resp.status_code, resp.headers.get("location")
 
 
