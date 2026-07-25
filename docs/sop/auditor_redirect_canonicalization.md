@@ -103,13 +103,15 @@ API is additive on `/api/v1` (new optional field, new 409 code, nullable column)
   (e.g. `www.luranai.com`) — it seeds all sitemap URLs.
 - Deploys to `develop`'s environment via `cd.yml` on merge.
 
-## Follow-ups (not in this PR)
+## Follow-ups
 
-- **Frontend plan (pending):** confirm modal on both auditors consuming the 409, and the
-  "Scanned www.luranai.com (you entered luranai.com) · N pages reached" transparency display.
-  Backend lands first per the spec's rollout note.
-- Dashboard report GET + `list_audits` don't yet expose `entered_url` (only `PublicReportResponse`
-  does) — needed for dashboard transparency; the frontend plan must add it.
+- **Frontend — SHIPPED (2026-07-26):** confirm modal on both auditors consuming the 409, and the
+  "Scanned www.luranai.com (you entered luranai.com) · N pages reached" transparency display. See
+  `luran-dashboard/docs/sop/auditor_redirect_confirm_ui.md`.
+- **`entered_url` exposure — SHIPPED:** the dashboard `list_audits` rows now carry `entered_url`,
+  and the public report GET now returns `url` (needed by the FE transparency line). Landed on this
+  same branch alongside the FE work. **Deploy ordering:** these fields must reach production
+  first-or-together with the FE, else the public report renders "Scanned undefined."
 
 Design spec: `docs/superpowers/specs/2026-07-25-auditor-redirect-canonicalization-design.md`
 Plan: `docs/superpowers/plans/2026-07-25-auditor-redirect-canonicalization-backend.md`
