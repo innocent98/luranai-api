@@ -33,3 +33,22 @@ def test_apex_to_www_returns_202(client):
 
 async def _n():
     return None
+
+
+def test_confirmation_does_not_spend_scan_credit(client):
+    calls = {"acquire": 0}
+
+    async def _count_acquire(identifier="default"):
+        calls["acquire"] += 1
+
+    async def _usage(identifier="default"):
+        return {"calls": 0, "remaining": 3}
+
+    with patch("app.auditor.service.resolve_and_validate_host", return_value="93.184.216.34"), \
+         patch("app.auditor.service.resolve_redirect_chain",
+               new=_resolved("https://newco.io/", True)), \
+         patch("app.api.v1.endpoints.public_auditor.public_audit_limiter.acquire", new=_count_acquire), \
+         patch("app.api.v1.endpoints.public_auditor.public_audit_limiter.get_current_usage", new=_usage):
+        resp = client.post("/api/v1/public/audit", json={"url": "https://oldco.com"})
+    assert resp.status_code == 409
+    assert calls["acquire"] == 0  # no scan credit spent on a confirmation prompt

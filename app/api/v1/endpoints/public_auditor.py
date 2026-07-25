@@ -3,7 +3,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from loguru import logger
 from sqlalchemy.orm import Session
@@ -21,13 +21,23 @@ from app.utils.rate_limiter import RedisRateLimiter
 
 router = APIRouter()
 
+# 3/day: the product "scan credit" — consumed only when an audit is enqueued.
 public_audit_limiter = RedisRateLimiter(
     key_prefix="public_audit",
     max_calls=3,
     window_seconds=86400,
 )
 
-public_audit_rate_limit = create_rate_limit_dependency(public_audit_limiter, "ip")
+# Generous per-IP anti-abuse guard on the endpoint itself — covers every attempt
+# (incl. confirmation round-trips and redirect pre-flights) so the pre-flight is
+# never an unmetered probe. Distinct from the scan credit above.
+public_audit_abuse_limiter = RedisRateLimiter(
+    key_prefix="public_audit_abuse",
+    max_calls=30,
+    window_seconds=86400,
+)
+
+public_audit_rate_limit = create_rate_limit_dependency(public_audit_abuse_limiter, "ip")
 
 capture_lead_limiter = RedisRateLimiter(
     key_prefix="public_audit_email",
@@ -45,6 +55,39 @@ def _err(code: str, message: str, http: int) -> JSONResponse:
     )
 
 
+async def _scan_credit_calls_used(ip: str) -> int:
+    """Read-only scan-credit usage check.
+
+    Mirrors the fail-open policy `check_rate_limit` already applies to every
+    other rate limiter in this codebase (see `app/utils/http_rate_limiter.py`):
+    a Redis hiccup must not turn a legitimate scan attempt into a 500 — it
+    should be treated as "no usage recorded yet" and let the request proceed.
+    """
+    try:
+        usage = await public_audit_limiter.get_current_usage(ip)
+        return usage["calls"]
+    except Exception as exc:
+        logger.error(f"Scan credit usage check failed for {ip}: {exc}")
+        if settings.RATE_LIMIT_FAIL_OPEN:
+            return 0
+        raise
+
+
+async def _spend_scan_credit(ip: str) -> None:
+    """Consume one scan credit after a real enqueue.
+
+    The audit report already exists and was enqueued by this point, so a
+    failure here must never fail the (already-successful) response — it's
+    only logged, same fail-open spirit as `_scan_credit_calls_used` above.
+    """
+    try:
+        await public_audit_limiter.acquire(ip)
+    except Exception as exc:
+        logger.error(f"Failed to record scan credit spend for {ip}: {exc}")
+        if not settings.RATE_LIMIT_FAIL_OPEN:
+            raise
+
+
 @router.post(
     "/audit",
     status_code=status.HTTP_202_ACCEPTED,
@@ -52,8 +95,17 @@ def _err(code: str, message: str, http: int) -> JSONResponse:
 )
 async def start_public_audit(
     payload: PublicAuditRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ):
+    ip = request.client.host if request.client else "unknown"
+    calls_used = await _scan_credit_calls_used(ip)
+    if calls_used >= public_audit_limiter.max_calls:
+        return _err(
+            "AUDIT_LIMIT_REACHED",
+            "You've used your free scans for today. They reset at midnight UTC.",
+            status.HTTP_429_TOO_MANY_REQUESTS,
+        )
     try:
         report = await AuditService(db).start_audit(
             url=str(payload.url),
@@ -62,7 +114,7 @@ async def start_public_audit(
             confirmed_target=payload.confirmed_target,
         )
     except RedirectConfirmationRequired as exc:
-        return JSONResponse(
+        return JSONResponse(  # no scan credit spent
             status_code=status.HTTP_409_CONFLICT,
             content={
                 "success": False,
@@ -81,6 +133,7 @@ async def start_public_audit(
             "Audit could not be queued. Please try again later.",
             status.HTTP_503_SERVICE_UNAVAILABLE,
         )
+    await _spend_scan_credit(ip)  # real scan → spend one credit
     return JSONResponse(
         status_code=status.HTTP_202_ACCEPTED,
         content={

@@ -59,18 +59,22 @@ def test_post_public_audit_enqueue_failure_returns_503(client, db):
 # ---------------------------------------------------------------------------
 
 def test_post_public_audit_rate_limit_enforced(client, db):
-    """After 3 audits from same IP, 4th call returns 429.
+    """After 3 *enqueued* audits from same IP, 4th call returns 429.
 
-    Drives check_rate_limit with a mocked Redis so the real sliding-window
-    logic executes. The mock Redis increments an in-memory counter per key,
-    making the 4th acquire() call exceed max_calls=3.
+    The 3/day scan credit (``public_audit_limiter``) is no longer the endpoint's
+    dependency — it's checked read-only before work (``get_current_usage``) and
+    only spent after a real enqueue (``acquire``, called post-``start_audit``).
+    This drives the handler's own pre-check/spend logic with a mocked Redis so
+    the real sliding-window logic executes: 3 calls each enqueue successfully
+    (each spending one credit on the way out), and the pre-check on the 4th
+    call sees 3/3 used and returns 429 without ever calling ``acquire`` again.
     """
 
     from app.api.v1.endpoints.public_auditor import public_audit_limiter
 
     # Build a fake Redis that tracks a sorted-set per key using a plain dict.
     # zremrangebyscore / zadd / zcard / zrange / expire are the only methods
-    # check_rate_limit and acquire() use.
+    # get_current_usage() and acquire() use.
     class _FakeRedis:
         def __init__(self):
             self._store: dict[str, list[float]] = {}
@@ -115,9 +119,11 @@ def test_post_public_audit_rate_limit_enforced(client, db):
                     f"Expected 202 on call {i + 1}, got {resp.status_code}: {resp.json()}"
                 )
 
-            # 4th call — should be rate limited at 429
+            # 4th call — should be rate limited at 429 by the credit pre-check,
+            # not by the (now generous, 30/day) endpoint dependency.
             resp4 = client.post("/api/v1/public/audit", json={"url": "https://blocked.com"})
             assert resp4.status_code == 429
+            assert resp4.json()["error"]["code"] == "AUDIT_LIMIT_REACHED"
 
             # Verify limiter key embeds the client IP (loopback in test client)
             ip = "testclient"  # httpx TestClient uses "testclient" as host
