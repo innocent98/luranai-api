@@ -97,7 +97,7 @@ class AuditService:
         # resolve_redirect_chain re-guards every hop and raises ValueError on
         # unsafe/loop targets.
         resolved = await resolve_redirect_chain(normalized)
-        final_url = resolved.final_url
+        final_url = normalize_url(resolved.final_url) or resolved.final_url
         if classify_redirect(normalized, final_url) == "different_host":
             if confirmed_target is None or normalize_url(confirmed_target) != final_url:
                 raise RedirectConfirmationRequired(entered=normalized, target=final_url)
