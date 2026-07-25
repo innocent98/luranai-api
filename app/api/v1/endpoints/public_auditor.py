@@ -9,7 +9,7 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
-from app.auditor.service import AuditService
+from app.auditor.service import AuditService, RedirectConfirmationRequired
 from app.core.config import settings
 from app.db.models.audit import AuditReport, AuditScope
 from app.db.models.lead import Lead
@@ -56,7 +56,22 @@ async def start_public_audit(
 ):
     try:
         report = await AuditService(db).start_audit(
-            url=str(payload.url), scope=AuditScope.PUBLIC, tenant_id=None
+            url=str(payload.url),
+            scope=AuditScope.PUBLIC,
+            tenant_id=None,
+            confirmed_target=payload.confirmed_target,
+        )
+    except RedirectConfirmationRequired as exc:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "success": False,
+                "error": {
+                    "code": "REDIRECT_CONFIRMATION_REQUIRED",
+                    "message": f"{exc.entered} redirects to {exc.target}. Scan {exc.target}?",
+                    "details": {"entered_url": exc.entered, "redirect_target": exc.target},
+                },
+            },
         )
     except ValueError as exc:
         return _err("INVALID_URL", str(exc), status.HTTP_400_BAD_REQUEST)
@@ -96,6 +111,7 @@ def get_public_report(audit_id: UUID, db: Session = Depends(get_db)):
         id=report.id,
         status=report.status.value,
         pages_scanned=report.pages_scanned,
+        entered_url=report.entered_url,
         knowledge_score=report.knowledge_score,
         support_score=report.support_score,
         conversion_score=report.conversion_score,

@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_db
-from app.auditor.service import AuditService
+from app.auditor.service import AuditService, RedirectConfirmationRequired
 from app.db.models.audit import (
     AuditEntry,
     AuditEntryKind,
@@ -98,6 +98,14 @@ async def start_dashboard_audit(
             scope=AuditScope.DASHBOARD,
             tenant_id=user.tenant_id,
             created_by=user.id,
+            confirmed_target=payload.confirmed_target,
+        )
+    except RedirectConfirmationRequired as exc:
+        return _err(
+            "REDIRECT_CONFIRMATION_REQUIRED",
+            f"{exc.entered} redirects to {exc.target}. Scan {exc.target}?",
+            status.HTTP_409_CONFLICT,
+            details={"entered_url": exc.entered, "redirect_target": exc.target},
         )
     except ValueError as exc:
         return _err("INVALID_URL", str(exc), status.HTTP_400_BAD_REQUEST)
