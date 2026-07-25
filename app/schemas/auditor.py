@@ -27,6 +27,7 @@ class AuditScoresResponse(BaseModel):
 class PublicReportResponse(AuditScoresResponse):
     id: UUID
     status: str
+    url: str
     pages_scanned: int
     entered_url: str | None = None
     gaps: list[BlurredGap]

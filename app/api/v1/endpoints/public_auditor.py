@@ -163,6 +163,7 @@ def get_public_report(audit_id: UUID, db: Session = Depends(get_db)):
     data = PublicReportResponse(
         id=report.id,
         status=report.status.value,
+        url=report.url,
         pages_scanned=report.pages_scanned,
         entered_url=report.entered_url,
         knowledge_score=report.knowledge_score,

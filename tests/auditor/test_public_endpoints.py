@@ -168,6 +168,7 @@ def test_get_public_report_returns_scores_and_blurred_gaps(client, db):
     resp = client.get(f"/api/v1/public/audit/{report.id}")
     assert resp.status_code == 200
     data = resp.json()["data"]
+    assert data["url"] == "https://ex.com"
     assert data["overall_score"] == 74
     assert data["projected_score"] == 91
     assert len(data["gaps"]) == 1
