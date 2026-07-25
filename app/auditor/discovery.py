@@ -266,6 +266,24 @@ async def resolve_redirect_chain(url: str, *, max_hops: int = 3, http_get=None) 
     raise ValueError("Too many redirects")
 
 
+def _same_registrable_host(a: str, b: str) -> bool:
+    """True if two hosts differ only by a leading www. (case-insensitive)."""
+    return a.lower().removeprefix("www.") == b.lower().removeprefix("www.")
+
+
+def classify_redirect(entered_url: str, final_url: str) -> str:
+    """Classify entered→final for consent gating.
+
+    "same_site": hosts differ only by a leading www. (scheme/path may also
+    differ), same port — followed silently.
+    "different_host": any other host change — requires explicit confirmation.
+    """
+    ei, fi = urlparse(entered_url), urlparse(final_url)
+    same_host = _same_registrable_host(ei.hostname or "", fi.hostname or "")
+    same_port = (ei.port or None) == (fi.port or None)
+    return "same_site" if same_host and same_port else "different_host"
+
+
 def _parse_sitemap(xml: str) -> list[str]:
     return re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", xml, re.IGNORECASE)
 
