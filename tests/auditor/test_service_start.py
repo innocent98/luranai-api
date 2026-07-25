@@ -3,14 +3,26 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.auditor.discovery import ResolvedRoot
 from app.auditor.service import AuditService
 from app.db.models.audit import AuditReport, AuditScope, AuditStatus
 from app.db.models.job import ProcessingJob
 
 
+async def _no_redirect(url, **kwargs):
+    """Stub resolve_redirect_chain as a no-op passthrough (no redirect).
+
+    These tests predate redirect canonicalization and only exercise the
+    report/job creation path — without this, start_audit's real
+    resolve_redirect_chain call would hit the network for every test here.
+    """
+    return ResolvedRoot(final_url=url, hops=(url,), changed=False)
+
+
 @pytest.mark.asyncio
 async def test_start_audit_public_creates_report_job_and_claim_token(db):
-    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock) as mock_enqueue:
+    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock) as mock_enqueue, \
+         patch("app.auditor.service.resolve_redirect_chain", new=_no_redirect):
         svc = AuditService(db)
         report = await svc.start_audit(url="https://Example.com/", scope=AuditScope.PUBLIC, tenant_id=None)
     db.flush()
@@ -26,7 +38,8 @@ async def test_start_audit_public_creates_report_job_and_claim_token(db):
 @pytest.mark.asyncio
 async def test_start_audit_dashboard_has_tenant_no_claim_token(db):
     tid = uuid.uuid4()
-    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock):
+    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock), \
+         patch("app.auditor.service.resolve_redirect_chain", new=_no_redirect):
         report = await AuditService(db).start_audit(
             url="https://shop.example.com", scope=AuditScope.DASHBOARD, tenant_id=tid
         )
@@ -39,7 +52,8 @@ async def test_start_audit_dashboard_has_tenant_no_claim_token(db):
 async def test_start_audit_job_has_website_audit_type(db):
     """ProcessingJob created by start_audit must have job_type == WEBSITE_AUDIT."""
     from app.db.models.job import JobType
-    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock):
+    with patch("app.auditor.service.enqueue_audit", new_callable=AsyncMock), \
+         patch("app.auditor.service.resolve_redirect_chain", new=_no_redirect):
         svc = AuditService(db)
         report = await svc.start_audit(url="https://example.com/", scope=AuditScope.PUBLIC, tenant_id=None)
     db.flush()
@@ -54,7 +68,7 @@ async def test_start_audit_enqueue_failure_marks_report_failed_and_raises(db):
         "app.auditor.service.enqueue_audit",
         new_callable=AsyncMock,
         side_effect=ConnectionError("Redis down"),
-    ):
+    ), patch("app.auditor.service.resolve_redirect_chain", new=_no_redirect):
         with pytest.raises(RuntimeError, match="Audit enqueue failed"):
             await AuditService(db).start_audit(
                 url="https://example.com", scope=AuditScope.PUBLIC, tenant_id=None

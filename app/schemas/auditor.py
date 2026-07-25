@@ -7,6 +7,7 @@ from pydantic import BaseModel, EmailStr, HttpUrl
 
 class PublicAuditRequest(BaseModel):
     url: HttpUrl
+    confirmed_target: str | None = None
 
 
 class BlurredGap(BaseModel):
@@ -26,7 +27,9 @@ class AuditScoresResponse(BaseModel):
 class PublicReportResponse(AuditScoresResponse):
     id: UUID
     status: str
+    url: str
     pages_scanned: int
+    entered_url: str | None = None
     gaps: list[BlurredGap]
     # Found-content teaser: {"kinds": [...], "entries": N}. Powers the
     # "What we found" section — without it the FE has no found-data and
@@ -42,6 +45,7 @@ class LeadCaptureRequest(BaseModel):
 
 class DashboardAuditRequest(BaseModel):
     url: HttpUrl
+    confirmed_target: str | None = None
 
 
 class EntryEditRequest(BaseModel):
