@@ -373,10 +373,11 @@ async def render_page(
 
     Soft-block retries: when the render returns HTTP 403/429 (bot firewall /
     rate limit), retries up to AUDITOR_SOFT_BLOCK_RETRIES times, sleeping
-    AUDITOR_SOFT_BLOCK_BACKOFF_S[i] between attempts and reusing the same
-    injected renderer / browser session so a challenge-clearance cookie
-    carries into the retry. Only 403/429 are retried — timeouts and other
-    errors are returned immediately.
+    AUDITOR_SOFT_BLOCK_BACKOFF_S[i] between attempts. On the crawl_site path the
+    renderer is a shared browser context, so a challenge-clearance cookie set on
+    one attempt carries into the next (and to later pages); on the standalone
+    path each attempt launches a fresh browser. Only 403/429 are retried —
+    timeouts and other errors are returned immediately.
     """
     # Pre-render SSRF guard.
     if not guard_url(url):
