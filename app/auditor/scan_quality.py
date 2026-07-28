@@ -19,6 +19,10 @@ _THIN_REASON = (
     "We could only partially read your site — you may get a fuller picture by "
     "retrying or importing content manually."
 )
+_BLOCKED_REASON = (
+    "This site's bot/firewall protection blocked our scanner. Ask them to "
+    "allowlist Luran, or import your content manually."
+)
 
 
 class ScanUnreadable(Exception):
@@ -70,6 +74,8 @@ def classify_scan_outcome(
     # must be checked before the root_page-is-None branch below.
     if root_rejected:
         return ScanQuality.UNREACHABLE, _UNREACHABLE_REASON
+    if root_page is not None and root_page.error_kind == RawPageError.SOFT_BLOCKED:
+        return ScanQuality.BLOCKED, _BLOCKED_REASON
     if root_page is None or root_page.error_kind == RawPageError.LAUNCH_FAILED:
         return ScanQuality.RENDER_FAILED, _RENDER_FAILED_REASON
     if root_page.error_kind in _UNREACHABLE_KINDS:

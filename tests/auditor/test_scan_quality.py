@@ -104,3 +104,23 @@ def test_root_not_rejected_keeps_render_failed_for_missing_root():
         None, _extracted(0), thin_min_content_chars=800, root_rejected=False
     )
     assert q == ScanQuality.RENDER_FAILED
+
+
+def test_blocked_when_root_soft_blocked_and_no_content():
+    q, reason = classify_scan_outcome(_root(RawPageError.SOFT_BLOCKED), _extracted(0),
+                                      thin_min_content_chars=800)
+    assert q == ScanQuality.BLOCKED
+    assert "blocked our scanner" in reason.lower()
+
+
+def test_soft_blocked_root_with_content_is_ok():
+    """A soft-blocked homepage but readable subpages is a real result, not BLOCKED."""
+    q, _ = classify_scan_outcome(_root(RawPageError.SOFT_BLOCKED), _extracted(1000),
+                                 thin_min_content_chars=800)
+    assert q == ScanQuality.OK
+
+
+def test_soft_block_does_not_mask_timeout_unreachable():
+    q, _ = classify_scan_outcome(_root(RawPageError.TIMEOUT), _extracted(0),
+                                 thin_min_content_chars=800)
+    assert q == ScanQuality.UNREACHABLE

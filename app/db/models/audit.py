@@ -165,6 +165,7 @@ class ScanQuality(str, enum.Enum):
     THIN = "thin"
     UNREACHABLE = "unreachable"
     RENDER_FAILED = "render_failed"
+    BLOCKED = "blocked"
 
 
 class AuditEntryStatus(str, enum.Enum):

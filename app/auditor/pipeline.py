@@ -237,7 +237,7 @@ async def run_audit(
             report.scan_quality = quality
             report.scan_quality_reason = reason or None
             db.commit()  # persist BEFORE any raise so the FAILED path keeps it
-            if quality in (ScanQuality.UNREACHABLE, ScanQuality.RENDER_FAILED):
+            if quality in (ScanQuality.UNREACHABLE, ScanQuality.RENDER_FAILED, ScanQuality.BLOCKED):
                 raise ScanUnreadable(quality, reason)
 
         # ------------------------------------------------------------------ #
