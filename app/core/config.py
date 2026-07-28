@@ -237,6 +237,12 @@ class Settings(BaseSettings):
     # sites never reach network-idle (ads/trackers), so the full wait is wasted.
     AUDITOR_HYDRATION_SETTLE_MS: int = 1500
     AUDITOR_THIN_MIN_CONTENT_CHARS: int = 800
+    # Real desktop-Chrome UA for the crawl context — the default headless UA
+    # ("HeadlessChrome") is an obvious bot tell to some firewalls.
+    AUDITOR_USER_AGENT: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    )
     AUDITOR_MODEL_PROFILE: str = "gpt-4.1-mini"
     AUDITOR_MODEL_CLASSIFY: str = "gpt-4o-mini"
     AUDITOR_MODEL_GAPS: str = "gpt-4.1-mini"

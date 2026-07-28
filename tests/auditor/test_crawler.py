@@ -509,8 +509,12 @@ async def test_playwright_route_handler_aborts_internal_host():
 
         mock_page.route = capture_route
 
+        mock_context = AsyncMock()
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_context.close = AsyncMock()
+
         mock_browser = AsyncMock()
-        mock_browser.new_page = AsyncMock(return_value=mock_page)
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
         mock_browser.close = AsyncMock()
 
         mock_chromium = AsyncMock()
@@ -575,8 +579,12 @@ async def test_playwright_route_handler_continues_safe_host():
 
         mock_page.route = capture_route
 
+        mock_context = AsyncMock()
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_context.close = AsyncMock()
+
         mock_browser = AsyncMock()
-        mock_browser.new_page = AsyncMock(return_value=mock_page)
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
         mock_browser.close = AsyncMock()
 
         mock_chromium = AsyncMock()
@@ -741,8 +749,12 @@ async def test_playwright_render_waits_networkidle_then_captures(monkeypatch):
         mock_page.url = "https://example.com/"
         mock_page.route = AsyncMock()
 
+        mock_context = AsyncMock()
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_context.close = AsyncMock()
+
         mock_browser = AsyncMock()
-        mock_browser.new_page = AsyncMock(return_value=mock_page)
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
         mock_browser.close = AsyncMock()
 
         mock_chromium = AsyncMock()
@@ -1008,3 +1020,47 @@ async def test_render_page_200_not_retried(monkeypatch):
     page = await crawler.render_page("https://x.com/a", page_renderer=renderer)
     assert calls["n"] == 1
     assert page.error_kind == crawler.RawPageError.OK
+
+
+@pytest.mark.asyncio
+async def test_playwright_render_uses_ua_context(monkeypatch):
+    """_playwright_render must open pages from a context created with the
+    configured user-agent, not browser.new_page() (which would use the default
+    HeadlessChrome UA and an isolated per-page context)."""
+    monkeypatch.setattr("app.auditor.crawler.resolve_and_validate_host",
+                        lambda h: "93.184.216.34")
+
+    captured = {}
+
+    class FakePage:
+        url = "https://x.com/"
+        async def route(self, *a, **k): pass
+        async def goto(self, *a, **k): return SimpleNamespace(status=200)
+        async def wait_for_load_state(self, *a, **k): pass
+        async def content(self): return "<html>ok</html>"
+        async def close(self): pass
+
+    class FakeContext:
+        async def new_page(self): return FakePage()
+        async def close(self): pass
+
+    class FakeBrowser:
+        async def new_context(self, **kwargs):
+            captured.update(kwargs); return FakeContext()
+        async def new_page(self):
+            raise AssertionError("must not open pages directly on the browser")
+        async def close(self): pass
+
+    class FakeChromium:
+        async def launch(self, **k): return FakeBrowser()
+
+    class FakePW:
+        chromium = FakeChromium()
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): pass
+
+    monkeypatch.setattr("app.auditor.crawler.async_playwright", lambda: FakePW())
+
+    status, html, final = await crawler._playwright_render("https://x.com/")
+    assert status == 200
+    assert captured.get("user_agent") == crawler.settings.AUDITOR_USER_AGENT

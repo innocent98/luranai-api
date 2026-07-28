@@ -178,12 +178,12 @@ async def _ssrf_route_handler(route, request) -> None:
         await route.abort()
 
 
-async def _render_page_in_browser(browser, url: str) -> tuple[int, str, str]:
-    """Render one URL in an already-launched browser and return
+async def _render_page_in_context(context, url: str) -> tuple[int, str, str]:
+    """Render one URL in an already-created context and return
     (status, html, final_url). Opens and closes a fresh page (tab), applies the
     SSRF/asset route guard, waits for hydration best-effort, and snapshots.
     """
-    page = await browser.new_page()
+    page = await context.new_page()
     try:
         # Block unneeded resources + SSRF-guard remaining subresources/redirects.
         await page.route("**/*", _ssrf_route_handler)
@@ -235,9 +235,10 @@ async def _browser_render_session(host: str, safe_ip: str):
                 args=[f"--host-resolver-rules={resolver_rule}"],
             )
             try:
+                context = await browser.new_context(user_agent=settings.AUDITOR_USER_AGENT)
 
                 async def _render(url: str) -> tuple[int, str, str]:
-                    return await _render_page_in_browser(browser, url)
+                    return await _render_page_in_context(context, url)
 
                 yield _render
             finally:
