@@ -504,6 +504,7 @@ async def crawl_site(
 
             new_links: list[str] = []
             for link in discovery._extract_links(page.html, url):
+                link = discovery.canonicalize_to_root(link, root_host)
                 if link in seen:
                     continue
                 if urlparse(link).netloc != root_host:
