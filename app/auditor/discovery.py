@@ -271,6 +271,25 @@ def _same_registrable_host(a: str, b: str) -> bool:
     return a.lower().removeprefix("www.") == b.lower().removeprefix("www.")
 
 
+def canonicalize_to_root(url: str, root_host: str) -> str:
+    """Rewrite url's host to root_host when they are the same registrable host
+    (differ only by a leading 'www.'), but url's netloc is not already root_host.
+
+    Split-host sites (apex on one CDN, www on another) list one host in their
+    sitemap and link to the other; the crawl's exact same-host filter would drop
+    those. Rewriting them to the canonical root host lets them be crawled while a
+    genuinely different host (different subdomain/domain) is returned unchanged so
+    the caller's filter still drops it. Scheme, path and query are preserved.
+    """
+    parsed = urlparse(url)
+    if not parsed.netloc or parsed.netloc == root_host:
+        return url
+    root_hostname = urlparse(f"//{root_host}").hostname or root_host
+    if _same_registrable_host(parsed.hostname or "", root_hostname):
+        return urlunparse(parsed._replace(netloc=root_host))
+    return url
+
+
 def classify_redirect(entered_url: str, final_url: str) -> str:
     """Classify entered→final for consent gating.
 
@@ -345,7 +364,10 @@ async def seed_urls(root_url: str, max_pages: int, fetch_text=None) -> list[str]
         # were never even candidates.
         for loc in _parse_sitemap(sitemap):
             n = normalize_url(loc)
-            if n and _accept(n):
+            if not n:
+                continue
+            n = canonicalize_to_root(n, root_host)
+            if _accept(n):
                 seen.add(n)
                 found.append(n)
 

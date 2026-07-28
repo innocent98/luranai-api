@@ -128,7 +128,9 @@ async def test_render_page_timeout_handled_gracefully(monkeypatch):
         "app.auditor.crawler.settings",
         type("S", (), {"AUDITOR_PER_PAGE_TIMEOUT_S": 0,
                        "AUDITOR_CRAWL_RPS": 1,
-                       "AUDITOR_HYDRATION_SETTLE_MS": 0})(),
+                       "AUDITOR_HYDRATION_SETTLE_MS": 0,
+                       "AUDITOR_SOFT_BLOCK_RETRIES": 0,
+                       "AUDITOR_SOFT_BLOCK_BACKOFF_S": []})(),
     )
 
     async def slow_renderer(url):
@@ -507,8 +509,12 @@ async def test_playwright_route_handler_aborts_internal_host():
 
         mock_page.route = capture_route
 
+        mock_context = AsyncMock()
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_context.close = AsyncMock()
+
         mock_browser = AsyncMock()
-        mock_browser.new_page = AsyncMock(return_value=mock_page)
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
         mock_browser.close = AsyncMock()
 
         mock_chromium = AsyncMock()
@@ -573,8 +579,12 @@ async def test_playwright_route_handler_continues_safe_host():
 
         mock_page.route = capture_route
 
+        mock_context = AsyncMock()
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_context.close = AsyncMock()
+
         mock_browser = AsyncMock()
-        mock_browser.new_page = AsyncMock(return_value=mock_page)
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
         mock_browser.close = AsyncMock()
 
         mock_chromium = AsyncMock()
@@ -651,7 +661,9 @@ async def test_render_page_timeout_error_kind_timeout(monkeypatch):
         "app.auditor.crawler.settings",
         type("S", (), {"AUDITOR_PER_PAGE_TIMEOUT_S": 0,
                        "AUDITOR_CRAWL_RPS": 1,
-                       "AUDITOR_HYDRATION_SETTLE_MS": 0})(),
+                       "AUDITOR_HYDRATION_SETTLE_MS": 0,
+                       "AUDITOR_SOFT_BLOCK_RETRIES": 0,
+                       "AUDITOR_SOFT_BLOCK_BACKOFF_S": []})(),
     )
 
     async def slow(url):
@@ -737,8 +749,12 @@ async def test_playwright_render_waits_networkidle_then_captures(monkeypatch):
         mock_page.url = "https://example.com/"
         mock_page.route = AsyncMock()
 
+        mock_context = AsyncMock()
+        mock_context.new_page = AsyncMock(return_value=mock_page)
+        mock_context.close = AsyncMock()
+
         mock_browser = AsyncMock()
-        mock_browser.new_page = AsyncMock(return_value=mock_page)
+        mock_browser.new_context = AsyncMock(return_value=mock_context)
         mock_browser.close = AsyncMock()
 
         mock_chromium = AsyncMock()
@@ -929,3 +945,122 @@ async def test_crawl_site_no_html_page_skips_expansion_without_crash(monkeypatch
     assert boom.error_kind == crawler.RawPageError.HTTP_ERROR
     # crawl did not crash extracting links from the no-html page
     assert any(p.url.endswith("/ok") for p in pages)
+
+
+def _fast_soft_block_settings():
+    """Stub settings: retries=2, zero backoff (fast), generous timeout."""
+    return type("S", (), {
+        "AUDITOR_PER_PAGE_TIMEOUT_S": 30,
+        "AUDITOR_HYDRATION_SETTLE_MS": 0,
+        "AUDITOR_CRAWL_RPS": 1,
+        "AUDITOR_SOFT_BLOCK_RETRIES": 2,
+        "AUDITOR_SOFT_BLOCK_BACKOFF_S": [0, 0],
+    })()
+
+
+@pytest.mark.asyncio
+async def test_render_page_retries_soft_block_then_succeeds(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+    monkeypatch.setattr("app.auditor.crawler.settings", _fast_soft_block_settings())
+    calls = {"n": 0}
+
+    async def renderer(url):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            return 403, "<html>challenge</html>"
+        return 200, "<html>real</html>"
+
+    page = await crawler.render_page("https://x.com/a", page_renderer=renderer)
+    assert calls["n"] == 3
+    assert page.status == 200
+    assert page.error_kind == crawler.RawPageError.OK
+
+
+@pytest.mark.asyncio
+async def test_render_page_soft_block_exhausts_retries(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+    monkeypatch.setattr("app.auditor.crawler.settings", _fast_soft_block_settings())
+    calls = {"n": 0}
+
+    async def renderer(url):
+        calls["n"] += 1
+        return 403, "<html>challenge</html>"
+
+    page = await crawler.render_page("https://x.com/a", page_renderer=renderer)
+    assert calls["n"] == 3  # 1 initial + 2 retries
+    assert page.status == 403
+    assert page.error_kind == crawler.RawPageError.SOFT_BLOCKED
+
+
+@pytest.mark.asyncio
+async def test_render_page_429_treated_as_soft_block(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+    monkeypatch.setattr("app.auditor.crawler.settings", _fast_soft_block_settings())
+    calls = {"n": 0}
+
+    async def renderer(url):
+        calls["n"] += 1
+        return (429, "<html>rl</html>") if calls["n"] == 1 else (200, "<html>ok</html>")
+
+    page = await crawler.render_page("https://x.com/a", page_renderer=renderer)
+    assert page.status == 200
+    assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_render_page_200_not_retried(monkeypatch):
+    monkeypatch.setattr("app.auditor.crawler.guard_url", lambda url: True)
+    monkeypatch.setattr("app.auditor.crawler.settings", _fast_soft_block_settings())
+    calls = {"n": 0}
+
+    async def renderer(url):
+        calls["n"] += 1
+        return 200, "<html>ok</html>"
+
+    page = await crawler.render_page("https://x.com/a", page_renderer=renderer)
+    assert calls["n"] == 1
+    assert page.error_kind == crawler.RawPageError.OK
+
+
+@pytest.mark.asyncio
+async def test_playwright_render_uses_ua_context(monkeypatch):
+    """_playwright_render must open pages from a context created with the
+    configured user-agent, not browser.new_page() (which would use the default
+    HeadlessChrome UA and an isolated per-page context)."""
+    monkeypatch.setattr("app.auditor.crawler.resolve_and_validate_host",
+                        lambda h: "93.184.216.34")
+
+    captured = {}
+
+    class FakePage:
+        url = "https://x.com/"
+        async def route(self, *a, **k): pass
+        async def goto(self, *a, **k): return SimpleNamespace(status=200)
+        async def wait_for_load_state(self, *a, **k): pass
+        async def content(self): return "<html>ok</html>"
+        async def close(self): pass
+
+    class FakeContext:
+        async def new_page(self): return FakePage()
+        async def close(self): pass
+
+    class FakeBrowser:
+        async def new_context(self, **kwargs):
+            captured.update(kwargs); return FakeContext()
+        async def new_page(self):
+            raise AssertionError("must not open pages directly on the browser")
+        async def close(self): pass
+
+    class FakeChromium:
+        async def launch(self, **k): return FakeBrowser()
+
+    class FakePW:
+        chromium = FakeChromium()
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): pass
+
+    monkeypatch.setattr("app.auditor.crawler.async_playwright", lambda: FakePW())
+
+    status, html, final = await crawler._playwright_render("https://x.com/")
+    assert status == 200
+    assert captured.get("user_agent") == crawler.settings.AUDITOR_USER_AGENT

@@ -221,6 +221,11 @@ class Settings(BaseSettings):
     AUDITOR_CLAIM_STALENESS_DAYS: int = 7
     AUDITOR_UNCLAIMED_PURGE_DAYS: int = 30
     AUDITOR_PER_PAGE_TIMEOUT_S: int = 10
+    # Bot-firewall soft-block (HTTP 403/429) retries. Some sites (Vercel BotID,
+    # Cloudflare) challenge a fraction of headless requests; a few retries on the
+    # SAME browser session (so the clearance cookie carries) recovers most pages.
+    AUDITOR_SOFT_BLOCK_RETRIES: int = 2
+    AUDITOR_SOFT_BLOCK_BACKOFF_S: list[int] = [1, 3]
     AUDITOR_CRAWL_RPS: int = 1
     # Concurrent Chromium instances across all audits in one worker. Bounded by
     # WORKER_MEM_LIMIT, not CPU: a browser measured 394 MiB, the worker baseline
@@ -232,6 +237,12 @@ class Settings(BaseSettings):
     # sites never reach network-idle (ads/trackers), so the full wait is wasted.
     AUDITOR_HYDRATION_SETTLE_MS: int = 1500
     AUDITOR_THIN_MIN_CONTENT_CHARS: int = 800
+    # Real desktop-Chrome UA for the crawl context — the default headless UA
+    # ("HeadlessChrome") is an obvious bot tell to some firewalls.
+    AUDITOR_USER_AGENT: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    )
     AUDITOR_MODEL_PROFILE: str = "gpt-4.1-mini"
     AUDITOR_MODEL_CLASSIFY: str = "gpt-4o-mini"
     AUDITOR_MODEL_GAPS: str = "gpt-4.1-mini"
