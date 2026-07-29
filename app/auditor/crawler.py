@@ -232,7 +232,13 @@ async def _browser_render_session(host: str, safe_ip: str):
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
-                args=[f"--host-resolver-rules={resolver_rule}"],
+                args=[
+                    f"--host-resolver-rules={resolver_rule}",
+                    # Docker's default /dev/shm is 64 MiB; Chromium renders blank or
+                    # crashes on heavy pages once it fills. Back shared memory with
+                    # /tmp instead so renders don't fail on memory-constrained hosts.
+                    "--disable-dev-shm-usage",
+                ],
             )
             try:
                 context = await browser.new_context(user_agent=settings.AUDITOR_USER_AGENT)
