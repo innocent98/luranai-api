@@ -220,6 +220,10 @@ class Settings(BaseSettings):
     AUDITOR_MAX_PAGES_CEILING: int = 5000
     AUDITOR_CLAIM_STALENESS_DAYS: int = 7
     AUDITOR_UNCLAIMED_PURGE_DAYS: int = 30
+    # Fail audits stranded in QUEUED/CRAWLING/ANALYZING past this many minutes (a
+    # worker killed mid-crawl can't fail its own report). Above any real crawl,
+    # below ARQ's 1h job_timeout.
+    AUDITOR_STALL_REAP_MINUTES: int = 45
     AUDITOR_PER_PAGE_TIMEOUT_S: int = 10
     # Bot-firewall soft-block (HTTP 403/429) retries. Some sites (Vercel BotID,
     # Cloudflare) challenge a fraction of headless requests; a few retries on the
