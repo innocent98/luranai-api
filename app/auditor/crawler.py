@@ -45,6 +45,7 @@ class RawPageError(str, Enum):
     LAUNCH_FAILED = "launch_failed"  # browser binary / launch failure (our infra)
     TIMEOUT = "timeout"
     HTTP_ERROR = "http_error"  # network error, or status 0 / >= 400
+    SOFT_BLOCKED = "soft_blocked"  # HTTP 403/429 — bot firewall / rate limit; retryable
     BLOCKED = "blocked"  # SSRF pre-guard or post-redirect guard
     SIZE_CAP = "size_cap"
     ROBOTS = "robots"
@@ -177,12 +178,12 @@ async def _ssrf_route_handler(route, request) -> None:
         await route.abort()
 
 
-async def _render_page_in_browser(browser, url: str) -> tuple[int, str, str]:
-    """Render one URL in an already-launched browser and return
+async def _render_page_in_context(context, url: str) -> tuple[int, str, str]:
+    """Render one URL in an already-created context and return
     (status, html, final_url). Opens and closes a fresh page (tab), applies the
     SSRF/asset route guard, waits for hydration best-effort, and snapshots.
     """
-    page = await browser.new_page()
+    page = await context.new_page()
     try:
         # Block unneeded resources + SSRF-guard remaining subresources/redirects.
         await page.route("**/*", _ssrf_route_handler)
@@ -231,12 +232,19 @@ async def _browser_render_session(host: str, safe_ip: str):
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
-                args=[f"--host-resolver-rules={resolver_rule}"],
+                args=[
+                    f"--host-resolver-rules={resolver_rule}",
+                    # Docker's default /dev/shm is 64 MiB; Chromium renders blank or
+                    # crashes on heavy pages once it fills. Back shared memory with
+                    # /tmp instead so renders don't fail on memory-constrained hosts.
+                    "--disable-dev-shm-usage",
+                ],
             )
             try:
+                context = await browser.new_context(user_agent=settings.AUDITOR_USER_AGENT)
 
                 async def _render(url: str) -> tuple[int, str, str]:
-                    return await _render_page_in_browser(browser, url)
+                    return await _render_page_in_context(context, url)
 
                 yield _render
             finally:
@@ -270,42 +278,8 @@ async def _playwright_render(url: str) -> tuple[int, str, str]:
         return await render(url)
 
 
-async def render_page(
-    url: str,
-    *,
-    page_renderer=None,
-    max_bytes: int = 2_000_000,
-) -> RawPage:
-    """Render a single page and return a RawPage.
-
-    Handles timeout and errors gracefully — returns a RawPage with error set
-    rather than raising. Enforces max_bytes content-size cap.
-
-    SSRF guards:
-    - Pre-render: guard_url(url) is checked before rendering; unsafe URLs are
-      returned immediately as RawPage(error="UNSAFE_URL").
-    - Post-redirect: the final URL the renderer landed on is re-checked;
-      unsafe post-redirect hosts yield RawPage(error="UNSAFE_REDIRECT") with
-      no body returned.
-
-    The injectable page_renderer must return either:
-      (status, html)               — final_url defaults to the requested url
-      (status, html, final_url)    — explicit final URL after redirects
-    Both forms are accepted for backwards compatibility.
-    """
-    # Pre-render SSRF guard.
-    if not guard_url(url):
-        logger.warning("render_page SSRF pre-guard blocked: {}", url)
-        return RawPage(
-            url=url,
-            status=0,
-            html=None,
-            bytes_len=0,
-            error="UNSAFE_URL",
-            error_kind=RawPageError.BLOCKED,
-        )
-
-    renderer = page_renderer or _playwright_render
+async def _render_once(url: str, renderer, max_bytes: int) -> RawPage:
+    """One render attempt. Returns a RawPage (never raises). SOFT_BLOCKED for 403/429."""
     try:
         result = await asyncio.wait_for(
             renderer(url),
@@ -364,7 +338,12 @@ async def render_page(
             final_url=final_url,
         )
 
-    error_kind = RawPageError.OK if 200 <= status < 400 else RawPageError.HTTP_ERROR
+    if 200 <= status < 400:
+        error_kind = RawPageError.OK
+    elif status in (403, 429):
+        error_kind = RawPageError.SOFT_BLOCKED
+    else:
+        error_kind = RawPageError.HTTP_ERROR
     return RawPage(
         url=url,
         status=status,
@@ -373,6 +352,62 @@ async def render_page(
         error_kind=error_kind,
         final_url=final_url,
     )
+
+
+async def render_page(
+    url: str,
+    *,
+    page_renderer=None,
+    max_bytes: int = 2_000_000,
+) -> RawPage:
+    """Render a single page with SSRF guards and bounded soft-block retries.
+
+    Handles timeout and errors gracefully — returns a RawPage with error set
+    rather than raising. Enforces max_bytes content-size cap.
+
+    SSRF guards:
+    - Pre-render: guard_url(url) is checked before rendering; unsafe URLs are
+      returned immediately as RawPage(error="UNSAFE_URL").
+    - Post-redirect: the final URL the renderer landed on is re-checked;
+      unsafe post-redirect hosts yield RawPage(error="UNSAFE_REDIRECT") with
+      no body returned.
+
+    The injectable page_renderer must return either:
+      (status, html)               — final_url defaults to the requested url
+      (status, html, final_url)    — explicit final URL after redirects
+    Both forms are accepted for backwards compatibility.
+
+    Soft-block retries: when the render returns HTTP 403/429 (bot firewall /
+    rate limit), retries up to AUDITOR_SOFT_BLOCK_RETRIES times, sleeping
+    AUDITOR_SOFT_BLOCK_BACKOFF_S[i] between attempts. On the crawl_site path the
+    renderer is a shared browser context, so a challenge-clearance cookie set on
+    one attempt carries into the next (and to later pages); on the standalone
+    path each attempt launches a fresh browser. Only 403/429 are retried —
+    timeouts and other errors are returned immediately.
+    """
+    # Pre-render SSRF guard.
+    if not guard_url(url):
+        logger.warning("render_page SSRF pre-guard blocked: {}", url)
+        return RawPage(
+            url=url,
+            status=0,
+            html=None,
+            bytes_len=0,
+            error="UNSAFE_URL",
+            error_kind=RawPageError.BLOCKED,
+        )
+
+    renderer = page_renderer or _playwright_render
+    retries = settings.AUDITOR_SOFT_BLOCK_RETRIES
+    backoff = settings.AUDITOR_SOFT_BLOCK_BACKOFF_S
+    attempt = 0
+    while True:
+        page = await _render_once(url, renderer, max_bytes)
+        if page.error_kind != RawPageError.SOFT_BLOCKED or attempt >= retries:
+            return page
+        if backoff:
+            await asyncio.sleep(backoff[min(attempt, len(backoff) - 1)])
+        attempt += 1
 
 
 async def crawl(
@@ -504,6 +539,7 @@ async def crawl_site(
 
             new_links: list[str] = []
             for link in discovery._extract_links(page.html, url):
+                link = discovery.canonicalize_to_root(link, root_host)
                 if link in seen:
                     continue
                 if urlparse(link).netloc != root_host:

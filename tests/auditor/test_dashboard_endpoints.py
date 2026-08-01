@@ -125,6 +125,53 @@ def test_get_audit_requires_auth(pg_client):
 
 
 # ---------------------------------------------------------------------------
+# GET /audit/{audit_id} — single report with full score breakdown
+# ---------------------------------------------------------------------------
+
+
+def test_get_audit_by_id_returns_full_scores(pg_client, db_session):
+    user, token = _make_tenant_user(db_session)
+    report = _make_report(db_session, user.tenant_id)
+    report.overall_score = 88
+    report.knowledge_score = 80
+    report.support_score = 90
+    report.conversion_score = 70
+    report.projected_score = 95
+    report.pages_scanned = 12
+    db_session.flush()
+
+    resp = pg_client.get(f"/api/v1/audit/{report.id}", headers=_auth(token))
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["id"] == str(report.id)
+    assert data["overall_score"] == 88
+    assert data["knowledge_score"] == 80
+    assert data["support_score"] == 90
+    assert data["conversion_score"] == 70
+    assert data["projected_score"] == 95
+    assert data["pages_scanned"] == 12
+    assert data["status"] == "completed"
+
+
+def test_get_audit_by_id_404_for_other_tenant(pg_client, db_session):
+    owner, _owner_token = _make_tenant_user(db_session)
+    report = _make_report(db_session, owner.tenant_id)
+    _other, other_token = _make_tenant_user(db_session)
+    db_session.flush()
+
+    resp = pg_client.get(f"/api/v1/audit/{report.id}", headers=_auth(other_token))
+    assert resp.status_code == 404
+
+
+def test_get_audit_by_id_requires_auth(pg_client, db_session):
+    user, _token = _make_tenant_user(db_session)
+    report = _make_report(db_session, user.tenant_id)
+    db_session.flush()
+    resp = pg_client.get(f"/api/v1/audit/{report.id}")
+    assert resp.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
 # POST /audit — start dashboard audit
 # ---------------------------------------------------------------------------
 

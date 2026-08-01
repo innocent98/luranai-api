@@ -157,6 +157,39 @@ def list_audits(
     }
 
 
+@router.get("/audit/{audit_id}")
+def get_audit(
+    audit_id: UUID,
+    db: Session = Depends(get_db),
+    user: UserResponse = Depends(get_current_tenant_admin),
+):
+    """Return one of the caller's own audits with its full score breakdown.
+
+    ``list_audits`` returns only ``overall_score``; the dashboard report page needs
+    the category scores (knowledge/support/conversion) + projected to render the
+    readiness card. Ownership is enforced by ``_owned_report`` (404 otherwise).
+    """
+    r = _owned_report(db, audit_id, user.tenant_id)
+    return {
+        "success": True,
+        "data": {
+            "id": str(r.id),
+            "url": r.url,
+            "entered_url": r.entered_url,
+            "status": r.status.value,
+            "overall_score": r.overall_score,
+            "knowledge_score": r.knowledge_score,
+            "support_score": r.support_score,
+            "conversion_score": r.conversion_score,
+            "projected_score": r.projected_score,
+            "pages_scanned": r.pages_scanned,
+            "scan_quality": r.scan_quality.value if r.scan_quality else None,
+            "scan_quality_reason": r.scan_quality_reason,
+            "created_at": r.created_at.isoformat(),
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # GET /audit/{audit_id}/entries — staged entries (full content, post-auth)
 # ---------------------------------------------------------------------------

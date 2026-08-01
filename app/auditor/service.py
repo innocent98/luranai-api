@@ -456,6 +456,50 @@ class AuditService:
         return report
 
 
+def reap_stalled_audits_sync(db, older_than_minutes: int | None = None) -> int:
+    """Fail audit reports stuck in a non-terminal state past the stall window.
+
+    A worker killed mid-crawl (e.g. OOM/SIGKILL) never runs run_audit's ``except``
+    block, so its report is stranded in QUEUED/CRAWLING/ANALYZING forever and the UI
+    shows an eternal "Scanning" spinner. This reaper is the safety net: it marks such
+    reports FAILED. The window (AUDITOR_STALL_REAP_MINUTES, default 45) sits above any
+    real crawl but below ARQ's 1h job_timeout; if a genuinely slow job later commits a
+    terminal state, that simply overwrites the FAILED, so reaping early is harmless.
+
+    Returns the count of reports reaped.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from app.core.config import settings
+    from app.db.models.audit import AuditReport, AuditStatus, ScanQuality
+
+    minutes = (
+        older_than_minutes
+        if older_than_minutes is not None
+        else settings.AUDITOR_STALL_REAP_MINUTES
+    )
+    cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
+    stalled = (
+        db.query(AuditReport)
+        .filter(
+            AuditReport.status.in_(
+                [AuditStatus.QUEUED, AuditStatus.CRAWLING, AuditStatus.ANALYZING]
+            ),
+            AuditReport.created_at < cutoff,
+        )
+        .all()
+    )
+    count = len(stalled)
+    for report in stalled:
+        report.status = AuditStatus.FAILED
+        report.scan_quality = ScanQuality.RENDER_FAILED
+        report.scan_quality_reason = (
+            "This scan didn't finish (it was interrupted). Please try again."
+        )
+    db.commit()
+    return count
+
+
 def purge_unclaimed_audits_sync(db) -> int:
     """Delete AuditReport rows with tenant_id IS NULL older than the purge window.
 

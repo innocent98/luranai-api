@@ -55,7 +55,17 @@ class _ConcurrencyProbe:
                 probe.live -= 1
 
             async def new_context(self_inner, **_k):
-                raise AssertionError("not used by these tests")
+                # The session now opens one UA context per browser; these tests
+                # exercise only launch/close accounting (never render a page), so
+                # a benign context stub keeps the permit/peak assertions intact.
+                class _Context:
+                    async def new_page(self_inner):
+                        raise AssertionError("no page render in these tests")
+
+                    async def close(self_inner):
+                        pass
+
+                return _Context()
 
         # let other tasks interleave while this browser is open
         await asyncio.sleep(0.02)

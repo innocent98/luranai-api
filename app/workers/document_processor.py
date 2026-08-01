@@ -991,6 +991,21 @@ async def purge_unclaimed_audits(ctx: dict) -> dict:
         db.close()
 
 
+async def reap_stalled_audits(ctx: dict) -> dict:
+    """Every 10 min: fail audits stranded in a non-terminal state past the stall
+    window (a worker killed mid-crawl, e.g. OOM, can't fail its own report)."""
+    from app.auditor.service import reap_stalled_audits_sync
+
+    db = SessionLocal()
+    try:
+        reaped = reap_stalled_audits_sync(db)
+        if reaped:
+            logger.info("reap_stalled_audits failed {} stalled report(s)", reaped)
+        return {"status": "success", "reaped": reaped}
+    finally:
+        db.close()
+
+
 async def send_channel_post_notifications(ctx: dict, post_id: str) -> None:
     """Send email notifications to all followers when a channel post is published."""
     from uuid import UUID
@@ -1223,6 +1238,7 @@ class WorkerSettings:
         process_promotional_grant_lifecycle,
         send_promo_granted_emails_batch,
         purge_unclaimed_audits,
+        reap_stalled_audits,
     ]
     redis_settings = get_redis_settings()
 
@@ -1244,6 +1260,12 @@ class WorkerSettings:
             auto_abandon_inactive_conversations,
             minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
             run_at_startup=True,  # Run once on worker startup
+        ),
+        # Reap audits stranded by a killed worker - every 10 minutes
+        cron(
+            reap_stalled_audits,
+            minute={0, 10, 20, 30, 40, 50},
+            run_at_startup=True,  # clear any strays on worker start/deploy
         ),
         # Auto-resolve stale tickets - daily at 2 AM UTC
         cron(
