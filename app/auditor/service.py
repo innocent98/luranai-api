@@ -493,7 +493,9 @@ def reap_stalled_audits_sync(db, older_than_minutes: int | None = None) -> int:
     for report in stalled:
         report.status = AuditStatus.FAILED
         report.scan_quality = ScanQuality.RENDER_FAILED
-        report.scan_quality_reason = "This scan didn't finish (it was interrupted). Please try again."
+        report.scan_quality_reason = (
+            "This scan didn't finish (it was interrupted). Please try again."
+        )
     db.commit()
     return count
 
