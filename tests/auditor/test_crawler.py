@@ -1242,3 +1242,48 @@ async def test_http_first_render_falls_back_on_non_2xx():
     ) as fallback:
         await crawler._http_first_render("https://example.com/a")
     fallback.assert_awaited_once_with("https://example.com/a")
+
+
+# ---------------------------------------------------------------------------
+# Backend selection wiring — render_page + crawl_site
+# ---------------------------------------------------------------------------
+
+
+def test_select_backend_defaults_to_http_local_when_overridden():
+    with patch.object(crawler.settings, "AUDITOR_RENDER_BACKEND", "http"):
+        assert crawler._select_backend() == "http"
+        assert crawler._default_renderer() is crawler._http_first_render
+    with patch.object(crawler.settings, "AUDITOR_RENDER_BACKEND", "local"):
+        assert crawler._select_backend() == "local"
+        assert crawler._default_renderer() is crawler._playwright_render
+
+
+@pytest.mark.asyncio
+async def test_crawl_site_http_backend_uses_http_renderer_no_shared_browser():
+    seeds = ["https://example.com/"]
+    with patch.object(crawler.settings, "AUDITOR_RENDER_BACKEND", "http"), patch(
+        "app.auditor.crawler.resolve_and_validate_host", return_value="93.184.216.34"
+    ), patch(
+        "app.auditor.crawler._browser_render_session"
+    ) as shared_browser, patch(
+        "app.auditor.crawler._http_first_render",
+        AsyncMock(return_value=(200, "<html><body>" + ("x " * 400) + "</body></html>",
+                                "https://example.com/")),
+    ) as http_render:
+        pages = await crawler.crawl_site(seeds, max_pages=1)
+    shared_browser.assert_not_called()  # HTTP backend launches no shared browser
+    http_render.assert_awaited()
+    assert len(pages) == 1 and pages[0].status == 200
+
+
+@pytest.mark.asyncio
+async def test_crawl_site_injected_renderer_still_overrides_backend():
+    seeds = ["https://example.com/"]
+    injected = AsyncMock(return_value=(200, "<html>content here</html>", "https://example.com/"))
+    with patch.object(crawler.settings, "AUDITOR_RENDER_BACKEND", "http"), patch(
+        "app.auditor.crawler._http_first_render", AsyncMock()
+    ) as http_render:
+        pages = await crawler.crawl_site(seeds, max_pages=1, page_renderer=injected)
+    injected.assert_awaited()
+    http_render.assert_not_awaited()
+    assert len(pages) == 1

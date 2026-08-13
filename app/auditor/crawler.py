@@ -475,6 +475,16 @@ async def _render_once(url: str, renderer, max_bytes: int) -> RawPage:
     )
 
 
+def _select_backend() -> str:
+    """'local' only when explicitly set; 'http' otherwise (default)."""
+    return "local" if settings.AUDITOR_RENDER_BACKEND == "local" else "http"
+
+
+def _default_renderer():
+    """Per-URL renderer for the active backend (used when no renderer is injected)."""
+    return _http_first_render if _select_backend() == "http" else _playwright_render
+
+
 async def render_page(
     url: str,
     *,
@@ -518,7 +528,7 @@ async def render_page(
             error_kind=RawPageError.BLOCKED,
         )
 
-    renderer = page_renderer or _playwright_render
+    renderer = page_renderer or _default_renderer()
     retries = settings.AUDITOR_SOFT_BLOCK_RETRIES
     backoff = settings.AUDITOR_SOFT_BLOCK_BACKOFF_S
     attempt = 0
@@ -700,8 +710,13 @@ async def crawl_site(
     if page_renderer is not None or not root_hostname:
         return await _run(page_renderer)
 
-    # Production: launch ONE browser for the whole same-host crawl and reuse it
-    # across every page (avoids a browser launch per page).
+    # HTTP backend (default): each page is fetched over HTTP; only thin/SPA pages
+    # self-launch a headless render. No shared browser for the crawl.
+    if _select_backend() == "http":
+        return await _run(_http_first_render)
+
+    # Local backend: launch ONE browser for the whole same-host crawl and reuse
+    # it across every page (avoids a browser launch per page).
     try:
         safe_ip = resolve_and_validate_host(root_hostname)
     except ValueError:
