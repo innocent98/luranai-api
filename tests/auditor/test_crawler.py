@@ -1108,3 +1108,21 @@ async def test_playwright_render_uses_ua_context(monkeypatch):
     status, html, final = await crawler._playwright_render("https://x.com/")
     assert status == 200
     assert captured.get("user_agent") == crawler.settings.AUDITOR_USER_AGENT
+
+
+# ---------------------------------------------------------------------------
+# HTTP-first render backend config
+# ---------------------------------------------------------------------------
+
+
+def test_auditor_http_backend_config_defaults():
+    from app.core.config import settings
+
+    assert settings.AUDITOR_RENDER_BACKEND == "http"
+    assert settings.AUDITOR_HTTP_MIN_CONTENT_CHARS == 500
+    assert settings.AUDITOR_HTTP_IMPERSONATE == "chrome"
+    assert settings.AUDITOR_HTTP_TIMEOUT_S == 15
+
+
+def test_curl_cffi_importable():
+    from curl_cffi.requests import AsyncSession  # noqa: F401
