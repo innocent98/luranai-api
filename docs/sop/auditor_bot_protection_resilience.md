@@ -77,8 +77,10 @@ extended).
 
 - **Own site:** allowlist the audit worker's egress IP in the `luranai.com` Vercel firewall (owner
   action) — the code retry is best-effort against a ~2/3 challenge rate, not a guaranteed unblock.
-- **Frontend:** dedicated `BLOCKED` treatment + an "import content manually" CTA (luran-dashboard);
-  today the FE already renders `scan_quality_reason`, so users see the honest message.
+- **Frontend:** dedicated `BLOCKED` treatment + an "import content manually" CTA (luran-dashboard).
+  ✅ **Done 2026-08-11** — see [`auditor_blocked_state_and_dns_perf.md`](auditor_blocked_state_and_dns_perf.md).
+  (The FE had been *mislabeling* `blocked` as `render_failed`/"on our end", not just rendering the
+  reason plainly — that is now fixed with a first-class amber `blocked` state.)
 - **Deferred v1 non-goals:** active challenge-solving (wait-for-JS + reload for the clearance
   cookie) and residential/rotating proxy egress for strict datacenter-IP blocks — revisit if data
   shows retries are insufficient for a meaningful share of customer sites.

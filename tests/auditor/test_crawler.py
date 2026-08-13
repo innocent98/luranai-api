@@ -36,6 +36,50 @@ async def test_ssrf_route_handler_aborts_non_http_and_internal_continues_safe():
 
 
 @pytest.mark.asyncio
+async def test_ssrf_route_handler_caches_repeated_same_host_lookups():
+    """A single page fires many same-host subresources (Next.js /_next chunks).
+    A per-session handler must validate each host at most once, not re-run the
+    blocking getaddrinfo for every request."""
+    cache: dict[str, bool] = {}
+    handler = crawler._make_ssrf_route_handler(cache)
+    calls = []
+    with patch(
+        "app.auditor.crawler.resolve_and_validate_host",
+        side_effect=lambda h: calls.append(h) or "1.2.3.4",
+    ):
+        for _ in range(5):
+            route = AsyncMock()
+            await handler(
+                route, SimpleNamespace(url="https://app.example.com/_next/x", resource_type="script")
+            )
+            route.continue_.assert_awaited_once()
+    assert calls == ["app.example.com"], "same host must be resolved only once per session"
+
+
+@pytest.mark.asyncio
+async def test_ssrf_route_handler_caches_blocked_host():
+    """A host that fails validation is cached as blocked too — it must not be
+    re-resolved on every subresource, and must keep being aborted."""
+    cache: dict[str, bool] = {}
+    handler = crawler._make_ssrf_route_handler(cache)
+    calls = []
+
+    def _boom(h):
+        calls.append(h)
+        raise ValueError("private")
+
+    with patch("app.auditor.crawler.resolve_and_validate_host", side_effect=_boom):
+        for _ in range(3):
+            route = AsyncMock()
+            await handler(
+                route, SimpleNamespace(url="http://10.0.0.1/x", resource_type="xhr")
+            )
+            route.abort.assert_awaited_once()
+            route.continue_.assert_not_awaited()
+    assert calls == ["10.0.0.1"], "blocked host must be resolved only once per session"
+
+
+@pytest.mark.asyncio
 async def test_ssrf_route_handler_aborts_heavy_resource_types():
     """image/media/font/stylesheet are aborted before any DNS validation (perf +
     reduced SSRF surface); allowed types still get validated."""
@@ -1064,3 +1108,182 @@ async def test_playwright_render_uses_ua_context(monkeypatch):
     status, html, final = await crawler._playwright_render("https://x.com/")
     assert status == 200
     assert captured.get("user_agent") == crawler.settings.AUDITOR_USER_AGENT
+
+
+# ---------------------------------------------------------------------------
+# HTTP-first render backend config
+# ---------------------------------------------------------------------------
+
+
+def test_auditor_http_backend_config_defaults():
+    from app.core.config import settings
+
+    assert settings.AUDITOR_RENDER_BACKEND == "http"
+    assert settings.AUDITOR_HTTP_MIN_CONTENT_CHARS == 500
+    assert settings.AUDITOR_HTTP_IMPERSONATE == "chrome"
+    assert settings.AUDITOR_HTTP_TIMEOUT_S == 15
+
+
+def test_curl_cffi_importable():
+    from curl_cffi.requests import AsyncSession  # noqa: F401
+
+
+def _fake_async_session(responses):
+    """Build a mock usable as `async with AsyncSession(curl_options=...) as s`.
+    `responses` is a list of SimpleNamespace(status_code=, text=, headers={}) returned
+    by successive s.get(...) calls. The returned `factory` records each constructor
+    call's (args, kwargs) on `factory.calls` so tests can assert the DNS pin was
+    passed to `AsyncSession(curl_options=...)` rather than to `.get(...)`."""
+    session = AsyncMock()
+    session.get = AsyncMock(side_effect=list(responses))
+    ctx = AsyncMock()
+    ctx.__aenter__.return_value = session
+    ctx.__aexit__.return_value = False
+
+    def factory(*a, **k):
+        factory.calls.append((a, k))
+        return ctx
+
+    factory.calls = []
+    return factory, session
+
+
+@pytest.mark.asyncio
+async def test_curl_cffi_fetch_pins_ip_and_returns_tuple():
+    resp = SimpleNamespace(status_code=200, text="<html>ok</html>", headers={})
+    factory, session = _fake_async_session([resp])
+    with patch("app.auditor.crawler.AsyncSession", factory), patch(
+        "app.auditor.crawler.resolve_and_validate_host", return_value="93.184.216.34"
+    ):
+        status, html, final_url = await crawler._curl_cffi_fetch("https://example.com/a")
+    assert (status, html, final_url) == (200, "<html>ok</html>", "https://example.com/a")
+    # Connection pinned to the validated IP via the AsyncSession CONSTRUCTOR's
+    # curl_options (curl_cffi has no per-request `resolve=` kwarg).
+    assert len(factory.calls) == 1
+    _, ctor_kwargs = factory.calls[0]
+    assert ctor_kwargs["curl_options"] == {
+        crawler.CurlOpt.RESOLVE: ["example.com:443:93.184.216.34"]
+    }
+    _, kwargs = session.get.call_args
+    assert "resolve" not in kwargs
+    assert kwargs["allow_redirects"] is False
+    assert kwargs["impersonate"] == "chrome"
+
+
+@pytest.mark.asyncio
+async def test_curl_cffi_fetch_blocks_unsafe_host():
+    with patch(
+        "app.auditor.crawler.resolve_and_validate_host", side_effect=ValueError("private")
+    ):
+        result = await crawler._curl_cffi_fetch("http://10.0.0.1/x")
+    assert result == (0, "", "http://10.0.0.1/x")
+
+
+@pytest.mark.asyncio
+async def test_curl_cffi_fetch_reguards_each_redirect_hop():
+    # hop 1 redirects to an internal host -> must be blocked on re-guard, no body
+    r1 = SimpleNamespace(status_code=307, text="", headers={"location": "http://169.254.169.254/"})
+    factory, session = _fake_async_session([r1])
+
+    def guard(host):
+        if host == "example.com":
+            return "93.184.216.34"
+        raise ValueError("internal")
+
+    with patch("app.auditor.crawler.AsyncSession", factory), patch(
+        "app.auditor.crawler.resolve_and_validate_host", side_effect=guard
+    ):
+        status, html, final_url = await crawler._curl_cffi_fetch("https://example.com/a")
+    assert (status, html) == (0, "")
+    assert final_url == "http://169.254.169.254/"
+
+
+# ---------------------------------------------------------------------------
+# _http_first_render — HTTP-first with per-page headless fallback
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_http_first_render_returns_ssr_without_headless_fallback():
+    big_html = "<html><body>" + ("word " * 400) + "</body></html>"  # > 500 chars of text
+    with patch(
+        "app.auditor.crawler._curl_cffi_fetch",
+        AsyncMock(return_value=(200, big_html, "https://example.com/a")),
+    ), patch("app.auditor.crawler._playwright_render", AsyncMock()) as fallback:
+        status, html, final_url = await crawler._http_first_render("https://example.com/a")
+    assert (status, final_url) == (200, "https://example.com/a")
+    assert html == big_html
+    fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_http_first_render_falls_back_when_thin():
+    shell = "<html><body><div id='__next'></div></body></html>"  # ~0 text
+    with patch(
+        "app.auditor.crawler._curl_cffi_fetch",
+        AsyncMock(return_value=(200, shell, "https://example.com/a")),
+    ), patch(
+        "app.auditor.crawler._playwright_render",
+        AsyncMock(return_value=(200, "<html>rendered content</html>", "https://example.com/a")),
+    ) as fallback:
+        status, html, _ = await crawler._http_first_render("https://example.com/a")
+    fallback.assert_awaited_once_with("https://example.com/a")
+    assert html == "<html>rendered content</html>"
+
+
+@pytest.mark.asyncio
+async def test_http_first_render_falls_back_on_non_2xx():
+    with patch(
+        "app.auditor.crawler._curl_cffi_fetch",
+        AsyncMock(return_value=(403, "", "https://example.com/a")),
+    ), patch(
+        "app.auditor.crawler._playwright_render",
+        AsyncMock(return_value=(403, "", "https://example.com/a")),
+    ) as fallback:
+        await crawler._http_first_render("https://example.com/a")
+    fallback.assert_awaited_once_with("https://example.com/a")
+
+
+# ---------------------------------------------------------------------------
+# Backend selection wiring — render_page + crawl_site
+# ---------------------------------------------------------------------------
+
+
+def test_select_backend_defaults_to_http_local_when_overridden():
+    with patch.object(crawler.settings, "AUDITOR_RENDER_BACKEND", "http"):
+        assert crawler._select_backend() == "http"
+        assert crawler._default_renderer() is crawler._http_first_render
+    with patch.object(crawler.settings, "AUDITOR_RENDER_BACKEND", "local"):
+        assert crawler._select_backend() == "local"
+        assert crawler._default_renderer() is crawler._playwright_render
+
+
+@pytest.mark.asyncio
+async def test_crawl_site_http_backend_uses_http_renderer_no_shared_browser():
+    seeds = ["https://example.com/"]
+    with patch.object(crawler.settings, "AUDITOR_RENDER_BACKEND", "http"), patch(
+        "app.auditor.crawler.resolve_and_validate_host", return_value="93.184.216.34"
+    ), patch(
+        "app.auditor.crawler._browser_render_session"
+    ) as shared_browser, patch(
+        "app.auditor.crawler._http_first_render",
+        AsyncMock(return_value=(200, "<html><body>" + ("x " * 400) + "</body></html>",
+                                "https://example.com/")),
+    ) as http_render:
+        pages = await crawler.crawl_site(seeds, max_pages=1)
+    shared_browser.assert_not_called()  # HTTP backend launches no shared browser
+    http_render.assert_awaited()
+    assert len(pages) == 1 and pages[0].status == 200
+
+
+@pytest.mark.asyncio
+async def test_crawl_site_injected_renderer_still_overrides_backend():
+    seeds = ["https://example.com/"]
+    injected = AsyncMock(return_value=(200, "<html>content here</html>", "https://example.com/"))
+    with patch.object(crawler.settings, "AUDITOR_RENDER_BACKEND", "http"), patch(
+        "app.auditor.crawler._http_first_render", AsyncMock()
+    ) as http_render:
+        pages = await crawler.crawl_site(seeds, max_pages=1, page_renderer=injected)
+    injected.assert_awaited()
+    http_render.assert_not_awaited()
+    assert len(pages) == 1

@@ -2,9 +2,10 @@
 
 from collections import defaultdict
 from datetime import timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import and_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
@@ -37,35 +38,36 @@ class VisitAnalyticsService:
             return
 
         try:
-            stmt = select(DailyVisit).where(
-                and_(
-                    DailyVisit.visit_date == visit_date,
-                    DailyVisit.tenant_id == tenant_id,
-                    DailyVisit.source == normalized_source,
-                    DailyVisit.visitor_key == normalized_key,
+            # Atomic upsert. The previous check-then-insert (SELECT, then INSERT
+            # when absent) raced: two concurrent first-visits for the same bucket
+            # both saw "no row" and both INSERTed, and the second commit violated
+            # uq_daily_visits_per_visitor_day -> 500. INSERT ... ON CONFLICT DO
+            # UPDATE is race-free and idempotent.
+            insert_stmt = pg_insert(DailyVisit).values(
+                id=uuid4(),
+                visit_date=visit_date,
+                tenant_id=tenant_id,
+                source=normalized_source,
+                visitor_key=normalized_key,
+                visit_count=1,
+                first_seen_at=now,
+                last_seen_at=now,
+                meta=meta or {},
+            )
+            update_set = {
+                "visit_count": DailyVisit.visit_count + 1,
+                "last_seen_at": now,
+            }
+            if meta:
+                # meta is JSON (not JSONB), so there is no SQL-side merge; on a
+                # repeat visit that carries meta, keep the latest event's value.
+                update_set["meta"] = insert_stmt.excluded.meta
+            self.db.execute(
+                insert_stmt.on_conflict_do_update(
+                    constraint="uq_daily_visits_per_visitor_day",
+                    set_=update_set,
                 )
             )
-            visit = self.db.execute(stmt).scalar_one_or_none()
-
-            if visit:
-                visit.visit_count += 1
-                visit.last_seen_at = now
-                if meta:
-                    visit.meta = {**(visit.meta or {}), **meta}
-            else:
-                self.db.add(
-                    DailyVisit(
-                        visit_date=visit_date,
-                        tenant_id=tenant_id,
-                        source=normalized_source,
-                        visitor_key=normalized_key,
-                        visit_count=1,
-                        first_seen_at=now,
-                        last_seen_at=now,
-                        meta=meta or {},
-                    )
-                )
-
             self.db.commit()
         except (ProgrammingError, OperationalError) as e:
             self.db.rollback()

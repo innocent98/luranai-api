@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import EmailStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -247,6 +249,16 @@ class Settings(BaseSettings):
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
     )
+    # Render backend: "http" = self-hosted HTTP-first fetch (curl_cffi, Chrome TLS)
+    # with per-page headless fallback (default, dev + prod — same path everywhere).
+    # "local" = headless-only (debugging / explicit override / ops fallback).
+    AUDITOR_RENDER_BACKEND: Literal["http", "local"] = "http"
+    # Below this many extracted chars, the HTTP fetch is treated as a thin/SPA
+    # shell and the page falls back to a headless render.
+    AUDITOR_HTTP_MIN_CONTENT_CHARS: int = 500
+    # curl_cffi browser-impersonation target (TLS/JA3 + browser-consistent headers).
+    AUDITOR_HTTP_IMPERSONATE: str = "chrome"
+    AUDITOR_HTTP_TIMEOUT_S: int = 15
     AUDITOR_MODEL_PROFILE: str = "gpt-4.1-mini"
     AUDITOR_MODEL_CLASSIFY: str = "gpt-4o-mini"
     AUDITOR_MODEL_GAPS: str = "gpt-4.1-mini"
