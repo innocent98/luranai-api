@@ -510,11 +510,12 @@ async def render_page(
 
     Soft-block retries: when the render returns HTTP 403/429 (bot firewall /
     rate limit), retries up to AUDITOR_SOFT_BLOCK_RETRIES times, sleeping
-    AUDITOR_SOFT_BLOCK_BACKOFF_S[i] between attempts. On the crawl_site path the
-    renderer is a shared browser context, so a challenge-clearance cookie set on
-    one attempt carries into the next (and to later pages); on the standalone
-    path each attempt launches a fresh browser. Only 403/429 are retried —
-    timeouts and other errors are returned immediately.
+    AUDITOR_SOFT_BLOCK_BACKOFF_S[i] between attempts. On the default ``http``
+    backend each attempt is a fresh, stateless curl fetch (no cookie carry-over),
+    and a persistent 403/429 falls back to a headless render; on the ``local``
+    backend's crawl_site path the renderer is a shared browser context, so a
+    challenge-clearance cookie set on one attempt carries into the next. Only
+    403/429 are retried — timeouts and other errors are returned immediately.
     """
     # Pre-render SSRF guard.
     if not guard_url(url):
@@ -598,7 +599,9 @@ async def crawl_site(
 ) -> list[RawPage]:
     """Render + BFS-expand from seed URLs in a single loop.
 
-    Renders each same-host, non-pruned, SSRF-safe URL exactly once (browser),
+    Renders each same-host, non-pruned, SSRF-safe URL exactly once (over HTTP on
+    the default ``http`` backend, or a headless browser on the ``local`` backend
+    and SPA fallback),
     then extracts links from the *rendered* HTML and enqueues newly discovered
     same-host links up to _MAX_DEPTH and max_pages. Reuses the rendered pages so
     the caller need not fetch them again.
