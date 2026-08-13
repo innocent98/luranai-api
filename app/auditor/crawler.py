@@ -10,6 +10,7 @@ from enum import Enum
 from urllib.parse import urljoin, urlparse
 
 import httpx
+from curl_cffi import CurlOpt
 from curl_cffi.requests import AsyncSession
 from loguru import logger
 from playwright.async_api import async_playwright
@@ -306,45 +307,47 @@ _REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 async def _curl_cffi_fetch(url: str, *, max_hops: int = 3) -> tuple[int, str, str]:
     """Fetch a URL over curl_cffi (Chrome TLS/JA3) with SSRF pinning.
 
-    Resolves + validates the host, pins the connection to that IP (curl --resolve),
-    and re-guards every redirect hop (follow_redirects is disabled and handled
-    manually so a Location cannot bounce us to an internal host). Returns
+    Resolves + validates the host, pins the connection to that IP via the
+    session-level ``curl_options={CurlOpt.RESOLVE: [...]}`` (curl_cffi has no
+    per-request ``resolve=`` kwarg — the pin must go on the AsyncSession
+    constructor, so a fresh session is opened per hop), and re-guards every
+    redirect hop (follow_redirects is disabled and handled manually so a
+    Location cannot bounce us to an internal host). Returns
     (status, html, final_url); (0, "", url) on any SSRF failure, bad scheme, or
     exceeding max_hops — treated downstream as blocked/error.
     """
     current = url
-    async with AsyncSession() as session:
-        for _ in range(max_hops + 1):
-            parsed = urlparse(current)
-            host = parsed.hostname or ""
-            if parsed.scheme not in {"http", "https"} or not host:
-                return 0, "", current
-            try:
-                safe_ip = resolve_and_validate_host(host)
-            except ValueError:
-                logger.warning("_curl_cffi_fetch SSRF guard blocked: {}", current)
-                return 0, "", current
-            port = parsed.port or (443 if parsed.scheme == "https" else 80)
-            # Pin only when the guard returned an IP (not an allowlisted hostname).
-            resolve_rule = [f"{host}:{port}:{safe_ip}"] if safe_ip != host else None
-            try:
+    for _ in range(max_hops + 1):
+        parsed = urlparse(current)
+        host = parsed.hostname or ""
+        if parsed.scheme not in {"http", "https"} or not host:
+            return 0, "", current
+        try:
+            safe_ip = resolve_and_validate_host(host)
+        except ValueError:
+            logger.warning("_curl_cffi_fetch SSRF guard blocked: {}", current)
+            return 0, "", current
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        # Pin only when the guard returned an IP (not an allowlisted hostname).
+        curl_options = {CurlOpt.RESOLVE: [f"{host}:{port}:{safe_ip}"]} if safe_ip != host else None
+        try:
+            async with AsyncSession(curl_options=curl_options) as session:
                 resp = await session.get(
                     current,
                     impersonate=settings.AUDITOR_HTTP_IMPERSONATE,
-                    resolve=resolve_rule,
                     allow_redirects=False,
                     timeout=settings.AUDITOR_HTTP_TIMEOUT_S,
                 )
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("_curl_cffi_fetch error {}: {}", current, exc)
-                return 0, "", current
-            if resp.status_code in _REDIRECT_STATUSES:
-                location = resp.headers.get("location")
-                if not location:
-                    return resp.status_code, resp.text or "", current
-                current = urljoin(current, location)
-                continue
-            return resp.status_code, resp.text or "", current
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("_curl_cffi_fetch error {}: {}", current, exc)
+            return 0, "", current
+        if resp.status_code in _REDIRECT_STATUSES:
+            location = resp.headers.get("location")
+            if not location:
+                return resp.status_code, resp.text or "", current
+            current = urljoin(current, location)
+            continue
+        return resp.status_code, resp.text or "", current
     return 0, "", current
 
 

@@ -1129,15 +1129,22 @@ def test_curl_cffi_importable():
 
 
 def _fake_async_session(responses):
-    """Build a mock usable as `async with AsyncSession() as s`.
+    """Build a mock usable as `async with AsyncSession(curl_options=...) as s`.
     `responses` is a list of SimpleNamespace(status_code=, text=, headers={}) returned
-    by successive s.get(...) calls."""
+    by successive s.get(...) calls. The returned `factory` records each constructor
+    call's (args, kwargs) on `factory.calls` so tests can assert the DNS pin was
+    passed to `AsyncSession(curl_options=...)` rather than to `.get(...)`."""
     session = AsyncMock()
     session.get = AsyncMock(side_effect=list(responses))
     ctx = AsyncMock()
     ctx.__aenter__.return_value = session
     ctx.__aexit__.return_value = False
-    factory = lambda *a, **k: ctx  # noqa: E731
+
+    def factory(*a, **k):
+        factory.calls.append((a, k))
+        return ctx
+
+    factory.calls = []
     return factory, session
 
 
@@ -1150,9 +1157,15 @@ async def test_curl_cffi_fetch_pins_ip_and_returns_tuple():
     ):
         status, html, final_url = await crawler._curl_cffi_fetch("https://example.com/a")
     assert (status, html, final_url) == (200, "<html>ok</html>", "https://example.com/a")
-    # Connection pinned to the validated IP for host:port
+    # Connection pinned to the validated IP via the AsyncSession CONSTRUCTOR's
+    # curl_options (curl_cffi has no per-request `resolve=` kwarg).
+    assert len(factory.calls) == 1
+    _, ctor_kwargs = factory.calls[0]
+    assert ctor_kwargs["curl_options"] == {
+        crawler.CurlOpt.RESOLVE: ["example.com:443:93.184.216.34"]
+    }
     _, kwargs = session.get.call_args
-    assert kwargs["resolve"] == ["example.com:443:93.184.216.34"]
+    assert "resolve" not in kwargs
     assert kwargs["allow_redirects"] is False
     assert kwargs["impersonate"] == "chrome"
 
