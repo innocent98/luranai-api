@@ -1126,3 +1126,60 @@ def test_auditor_http_backend_config_defaults():
 
 def test_curl_cffi_importable():
     from curl_cffi.requests import AsyncSession  # noqa: F401
+
+
+def _fake_async_session(responses):
+    """Build a mock usable as `async with AsyncSession() as s`.
+    `responses` is a list of SimpleNamespace(status_code=, text=, headers={}) returned
+    by successive s.get(...) calls."""
+    session = AsyncMock()
+    session.get = AsyncMock(side_effect=list(responses))
+    ctx = AsyncMock()
+    ctx.__aenter__.return_value = session
+    ctx.__aexit__.return_value = False
+    factory = lambda *a, **k: ctx  # noqa: E731
+    return factory, session
+
+
+@pytest.mark.asyncio
+async def test_curl_cffi_fetch_pins_ip_and_returns_tuple():
+    resp = SimpleNamespace(status_code=200, text="<html>ok</html>", headers={})
+    factory, session = _fake_async_session([resp])
+    with patch("app.auditor.crawler.AsyncSession", factory), patch(
+        "app.auditor.crawler.resolve_and_validate_host", return_value="93.184.216.34"
+    ):
+        status, html, final_url = await crawler._curl_cffi_fetch("https://example.com/a")
+    assert (status, html, final_url) == (200, "<html>ok</html>", "https://example.com/a")
+    # Connection pinned to the validated IP for host:port
+    _, kwargs = session.get.call_args
+    assert kwargs["resolve"] == ["example.com:443:93.184.216.34"]
+    assert kwargs["allow_redirects"] is False
+    assert kwargs["impersonate"] == "chrome"
+
+
+@pytest.mark.asyncio
+async def test_curl_cffi_fetch_blocks_unsafe_host():
+    with patch(
+        "app.auditor.crawler.resolve_and_validate_host", side_effect=ValueError("private")
+    ):
+        result = await crawler._curl_cffi_fetch("http://10.0.0.1/x")
+    assert result == (0, "", "http://10.0.0.1/x")
+
+
+@pytest.mark.asyncio
+async def test_curl_cffi_fetch_reguards_each_redirect_hop():
+    # hop 1 redirects to an internal host -> must be blocked on re-guard, no body
+    r1 = SimpleNamespace(status_code=307, text="", headers={"location": "http://169.254.169.254/"})
+    factory, session = _fake_async_session([r1])
+
+    def guard(host):
+        if host == "example.com":
+            return "93.184.216.34"
+        raise ValueError("internal")
+
+    with patch("app.auditor.crawler.AsyncSession", factory), patch(
+        "app.auditor.crawler.resolve_and_validate_host", side_effect=guard
+    ):
+        status, html, final_url = await crawler._curl_cffi_fetch("https://example.com/a")
+    assert (status, html) == (0, "")
+    assert final_url == "http://169.254.169.254/"
