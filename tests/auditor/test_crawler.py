@@ -36,6 +36,50 @@ async def test_ssrf_route_handler_aborts_non_http_and_internal_continues_safe():
 
 
 @pytest.mark.asyncio
+async def test_ssrf_route_handler_caches_repeated_same_host_lookups():
+    """A single page fires many same-host subresources (Next.js /_next chunks).
+    A per-session handler must validate each host at most once, not re-run the
+    blocking getaddrinfo for every request."""
+    cache: dict[str, bool] = {}
+    handler = crawler._make_ssrf_route_handler(cache)
+    calls = []
+    with patch(
+        "app.auditor.crawler.resolve_and_validate_host",
+        side_effect=lambda h: calls.append(h) or "1.2.3.4",
+    ):
+        for _ in range(5):
+            route = AsyncMock()
+            await handler(
+                route, SimpleNamespace(url="https://app.example.com/_next/x", resource_type="script")
+            )
+            route.continue_.assert_awaited_once()
+    assert calls == ["app.example.com"], "same host must be resolved only once per session"
+
+
+@pytest.mark.asyncio
+async def test_ssrf_route_handler_caches_blocked_host():
+    """A host that fails validation is cached as blocked too — it must not be
+    re-resolved on every subresource, and must keep being aborted."""
+    cache: dict[str, bool] = {}
+    handler = crawler._make_ssrf_route_handler(cache)
+    calls = []
+
+    def _boom(h):
+        calls.append(h)
+        raise ValueError("private")
+
+    with patch("app.auditor.crawler.resolve_and_validate_host", side_effect=_boom):
+        for _ in range(3):
+            route = AsyncMock()
+            await handler(
+                route, SimpleNamespace(url="http://10.0.0.1/x", resource_type="xhr")
+            )
+            route.abort.assert_awaited_once()
+            route.continue_.assert_not_awaited()
+    assert calls == ["10.0.0.1"], "blocked host must be resolved only once per session"
+
+
+@pytest.mark.asyncio
 async def test_ssrf_route_handler_aborts_heavy_resource_types():
     """image/media/font/stylesheet are aborted before any DNS validation (perf +
     reduced SSRF surface); allowed types still get validated."""

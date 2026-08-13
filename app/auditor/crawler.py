@@ -157,36 +157,78 @@ def is_allowed_by_robots(url: str, disallowed: set[str]) -> bool:
 _BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font", "stylesheet"})
 
 
-async def _ssrf_route_handler(route, request) -> None:
-    """Playwright request interceptor: abort heavy resource types the auditor
-    doesn't need, then abort any remaining subresource/redirect to a
-    non-http(s) or unvalidated/internal host (defense-in-depth vs subresource SSRF)."""
-    if request.resource_type in _BLOCKED_RESOURCE_TYPES:
-        await route.abort()
-        return
-    req_url = request.url
-    req_parsed = urlparse(req_url)
-    req_host = req_parsed.hostname or ""
-    if req_parsed.scheme not in {"http", "https"} or not req_host:
-        await route.abort()
-        return
+async def _validate_subresource_host(host: str, cache: dict[str, bool] | None) -> bool:
+    """Return True if `host` is SSRF-safe for a subresource fetch.
+
+    resolve_and_validate_host does a blocking socket.getaddrinfo; the route
+    handler runs on the crawl's event loop and is called once per allowed
+    subresource, so calling it inline serialised every render behind DNS. Two
+    fixes here:
+
+    - Resolution runs off the loop via asyncio.to_thread, so concurrent pages
+      and the rest of the render proceed while a lookup is in flight.
+    - An optional per-crawl cache collapses the many same-host subresources a
+      single page fires (a Next.js page pulls dozens of /_next chunks from the
+      root host) into one lookup. The cache's lifetime is a single crawl session
+      — the same span the root host is already IP-pinned for — so it does not
+      widen the DNS-rebinding window the guard exists to close.
+    """
+    if cache is not None and host in cache:
+        return cache[host]
     try:
-        resolve_and_validate_host(req_host)
-        await route.continue_()
+        await asyncio.to_thread(resolve_and_validate_host, host)
+        ok = True
     except ValueError:
-        logger.warning("_ssrf_route_handler blocked subresource: {}", req_url)
-        await route.abort()
+        ok = False
+    if cache is not None:
+        cache[host] = ok
+    return ok
 
 
-async def _render_page_in_context(context, url: str) -> tuple[int, str, str]:
+def _make_ssrf_route_handler(cache: dict[str, bool] | None = None):
+    """Build a Playwright request interceptor: abort heavy resource types the
+    auditor doesn't need, then abort any remaining subresource/redirect to a
+    non-http(s) or unvalidated/internal host (defense-in-depth vs subresource
+    SSRF). Pass a dict to memoise host validation for the caller's lifetime."""
+
+    async def _handler(route, request) -> None:
+        if request.resource_type in _BLOCKED_RESOURCE_TYPES:
+            await route.abort()
+            return
+        req_url = request.url
+        req_parsed = urlparse(req_url)
+        req_host = req_parsed.hostname or ""
+        if req_parsed.scheme not in {"http", "https"} or not req_host:
+            await route.abort()
+            return
+        if await _validate_subresource_host(req_host, cache):
+            await route.continue_()
+        else:
+            logger.warning("_ssrf_route_handler blocked subresource: {}", req_url)
+            await route.abort()
+
+    return _handler
+
+
+# Backwards-compatible module-level handler (no cache) for standalone renders and
+# the unit tests that call it directly. crawl_site builds a cached handler per
+# session in _browser_render_session.
+_ssrf_route_handler = _make_ssrf_route_handler()
+
+
+async def _render_page_in_context(context, url: str, route_handler=None) -> tuple[int, str, str]:
     """Render one URL in an already-created context and return
     (status, html, final_url). Opens and closes a fresh page (tab), applies the
     SSRF/asset route guard, waits for hydration best-effort, and snapshots.
+
+    route_handler defaults to the module-level uncached handler; crawl_site
+    passes a per-session cached handler so repeated same-host subresource
+    validations across the crawl are memoised.
     """
     page = await context.new_page()
     try:
         # Block unneeded resources + SSRF-guard remaining subresources/redirects.
-        await page.route("**/*", _ssrf_route_handler)
+        await page.route("**/*", route_handler or _ssrf_route_handler)
 
         resp = await page.goto(
             url,
@@ -243,8 +285,14 @@ async def _browser_render_session(host: str, safe_ip: str):
             try:
                 context = await browser.new_context(user_agent=settings.AUDITOR_USER_AGENT)
 
+                # One host-validation cache for the whole crawl session: the many
+                # same-host subresources each page fires are resolved once, not
+                # per request. Lifetime == the crawl (same as the root-host pin).
+                subresource_host_cache: dict[str, bool] = {}
+                session_route_handler = _make_ssrf_route_handler(subresource_host_cache)
+
                 async def _render(url: str) -> tuple[int, str, str]:
-                    return await _render_page_in_context(context, url)
+                    return await _render_page_in_context(context, url, session_route_handler)
 
                 yield _render
             finally:
