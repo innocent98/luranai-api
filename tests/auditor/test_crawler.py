@@ -1196,3 +1196,49 @@ async def test_curl_cffi_fetch_reguards_each_redirect_hop():
         status, html, final_url = await crawler._curl_cffi_fetch("https://example.com/a")
     assert (status, html) == (0, "")
     assert final_url == "http://169.254.169.254/"
+
+
+# ---------------------------------------------------------------------------
+# _http_first_render — HTTP-first with per-page headless fallback
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_http_first_render_returns_ssr_without_headless_fallback():
+    big_html = "<html><body>" + ("word " * 400) + "</body></html>"  # > 500 chars of text
+    with patch(
+        "app.auditor.crawler._curl_cffi_fetch",
+        AsyncMock(return_value=(200, big_html, "https://example.com/a")),
+    ), patch("app.auditor.crawler._playwright_render", AsyncMock()) as fallback:
+        status, html, final_url = await crawler._http_first_render("https://example.com/a")
+    assert (status, final_url) == (200, "https://example.com/a")
+    assert html == big_html
+    fallback.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_http_first_render_falls_back_when_thin():
+    shell = "<html><body><div id='__next'></div></body></html>"  # ~0 text
+    with patch(
+        "app.auditor.crawler._curl_cffi_fetch",
+        AsyncMock(return_value=(200, shell, "https://example.com/a")),
+    ), patch(
+        "app.auditor.crawler._playwright_render",
+        AsyncMock(return_value=(200, "<html>rendered content</html>", "https://example.com/a")),
+    ) as fallback:
+        status, html, _ = await crawler._http_first_render("https://example.com/a")
+    fallback.assert_awaited_once_with("https://example.com/a")
+    assert html == "<html>rendered content</html>"
+
+
+@pytest.mark.asyncio
+async def test_http_first_render_falls_back_on_non_2xx():
+    with patch(
+        "app.auditor.crawler._curl_cffi_fetch",
+        AsyncMock(return_value=(403, "", "https://example.com/a")),
+    ), patch(
+        "app.auditor.crawler._playwright_render",
+        AsyncMock(return_value=(403, "", "https://example.com/a")),
+    ) as fallback:
+        await crawler._http_first_render("https://example.com/a")
+    fallback.assert_awaited_once_with("https://example.com/a")

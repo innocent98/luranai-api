@@ -351,6 +351,27 @@ async def _curl_cffi_fetch(url: str, *, max_hops: int = 3) -> tuple[int, str, st
     return 0, "", current
 
 
+async def _http_first_render(url: str) -> tuple[int, str, str]:
+    """HTTP-first renderer: fetch raw HTML over curl_cffi and fall back to a
+    headless render only when the HTTP HTML is a thin/SPA shell.
+
+    SSR/SSG sites (the common case, and the ones bot-blocked on the headless
+    path) resolve here with no browser launched. A genuine client-rendered page
+    yields too little text and falls back to _playwright_render for that one URL.
+    """
+    # Local import: extraction imports crawler (RawPage), so importing it at
+    # module top would be a cycle.
+    from app.auditor.extraction import extract_main
+
+    status, html, final_url = await _curl_cffi_fetch(url)
+    if 200 <= status < 400 and html:
+        _, text = extract_main(html)
+        if len(text) >= settings.AUDITOR_HTTP_MIN_CONTENT_CHARS:
+            return status, html, final_url
+    # Thin, empty, or non-2xx/3xx → headless fallback for this URL.
+    return await _playwright_render(url)
+
+
 async def _playwright_render(url: str) -> tuple[int, str, str]:
     """Default single-page renderer: launch a browser, render one URL, close.
 
