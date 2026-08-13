@@ -10,6 +10,8 @@ from enum import Enum
 from urllib.parse import urljoin, urlparse
 
 import httpx
+from curl_cffi import CurlOpt
+from curl_cffi.requests import AsyncSession
 from loguru import logger
 from playwright.async_api import async_playwright
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -157,36 +159,78 @@ def is_allowed_by_robots(url: str, disallowed: set[str]) -> bool:
 _BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font", "stylesheet"})
 
 
-async def _ssrf_route_handler(route, request) -> None:
-    """Playwright request interceptor: abort heavy resource types the auditor
-    doesn't need, then abort any remaining subresource/redirect to a
-    non-http(s) or unvalidated/internal host (defense-in-depth vs subresource SSRF)."""
-    if request.resource_type in _BLOCKED_RESOURCE_TYPES:
-        await route.abort()
-        return
-    req_url = request.url
-    req_parsed = urlparse(req_url)
-    req_host = req_parsed.hostname or ""
-    if req_parsed.scheme not in {"http", "https"} or not req_host:
-        await route.abort()
-        return
+async def _validate_subresource_host(host: str, cache: dict[str, bool] | None) -> bool:
+    """Return True if `host` is SSRF-safe for a subresource fetch.
+
+    resolve_and_validate_host does a blocking socket.getaddrinfo; the route
+    handler runs on the crawl's event loop and is called once per allowed
+    subresource, so calling it inline serialised every render behind DNS. Two
+    fixes here:
+
+    - Resolution runs off the loop via asyncio.to_thread, so concurrent pages
+      and the rest of the render proceed while a lookup is in flight.
+    - An optional per-crawl cache collapses the many same-host subresources a
+      single page fires (a Next.js page pulls dozens of /_next chunks from the
+      root host) into one lookup. The cache's lifetime is a single crawl session
+      — the same span the root host is already IP-pinned for — so it does not
+      widen the DNS-rebinding window the guard exists to close.
+    """
+    if cache is not None and host in cache:
+        return cache[host]
     try:
-        resolve_and_validate_host(req_host)
-        await route.continue_()
+        await asyncio.to_thread(resolve_and_validate_host, host)
+        ok = True
     except ValueError:
-        logger.warning("_ssrf_route_handler blocked subresource: {}", req_url)
-        await route.abort()
+        ok = False
+    if cache is not None:
+        cache[host] = ok
+    return ok
 
 
-async def _render_page_in_context(context, url: str) -> tuple[int, str, str]:
+def _make_ssrf_route_handler(cache: dict[str, bool] | None = None):
+    """Build a Playwright request interceptor: abort heavy resource types the
+    auditor doesn't need, then abort any remaining subresource/redirect to a
+    non-http(s) or unvalidated/internal host (defense-in-depth vs subresource
+    SSRF). Pass a dict to memoise host validation for the caller's lifetime."""
+
+    async def _handler(route, request) -> None:
+        if request.resource_type in _BLOCKED_RESOURCE_TYPES:
+            await route.abort()
+            return
+        req_url = request.url
+        req_parsed = urlparse(req_url)
+        req_host = req_parsed.hostname or ""
+        if req_parsed.scheme not in {"http", "https"} or not req_host:
+            await route.abort()
+            return
+        if await _validate_subresource_host(req_host, cache):
+            await route.continue_()
+        else:
+            logger.warning("_ssrf_route_handler blocked subresource: {}", req_url)
+            await route.abort()
+
+    return _handler
+
+
+# Backwards-compatible module-level handler (no cache) for standalone renders and
+# the unit tests that call it directly. crawl_site builds a cached handler per
+# session in _browser_render_session.
+_ssrf_route_handler = _make_ssrf_route_handler()
+
+
+async def _render_page_in_context(context, url: str, route_handler=None) -> tuple[int, str, str]:
     """Render one URL in an already-created context and return
     (status, html, final_url). Opens and closes a fresh page (tab), applies the
     SSRF/asset route guard, waits for hydration best-effort, and snapshots.
+
+    route_handler defaults to the module-level uncached handler; crawl_site
+    passes a per-session cached handler so repeated same-host subresource
+    validations across the crawl are memoised.
     """
     page = await context.new_page()
     try:
         # Block unneeded resources + SSRF-guard remaining subresources/redirects.
-        await page.route("**/*", _ssrf_route_handler)
+        await page.route("**/*", route_handler or _ssrf_route_handler)
 
         resp = await page.goto(
             url,
@@ -243,12 +287,89 @@ async def _browser_render_session(host: str, safe_ip: str):
             try:
                 context = await browser.new_context(user_agent=settings.AUDITOR_USER_AGENT)
 
+                # One host-validation cache for the whole crawl session: the many
+                # same-host subresources each page fires are resolved once, not
+                # per request. Lifetime == the crawl (same as the root-host pin).
+                subresource_host_cache: dict[str, bool] = {}
+                session_route_handler = _make_ssrf_route_handler(subresource_host_cache)
+
                 async def _render(url: str) -> tuple[int, str, str]:
-                    return await _render_page_in_context(context, url)
+                    return await _render_page_in_context(context, url, session_route_handler)
 
                 yield _render
             finally:
                 await browser.close()
+
+
+_REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+
+
+async def _curl_cffi_fetch(url: str, *, max_hops: int = 3) -> tuple[int, str, str]:
+    """Fetch a URL over curl_cffi (Chrome TLS/JA3) with SSRF pinning.
+
+    Resolves + validates the host, pins the connection to that IP via the
+    session-level ``curl_options={CurlOpt.RESOLVE: [...]}`` (curl_cffi has no
+    per-request ``resolve=`` kwarg — the pin must go on the AsyncSession
+    constructor, so a fresh session is opened per hop), and re-guards every
+    redirect hop (follow_redirects is disabled and handled manually so a
+    Location cannot bounce us to an internal host). Returns
+    (status, html, final_url); (0, "", url) on any SSRF failure, bad scheme, or
+    exceeding max_hops — treated downstream as blocked/error.
+    """
+    current = url
+    for _ in range(max_hops + 1):
+        parsed = urlparse(current)
+        host = parsed.hostname or ""
+        if parsed.scheme not in {"http", "https"} or not host:
+            return 0, "", current
+        try:
+            safe_ip = resolve_and_validate_host(host)
+        except ValueError:
+            logger.warning("_curl_cffi_fetch SSRF guard blocked: {}", current)
+            return 0, "", current
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        # Pin only when the guard returned an IP (not an allowlisted hostname).
+        curl_options = {CurlOpt.RESOLVE: [f"{host}:{port}:{safe_ip}"]} if safe_ip != host else None
+        try:
+            async with AsyncSession(curl_options=curl_options) as session:
+                resp = await session.get(
+                    current,
+                    impersonate=settings.AUDITOR_HTTP_IMPERSONATE,
+                    allow_redirects=False,
+                    timeout=settings.AUDITOR_HTTP_TIMEOUT_S,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("_curl_cffi_fetch error {}: {}", current, exc)
+            return 0, "", current
+        if resp.status_code in _REDIRECT_STATUSES:
+            location = resp.headers.get("location")
+            if not location:
+                return resp.status_code, resp.text or "", current
+            current = urljoin(current, location)
+            continue
+        return resp.status_code, resp.text or "", current
+    return 0, "", current
+
+
+async def _http_first_render(url: str) -> tuple[int, str, str]:
+    """HTTP-first renderer: fetch raw HTML over curl_cffi and fall back to a
+    headless render only when the HTTP HTML is a thin/SPA shell.
+
+    SSR/SSG sites (the common case, and the ones bot-blocked on the headless
+    path) resolve here with no browser launched. A genuine client-rendered page
+    yields too little text and falls back to _playwright_render for that one URL.
+    """
+    # Local import: extraction imports crawler (RawPage), so importing it at
+    # module top would be a cycle.
+    from app.auditor.extraction import extract_main
+
+    status, html, final_url = await _curl_cffi_fetch(url)
+    if 200 <= status < 400 and html:
+        _, text = extract_main(html)
+        if len(text) >= settings.AUDITOR_HTTP_MIN_CONTENT_CHARS:
+            return status, html, final_url
+    # Thin, empty, or non-2xx/3xx → headless fallback for this URL.
+    return await _playwright_render(url)
 
 
 async def _playwright_render(url: str) -> tuple[int, str, str]:
@@ -354,6 +475,16 @@ async def _render_once(url: str, renderer, max_bytes: int) -> RawPage:
     )
 
 
+def _select_backend() -> str:
+    """'local' only when explicitly set; 'http' otherwise (default)."""
+    return "local" if settings.AUDITOR_RENDER_BACKEND == "local" else "http"
+
+
+def _default_renderer():
+    """Per-URL renderer for the active backend (used when no renderer is injected)."""
+    return _http_first_render if _select_backend() == "http" else _playwright_render
+
+
 async def render_page(
     url: str,
     *,
@@ -379,11 +510,12 @@ async def render_page(
 
     Soft-block retries: when the render returns HTTP 403/429 (bot firewall /
     rate limit), retries up to AUDITOR_SOFT_BLOCK_RETRIES times, sleeping
-    AUDITOR_SOFT_BLOCK_BACKOFF_S[i] between attempts. On the crawl_site path the
-    renderer is a shared browser context, so a challenge-clearance cookie set on
-    one attempt carries into the next (and to later pages); on the standalone
-    path each attempt launches a fresh browser. Only 403/429 are retried —
-    timeouts and other errors are returned immediately.
+    AUDITOR_SOFT_BLOCK_BACKOFF_S[i] between attempts. On the default ``http``
+    backend each attempt is a fresh, stateless curl fetch (no cookie carry-over),
+    and a persistent 403/429 falls back to a headless render; on the ``local``
+    backend's crawl_site path the renderer is a shared browser context, so a
+    challenge-clearance cookie set on one attempt carries into the next. Only
+    403/429 are retried — timeouts and other errors are returned immediately.
     """
     # Pre-render SSRF guard.
     if not guard_url(url):
@@ -397,7 +529,7 @@ async def render_page(
             error_kind=RawPageError.BLOCKED,
         )
 
-    renderer = page_renderer or _playwright_render
+    renderer = page_renderer or _default_renderer()
     retries = settings.AUDITOR_SOFT_BLOCK_RETRIES
     backoff = settings.AUDITOR_SOFT_BLOCK_BACKOFF_S
     attempt = 0
@@ -467,7 +599,9 @@ async def crawl_site(
 ) -> list[RawPage]:
     """Render + BFS-expand from seed URLs in a single loop.
 
-    Renders each same-host, non-pruned, SSRF-safe URL exactly once (browser),
+    Renders each same-host, non-pruned, SSRF-safe URL exactly once (over HTTP on
+    the default ``http`` backend, or a headless browser on the ``local`` backend
+    and SPA fallback),
     then extracts links from the *rendered* HTML and enqueues newly discovered
     same-host links up to _MAX_DEPTH and max_pages. Reuses the rendered pages so
     the caller need not fetch them again.
@@ -579,8 +713,13 @@ async def crawl_site(
     if page_renderer is not None or not root_hostname:
         return await _run(page_renderer)
 
-    # Production: launch ONE browser for the whole same-host crawl and reuse it
-    # across every page (avoids a browser launch per page).
+    # HTTP backend (default): each page is fetched over HTTP; only thin/SPA pages
+    # self-launch a headless render. No shared browser for the crawl.
+    if _select_backend() == "http":
+        return await _run(_http_first_render)
+
+    # Local backend: launch ONE browser for the whole same-host crawl and reuse
+    # it across every page (avoids a browser launch per page).
     try:
         safe_ip = resolve_and_validate_host(root_hostname)
     except ValueError:
