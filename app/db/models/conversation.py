@@ -39,6 +39,7 @@ class TicketStatus(str, enum.Enum):
     IN_PROGRESS = "in_progress"
     RESOLVED = "resolved"
     CLOSED = "closed"
+    MISSED = "missed"
 
 
 class TicketPriority(str, enum.Enum):
@@ -304,6 +305,11 @@ class Ticket(Base, UUIDMixin, TimestampMixin):
         DateTime(timezone=True),
         nullable=True,
         comment="When the ticket was resolved",
+    )
+    acknowledged_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When an agent claimed this escalation from the mobile app",
     )
 
     # Relationships
