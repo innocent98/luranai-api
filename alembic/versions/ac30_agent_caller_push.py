@@ -7,6 +7,7 @@ Create Date: 2026-08-16
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects.postgresql import ENUM
 
 revision = "ac30agentcaller"
 down_revision = "ab20blockedquality"
@@ -46,7 +47,14 @@ def upgrade() -> None:
     )
 
     # --- agent_devices --------------------------------------------------------
-    platform = sa.Enum("android", "ios", name="device_platform")
+    # create_type=False: op.create_table below binds this same Enum object to a
+    # column, and SQLAlchemy fires a table-bound "CREATE TYPE" DDL event for any
+    # Enum column unless told not to — which would double-create the type after
+    # the explicit .create() just below and abort the migration with
+    # DuplicateObject. The explicit .create(checkfirst=True) call still runs
+    # (create_type only gates the table-DDL auto-create event, not explicit
+    # calls), so the type is created exactly once.
+    platform = ENUM("android", "ios", name="device_platform", create_type=False)
     platform.create(op.get_bind(), checkfirst=True)
     op.create_table(
         "agent_devices",
