@@ -47,28 +47,44 @@ def test_finish_reason_stop_present_exactly_once():
     assert len(stops) == 1
 
 
-def test_empty_reply_yields_no_content_frames():
-    """Empty reply should emit role frame, no content, terminal stop frame + [DONE]."""
-    chunks = list(stream_reply("", model="m"))
+def test_empty_reply_with_buffer_word_yields_buffer_only():
+    """Empty reply with buffer_word=True should emit buffer, no word frames."""
+    chunks = list(stream_reply("", model="m", buffer_word=True))
+    payloads = _frames(chunks)
+    contents = [p["choices"][0]["delta"].get("content") for p in payloads]
+    # Should have buffer word but no word frames
+    assert BUFFER_WORD in contents, f"Expected buffer word in {contents}"
+    # No word frames (only buffer)
+    word_contents = [c for c in contents if c and c != BUFFER_WORD]
+    assert word_contents == [], f"Expected no word frames for empty reply, got {word_contents}"
+
+
+def test_empty_reply_without_buffer_word_yields_no_content():
+    """Empty reply with buffer_word=False should emit no content frames."""
+    chunks = list(stream_reply("", model="m", buffer_word=False))
     payloads = _frames(chunks)
     contents = [
         p["choices"][0]["delta"].get("content")
         for p in payloads
         if "content" in p["choices"][0]["delta"]
     ]
-    assert contents == [], f"Expected no content frames for empty reply, got {contents}"
+    assert (
+        contents == []
+    ), f"Expected no content frames for empty reply with buffer_word=False, got {contents}"
 
 
-def test_whitespace_only_reply_yields_no_content_frames():
-    """Whitespace-only reply should emit role frame, no content, terminal stop frame + [DONE]."""
-    chunks = list(stream_reply("   ", model="m"))
+def test_whitespace_only_reply_with_buffer_word_yields_buffer_only():
+    """Whitespace-only reply with buffer_word=True should emit buffer, no word frames."""
+    chunks = list(stream_reply("   ", model="m", buffer_word=True))
     payloads = _frames(chunks)
-    contents = [
-        p["choices"][0]["delta"].get("content")
-        for p in payloads
-        if "content" in p["choices"][0]["delta"]
-    ]
-    assert contents == [], f"Expected no content frames for whitespace-only reply, got {contents}"
+    contents = [p["choices"][0]["delta"].get("content") for p in payloads]
+    # Should have buffer word but no word frames
+    assert BUFFER_WORD in contents, f"Expected buffer word in {contents}"
+    # No word frames (only buffer)
+    word_contents = [c for c in contents if c and c != BUFFER_WORD]
+    assert (
+        word_contents == []
+    ), f"Expected no word frames for whitespace-only reply, got {word_contents}"
 
 
 def test_completion_id_and_created_identical_across_frames():

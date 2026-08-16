@@ -54,12 +54,13 @@ def stream_reply(
 
     yield chunk({"role": "assistant"})
 
-    # Only emit content frames if reply has non-whitespace text.
-    # Empty or whitespace-only replies skip straight to terminal stop frame.
-    if reply_text.strip():
-        if buffer_word:
-            yield chunk({"content": BUFFER_WORD})
+    # Buffer word depends only on the buffer_word parameter.
+    # It prevents dead air for empty replies (spec §3).
+    if buffer_word:
+        yield chunk({"content": BUFFER_WORD})
 
+    # Only emit word frames if reply has non-whitespace text.
+    if reply_text.strip():
         for word in reply_text.split(" "):
             yield chunk({"content": word + " "})
 
