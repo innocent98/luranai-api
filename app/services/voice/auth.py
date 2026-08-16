@@ -1,11 +1,13 @@
 """Verify that an inbound request really came from ElevenLabs.
 
-SPIKE 1 SWAP POINT. Today this is a constant-time shared-secret bearer check,
-which is what the ElevenLabs custom-LLM config lets us set. If Spike 1 shows EL
-sends a verifiable HMAC signature (e.g. an `xi-signature: t=…,v0=…` header),
-add that branch HERE — every caller depends only on this function's contract
-("raises 401 unless the request is genuinely from ElevenLabs"), never on how
-that's checked, so the swap touches nothing else in the voice-chat backend.
+TODO(spike-1): SWAP POINT. Today this is a constant-time shared-secret bearer
+check, which is what the ElevenLabs custom-LLM config lets us set today. If
+Spike 1 shows EL sends a verifiable HMAC signature instead (e.g. an
+`xi-signature: t=…,v0=…` header), add that branch HERE, inside
+verify_elevenlabs_request — every caller (Tasks 8 and 10) depends only on
+this function's contract ("raises 401 unless the request is genuinely from
+ElevenLabs"), never on how that's checked, so the swap touches nothing else
+in the voice-chat backend.
 """
 
 import hmac
