@@ -3,24 +3,45 @@
 Spec: docs/superpowers/specs/2026-08-15-voice-chat-backend-design.md
 """
 
+from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from loguru import logger
 from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.api.v1.endpoints.chat import send_message
 from app.core.config import settings
 from app.db.models.conversation import ConversationSession
+from app.schemas.conversation import MessageRequest
 from app.schemas.voice import VoiceTokenRequest, VoiceTokenResponse
+from app.services.voice.auth import verify_elevenlabs_request
 from app.services.voice.elevenlabs_client import ElevenLabsClient, ElevenLabsMintError
 from app.services.voice.gating import VoiceDenialReason, VoiceGate
-from app.services.voice.session_tokens import VoiceSessionTokenStore
+from app.services.voice.session_tokens import VoiceSessionContext, VoiceSessionTokenStore
+from app.services.voice.sse import stream_reply
 from app.utils.http_rate_limiter import voice_rate_limit
 
 router = APIRouter()
+
+# Spoken when the pipeline raises. Silence is the worst possible failure mode
+# on a voice call, so we always return a speakable 200 rather than an error
+# status — ElevenLabs has no way to render a non-200 as audio.
+_FALLBACK_REPLY = "I am sorry, I ran into a problem just then. Could you say that again?"
+
+# Spoken when we never got a usable transcript to send to the pipeline at all
+# (e.g. ElevenLabs sent a turn with no user-role content).
+_NO_INPUT_REPLY = "Sorry, I did not catch that. Could you say that again?"
+
+# Spoken when the pipeline *succeeded* but the reply has no speakable content.
+# This is deliberately different phrasing from `_FALLBACK_REPLY`: this is not
+# an error, so telling the caller "I ran into a problem" would be wrong. This
+# is the pipeline shrugging, not the pipeline breaking.
+_EMPTY_REPLY = "I'm not sure how to help with that. Could you try asking a different way?"
 
 
 async def _release_reserved_slot(
@@ -163,4 +184,107 @@ async def mint_voice_session_token(
         agent_id=settings.ELEVENLABS_AGENT_ID,
         voice_token=voice_token,
         expires_in_seconds=settings.VOICE_SESSION_TOKEN_TTL_SECONDS,
+    )
+
+
+def _extract_voice_token(payload: dict[str, Any]) -> str:
+    """Pull our opaque token out of wherever ElevenLabs put it.
+
+    We check several carriers because Spike 1 has not yet pinned down which
+    one EL actually uses in production. All of them are opaque-token
+    carriers, never trusted ids — the token is only ever meaningful after
+    `VoiceSessionTokenStore.resolve` looks it up server-side.
+    """
+    extra = payload.get("elevenlabs_extra_body") or {}
+    if isinstance(extra, dict) and extra.get("voice_token"):
+        return str(extra["voice_token"])
+
+    variables = payload.get("dynamic_variables") or {}
+    if isinstance(variables, dict) and variables.get("voice_token"):
+        return str(variables["voice_token"])
+
+    if payload.get("user"):
+        return str(payload["user"])
+
+    return ""
+
+
+def _last_user_message(payload: dict[str, Any]) -> str:
+    """Extract the most recent user turn — the only field of the OpenAI
+    `messages` array that is allowed to drive the pipeline. System/assistant
+    turns and any other payload field are ignored for that purpose."""
+    for message in reversed(payload.get("messages") or []):
+        if message.get("role") == "user" and message.get("content"):
+            return str(message["content"])
+    return ""
+
+
+@router.post("/llm/chat/completions", dependencies=[Depends(verify_elevenlabs_request)])
+async def voice_custom_llm(
+    payload: dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+):
+    """OpenAI-compatible custom-LLM endpoint backed by the real Luran pipeline.
+
+    ElevenLabs Agents calls this once per conversational turn as its "custom
+    LLM". Parity with text chat is by construction: this calls the exact same
+    `send_message` that `POST /chat/message` calls, so there is no second
+    brain to keep in sync — there is only one pipeline.
+
+    Nothing in this codebase streams (see spec's "Spec Corrections" #1), so
+    this awaits the finished reply and re-frames it as OpenAI SSE via
+    `stream_reply` rather than streaming the pipeline itself. A pipeline
+    failure and an empty reply both still end in a 200 carrying something
+    speakable — a non-200 or an empty stream leaves the caller in silence,
+    which ElevenLabs has no way to render as audio.
+    """
+    model = str(payload.get("model") or "luran-voice")
+
+    # Tenant/session identity comes ONLY from resolving our own opaque voice
+    # token server-side. Never from any EL-supplied id in the request body —
+    # see spec §9 and the module docstring on VoiceSessionTokenStore.
+    token = _extract_voice_token(payload)
+    context: VoiceSessionContext | None = await VoiceSessionTokenStore().resolve(token)
+    if context is None:
+        logger.warning("Voice custom-LLM call carried an unresolvable voice token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="unknown voice session",
+        )
+
+    user_text = _last_user_message(payload)
+    if not user_text:
+        return StreamingResponse(
+            iter(list(stream_reply(_NO_INPUT_REPLY, model=model))),
+            media_type="text/event-stream",
+        )
+
+    try:
+        chat_response = await send_message(
+            MessageRequest(
+                message=user_text,
+                session_id=context.luran_session_id,
+                tenant_id=context.tenant_id,
+            ),
+            db,
+        )
+        reply_text = chat_response.message.content
+    except Exception as exc:  # noqa: BLE001 — never leave a caller in silence
+        logger.exception(f"Voice pipeline failed for session {context.luran_session_id}: {exc}")
+        reply_text = _FALLBACK_REPLY
+
+    # The pipeline can succeed and still return nothing speakable (e.g. an
+    # empty completion). That is not an error, so it gets its own fallback
+    # rather than reusing `_FALLBACK_REPLY`'s "I ran into a problem" framing.
+    if not reply_text or not reply_text.strip():
+        reply_text = _EMPTY_REPLY
+
+    # Materialise the frames before responding: the reply is already
+    # complete by this point, so there is nothing left to stream
+    # progressively, and this keeps `db` from being touched after the
+    # request scope closes. Becomes a true async generator if/when the
+    # pipeline itself grows a streaming seam.
+    return StreamingResponse(
+        iter(list(stream_reply(reply_text, model=model))),
+        media_type="text/event-stream",
     )

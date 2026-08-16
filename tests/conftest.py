@@ -421,3 +421,19 @@ def voice_session_factory(db_session):
         return session
 
     return _make
+
+
+@pytest.fixture(scope="function")
+def minted_voice_token():
+    """Mint a real voice token so endpoint tests exercise the true resolve path."""
+    import asyncio
+
+    from app.services.voice.session_tokens import VoiceSessionTokenStore
+
+    def _make(tenant_id, session_id, *, text_out: bool = False):
+        store = VoiceSessionTokenStore()
+        return asyncio.run(
+            store.mint(tenant_id=tenant_id, luran_session_id=session_id, text_out=text_out)
+        )
+
+    return _make
