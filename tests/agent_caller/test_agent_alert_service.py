@@ -169,4 +169,16 @@ def test_prune_token_removes_the_device(db):
     user = _make_user(db, tenant_id, "a@x.com", UserRole.SUPPORT_AGENT)
     _make_device(db, user, "tok-dead")
     AgentAlertService(db).prune_token("tok-dead")
-    assert AgentAlertService(db).devices_for([user.id]) == []
+    assert AgentAlertService(db).devices_for([user.id], tenant_id) == []
+
+
+def test_devices_for_is_tenant_scoped(db):
+    tenant_a, tenant_b = uuid.uuid4(), uuid.uuid4()
+    user_a = _make_user(db, tenant_a, "a@x.com", UserRole.SUPPORT_AGENT)
+    _make_device(db, user_a, "tok-a")
+    user_b = _make_user(db, tenant_b, "b@y.com", UserRole.SUPPORT_AGENT)
+    _make_device(db, user_b, "tok-b")
+
+    devices = AgentAlertService(db).devices_for([user_a.id, user_b.id], tenant_a)
+
+    assert {d.user_id for d in devices} == {user_a.id}

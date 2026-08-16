@@ -88,10 +88,14 @@ class AgentAlertService:
         )
         return list(self.db.execute(stmt).scalars().all())
 
-    def devices_for(self, user_ids: list[uuid.UUID]) -> list[AgentDevice]:
+    def devices_for(self, user_ids: list[uuid.UUID], tenant_id: uuid.UUID) -> list[AgentDevice]:
+        """Devices for these users, scoped to `tenant_id` — never trust caller-supplied ids alone."""
         if not user_ids:
             return []
-        stmt = select(AgentDevice).where(AgentDevice.user_id.in_(user_ids))
+        stmt = select(AgentDevice).where(
+            AgentDevice.user_id.in_(user_ids),
+            AgentDevice.tenant_id == tenant_id,
+        )
         return list(self.db.execute(stmt).scalars().all())
 
     # ---- payloads --------------------------------------------------------
