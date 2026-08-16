@@ -63,3 +63,30 @@ async def test_revoke_makes_token_unresolvable():
 
     await store.revoke(token)
     assert await store.resolve(token) is None
+
+
+@pytest.mark.asyncio
+async def test_resolve_slides_ttl_forward_so_a_long_call_never_goes_silent():
+    """A voice call can run turns for longer than the mint TTL (600s) as long
+    as they keep arriving. If resolve() didn't slide the TTL forward, the
+    first turn after the original mint's countdown ran out would 401 mid-call
+    — and ElevenLabs cannot render a 401 as audio, so that becomes silence on
+    a predictable schedule. Simulates "deep into a long call" by manually
+    shrinking the key's TTL, then asserts resolve() restores the full window
+    rather than leaving the shrunk countdown running.
+    """
+    store = VoiceSessionTokenStore()
+    token = await store.mint(tenant_id=uuid4(), luran_session_id=uuid4(), text_out=False)
+
+    redis = await store._get_redis()
+    key = f"voice:session_token:{token}"
+    await redis.expire(key, 5)
+
+    ctx = await store.resolve(token)
+    assert ctx is not None
+
+    ttl_after_resolve = await redis.ttl(key)
+    assert ttl_after_resolve > 5, (
+        "resolve() must slide the TTL back to the full window, not leave the "
+        "shrunk countdown running"
+    )

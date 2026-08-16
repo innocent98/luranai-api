@@ -45,6 +45,20 @@ voice_rate_limiter = RedisRateLimiter(
     window_seconds=60,
 )
 
+# Voice custom-LLM turns — ElevenLabs calls this endpoint server-to-server
+# for every tenant's every conversational turn, almost certainly from a
+# small, shared pool of egress IPs. An IP- or user-keyed limit (like
+# `voice_rate_limit` above) would throttle every unrelated tenant's call
+# sharing that IP together. This is keyed by the already-resolved,
+# unguessable voice token instead (see app/api/v1/endpoints/voice.py), so
+# hitting the ceiling only throttles the one call spamming turns, not every
+# voice caller on the platform.
+voice_llm_turn_rate_limiter = RedisRateLimiter(
+    key_prefix="http_voice_llm_turn",
+    max_calls=30,
+    window_seconds=60,
+)
+
 upload_rate_limiter = RedisRateLimiter(
     key_prefix="http_upload",
     max_calls=10,

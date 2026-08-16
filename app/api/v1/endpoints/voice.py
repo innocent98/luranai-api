@@ -24,7 +24,7 @@ from app.services.voice.elevenlabs_client import ElevenLabsClient, ElevenLabsMin
 from app.services.voice.gating import VoiceDenialReason, VoiceGate
 from app.services.voice.session_tokens import VoiceSessionContext, VoiceSessionTokenStore
 from app.services.voice.sse import stream_reply
-from app.utils.http_rate_limiter import voice_rate_limit
+from app.utils.http_rate_limiter import voice_llm_turn_rate_limiter, voice_rate_limit
 
 router = APIRouter()
 
@@ -42,6 +42,23 @@ _NO_INPUT_REPLY = "Sorry, I did not catch that. Could you say that again?"
 # an error, so telling the caller "I ran into a problem" would be wrong. This
 # is the pipeline shrugging, not the pipeline breaking.
 _EMPTY_REPLY = "I'm not sure how to help with that. Could you try asking a different way?"
+
+# Spoken when the pipeline rejects the request for a reason that will never
+# change on retry — an entitlement/existence HTTPException such as 402
+# conversation-limit-reached or 404 session-not-found. Deliberately terminal
+# phrasing, not "could you say that again?": inviting a retry here would trap
+# the caller in a loop that can never succeed while burning ElevenLabs
+# minutes every turn. The voice token is also revoked when this fires (see
+# `_revoke_voice_token_best_effort`), so the call actually ends.
+_TERMINAL_REPLY = (
+    "I'm sorry, but I'm not able to continue this call right now. "
+    "Please check your account or contact support. Goodbye."
+)
+
+# Spoken when a single voice token has exceeded its per-minute turn budget.
+# Transient, unlike `_TERMINAL_REPLY` — no token revoke, the caller just
+# needs to slow down.
+_RATE_LIMITED_REPLY = "Sorry, one moment please."
 
 
 async def _release_reserved_slot(
@@ -210,13 +227,76 @@ def _extract_voice_token(payload: dict[str, Any]) -> str:
 
 
 def _last_user_message(payload: dict[str, Any]) -> str:
-    """Extract the most recent user turn — the only field of the OpenAI
-    `messages` array that is allowed to drive the pipeline. System/assistant
-    turns and any other payload field are ignored for that purpose."""
-    for message in reversed(payload.get("messages") or []):
-        if message.get("role") == "user" and message.get("content"):
-            return str(message["content"])
-    return ""
+    """Extract the caller's current turn — and only the current turn.
+
+    Only `messages[-1]` counts. An earlier draft of this walked backward past
+    an empty/non-user last entry looking for the most recent user turn — but
+    a failed-ASR or silent turn (content == "") is a real, distinct event: it
+    means the caller said nothing usable *this* turn. Falling back to an
+    earlier turn would silently re-drive the pipeline with stale text,
+    re-running lead scoring and the action engine, and speak a stale answer
+    back to a caller who said nothing new. Any non-`user`, missing, or
+    non-dict last entry is "no input", never "look further back".
+    """
+    messages = payload.get("messages") or []
+    if not messages:
+        return ""
+    last = messages[-1]
+    if not isinstance(last, dict) or last.get("role") != "user":
+        return ""
+    content = last.get("content")
+    return str(content) if content else ""
+
+
+async def _revoke_voice_token_best_effort(token: str, tenant_id: UUID) -> None:
+    """Best-effort revoke after a terminal pipeline rejection, so the call
+    actually ends instead of repeating the same unfixable rejection every
+    turn until the caller hangs up or the token's own TTL eventually expires.
+
+    Mirrors `_release_reserved_slot`'s pattern above: failures are logged,
+    not re-raised — we're already mid-response with a reply ready to send,
+    and a Redis hiccup here still self-heals via the token's own TTL.
+    """
+    try:
+        await VoiceSessionTokenStore().revoke(token)
+    except RedisError as exc:
+        logger.error(
+            f"Failed to revoke voice token for tenant {tenant_id} after pipeline rejection: {exc}"
+        )
+
+
+async def _turn_allowed(token: str) -> bool:
+    """Per-voice-token turn throttle. Returns False only when over budget.
+
+    Keyed by the resolved voice token, not IP or user: ElevenLabs calls this
+    endpoint server-to-server for every tenant's every turn, almost certainly
+    from a small, shared pool of egress IPs, so an IP-keyed limit (like
+    `voice_rate_limit` on `/session/token`) would throttle every unrelated
+    tenant's call sharing that IP together. Fails OPEN on any infra error —
+    a Redis hiccup must never turn into a throttled (and therefore silent-
+    feeling) turn on this path.
+    """
+    try:
+        usage = await voice_llm_turn_rate_limiter.get_current_usage(token)
+        if usage["calls"] >= voice_llm_turn_rate_limiter.max_calls:
+            return False
+        await voice_llm_turn_rate_limiter.acquire(token)
+        return True
+    except Exception as exc:  # noqa: BLE001 — fail open, infra errors must not throttle
+        logger.error(f"Voice turn rate limiter failed open: {exc}")
+        return True
+
+
+def _speak(reply_text: str, *, model: str) -> StreamingResponse:
+    """Materialise the SSE frames before responding: the reply is already
+    complete by this point, so there is nothing left to stream progressively,
+    and this keeps `db` from being touched after the request scope closes.
+    Becomes a true async generator if/when the pipeline itself grows a
+    streaming seam."""
+    return StreamingResponse(
+        iter(list(stream_reply(reply_text, model=model))),
+        media_type="text/event-stream",
+    )
 
 
 @router.post("/llm/chat/completions", dependencies=[Depends(verify_elevenlabs_request)])
@@ -233,31 +313,47 @@ async def voice_custom_llm(
 
     Nothing in this codebase streams (see spec's "Spec Corrections" #1), so
     this awaits the finished reply and re-frames it as OpenAI SSE via
-    `stream_reply` rather than streaming the pipeline itself. A pipeline
-    failure and an empty reply both still end in a 200 carrying something
-    speakable — a non-200 or an empty stream leaves the caller in silence,
-    which ElevenLabs has no way to render as audio.
+    `stream_reply` rather than streaming the pipeline itself. Every failure
+    mode on this endpoint — token-resolution errors, a throttled turn, a
+    pipeline exception, a terminal policy rejection, an empty completion —
+    still ends in a 200 carrying something speakable. A non-200 or an empty
+    stream leaves the caller in silence, which ElevenLabs has no way to
+    render as audio. The one exception is authn/authz (missing shared secret,
+    unresolvable token): those are allowed to be a real 401, since ElevenLabs
+    itself is the caller for those failures, not the end user.
     """
     model = str(payload.get("model") or "luran-voice")
 
     # Tenant/session identity comes ONLY from resolving our own opaque voice
     # token server-side. Never from any EL-supplied id in the request body —
-    # see spec §9 and the module docstring on VoiceSessionTokenStore.
-    token = _extract_voice_token(payload)
-    context: VoiceSessionContext | None = await VoiceSessionTokenStore().resolve(token)
-    if context is None:
-        logger.warning("Voice custom-LLM call carried an unresolvable voice token")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="unknown voice session",
-        )
+    # see spec §9 and the module docstring on VoiceSessionTokenStore. Errors
+    # from extraction/resolution (a Redis outage, a malformed body) happen
+    # before we know who the caller even is, so they get the generic
+    # `_FALLBACK_REPLY`. The 401 raise must NOT be swallowed by that — the
+    # `except HTTPException: raise` below is what keeps it a real 401 rather
+    # than a masked 200.
+    try:
+        token = _extract_voice_token(payload)
+        context: VoiceSessionContext | None = await VoiceSessionTokenStore().resolve(token)
+        if context is None:
+            logger.warning("Voice custom-LLM call carried an unresolvable voice token")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="unknown voice session",
+            )
+        user_text = _last_user_message(payload)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 — never leave a caller in silence
+        logger.exception(f"Voice request setup failed before reaching the pipeline: {exc}")
+        return _speak(_FALLBACK_REPLY, model=model)
 
-    user_text = _last_user_message(payload)
+    if not await _turn_allowed(token):
+        logger.warning(f"Voice turn rate limit exceeded for session {context.luran_session_id}")
+        return _speak(_RATE_LIMITED_REPLY, model=model)
+
     if not user_text:
-        return StreamingResponse(
-            iter(list(stream_reply(_NO_INPUT_REPLY, model=model))),
-            media_type="text/event-stream",
-        )
+        return _speak(_NO_INPUT_REPLY, model=model)
 
     try:
         chat_response = await send_message(
@@ -269,6 +365,16 @@ async def voice_custom_llm(
             db,
         )
         reply_text = chat_response.message.content
+    except HTTPException as exc:
+        # send_message's own HTTPExceptions are policy/entitlement or
+        # existence errors (e.g. 402 conversation-limit-reached, 404 session
+        # not found) — not transient. Retrying with the same words can never
+        # succeed, so falling back to `_FALLBACK_REPLY`'s "could you say that
+        # again?" would trap the caller in an infinite loop burning
+        # ElevenLabs minutes. End the call instead.
+        logger.warning(f"Voice pipeline rejected session {context.luran_session_id}: {exc.detail}")
+        await _revoke_voice_token_best_effort(token, context.tenant_id)
+        return _speak(_TERMINAL_REPLY, model=model)
     except Exception as exc:  # noqa: BLE001 — never leave a caller in silence
         logger.exception(f"Voice pipeline failed for session {context.luran_session_id}: {exc}")
         reply_text = _FALLBACK_REPLY
@@ -279,12 +385,4 @@ async def voice_custom_llm(
     if not reply_text or not reply_text.strip():
         reply_text = _EMPTY_REPLY
 
-    # Materialise the frames before responding: the reply is already
-    # complete by this point, so there is nothing left to stream
-    # progressively, and this keeps `db` from being touched after the
-    # request scope closes. Becomes a true async generator if/when the
-    # pipeline itself grows a streaming seam.
-    return StreamingResponse(
-        iter(list(stream_reply(reply_text, model=model))),
-        media_type="text/event-stream",
-    )
+    return _speak(reply_text, model=model)

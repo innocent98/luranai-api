@@ -55,9 +55,17 @@ class VoiceSessionTokenStore:
         if not token:
             return None
         redis = await self._get_redis()
-        raw = await redis.get(_KEY_PREFIX + token)
+        key = _KEY_PREFIX + token
+        raw = await redis.get(key)
         if not raw:
             return None
+        # Slide the TTL forward on every successful resolve. Without this, a
+        # call running longer than the mint TTL goes silent mid-conversation
+        # the moment a later turn's resolve() 401s — a caller has no way to
+        # know that happened, and ElevenLabs has no way to render a 401 as
+        # audio. Only a full TTL window of *inactivity* should end the
+        # binding, not wall-clock time since mint.
+        await redis.expire(key, settings.VOICE_SESSION_TOKEN_TTL_SECONDS)
         data = json.loads(raw)
         return VoiceSessionContext(
             tenant_id=UUID(data["tenant_id"]),
