@@ -154,8 +154,9 @@ existing contract touched.
   → `alembic current` confirms single head `c1a0`.
 - TDD + break-it-then-revert discipline per task: each of the four gating properties (check
   ordering, fail-closed on missing capabilities row, atomic reserve under concurrency, revoke-on-
-  EL-failure cleanup) and the four Task 4 review fixes (leak surfaces, permanent-lockout bug,
-  rate limit) were independently broken, confirmed red for the right reason, then reverted — full
+  EL-failure cleanup) and the four Task 4 review fixes (leak surfaces on unexpected exceptions,
+  the permanent-lockout TTL bug, the ElevenLabs client's JSON/shape guards, and the missing rate
+  limit) were independently broken, confirmed red for the right reason, then reverted — full
   detail with actual command output in `.superpowers/sdd/2026-08-16-voice-chat-backend/task-{1,2,3,4}-report.md`.
 
 ## Operate / roll back
@@ -168,8 +169,19 @@ existing contract touched.
 - **To enable voice for a tenant:** set `can_use_voice = true` (and optionally
   `max_voice_minutes_per_month`) on that tenant's `TenantCapabilities` row. No app restart needed —
   `VoiceGate` reads the row per request.
-- **To disable platform-wide without a deploy:** unset `ELEVENLABS_AGENT_ID` (or `ELEVENLABS_API_KEY`)
-  — the endpoint 503s immediately, before any gating or Redis calls.
+- **To disable platform-wide without a deploy: unset `ELEVENLABS_AGENT_ID`, not `ELEVENLABS_API_KEY`.**
+  Only `ELEVENLABS_AGENT_ID` is checked up front (`voice.py:65-69`) — clearing it 503s
+  `voice_not_configured` immediately, before the session lookup, gating, or any Redis call.
+  Clearing `ELEVENLABS_API_KEY` instead does **not** short-circuit: the request still runs the
+  tenant-isolation DB lookup, `gate.check()`, mints the opaque voice token, and atomically reserves
+  a concurrency slot — all before `ElevenLabsClient.mint_conversation_token()` finally rejects it
+  (`elevenlabs_client.py:36-37`, no network call made) with a *different* reason code,
+  `voice_provider_unavailable`. The reserved slot and voice token are still released/revoked by the
+  endpoint's `finally` cleanup, so nothing leaks — but every request pays a full DB read + several
+  Redis round trips it wouldn't need to if `ELEVENLABS_AGENT_ID` had been the switch. Verified this
+  session with a throwaway test against both settings independently: unsetting `ELEVENLABS_API_KEY`
+  alone yields `503 {"reason": "voice_provider_unavailable"}`; unsetting `ELEVENLABS_AGENT_ID` alone
+  yields `503 {"reason": "voice_not_configured"}`.
 - **Roll back the migration:** `alembic downgrade -1` from `c1a0` drops both columns; additive and
   reversible, no backfill, no data loss (verified round-trip above).
 - **Roll back the code:** revert the 8 voice commits on `feat/voice-chat-backend`
@@ -197,13 +209,14 @@ existing contract touched.
   not currently reach ElevenLabs. Blocked on Spike 1, still with the user. Nothing past this slice
   should assume the token is threaded through until `elevenlabs_client.py`'s `TODO(spike-1)` is
   resolved.
-- **Five deferred Minors from Task 4's second review round**, none blocking, all noted in
-  `task-4-report.md`: `_release_reserved_slot` only catches `RedisError` though its docstring says
-  both cleanup steps always run; the broad-except path logs via `logger.error` instead of
-  `.exception` (drops the traceback); the `finally` cleanup `await` isn't `asyncio.shield`ed; the
-  stale-member-eviction test's 1s TTL is timing-fragile; `voice_not_configured` (503, missing
-  `ELEVENLABS_AGENT_ID`) has no dedicated test — the mint tests all monkeypatch a dummy agent ID,
-  so the branch is exercised only implicitly (never triggered).
+- **Five deferred Minors from Task 4's review**, none blocking. Four — `_release_reserved_slot`
+  only catches `RedisError` though its docstring says both cleanup steps always run; the
+  broad-except path logs via `logger.error` instead of `.exception` (drops the traceback); the
+  `finally` cleanup `await` isn't `asyncio.shield`ed; the stale-member-eviction test's 1s TTL is
+  timing-fragile — came from the external code review of `ee913e9`, not from the implementer's own
+  report. The fifth, `voice_not_configured` (503, missing `ELEVENLABS_AGENT_ID`) has no dedicated
+  test, is self-reported in `task-4-report.md:188` (round-1 self-review) — the mint tests all
+  monkeypatch a dummy agent ID, so that branch is exercised only implicitly, never triggered.
 - **One pre-existing, unrelated full-suite failure**
   (`tests/auditor/test_start_audit_redirect.py::test_different_host_requires_confirmation`) — dev-DB
   row-count pollution, not caused by this work. See Verification.
