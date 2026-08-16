@@ -6,12 +6,16 @@ auditor's `_owned_report` pattern, so the API never confirms existence
 cross-tenant.
 """
 
-from fastapi import APIRouter, Depends, Response, status
+from datetime import timedelta
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_agent
 from app.db.models.agent_device import AgentDevice
+from app.db.models.conversation import ConversationSession, Message, Ticket, TicketStatus
 from app.db.models.tenant import Tenant
 from app.db.models.user import User
 from app.db.session import get_db
@@ -21,8 +25,12 @@ from app.schemas.agent_app import (
     AvailabilityUpdateRequest,
     DeviceRegisterRequest,
     DeviceUnregisterRequest,
+    EscalationDetail,
+    EscalationSummary,
+    TranscriptMessage,
 )
 from app.schemas.user import UserResponse
+from app.services.agent_alert_service import _PRIORITY_WIRE, customer_name
 from app.utils.datetime import utcnow_naive
 
 router = APIRouter()
@@ -106,3 +114,99 @@ def set_availability(
     user.availability_status = payload.status
     db.commit()
     return AvailabilityResponse(status=payload.status)
+
+
+def _wire_status(ticket: Ticket) -> str:
+    """Contract addendum A5 — derive the app's status vocabulary.
+
+    `pending` means unclaimed and still ringing, distinct from `in_progress`
+    (claimed). Collapsing the two would tell an agent someone is already
+    handling an escalation that nobody has actually picked up.
+    """
+    if ticket.status == TicketStatus.MISSED:
+        return "missed"
+    if ticket.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED):
+        return "resolved"
+    if ticket.status == TicketStatus.IN_PROGRESS:
+        return "in_progress"
+    return "pending"
+
+
+def _owned_ticket(db: Session, ticket_id: UUID, tenant_id: UUID) -> Ticket:
+    """Load a ticket inside the caller's tenant, or 404 (never 403 — see module docstring)."""
+    ticket = db.get(Ticket, ticket_id)
+    if ticket is None or ticket.tenant_id != tenant_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Escalation not found")
+    return ticket
+
+
+def _summary(db: Session, ticket: Ticket, session: ConversationSession | None) -> EscalationSummary:
+    return EscalationSummary(
+        escalation_id=ticket.id,
+        session_id=ticket.session_id,
+        customer_name=customer_name(db, session) if session else "Customer",
+        reason=(session.escalation_reason if session else None) or ticket.summary or "",
+        priority=_PRIORITY_WIRE.get(ticket.priority, "normal"),
+        status=_wire_status(ticket),
+        created_at=ticket.created_at,
+    )
+
+
+@router.get("/escalations", response_model=list[EscalationSummary])
+def list_escalations(
+    window_hours: int = Query(24, ge=1, le=168),
+    db: Session = Depends(get_db),
+    current_agent: UserResponse = Depends(get_current_agent),
+):
+    """Active and recent escalations for this tenant, newest first."""
+    cutoff = utcnow_naive() - timedelta(hours=window_hours)
+    tickets = (
+        db.execute(
+            select(Ticket)
+            .where(Ticket.tenant_id == current_agent.tenant_id, Ticket.created_at >= cutoff)
+            .order_by(Ticket.created_at.desc())
+            .limit(100)
+        )
+        .scalars()
+        .all()
+    )
+    sessions = {t.session_id: db.get(ConversationSession, t.session_id) for t in tickets}
+    return [_summary(db, t, sessions.get(t.session_id)) for t in tickets]
+
+
+@router.get("/escalations/{ticket_id}", response_model=EscalationDetail)
+def get_escalation(
+    ticket_id: UUID,
+    db: Session = Depends(get_db),
+    current_agent: UserResponse = Depends(get_current_agent),
+):
+    """Detail + transcript. Serves both the pre-takeover and missed-summary views."""
+    ticket = _owned_ticket(db, ticket_id, current_agent.tenant_id)
+    session = db.get(ConversationSession, ticket.session_id)
+
+    messages = (
+        db.execute(
+            select(Message)
+            .where(Message.session_id == ticket.session_id)
+            .order_by(Message.created_at.asc())
+            .limit(50)
+        )
+        .scalars()
+        .all()
+    )
+    handler = db.get(User, ticket.assigned_to) if ticket.assigned_to else None
+
+    base = _summary(db, ticket, session)
+    return EscalationDetail(
+        **base.model_dump(),
+        handled_by=handler.full_name if handler else None,
+        acknowledged_at=ticket.acknowledged_at,
+        transcript=[
+            TranscriptMessage(
+                role=m.role.value if hasattr(m.role, "value") else str(m.role),
+                content=m.content,
+                created_at=m.created_at,
+            )
+            for m in messages
+        ],
+    )
