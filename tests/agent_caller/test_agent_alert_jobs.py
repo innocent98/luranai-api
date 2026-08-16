@@ -112,6 +112,27 @@ async def test_alert_escalation_is_a_noop_when_disabled(patched_session, monkeyp
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "job, args",
+    [
+        (agent_alerts.alert_escalation, ("dummy-ticket",)),
+        (agent_alerts.alert_escalation_fallback, ("dummy-ticket",)),
+        (agent_alerts.clear_agent_alert, ("dummy-ticket", "dummy-winner")),
+    ],
+    ids=["alert_escalation", "alert_escalation_fallback", "clear_agent_alert"],
+)
+async def test_disabled_flag_short_circuits_every_job(patched_session, monkeypatch, job, args):
+    """AGENT_ALERT_ENABLED=False is the production kill switch — it must stop all three jobs."""
+    monkeypatch.setattr(agent_alerts.settings, "AGENT_ALERT_ENABLED", False)
+
+    sent = AsyncMock()
+    with patch.object(agent_alerts.fcm_client, "send", sent):
+        await job({}, *args)
+
+    sent.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_rerunning_the_job_does_not_double_push(patched_session):
     db = patched_session
     tenant_id = uuid.uuid4()
@@ -175,6 +196,26 @@ async def test_fallback_rings_supervisors_and_misses_tier_one(patched_session):
     by_token = {call.args[0]: call.args[1] for call in sent.await_args_list}
     assert by_token["tok-boss"]["type"] == "escalation_alert"
     assert by_token["tok-up"]["type"] == "missed_escalation"
+
+    # The silent/loud split is the entire point of these two tiers — assert it
+    # directly on `notification`, not just on payload `type`, so flipping the
+    # `visible` flag on either call site fails the suite.
+    boss_calls = [call for call in sent.await_args_list if call.args[0] == "tok-boss"]
+    assert boss_calls
+    assert all(
+        call.kwargs.get("notification") is not None for call in boss_calls
+    ), "the supervisor page must be a real, visible ring"
+
+    missed_calls = [
+        call
+        for call in sent.await_args_list
+        if call.args[0] == "tok-up" and call.args[1]["type"] == "missed_escalation"
+    ]
+    assert len(missed_calls) == 1
+    assert (
+        missed_calls[0].kwargs.get("notification") is None
+    ), "the missed notice must be silent — a loud second ring is what this must prevent"
+
     assert (
         db.query(NotificationLog)
         .filter(NotificationLog.event == NotifEvent.ESCALATION_FALLBACK)
@@ -216,6 +257,9 @@ async def test_clear_skips_the_winner(patched_session):
     rung = {call.args[0] for call in sent.await_args_list}
     assert rung == {"tok-lose"}
     assert all(call.args[1]["type"] == "clear_alert" for call in sent.await_args_list)
+    assert all(
+        call.kwargs.get("notification") is None for call in sent.await_args_list
+    ), "clear_agent_alert must be silent — a visible clear would ring the loser's phone again"
 
 
 @pytest.mark.asyncio
