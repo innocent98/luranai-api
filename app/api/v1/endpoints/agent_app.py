@@ -6,20 +6,23 @@ auditor's `_owned_report` pattern, so the API never confirms existence
 cross-tenant.
 """
 
+import logging
 from datetime import timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_agent
+from app.core.config import settings
 from app.db.models.agent_device import AgentDevice
 from app.db.models.conversation import ConversationSession, Message, Ticket, TicketStatus
 from app.db.models.tenant import Tenant
 from app.db.models.user import User
 from app.db.session import get_db
 from app.schemas.agent_app import (
+    AcknowledgeWon,
     AgentMeResponse,
     AvailabilityResponse,
     AvailabilityUpdateRequest,
@@ -31,7 +34,10 @@ from app.schemas.agent_app import (
 )
 from app.schemas.user import UserResponse
 from app.services.agent_alert_service import _PRIORITY_WIRE, customer_name
+from app.services.notification_enqueue import enqueue_clear_alert_async
 from app.utils.datetime import utcnow_naive
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -210,3 +216,74 @@ def get_escalation(
             for m in messages
         ],
     )
+
+
+def _ws_url(session_id: UUID) -> str:
+    """Contract addendum A2 — absolute agent WebSocket URL for this session."""
+    base = (settings.SERVER_HOST or "").rstrip("/")
+    if base.startswith("https://"):
+        base = "wss://" + base[len("https://") :]
+    elif base.startswith("http://"):
+        base = "ws://" + base[len("http://") :]
+    return f"{base}/api/v1/ws/agent/{session_id}"
+
+
+@router.post("/escalations/{ticket_id}/acknowledge", response_model=AcknowledgeWon)
+async def acknowledge_escalation(
+    ticket_id: UUID,
+    db: Session = Depends(get_db),
+    current_agent: UserResponse = Depends(get_current_agent),
+):
+    """Claim an escalation. Exactly one caller can win.
+
+    The conditional UPDATE *is* the coordination primitive: `assigned_to IS NULL`
+    in the WHERE clause means the database serialises concurrent claims for us —
+    no locks, no coordinator. `rowcount == 1` means we won. Losing is a normal
+    outcome of broadcast routing, not an error: the other agents simply learn,
+    by name, who got there first.
+    """
+    ticket = _owned_ticket(db, ticket_id, current_agent.tenant_id)
+
+    result = db.execute(
+        update(Ticket)
+        .where(Ticket.id == ticket_id, Ticket.assigned_to.is_(None))
+        .values(
+            assigned_to=current_agent.id,
+            acknowledged_at=utcnow_naive(),
+            status=TicketStatus.IN_PROGRESS,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    won = result.rowcount == 1
+
+    if not won:
+        db.refresh(ticket)
+        if ticket.assigned_to == current_agent.id:
+            # Already ours — a retry of our own successful claim. Idempotent win,
+            # not a 409: a lost response on a flaky mobile network must let the
+            # agent back into the conversation they already own.
+            return AcknowledgeWon(
+                won=True, session_id=ticket.session_id, ws_url=_ws_url(ticket.session_id)
+            )
+        handler = db.get(User, ticket.assigned_to) if ticket.assigned_to else None
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "won": False,
+                "handled_by": handler.full_name if handler else "another agent",
+            },
+        )
+
+    session = db.get(ConversationSession, ticket.session_id)
+    if session is not None:
+        session.agent_id = current_agent.id
+        session.agent_joined_at = utcnow_naive()
+        db.commit()
+
+    try:
+        await enqueue_clear_alert_async(ticket_id, current_agent.id)
+    except Exception:  # noqa: BLE001 — a missed clear must not fail a legitimate win
+        logger.exception("Failed to enqueue clear_alert for escalation %s", ticket_id)
+
+    return AcknowledgeWon(won=True, session_id=ticket.session_id, ws_url=_ws_url(ticket.session_id))
