@@ -21,6 +21,32 @@ _CONCURRENCY_KEY = "voice:concurrent:{tenant_id}"
 # forever. Comfortably above any real call duration.
 _CONCURRENCY_KEY_TTL_SECONDS = 60 * 60 * 2
 
+# SCARD + conditional SADD + EXPIRE as one atomic unit, so two concurrent
+# mint requests arriving at `ceiling - 1` can't both observe "under the
+# ceiling" and both acquire (the race check() + acquire_slot() had as two
+# separate round trips — see Task 3 review finding, closed in Task 4).
+# SISMEMBER-first makes a retry with the same token idempotent instead of
+# needlessly consuming ceiling headroom twice.
+_TRY_ACQUIRE_SLOT_SCRIPT = """
+local key = KEYS[1]
+local member = ARGV[1]
+local ceiling = tonumber(ARGV[2])
+local ttl = tonumber(ARGV[3])
+
+if redis.call('SISMEMBER', key, member) == 1 then
+    redis.call('EXPIRE', key, ttl)
+    return 1
+end
+
+if redis.call('SCARD', key) >= ceiling then
+    return 0
+end
+
+redis.call('SADD', key, member)
+redis.call('EXPIRE', key, ttl)
+return 1
+"""
+
 
 class VoiceDenialReason(str, Enum):
     FLAG_DISABLED = "voice_disabled"
@@ -71,6 +97,27 @@ class VoiceGate:
             return VoiceGateResult(False, VoiceDenialReason.CONCURRENCY_LIMIT)
 
         return VoiceGateResult(True)
+
+    async def try_acquire_slot(self, tenant_id: UUID, token: str) -> bool:
+        """Atomically reserve a concurrency slot for `tenant_id`, if under the ceiling.
+
+        Callers that need the race-free guarantee (i.e. anything gating a
+        real mint) must use this instead of the check()-then-acquire_slot()
+        sequence. `acquire_slot`/`release_slot` remain for callers that
+        don't need atomicity (e.g. tests seeding state, or releasing a slot
+        that was already atomically reserved).
+        """
+        redis = await self._get_redis()
+        key = _CONCURRENCY_KEY.format(tenant_id=tenant_id)
+        acquired = await redis.eval(
+            _TRY_ACQUIRE_SLOT_SCRIPT,
+            1,
+            key,
+            token,
+            settings.VOICE_MAX_CONCURRENT_SESSIONS,
+            _CONCURRENCY_KEY_TTL_SECONDS,
+        )
+        return bool(acquired)
 
     async def acquire_slot(self, tenant_id: UUID, token: str) -> None:
         redis = await self._get_redis()

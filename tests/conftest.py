@@ -403,3 +403,21 @@ def voice_usage_setter():
         thread.join()
 
     return _set
+
+
+@pytest.fixture(scope="function")
+def voice_session_factory(db_session):
+    """Create a ConversationSession belonging to a tenant."""
+    from app.db.models.conversation import ConversationSession, SessionStatus
+
+    def _make(tenant_id):
+        session = ConversationSession(
+            tenant_id=tenant_id,
+            user_identifier=f"visitor-{uuid4().hex[:8]}",
+            status=SessionStatus.ACTIVE,
+        )
+        db_session.add(session)
+        db_session.commit()
+        return session
+
+    return _make
