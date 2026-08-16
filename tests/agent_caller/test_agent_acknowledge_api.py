@@ -127,6 +127,31 @@ def test_losing_does_not_enqueue_a_clear(
     _no_redis.assert_not_awaited()
 
 
+def test_idempotent_retry_repairs_side_effects_after_a_lost_response(
+    client, db, auth_headers, escalation, agent_user, _no_redis
+):
+    """F1 regression: the winning attempt's clear-enqueue (or session handoff)
+    can fail, and then the HTTP response itself can be lost to a flaky mobile
+    network. The retry lands in the idempotent-win branch and must repeat
+    BOTH side effects, not silently skip them forever."""
+    ticket_id, session_id = escalation.id, escalation.session_id
+    agent_user_id = agent_user.id
+    _no_redis.side_effect = RuntimeError("redis blip")
+
+    first = client.post(f"/api/v1/agent/escalations/{ticket_id}/acknowledge", headers=auth_headers)
+    assert first.status_code == 200
+
+    second = client.post(f"/api/v1/agent/escalations/{ticket_id}/acknowledge", headers=auth_headers)
+    assert second.status_code == 200
+
+    session = db.get(ConversationSession, session_id)
+    assert session.agent_id == agent_user_id
+    assert session.agent_joined_at is not None
+
+    assert _no_redis.await_count == 2
+    assert _no_redis.await_args.args == (ticket_id, agent_user_id)
+
+
 def test_cross_tenant_acknowledge_is_404(client, db, auth_headers):
     other_tenant_id = uuid.uuid4()
     session = ConversationSession(
@@ -162,3 +187,11 @@ def test_ws_url_uses_wss_for_https_host(monkeypatch):
 
     monkeypatch.setattr(agent_app.settings, "SERVER_HOST", "http://localhost:8000")
     assert agent_app._ws_url(sid) == f"ws://localhost:8000/api/v1/ws/agent/{sid}"
+
+
+def test_ws_url_defaults_to_wss_for_a_schemeless_host(monkeypatch):
+    from app.api.v1.endpoints import agent_app
+
+    monkeypatch.setattr(agent_app.settings, "SERVER_HOST", "api.luranai.com")
+    sid = uuid.uuid4()
+    assert agent_app._ws_url(sid) == f"wss://api.luranai.com/api/v1/ws/agent/{sid}"

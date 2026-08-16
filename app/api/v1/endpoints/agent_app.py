@@ -22,6 +22,7 @@ from app.db.models.tenant import Tenant
 from app.db.models.user import User
 from app.db.session import get_db
 from app.schemas.agent_app import (
+    AcknowledgeLost,
     AcknowledgeWon,
     AgentMeResponse,
     AvailabilityResponse,
@@ -225,7 +226,35 @@ def _ws_url(session_id: UUID) -> str:
         base = "wss://" + base[len("https://") :]
     elif base.startswith("http://"):
         base = "ws://" + base[len("http://") :]
+    else:
+        # No recognised scheme on SERVER_HOST — assume TLS rather than silently
+        # emitting a schemeless (unconnectable) ws url with no useful error.
+        base = f"wss://{base}"
     return f"{base}/api/v1/ws/agent/{session_id}"
+
+
+async def _finish_claim(db: Session, ticket: Ticket, current_agent: UserResponse) -> AcknowledgeWon:
+    """Session handoff + clear fanout for a won claim.
+
+    Called from both the fresh-win path and the idempotent-retry path, so it
+    must be safe to run twice: the session fields are only written when they
+    don't already point at this agent, and `enqueue_clear_alert_async` carries
+    a deterministic ARQ job id per ticket, so a duplicate enqueue on a retry is
+    a no-op rather than a double ring. A failed enqueue must never fail the
+    claim — the agent has legitimately won either way.
+    """
+    session = db.get(ConversationSession, ticket.session_id)
+    if session is not None and session.agent_id != current_agent.id:
+        session.agent_id = current_agent.id
+        session.agent_joined_at = utcnow_naive()
+        db.commit()
+
+    try:
+        await enqueue_clear_alert_async(ticket.id, current_agent.id)
+    except Exception:  # noqa: BLE001 — a missed clear must not fail a legitimate win
+        logger.exception("Failed to enqueue clear_alert for escalation %s", ticket.id)
+
+    return AcknowledgeWon(won=True, session_id=ticket.session_id, ws_url=_ws_url(ticket.session_id))
 
 
 @router.post("/escalations/{ticket_id}/acknowledge", response_model=AcknowledgeWon)
@@ -261,29 +290,16 @@ async def acknowledge_escalation(
         db.refresh(ticket)
         if ticket.assigned_to == current_agent.id:
             # Already ours — a retry of our own successful claim. Idempotent win,
-            # not a 409: a lost response on a flaky mobile network must let the
-            # agent back into the conversation they already own.
-            return AcknowledgeWon(
-                won=True, session_id=ticket.session_id, ws_url=_ws_url(ticket.session_id)
-            )
+            # not a 409: repeat the session handoff and clear fanout too, since
+            # either could have failed on the winning attempt before the
+            # response ever reached the mobile app.
+            return await _finish_claim(db, ticket, current_agent)
         handler = db.get(User, ticket.assigned_to) if ticket.assigned_to else None
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "won": False,
-                "handled_by": handler.full_name if handler else "another agent",
-            },
+            detail=AcknowledgeLost(
+                handled_by=handler.full_name if handler else "another agent"
+            ).model_dump(),
         )
 
-    session = db.get(ConversationSession, ticket.session_id)
-    if session is not None:
-        session.agent_id = current_agent.id
-        session.agent_joined_at = utcnow_naive()
-        db.commit()
-
-    try:
-        await enqueue_clear_alert_async(ticket_id, current_agent.id)
-    except Exception:  # noqa: BLE001 — a missed clear must not fail a legitimate win
-        logger.exception("Failed to enqueue clear_alert for escalation %s", ticket_id)
-
-    return AcknowledgeWon(won=True, session_id=ticket.session_id, ws_url=_ws_url(ticket.session_id))
+    return await _finish_claim(db, ticket, current_agent)
