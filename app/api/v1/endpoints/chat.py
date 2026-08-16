@@ -56,6 +56,7 @@ from app.services.chat_automation_orchestrator import ChatAutomationOrchestrator
 from app.services.flow_engine import FlowEngine
 from app.sales.pricing import compute_quote
 from app.services.lead_service import LeadService
+from app.services.notification_enqueue import enqueue_agent_alerts_async
 from app.services.quote_service import QuoteService
 from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
@@ -425,6 +426,22 @@ def _persist_contact_name_to_visitor(
         session_id,
         VisitorEnrichmentUpdate(name=valid_name),
     )
+
+
+async def _ring_agents(ticket_id: UUID | None) -> None:
+    """Ring the tenant's agents on their phones for a fresh escalation.
+
+    Best-effort by design: the email escalation is the always-on backstop, so a
+    Redis hiccup must never turn into a failed customer chat response. The two
+    ARQ jobs carry deterministic job ids, so re-escalating the same ticket
+    cannot double-ring.
+    """
+    if ticket_id is None or not settings.AGENT_ALERT_ENABLED:
+        return
+    try:
+        await enqueue_agent_alerts_async(ticket_id, settings.AGENT_ALERT_WAIT_SECONDS)
+    except Exception:  # noqa: BLE001 — never break the chat reply over a push
+        logger.exception("Failed to enqueue agent alert for ticket %s", ticket_id)
 
 
 @router.post("/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
@@ -874,6 +891,7 @@ async def send_message(
                     )
                 )
                 ticket_id = ticket.id
+                await _ring_agents(ticket_id)
 
                 # Notify support/admin team via email
                 tenant_for_email = tenant_service.get_tenant_by_id(
@@ -1066,6 +1084,7 @@ async def send_message(
                     )
                     ticket = ticket_service.create_ticket(ticket_data)
                     ticket_id = ticket.id
+                    await _ring_agents(ticket_id)
                     logger.info(f"Ticket created from flow: {ticket.ticket_number}")
 
                     # Send email notifications
@@ -1299,6 +1318,7 @@ async def send_message(
                         )
                         ticket = ticket_service.create_ticket(ticket_data)
                         ticket_id = ticket.id
+                        await _ring_agents(ticket_id)
                         logger.info(f"Ticket created from flow: {ticket.ticket_number}")
 
                         # Send email notifications
@@ -1521,6 +1541,7 @@ async def send_message(
             )
             ticket = ticket_service.create_ticket(ticket_data)
             ticket_id = ticket.id
+            await _ring_agents(ticket_id)
 
             tenant_for_email = tenant_service.get_tenant_by_id(
                 session.tenant_id, include_relations=False
@@ -1683,6 +1704,7 @@ async def send_message(
                 )
                 ticket = ticket_service.create_ticket(ticket_data)
                 ticket_id = ticket.id
+                await _ring_agents(ticket_id)
                 logger.info(f"Ticket created: {ticket.ticket_number}")
 
                 # Send email notifications
@@ -2385,6 +2407,7 @@ async def send_message(
                 )
                 ticket = ticket_service.create_ticket(ticket_data)
                 ticket_id = ticket.id
+                await _ring_agents(ticket_id)
 
                 logger.info(f"Ticket created: {ticket.ticket_number} with {priority} priority")
 
