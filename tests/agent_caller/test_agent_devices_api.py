@@ -9,8 +9,17 @@ issuing a request and re-query fresh rows afterward instead of touching the
 original (now-detached) fixture objects.
 """
 
+import uuid
+
 from app.db.models.agent_device import AgentDevice, DevicePlatform
 from app.db.models.user import AvailabilityStatus, User
+
+# Realistic-length stand-ins for FCM registration tokens (~140+ chars in production).
+# Short literals like "tok-1" would pass a lenient schema but must never be used here —
+# they'd mask the min_length floor the boundary test below is pinning.
+TOKEN_1 = f"tok-{uuid.uuid4().hex}"
+TOKEN_SHARED = f"tok-shared-{uuid.uuid4().hex}"
+TOKEN_NEVER_SEEN = f"tok-never-seen-{uuid.uuid4().hex}"
 
 
 def test_me_returns_identity_and_tenant_name(client, auth_headers, agent_user, agent_tenant):
@@ -46,11 +55,11 @@ def test_register_device_creates_a_row(client, db, auth_headers, agent_user):
     resp = client.post(
         "/api/v1/agent/devices",
         headers=auth_headers,
-        json={"device_token": "tok-1", "platform": "android"},
+        json={"device_token": TOKEN_1, "platform": "android"},
     )
     assert resp.status_code == 204
     device = db.query(AgentDevice).filter(AgentDevice.user_id == agent_user_id).one()
-    assert device.device_token == "tok-1"
+    assert device.device_token == TOKEN_1
     assert device.platform is DevicePlatform.ANDROID
     assert device.tenant_id == agent_tenant_id
 
@@ -61,7 +70,7 @@ def test_register_device_is_an_upsert(client, db, auth_headers, agent_user):
         resp = client.post(
             "/api/v1/agent/devices",
             headers=auth_headers,
-            json={"device_token": "tok-1", "platform": "android"},
+            json={"device_token": TOKEN_1, "platform": "android"},
         )
         assert resp.status_code == 204
     assert db.query(AgentDevice).filter(AgentDevice.user_id == agent_user_id).count() == 1
@@ -72,7 +81,7 @@ def test_register_device_updates_last_seen(client, db, auth_headers, agent_user)
     client.post(
         "/api/v1/agent/devices",
         headers=auth_headers,
-        json={"device_token": "tok-1", "platform": "android"},
+        json={"device_token": TOKEN_1, "platform": "android"},
     )
     device = db.query(AgentDevice).filter(AgentDevice.user_id == agent_user_id).one()
     assert device.last_seen_at is not None
@@ -84,7 +93,7 @@ def test_unregister_device_deletes_only_own_row(client, db, auth_headers, agent_
         AgentDevice(
             user_id=admin_user_id,
             tenant_id=admin_user.tenant_id,
-            device_token="tok-shared",
+            device_token=TOKEN_SHARED,
             platform=DevicePlatform.IOS,
         )
     )
@@ -92,14 +101,14 @@ def test_unregister_device_deletes_only_own_row(client, db, auth_headers, agent_
     client.post(
         "/api/v1/agent/devices",
         headers=auth_headers,
-        json={"device_token": "tok-shared", "platform": "android"},
+        json={"device_token": TOKEN_SHARED, "platform": "android"},
     )
 
     resp = client.request(
         "DELETE",
         "/api/v1/agent/devices",
         headers=auth_headers,
-        json={"device_token": "tok-shared"},
+        json={"device_token": TOKEN_SHARED},
     )
     assert resp.status_code == 204
     assert db.query(AgentDevice).filter(AgentDevice.user_id == agent_user_id).count() == 0
@@ -111,9 +120,18 @@ def test_unregister_unknown_token_is_still_204(client, auth_headers):
         "DELETE",
         "/api/v1/agent/devices",
         headers=auth_headers,
-        json={"device_token": "never-seen"},
+        json={"device_token": TOKEN_NEVER_SEEN},
     )
     assert resp.status_code == 204
+
+
+def test_register_device_rejects_too_short_token(client, auth_headers):
+    resp = client.post(
+        "/api/v1/agent/devices",
+        headers=auth_headers,
+        json={"device_token": "short12", "platform": "android"},
+    )
+    assert resp.status_code == 422
 
 
 def test_set_availability(client, db, auth_headers, agent_user):

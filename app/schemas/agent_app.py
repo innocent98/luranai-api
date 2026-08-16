@@ -14,7 +14,7 @@ class DeviceRegisterRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    device_token: str = Field(..., min_length=1, max_length=4096)
+    device_token: str = Field(..., min_length=8, max_length=4096)
     platform: DevicePlatform
 
 
@@ -23,7 +23,7 @@ class DeviceUnregisterRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    device_token: str = Field(..., min_length=1, max_length=4096)
+    device_token: str = Field(..., min_length=8, max_length=4096)
 
 
 class AvailabilityUpdateRequest(BaseModel):
