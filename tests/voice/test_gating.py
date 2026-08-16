@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 import pytest
 
@@ -100,3 +101,42 @@ async def test_try_acquire_slot_is_atomic_under_concurrency(
     )
 
     assert sum(1 for acquired in results if acquired) == ceiling
+
+
+@pytest.mark.asyncio
+async def test_try_acquire_slot_evicts_stale_members(db_session, voice_tenant_factory, monkeypatch):
+    """A slot orphaned by a crashed/never-released session must age out of the
+    ceiling instead of counting against it forever (the whole-key `EXPIRE`
+    resets on every acquire, so it never protected an individual leaked
+    member — see gating.py's `_CONCURRENCY_KEY_TTL_SECONDS` comment).
+
+    Seeds a "stale" member directly in Redis (bypassing acquire_slot, the way
+    a slot left by a crashed process would look — present in the set, but
+    old), shrinks the TTL so that seed is unambiguously past it, then proves
+    two things: a new caller isn't blocked by the stale entry, AND the stale
+    entry is actually gone afterward — not merely skipped-over this one time,
+    which would still leak memory and eventually blow the real ceiling once
+    enough orphans accumulate.
+    """
+    from app.services.voice import gating as gating_module
+
+    monkeypatch.setattr(gating_module, "_CONCURRENCY_KEY_TTL_SECONDS", 1)
+    ceiling = 1
+    monkeypatch.setattr(settings, "VOICE_MAX_CONCURRENT_SESSIONS", ceiling)
+
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    gate = VoiceGate(db_session)
+    redis = await gate._get_redis()
+    key = f"voice:concurrent:{tenant.id}"
+
+    # Seed a slot that "acquired" 10 seconds ago — long past the 1s TTL —
+    # without going through acquire_slot/try_acquire_slot, so this is purely
+    # state, not a claim about either method's own correctness.
+    await redis.zadd(key, {"stale-tok": time.time() - 10})
+    assert await redis.zcard(key) == 1  # sanity: the stale entry is really there
+
+    acquired = await gate.try_acquire_slot(tenant.id, "fresh-tok")
+
+    assert acquired is True, "a stale slot must not count against the ceiling"
+    members = await redis.zrange(key, 0, -1)
+    assert members == ["fresh-tok"], "the stale entry must actually be evicted, not just skipped"

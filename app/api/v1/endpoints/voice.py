@@ -3,6 +3,8 @@
 Spec: docs/superpowers/specs/2026-08-15-voice-chat-backend-design.md
 """
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from loguru import logger
 from redis.exceptions import RedisError
@@ -16,14 +18,39 @@ from app.schemas.voice import VoiceTokenRequest, VoiceTokenResponse
 from app.services.voice.elevenlabs_client import ElevenLabsClient, ElevenLabsMintError
 from app.services.voice.gating import VoiceDenialReason, VoiceGate
 from app.services.voice.session_tokens import VoiceSessionTokenStore
+from app.utils.http_rate_limiter import voice_rate_limit
 
 router = APIRouter()
+
+
+async def _release_reserved_slot(
+    gate: VoiceGate, store: VoiceSessionTokenStore, tenant_id: UUID, voice_token: str
+) -> None:
+    """Best-effort cleanup of an atomically-reserved slot + its voice token.
+
+    Both steps run even if one of them raises — a Redis hiccup releasing
+    the slot must not skip revoking the token, or vice versa. Failures are
+    logged, not re-raised: this runs from a `finally` block, where a new
+    exception would silently replace whatever error the caller was already
+    propagating (e.g. the intended 503). A slot left behind by a failure
+    here still self-heals via the concurrency key's per-member TTL; the
+    voice token still self-heals via its own Redis TTL.
+    """
+    try:
+        await gate.release_slot(tenant_id, voice_token)
+    except RedisError as exc:
+        logger.error(f"Failed to release voice concurrency slot for tenant {tenant_id}: {exc}")
+    try:
+        await store.revoke(voice_token)
+    except RedisError as exc:
+        logger.error(f"Failed to revoke voice token for tenant {tenant_id}: {exc}")
 
 
 @router.post(
     "/session/token",
     response_model=VoiceTokenResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(voice_rate_limit)],
 )
 async def mint_voice_session_token(
     payload: VoiceTokenRequest,
@@ -84,21 +111,40 @@ async def mint_voice_session_token(
                 detail={"reason": VoiceDenialReason.CONCURRENCY_LIMIT.value},
             )
 
+        el_succeeded = False
         try:
+            # `dynamic_variables` isn't actually transmitted yet — see the
+            # TODO(spike-1) on ElevenLabsClient.mint_conversation_token.
             conversation_token = await ElevenLabsClient().mint_conversation_token(
                 agent_id=settings.ELEVENLABS_AGENT_ID,
                 dynamic_variables={"voice_token": voice_token},
             )
+            el_succeeded = True
         except ElevenLabsMintError as exc:
-            # Don't leave an orphaned voice-token binding or a leaked
-            # concurrency slot behind for a mint that never happened.
-            await gate.release_slot(payload.tenant_id, voice_token)
-            await store.revoke(voice_token)
             logger.error(f"Voice token mint failed: {exc}")
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail={"reason": "voice_provider_unavailable"},
             ) from exc
+        except Exception as exc:
+            # Anything else surfacing from the EL call (a malformed response
+            # body the client didn't already normalize, etc.) is still our
+            # fault, not the caller's — same controlled fallback, not a 500.
+            logger.error(f"Unexpected error minting ElevenLabs conversation token: {exc}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"reason": "voice_provider_unavailable"},
+            ) from exc
+        finally:
+            # Runs on every non-success exit from the block above —
+            # ElevenLabsMintError, the broad Exception catch, and even a
+            # BaseException like asyncio.CancelledError on client disconnect
+            # (a `finally` always runs; a bare `except` would not have
+            # caught that last one). Don't leave an orphaned voice-token
+            # binding or a leaked concurrency slot behind for a mint that
+            # never happened.
+            if not el_succeeded:
+                await _release_reserved_slot(gate, store, payload.tenant_id, voice_token)
     except HTTPException:
         raise
     except RedisError as exc:

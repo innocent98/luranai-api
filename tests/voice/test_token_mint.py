@@ -78,6 +78,7 @@ def test_mint_rejects_session_from_another_tenant(
     resp = pg_client.post("/api/v1/voice/session/token", json=_payload(tenant_a.id, session_b.id))
 
     assert resp.status_code == 404
+    assert resp.json()["detail"]["reason"] == "session_not_found"
 
 
 def test_mint_409_when_concurrency_limit_reached(
@@ -149,12 +150,63 @@ def test_mint_revokes_token_and_releases_slot_when_el_fails(
         store = VoiceSessionTokenStore()
         ctx = await store.resolve(captured["token"])
         redis = await store._get_redis()
-        slot_count = await redis.scard(f"voice:concurrent:{tenant.id}")
+        # Concurrency slots live in a sorted set (see gating.py) so each
+        # member can expire individually — zcard, not scard.
+        slot_count = await redis.zcard(f"voice:concurrent:{tenant.id}")
         return ctx, slot_count
 
     ctx, slot_count = asyncio.run(_post_failure_state())
     assert ctx is None, "voice token must be revoked, not left orphaned"
     assert slot_count == 0, "concurrency slot must be released, not leaked"
+
+
+def test_mint_revokes_token_and_releases_slot_on_unexpected_el_error(
+    pg_client, voice_tenant_factory, voice_session_factory
+):
+    """Cleanup after a reserved slot must not depend on the failure being
+    specifically an ElevenLabsMintError. Any unanticipated exception from
+    the EL call — a client bug, a response shape nobody guarded against yet
+    — must still release the slot and revoke the token via the endpoint's
+    broad `except Exception` + `finally`, not just the one error type this
+    module happens to define. Otherwise a bug in the client becomes a
+    leaked concurrency slot on top of whatever else it broke.
+    """
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    session = voice_session_factory(tenant.id)
+
+    original_mint = VoiceSessionTokenStore.mint
+    captured: dict[str, str] = {}
+
+    async def _spy_mint(self, **kwargs):
+        token = await original_mint(self, **kwargs)
+        captured["token"] = token
+        return token
+
+    with (
+        patch("app.api.v1.endpoints.voice.VoiceSessionTokenStore.mint", new=_spy_mint),
+        patch(
+            "app.api.v1.endpoints.voice.ElevenLabsClient.mint_conversation_token",
+            new=AsyncMock(side_effect=RuntimeError("not an ElevenLabsMintError")),
+        ),
+    ):
+        resp = pg_client.post("/api/v1/voice/session/token", json=_payload(tenant.id, session.id))
+
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["reason"] == "voice_provider_unavailable"
+    assert "token" in captured, "mint() must have actually run for this test to prove anything"
+
+    async def _post_failure_state():
+        store = VoiceSessionTokenStore()
+        ctx = await store.resolve(captured["token"])
+        redis = await store._get_redis()
+        slot_count = await redis.zcard(f"voice:concurrent:{tenant.id}")
+        return ctx, slot_count
+
+    ctx, slot_count = asyncio.run(_post_failure_state())
+    assert ctx is None, "voice token must be revoked for an unanticipated exception type too"
+    assert (
+        slot_count == 0
+    ), "concurrency slot must be released for an unanticipated exception type too"
 
 
 def test_mint_returns_503_when_redis_unreachable(
@@ -171,3 +223,44 @@ def test_mint_returns_503_when_redis_unreachable(
 
     assert resp.status_code == 503
     assert resp.json()["detail"]["reason"] == "voice_provider_unavailable"
+
+
+def test_mint_is_rate_limited(pg_client, voice_tenant_factory, voice_session_factory, monkeypatch):
+    """A single caller looping this endpoint must eventually get 429 — the
+    concurrency ceiling only throttles how many *simultaneous* sessions a
+    tenant can hold, not how fast one caller can churn through requests,
+    each of which is a DB read plus Redis writes and (when not denied by
+    policy first) a billable ElevenLabs call.
+
+    Uses a policy-denied tenant (can_use_voice=False) so the requests that
+    get through the rate limiter cheaply 409 rather than needing an
+    ElevenLabs mock — rate limiting runs as a dependency before the route
+    body, so a denied-by-policy request still counts against it.
+    """
+    from app.utils.http_rate_limiter import voice_rate_limiter
+
+    monkeypatch.setattr(voice_rate_limiter, "max_calls", 2)
+    # voice_rate_limiter is a process-wide singleton (shared with every other
+    # test in the suite) that lazily caches its async Redis client on first
+    # use and never recreates it. Each test's TestClient runs its own event
+    # loop, so a cached client left over from an earlier test is bound to a
+    # loop that's since been closed — its first use here fails with "Event
+    # loop is closed", gets swallowed by check_rate_limit's fail-open
+    # handling (RATE_LIMIT_FAIL_OPEN=True), and silently skips incrementing
+    # the counter, throwing off the exact count this test depends on. Force
+    # a fresh client bound to *this* test's loop so the three calls below
+    # are deterministic regardless of what ran before this test in the
+    # suite.
+    monkeypatch.setattr(voice_rate_limiter, "_redis", None)
+
+    tenant = voice_tenant_factory(can_use_voice=False, max_voice_minutes_per_month=None)
+    session = voice_session_factory(tenant.id)
+    payload = _payload(tenant.id, session.id)
+
+    resp1 = pg_client.post("/api/v1/voice/session/token", json=payload)
+    resp2 = pg_client.post("/api/v1/voice/session/token", json=payload)
+    resp3 = pg_client.post("/api/v1/voice/session/token", json=payload)
+
+    assert resp1.status_code == 409
+    assert resp2.status_code == 409
+    assert resp3.status_code == 429
