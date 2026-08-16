@@ -263,6 +263,17 @@ class Settings(BaseSettings):
     AUDITOR_MODEL_CLASSIFY: str = "gpt-4o-mini"
     AUDITOR_MODEL_GAPS: str = "gpt-4.1-mini"
 
+    # --- Voice chat (ElevenLabs Agents) -------------------------------------
+    ELEVENLABS_API_KEY: str | None = None
+    ELEVENLABS_AGENT_ID: str | None = None
+    ELEVENLABS_API_BASE: str = "https://api.elevenlabs.io"
+    # Shared secret ElevenLabs presents back to us on custom-LLM / tool calls.
+    VOICE_SHARED_SECRET: str | None = None
+    # Opaque voice-session token lifetime. Short: it is minted per call start.
+    VOICE_SESSION_TOKEN_TTL_SECONDS: int = 600
+    # Platform-wide simultaneous voice sessions (EL plan cap ~20 Pro / ~40 Business).
+    VOICE_MAX_CONCURRENT_SESSIONS: int = 20
+
     def get_trial_expiry_reminder_days(self) -> list[int]:
         """Parse and validate reminder windows from env setting."""
         try:

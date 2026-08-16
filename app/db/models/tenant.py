@@ -418,6 +418,18 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         comment="Maximum automation actions allowed (null = unlimited)",
     )
+    can_use_voice: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default="false",
+        comment="Can use in-widget voice chat",
+    )
+    max_voice_minutes_per_month: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Monthly voice minutes cap (null = unlimited)",
+    )
     max_automation_executions_per_month: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
