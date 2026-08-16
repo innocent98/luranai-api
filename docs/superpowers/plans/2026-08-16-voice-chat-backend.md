@@ -121,7 +121,7 @@ def test_voice_settings_exist_with_safe_defaults():
     assert hasattr(settings, "VOICE_SHARED_SECRET")
 
 
-def test_capabilities_default_voice_off(db_session, churned_tenants_factory=None):
+def test_capabilities_default_voice_off():
     cap = TenantCapabilities()
     assert cap.can_use_voice is False or cap.can_use_voice is None
     assert cap.max_voice_minutes_per_month is None
@@ -195,7 +195,7 @@ def upgrade() -> None:
             "can_use_voice",
             sa.Boolean(),
             nullable=False,
-            server_default sa.text("false"),
+            server_default=sa.text("false"),
         ),
     )
     op.add_column(
@@ -209,9 +209,8 @@ def downgrade() -> None:
     op.drop_column("tenant_capabilities", "can_use_voice")
 ```
 
-> **NOTE for implementer:** the line `server_default sa.text("false")` above is intentionally shown
-> broken so you catch it — write `server_default=sa.text("false")`. Verify `down_revision` matches the
-> current head: run `poetry run alembic heads` and use the real head if it is not `b7d21c9f3a04`.
+> **NOTE for implementer:** verify `down_revision` matches the current head — run
+> `poetry run alembic heads` and use the real head if it is not `b7d21c9f3a04`.
 
 - [ ] **Step 6: Run migration and tests**
 
@@ -443,7 +442,7 @@ async def test_flag_disabled_denies_first(db_session, voice_tenant_factory):
 @pytest.mark.asyncio
 async def test_minute_cap_reached_denies(db_session, voice_tenant_factory, voice_usage_setter):
     tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=10)
-    await voice_usage_setter(tenant.id, minutes=10)
+    voice_usage_setter(tenant.id, minutes=10)
     gate = VoiceGate(db_session)
     result = await gate.check(tenant.id)
     assert result.reason == VoiceDenialReason.MINUTE_CAP_REACHED
@@ -501,12 +500,19 @@ def voice_tenant_factory(db_session):
 
 @pytest.fixture(scope="function")
 def voice_usage_setter():
-    """Seed the Redis monthly voice-minute counter for a tenant."""
+    """Seed the Redis monthly voice-minute counter for a tenant.
+
+    Synchronous on purpose: `asyncio.run` per call keeps this usable from both
+    async tests and the sync TestClient tests. Never use
+    `asyncio.get_event_loop()` — it is deprecated and errors on Python 3.12+
+    when no loop is running.
+    """
+    import asyncio
+
     from app.services.voice.metering import VoiceMeter
 
-    async def _set(tenant_id, *, minutes: int):
-        meter = VoiceMeter()
-        await meter.add_minutes(tenant_id, minutes)
+    def _set(tenant_id, *, minutes: int):
+        asyncio.run(VoiceMeter().add_minutes(tenant_id, minutes))
 
     return _set
 ```
@@ -702,12 +708,12 @@ def test_mint_409_when_flag_disabled(pg_client, voice_tenant_factory, voice_sess
     assert resp.json()["detail"]["reason"] == "voice_disabled"
 
 
-def test_mint_409_when_cap_reached(pg_client, voice_tenant_factory, voice_session_factory, voice_usage_setter, anyio_backend=None):
-    import asyncio
-
+def test_mint_409_when_cap_reached(
+    pg_client, voice_tenant_factory, voice_session_factory, voice_usage_setter
+):
     tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=5)
     session = voice_session_factory(tenant.id)
-    asyncio.get_event_loop().run_until_complete(voice_usage_setter(tenant.id, minutes=5))
+    voice_usage_setter(tenant.id, minutes=5)
 
     resp = pg_client.post("/api/v1/voice/session/token", json=_payload(tenant.id, session.id))
 
@@ -1428,7 +1434,7 @@ def minted_voice_token():
 
     def _make(tenant_id, session_id, *, text_out: bool = False):
         store = VoiceSessionTokenStore()
-        return asyncio.get_event_loop().run_until_complete(
+        return asyncio.run(
             store.mint(tenant_id=tenant_id, luran_session_id=session_id, text_out=text_out)
         )
 
@@ -1814,9 +1820,7 @@ def test_session_end_releases_slot_and_meters(
     )
 
     assert resp.status_code == 200
-    used = asyncio.get_event_loop().run_until_complete(
-        VoiceMeter().get_monthly_minutes(tenant.id)
-    )
+    used = asyncio.run(VoiceMeter().get_monthly_minutes(tenant.id))
     assert used == pytest.approx(1.5)
 ```
 
