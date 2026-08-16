@@ -1,22 +1,6 @@
-from uuid import uuid4
-
 from app.core.config import settings
-from app.db.models.tenant import Tenant, TenantCapabilities
-
-
-def _tenant(db):
-    u = uuid4().hex[:8]
-    t = Tenant(
-        name=f"t_{u}",
-        display_name="T",
-        api_key_hash=uuid4().hex,
-        subscription_tier="trial",
-        subscription_status="trialing",
-    )
-    db.add(t)
-    db.flush()
-    db.refresh(t)
-    return t
+from app.db.models.tenant import TenantCapabilities
+from tests.conftest import _bare_voice_tenant as _tenant
 
 
 def test_voice_settings_exist_with_safe_defaults():
