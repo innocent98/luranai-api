@@ -17,6 +17,11 @@ import redis.asyncio as aioredis
 from app.core.config import settings
 
 _KEY_PREFIX = "voice:minutes:"
+# Safety net so a tenant's monthly counter key doesn't live in Redis forever.
+# Comfortably longer than any calendar month so it survives until Task 9's
+# periodic Postgres flush picks it up; expiry of a past month's key is
+# otherwise harmless since nothing reads it once the month has rolled over.
+_MINUTE_KEY_TTL_SECONDS = 45 * 24 * 60 * 60
 
 
 class VoiceMeter:
@@ -37,6 +42,7 @@ class VoiceMeter:
         redis = await self._get_redis()
         key = self._key(tenant_id)
         total = await redis.incrbyfloat(key, minutes)
+        await redis.expire(key, _MINUTE_KEY_TTL_SECONDS)
         return float(total)
 
     async def get_monthly_minutes(self, tenant_id: UUID) -> float:
