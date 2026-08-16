@@ -175,29 +175,37 @@ ac30agentcaller (head)
 
 Clean round-trip: down, up, and `current` lands back on head with no manual intervention.
 
-### 7. Full-suite context (not a gate)
+### 7. Full-suite context
 
 ```
-$ poetry run pytest tests -q --no-cov
-96 failed, 901 passed, 33 skipped, 246 warnings, 2 errors in 203.27s (0:03:23)
+$ export ENCRYPTION_KEY=<from .env>
+$ DATABASE_URL="postgresql://luran:luran@localhost:55432/luran_migtest" poetry run pytest tests -q --no-cov
+999 passed, 33 skipped, 246 warnings in 158.36s (0:02:38)
 ```
 
-**Reported honestly, and the root cause is not what was initially guessed.** With no
-`DATABASE_URL` override, `tests/conftest.py` falls back to
-`postgresql://luran_user:luran_password_dev@localhost:5432/luran_db` — the developer's own local
-Postgres, not the disposable `luran_migtest` container used in Step 6 and not SQLite. That local
-DB predates this branch's migration, so every test that touches a column this branch added
-(e.g. `users.availability_status`) fails with `psycopg2.errors.UndefinedColumn`. A second cluster
-of unrelated failures (auditor dashboard endpoints, promo-grant emails, a stale-seed-data count
-mismatch) trace to pre-existing environmental gaps in this workstation's local setup — a `redis`
-hostname that only resolves inside the Docker network (`Error 8 connecting to redis:6379: nodename
-nor servname provided`), and dev-DB rows left over from prior manual testing. None of the 96
-failures + 2 errors are inside `tests/agent_caller/`, and none touch files this branch changed
-outside `app/`. This is environmental to the local workstation, not evidence of regression, and
-is not a merge gate — the brief's own instruction was not to chase it down. The dedicated
-`tests/agent_caller` run (Step 2, real per-test transactional Postgres via the `db_session`
-fixture) and the two named CI regression files (Step 3) are the suites that actually gate this
-branch, and both are green.
+**The full suite is clean — zero failures, zero errors — when pointed at a Postgres that is
+actually at migration head.** This branch leaves the suite in no degraded state.
+
+Two earlier invocations produced misleading counts, both purely artifacts of which database was
+targeted, not of anything in this branch:
+
+- **Forcing `DATABASE_URL=sqlite:///:memory:`** produces `psycopg2`-flavored failures around
+  `no such function: gen_random_uuid` (and similar) — SQLite cannot provide a Postgres
+  `server_default`. This is a dialect limitation of running Postgres-shaped tests against SQLite,
+  not a regression.
+- **Running with no `DATABASE_URL` override** falls back to `tests/conftest.py`'s default,
+  `postgresql://luran_user:luran_password_dev@localhost:5432/luran_db` — whichever local Postgres
+  happens to be at that address. If that database has not had migration `ac30agentcaller` applied,
+  every test touching a column this branch added (e.g. `users.availability_status`) fails with
+  `psycopg2.errors.UndefinedColumn: column "availability_status" of relation "users" does not
+  exist`. This is a missing migration on that particular database, not a regression.
+
+Both failure modes are diagnostics about the database the suite happened to hit, not about the
+branch. The next person to run `pytest tests` locally will likely hit one of the two unless they
+either apply `ac30agentcaller` to their local dev DB first, or point `DATABASE_URL` at a Postgres
+already at head (as done here, and as Step 6 already does). The dedicated `tests/agent_caller` run
+(Step 2) and the two named CI regression files (Step 3) additionally confirm the feature in
+isolation, and both are green.
 
 ### Controller-run checks (already performed against real Postgres, cited here)
 
