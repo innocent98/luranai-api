@@ -45,3 +45,41 @@ def test_finish_reason_stop_present_exactly_once():
     payloads = _frames(list(stream_reply("hi", model="m")))
     stops = [p for p in payloads if p["choices"][0]["finish_reason"] == "stop"]
     assert len(stops) == 1
+
+
+def test_empty_reply_yields_no_content_frames():
+    """Empty reply should emit role frame, no content, terminal stop frame + [DONE]."""
+    chunks = list(stream_reply("", model="m"))
+    payloads = _frames(chunks)
+    contents = [
+        p["choices"][0]["delta"].get("content")
+        for p in payloads
+        if "content" in p["choices"][0]["delta"]
+    ]
+    assert contents == [], f"Expected no content frames for empty reply, got {contents}"
+
+
+def test_whitespace_only_reply_yields_no_content_frames():
+    """Whitespace-only reply should emit role frame, no content, terminal stop frame + [DONE]."""
+    chunks = list(stream_reply("   ", model="m"))
+    payloads = _frames(chunks)
+    contents = [
+        p["choices"][0]["delta"].get("content")
+        for p in payloads
+        if "content" in p["choices"][0]["delta"]
+    ]
+    assert contents == [], f"Expected no content frames for whitespace-only reply, got {contents}"
+
+
+def test_completion_id_and_created_identical_across_frames():
+    """Every frame in one stream must share the same completion_id and created timestamp."""
+    chunks = list(stream_reply("hello world", model="m"))
+    payloads = _frames(chunks)
+    assert len(payloads) > 0, "Expected at least one payload"
+    first_id = payloads[0]["id"]
+    first_created = payloads[0]["created"]
+    for payload in payloads:
+        assert payload["id"] == first_id, f"completion_id mismatch: {payload['id']} != {first_id}"
+        assert (
+            payload["created"] == first_created
+        ), f"created mismatch: {payload['created']} != {first_created}"
