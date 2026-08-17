@@ -37,8 +37,16 @@ async def enqueue_agent_alerts_async(ticket_id: uuid.UUID, wait_seconds: int) ->
 
     Both jobs carry a deterministic `_job_id`, so a duplicate escalation for the
     same ticket cannot double-ring: ARQ rejects the second enqueue outright.
+
+    This sits on the customer's chat-reply path (called from chat.py's
+    `_ring_agents`, which swallows any exception so a Redis hiccup never fails
+    the reply). `create_pool`'s default of 5 retries x 1s delay would still add
+    several seconds of latency to that reply during a Redis blip — fail fast
+    instead. The email escalation is the always-on backstop for the ring.
     """
-    redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
+    redis_settings = RedisSettings.from_dsn(settings.REDIS_URL)
+    redis_settings.conn_retries = 0
+    redis = await create_pool(redis_settings)
     try:
         await redis.enqueue_job(
             "alert_escalation",
@@ -55,15 +63,24 @@ async def enqueue_agent_alerts_async(ticket_id: uuid.UUID, wait_seconds: int) ->
         await redis.close()
 
 
-async def enqueue_clear_alert_async(ticket_id: uuid.UUID, winner_user_id: uuid.UUID) -> None:
-    """Enqueue the silent clear that stops the ring on every losing device."""
+async def enqueue_clear_alert_async(
+    ticket_id: uuid.UUID, winner_user_id: uuid.UUID, *, source: str = "claim"
+) -> None:
+    """Enqueue the silent clear that stops the ring on every losing device.
+
+    `source` distinguishes this clear from any other for the same ticket. The
+    claim endpoint's own clear (`source="claim"`) and a later clear the
+    fallback fires when a claim lands mid-supervisor-ring (`source="fallback"`)
+    must both be able to fire — a single fixed job id would let only the first
+    ever run, leaving the second permanently unexpressable.
+    """
     redis = await create_pool(RedisSettings.from_dsn(settings.REDIS_URL))
     try:
         await redis.enqueue_job(
             "clear_agent_alert",
             str(ticket_id),
             str(winner_user_id),
-            _job_id=f"clear_agent_alert:{ticket_id}",
+            _job_id=f"clear_agent_alert:{ticket_id}:{source}",
         )
     finally:
         await redis.close()

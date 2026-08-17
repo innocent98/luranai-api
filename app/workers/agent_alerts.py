@@ -15,6 +15,8 @@ cancellation: it simply re-reads state and no-ops when the ticket is claimed.
 import logging
 import uuid
 
+from sqlalchemy import select, update
+
 from app.core.config import settings
 from app.db.models.conversation import ConversationSession, Ticket, TicketStatus
 from app.db.models.notification_log import NotifEvent
@@ -22,6 +24,7 @@ from app.db.models.user import User
 from app.db.session import SessionLocal
 from app.services import fcm_client
 from app.services.agent_alert_service import AgentAlertService
+from app.services.notification_enqueue import enqueue_clear_alert_async
 
 logger = logging.getLogger(__name__)
 
@@ -126,8 +129,17 @@ async def alert_escalation_fallback(ctx, ticket_id: str) -> None:
 
         svc = AgentAlertService(db)
         tier_one_ids = svc.rung_user_ids(tid)
-
         supervisors = svc.supervisor_recipients(ticket.tenant_id)
+
+        # Re-read immediately before ringing supervisors: a claim can land in
+        # the gap between the check above and here — that check ran before the
+        # recipient lookups just above, which are themselves a few DB
+        # round-trips removed from the actual push below.
+        db.refresh(ticket, attribute_names=["assigned_to"])
+        if ticket.assigned_to is not None:
+            logger.info("Escalation %s claimed just before fallback ring — skipping", ticket_id)
+            return
+
         if supervisors:
             await _push_tier(
                 svc,
@@ -158,11 +170,38 @@ async def alert_escalation_fallback(ctx, ticket_id: str) -> None:
                 visible=False,
             )
 
-        # Re-read: a supervisor may have claimed it while we were pushing.
-        db.refresh(ticket)
-        if ticket.assigned_to is None and ticket.status == TicketStatus.OPEN:
-            ticket.status = TicketStatus.MISSED
-            db.commit()
+        # Flip to MISSED only if the ticket is still genuinely unclaimed. A
+        # conditional UPDATE, not a read-then-write: a claim landing between
+        # the re-read above and here must not be overwritten by this status
+        # write (a claim in progress right now must never show as MISSED).
+        result = db.execute(
+            update(Ticket)
+            .where(
+                Ticket.id == tid,
+                Ticket.assigned_to.is_(None),
+                Ticket.status == TicketStatus.OPEN,
+            )
+            .values(status=TicketStatus.MISSED)
+        )
+        db.commit()
+
+        if result.rowcount == 0 and supervisors:
+            # The ticket was claimed mid-push (after the re-read above, before
+            # this UPDATE) — the supervisors we just paged may still be
+            # ringing on an already-handled ticket. This clear's job id is
+            # suffixed so it can fire even though the claim endpoint's own
+            # clear (a different suffix) may already have run.
+            winner_id = db.execute(
+                select(Ticket.assigned_to).where(Ticket.id == tid)
+            ).scalar_one_or_none()
+            if winner_id is not None:
+                try:
+                    await enqueue_clear_alert_async(tid, winner_id, source="fallback")
+                except Exception:  # noqa: BLE001 — a missed clear must not fail this job
+                    logger.exception(
+                        "Failed to enqueue fallback clear for escalation %s", ticket_id
+                    )
+
         logger.info("Escalation %s fell back to %s supervisor(s)", ticket_id, len(supervisors))
     finally:
         db.close()
