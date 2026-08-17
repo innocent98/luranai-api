@@ -269,6 +269,71 @@ ring for that session even though nobody has claimed it. Judged acceptable —
 a human already initiated that ticket — but it's a second path feeding the
 same one-live-ticket-per-session pool this wave's fixes assume.
 
+## Fix — Android push envelope was hybrid, not data-only (2026-08-17)
+
+**What shipped:** `app/services/fcm_client.py`'s `_envelope()` now platform-splits the visible
+escalation alert (`ESCALATION_ALERT` / `ESCALATION_FALLBACK`): **data-only on Android**, still
+`notification`-block on **iOS**. `send()` gained a required, keyword-only `platform:
+DevicePlatform` parameter — no default, so a caller cannot silently ring the wrong shape of
+message. Threaded through from `AgentDevice.platform` at both call sites in
+`app/workers/agent_alerts.py` (`_push_tier`, and the `clear_agent_alert` loop). `clear_alert` and
+`missed_escalation` were already data-only (`notification=None`) and are unchanged on both
+platforms.
+
+**Why:** The original design (this doc's "How it works" section, written 2026-08-16) sent the
+visible alert as a *hybrid* message — both `notification` and `data` — on the theory that the
+`notification` block was "the OS fallback if the app cannot run." That premise is wrong for
+Android: when a message carries a `notification` block and the app is backgrounded or killed,
+the **system** renders the notification and the app's `onBackgroundMessage` handler is **never
+invoked**. Two consequences, confirmed by review of the Flutter client:
+
+1. The app's full-screen-intent notification builder — the actual takeover UI, on the custom
+   ringtone channel — was unreachable in exactly the states (backgrounded/killed) it exists for.
+2. `clear_alert` couldn't cancel it. `flutter_local_notifications`' `cancel(id)` only cancels
+   notifications *the app itself* posted; the OS-rendered one has an internal id the app doesn't
+   control. So when agent A won the race, agent B kept a stale "a customer needs your help"
+   notification on their lock screen — tapping it hit a 409 already-claimed, requiring a manual
+   dismiss. The opposite of what the clear fanout exists to do.
+
+**How:** Split by `AgentDevice.platform` inside `_envelope()`. Android's visible alert keeps
+`android.priority = "high"` (still needed so FCM doesn't defer it in Doze) but drops the
+`notification` block entirely — that wakes `onBackgroundMessage`, which renders the app's own
+notification on the channel it owns, so the app can cancel it when the clear arrives. iOS keeps
+the `notification` block exactly as before: iOS has no full-screen-intent equivalent and no
+background-handler suppression, so a data-only push there displays nothing.
+
+`AGENT_ALERT_ANDROID_CHANNEL_ID` stays in `app/core/config.py` / `.env.example` — it's still the
+contract value the *app* creates and matches its notification channel against — but
+`fcm_client.py` no longer references it, since there is no Android `notification` block left to
+attach a `channel_id` to.
+
+**Accepted trade-off:** if Android cannot wake the app at all (force-stopped by the user, or
+aggressive OEM battery management), a data-only message displays nothing. Chosen deliberately
+over the alternative (stale, uncancellable notifications) — email escalation remains the
+always-on backstop regardless.
+
+**Tests added** (`tests/agent_caller/test_fcm_client.py`), exercising `_envelope()` directly:
+`test_android_visible_alert_is_data_only`, `test_ios_visible_alert_keeps_the_notification_block`,
+`test_silent_messages_are_unchanged_on_both_platforms` (parametrized over both platforms),
+`test_data_payload_is_identical_across_platforms`. All four fail against the pre-fix hybrid
+implementation. The three pre-existing `send()`-level tests were updated to pass the now-required
+`platform=` kwarg.
+
+**Verification:**
+```
+$ poetry run ruff check app/          # All checks passed!
+$ poetry run black --check app/       # 218 files would be left unchanged.
+$ poetry run pytest tests/agent_caller -q --no-cov
+======================= 92 passed, 6454 warnings in 1.56s =======================
+$ poetry run pytest tests/api/v1/test_chat_flow_router.py tests/api/v1/test_flow_action_call_regressions.py -q --no-cov
+======================= 14 passed, 1597 warnings in 0.53s =======================
+$ DATABASE_URL="postgresql://luran:luran@localhost:55432/luran_migtest" poetry run pytest tests -q --no-cov
+1018 passed, 33 skipped, 173764 warnings in 149.31s (0:02:29)
+```
+
+Was 1013 passed / 33 skipped / 0 failed before this fix; net +5 for the 5 new `_envelope()` test
+cases (the parametrized platform test counts as 2), zero regressions.
+
 ## Operate / roll back
 
 - **Kill switch:** `AGENT_ALERT_ENABLED=false` disables all pushes instantly, no deploy needed —
