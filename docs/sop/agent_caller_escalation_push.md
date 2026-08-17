@@ -1,6 +1,6 @@
 # SOP — Agent Caller: escalation push infrastructure
 
-**Status:** Shipped (branch, pre-PR) · `feat/agent-caller-push` · commits `1bdbc80..af4a038` (14 commits) · 2026-08-16
+**Status:** Shipped (branch, pre-PR) · `feat/agent-caller-push` · commits `1bdbc80..195ce5b` (17 commits) · 2026-08-16/17
 **Area:** `app/services`, `app/workers`, `app/api/v1/endpoints/agent_app.py`, `app/db/models`, one migration
 
 ---
@@ -218,6 +218,34 @@ than re-run:
 - The atomic claim (`acknowledge`) under three concurrent connections racing the same ticket
   yielded rowcounts `[0, 0, 1]`, with `tickets.assigned_to` matching the single winner — the
   first-accept-wins guarantee under real concurrency, not just in a single-threaded test.
+
+## Fix wave — final whole-branch review (2026-08-17)
+
+A final whole-branch review found six issues (one critical) that per-task review
+had missed, plus three named test gaps. Full per-finding detail, root cause and
+verbatim command output:
+`.superpowers/sdd/2026-08-16-agent-caller-backend-push/final-fix-wave-report.md`.
+Commits `f1b64f6`, `0be75bf`, `195ce5b`.
+
+| # | Severity | Issue | Fix |
+|---|---|---|---|
+| F1 | Critical | Re-escalating an already-`ESCALATED` session minted a second ticket and rang every agent's phone a second time | `TicketService.get_open_ticket_for_session` + `chat.py`'s `_get_or_create_escalation_ticket` reuse the live ticket at all six escalation sites; ring/email only fire on an actual creation |
+| F2 | Important | The fallback's clear job id was fixed, so a claim landing mid-supervisor-push could never be cleared | `enqueue_clear_alert_async` gained a `source` suffix (`claim` vs `fallback`); a fresh pre-push re-read narrows the window, a late clear covers what's left |
+| F3 | Important | The `MISSED` status write was read-then-write, not atomic | Conditional `UPDATE ... WHERE assigned_to IS NULL AND status = 'open'`, gated on `rowcount`, matching the claim endpoint's own pattern |
+| F4 | Minor | `acknowledge`'s conditional UPDATE didn't check status, so a `RESOLVED`/`CLOSED` unassigned ticket (from `auto_resolve_stale_tickets`) could be resurrected | Added `status IN (OPEN, MISSED)` to the WHERE clause — `MISSED` stays claimable |
+| F5 | Minor | `enqueue_agent_alerts_async` sits on the customer chat-reply path; arq's default retry loop could add several seconds during a Redis blip | `conn_retries = 0` on that one enqueue path only |
+| F6 | Minor | `prune_token` deleted by `device_token` alone, but the unique constraint is `(user_id, device_token)` — two agents can share a token after a device handover | Scoped the delete to `(user_id, device_token)` |
+
+This wave also closed three test gaps the original review named: a real
+two-request escalation through `POST /api/v1/chat/message` (not
+`escalate_session` in isolation), a claim landing during the fallback (both
+mid-gap and mid-push variants), and a negative assertion that `device_token`
+never appears in any `/api/v1/agent/*` response body.
+
+Updated verification (supersedes the "999 passed" figure in Step 7 below):
+`tests/agent_caller` is now 81 passed (was 75); the full suite against a
+migrated Postgres is 1006 passed / 33 skipped / 0 failed (was 999/33/0) — net
++7 for the 7 new tests this wave added, zero regressions.
 
 ## Operate / roll back
 
