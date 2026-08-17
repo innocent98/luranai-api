@@ -1,22 +1,27 @@
 # SOP — Voice chat: usage metering + session lifecycle (Task 11)
 
 **Status:** Shipped on branch `feat/voice-chat-backend` (not yet merged) · 2026-08-17, revised after
-review round 2 same day
+review rounds 2 and 3 same day
 **Area:** `app/api/v1/endpoints/voice.py`, `app/services/voice/session_tokens.py`,
-`app/schemas/voice.py`
+`app/services/voice/metering.py`, `app/schemas/voice.py`
 
 This is the last substantive task of the voice-chat backend plan. It closes two gaps that were
 live in the shipped code before this task: nothing released a concurrency slot at normal call end
 (only the mint-failure path did), and `VoiceMeter.add_minutes` had no production caller at all —
 the minute cap was being checked against a counter nothing ever incremented.
 
-**This document was rewritten after a review round found the first version's core design wrong,
-not just its wording.** Round 1 shipped metering entirely inside `/voice/session/end`, and this
-SOP originally said an unended call is safe because "the minute cap fails safe (denies new
-calls)." That's false — the cap reads a counter only `/session/end` wrote to, so if a client never
-calls it (crash, tab close, network loss, or simply never sending it), usage stays at zero and the
-cap denies nothing while ElevenLabs minutes keep being spent. The fix below is a real design
-change (per-turn metering), not a doc correction — see "How it works" §1.
+**This document was rewritten after review round 2 found the first version's core design wrong,
+not just its wording, and revised again after round 3 found a regression the round-2 fix itself
+introduced.** Round 1 shipped metering entirely inside `/voice/session/end`, and this SOP
+originally said an unended call is safe because "the minute cap fails safe (denies new calls)."
+That's false — the cap reads a counter only `/session/end` wrote to, so if a client never calls it
+(crash, tab close, network loss, or simply never sending it), usage stays at zero and the cap
+denies nothing while ElevenLabs minutes keep being spent. Round 2 fixed that with per-turn
+metering (see "How it works" §1) — but embedded the metering tick inside the token's own payload,
+which round 3 found (a) let two concurrent turns double-bill the same delta, since a read-then-write
+isn't atomic, and (b) forced the token's TTL-slide to become a payload-rewriting `SET`, which
+resurrects a binding a concurrent delete just removed. Round 3 moved the tick to its own Redis key
+and made the whole bill-and-advance operation a single atomic Lua script — see §1 and §2 below.
 
 ---
 
@@ -28,21 +33,29 @@ last turn, and releases the tenant's concurrency slot.
 
 **The primary metering mechanism is NOT this route.** `VoiceSessionTokenStore.resolve()` — called
 on every conversational turn by `POST /llm/chat/completions`, and also by the escalate-to-human
-tool — now bills the wall-clock delta since the token's last metering tick on every call. This is
-what actually gives the minute cap teeth mid-call and makes metering survive a call that never
-ends cleanly.
+tool — now bills the wall-clock delta since the token's last metering tick on every call, via a
+single atomic Redis Lua script. This is what actually gives the minute cap teeth mid-call and
+makes metering survive a call that never ends cleanly.
 
 Changes in `app/services/voice/session_tokens.py`:
 - `VoiceSessionContext.minted_at` — when the token was minted. Diagnostic only; billing does not
   derive duration from it (see §1 below for why).
-- New internal `last_metered_at` tick stored alongside the token payload, advanced on every
-  successful metering write.
-- `resolve()` now bills the delta since `last_metered_at` on every call, before sliding the TTL.
-- `resolve_and_revoke()` — an atomic fetch-and-delete (Redis `GETDEL`), used only by
-  `/session/end`. Bills the final partial delta before the binding is deleted.
+- A metering tick in its own Redis key (`voice:session_tick:{token}`), NOT embedded in the token's
+  payload — moved there in round 3 (see the atomicity note in §1 and the resurrection note in §2).
+  Seeded to `minted_at` at mint time.
+- `_meter_turn()` — one Lua `EVAL` that reads the tick, bills the elapsed delta directly into the
+  tenant's monthly-minutes counter, and advances the tick, all as one indivisible Redis operation.
+  Called by both `resolve()` (every turn) and `resolve_and_revoke()` (the final partial delta at
+  hang-up).
+- `resolve()`'s TTL-slide is a bare `EXPIRE` again (it was briefly a payload-rewriting `SET` in
+  round 2, to persist the tick that no longer lives in the payload) — `EXPIRE` on a missing key is
+  a no-op that can never recreate it.
 
-`app/services/voice/metering.py` needed no changes — Task 3 already built the full `VoiceMeter`
-interface; this task is what finally calls it in production.
+`app/services/voice/metering.py` gained one small addition in round 3: `VoiceMeter.key_and_ttl()`,
+exposing a tenant's monthly-minutes Redis key + TTL so `_meter_turn`'s Lua script can increment it
+atomically alongside the tick, which `add_minutes`'s own separate round trip can't provide. No
+other change — Task 3 already built the rest of the `VoiceMeter` interface this task calls in
+production.
 
 ## Why
 
@@ -78,20 +91,41 @@ Round 1 derived duration from `time.time() - context.minted_at`, computed once, 
   wrong the longer the gap between mint and end.
 
 **Fix: meter incrementally at turn time.** `resolve()` is called on every conversational turn (by
-`voice_custom_llm`) and is proof the caller is still on the call. Each token payload now carries a
-`last_metered_at` tick, seeded to `minted_at` at mint time. On every `resolve()`:
+`voice_custom_llm`) and is proof the caller is still on the call. A metering tick lives in its own
+Redis key per token, seeded to `minted_at` at mint time. Every `resolve()` calls `_meter_turn()`,
+which runs this Lua script as one atomic Redis operation:
 
-```python
-last_tick = self._last_metering_tick(data, context.minted_at)
-new_tick = await self._meter_elapsed_since_last_tick(context.tenant_id, last_tick)
-if new_tick is not None:
-    data["last_metered_at"] = new_tick
+```lua
+local last_tick = tonumber(redis.call('GET', tick_key)) or now
+local elapsed_minutes = math.max(0, now - last_tick) / 60.0
+if elapsed_minutes > 0 then
+    redis.call('INCRBYFLOAT', meter_key, elapsed_minutes)
+    redis.call('EXPIRE', meter_key, meter_ttl)
+end
+redis.call('SET', tick_key, now, 'EX', tick_ttl)
 ```
 
-`_meter_elapsed_since_last_tick` bills `(now - last_tick)` and returns the new tick timestamp only
-if the Redis write succeeds — **on failure it returns `None` and the caller does NOT advance the
-stored tick**, so a lost delta from a transient outage is folded into the next successful tick
-instead of silently vanishing (proven by
+(`now` is read from Redis's own `TIME` command inside the script, mirroring `gating.py`'s
+`_TRY_ACQUIRE_SLOT_SCRIPT` — one clock, deterministic regardless of app-server clock skew.)
+
+**Why a Lua script and not a Python read-then-write:** round 2's first cut did exactly that — read
+the tick, compute the delta, call `VoiceMeter.add_minutes`, write the new tick back into the
+token's JSON payload. Review round 3 found this genuinely racy: two overlapping `resolve()` calls
+on the same token are not hypothetical (`voice.py` explicitly contemplates two concurrent turns
+racing for the same rate-limit slot, and the escalate-to-human tool resolves independently of an
+in-flight turn). Two overlapping calls could both read the same tick, both bill the same delta,
+and the later write would clobber the earlier one — over-billing the tenant, and in the wrong
+direction for a customer-facing meter. Running the whole read-bill-advance sequence inside one Lua
+script closes this outright: Redis executes scripts atomically (single-threaded), so two
+concurrent `EVAL`s of the same script can never interleave. Proven by
+`test_concurrent_resolves_do_not_double_bill_the_same_delta`, which fires two `resolve()` calls via
+`asyncio.gather()` on a token with a 30s-stale tick and asserts the total billed is ~30s once, not
+~60s.
+
+Because the whole script is one atomic unit, a Redis-level failure (an `EVAL` exception, e.g. an
+outage) never bills AND never advances the tick — there's no way for one to happen without the
+other, unlike the round-2 split sequence. A lost delta from a transient outage is folded into the
+next successful tick instead of silently vanishing (proven by
 `test_metering_failure_does_not_advance_the_tick_so_the_next_success_catches_up`).
 
 `/voice/session/end` still exists, and still calls `resolve_and_revoke()` — but that method is now
@@ -106,10 +140,12 @@ compounding across the entire call the way `minted_at`-based billing did.
 Client-supplied duration is still never trusted: `VoiceSessionEndRequest` has no duration field at
 all, so even if a client sends `duration_seconds`, Pydantic drops it silently.
 
-**Migration compatibility, explicitly tested:** a payload written by a pre-deploy `mint()` has
-neither `minted_at` nor `last_metered_at`. `_context_from`/`_last_metering_tick` fall back to
-"now" rather than `0.0` — the epoch fallback was considered and rejected, because it would bill
-~30 million minutes for the gap since 1970 on the very first turn after deploy.
+**Migration compatibility, explicitly tested:** a payload written by a pre-deploy `mint()` has no
+`minted_at` in its JSON, and (since the tick moved to its own key in round 3) a genuinely
+pre-metering token also simply has no tick key at all. `_context_from` falls back `minted_at` to
+"now" rather than `0.0`; `_METER_TURN_SCRIPT`'s own `GET tick_key` returning nil falls the tick
+back to `now` too — the epoch fallback was considered and rejected in both places, because it
+would bill ~30 million minutes for the gap since 1970 on the very first turn after deploy.
 `test_resolve_tolerates_a_payload_minted_before_minted_at_existed` writes exactly that legacy
 shape directly into Redis and asserts `resolve()` doesn't crash and doesn't over-bill.
 
@@ -135,12 +171,29 @@ non-`None` result.
 tens of seconds, not the whole call) goes unbilled if `/session/end` itself never fires. Small and
 bounded, unlike round 1's whole-call gap.
 
+**A second, sharper regression closed in round 3: `resolve()` could resurrect a deleted binding.**
+Round 2's `resolve()` needed to persist the metering tick it embedded in the token's own JSON
+payload, so its TTL-slide became a `SET ...` instead of the original `EXPIRE`. A plain `SET`
+unconditionally *recreates* a missing key — so if `/session/end`'s `resolve_and_revoke` (GETDEL)
+or a terminal-rejection `revoke()` deleted the binding between this `resolve()`'s `GET` and its own
+`SET`, the delete was silently undone with a fresh full TTL. Two concrete consequences, both
+defeating a mechanism this codebase deliberately built: the call kept answering (and metering)
+*after* its concurrency slot was released, and a caller could loop on exactly the unfixable
+rejection `revoke()` exists to stop (the `voice_custom_llm` terminal-policy-denial path — see
+`_TERMINAL_REPLY`'s handling in `voice.py`). Moving the tick to its own key means `resolve()`
+never needs to rewrite the token's payload at all any more, so its TTL-slide went back to a bare
+`EXPIRE` — a documented Redis no-op on a missing key that can never recreate one, restoring the
+property the pre-metering code had for free.
+`test_resolve_does_not_resurrect_a_key_deleted_mid_flight` proves this directly: it deletes the
+key from inside a patched `redis.get` immediately after `resolve()`'s own read returns (simulating
+the exact race), then asserts the key stays deleted.
+
 ### 3. Failure ordering and isolation
 
-`resolve()` and `resolve_and_revoke()` swallow their own metering failures internally (logged, not
-raised) — see `_meter_elapsed_since_last_tick`'s docstring. This is deliberate: a metering hiccup
-must never break a live conversational turn, since `resolve()` runs inline in the hot path that
-also has to keep the call from going silent.
+`resolve()` and `resolve_and_revoke()` both call `_meter_turn()`, which swallows its own Lua `EVAL`
+failures internally (logged, not raised) — see that method's docstring. This is deliberate: a
+metering hiccup must never break a live conversational turn, since `resolve()` runs inline in the
+hot path that also has to keep the call from going silent.
 
 In `/voice/session/end`, `resolve_and_revoke` is called first (it is itself the idempotency gate,
 and it swallows its own metering failures), then slot release runs in its own `try`/`except` —
@@ -179,43 +232,44 @@ only in what the comment claims about it.
 |------|--------|
 | `app/api/v1/endpoints/voice.py` | `POST /session/end` route: no rate-limit dependency, corrected docstring, metering call removed (now internal to the store) |
 | `app/schemas/voice.py` | `VoiceSessionEndRequest` (`voice_token: str`), `VoiceSessionEndResponse` (`ok: bool = True`) — unchanged since round 1 |
-| `app/services/voice/session_tokens.py` | `VoiceSessionContext.minted_at`; new internal `last_metered_at` tick; `mint()` stamps both; `resolve()` and `resolve_and_revoke()` both bill their own elapsed delta via new `_meter_elapsed_since_last_tick`/`_last_metering_tick`/`_context_from` helpers |
-| `tests/voice/test_session_tokens.py` | 17 tests total: token round-trip (pre-existing) + `minted_at`/`resolve_and_revoke` (round 1) + 5 new per-turn metering tests (single tick, tick advancement, final-delta-on-top-of-turn-billing, failure-does-not-lose-the-delta, migration-compat) |
+| `app/services/voice/session_tokens.py` | `VoiceSessionContext.minted_at`; metering tick moved to its own key (`_TICK_KEY_PREFIX`); `mint()` seeds it; new `_meter_turn()` (atomic Lua `EVAL`, round 3) replaces round 2's `_meter_elapsed_since_last_tick`/`_last_metering_tick`; `resolve()`'s TTL-slide back to `EXPIRE` |
+| `app/services/voice/metering.py` | New `VoiceMeter.key_and_ttl()` (round 3) — exposes the monthly-minutes key/TTL for `_meter_turn`'s script |
+| `tests/voice/test_session_tokens.py` | 19 tests total: token round-trip (pre-existing) + `minted_at`/`resolve_and_revoke` (round 1) + 7 metering tests (single tick, tick advancement, final-delta-on-top-of-turn-billing, concurrent-double-bill (round 3), failure-does-not-lose-the-delta, migration-compat, resurrection (round 3)) |
 | `tests/voice/test_metering.py` | Fixed a vacuous assertion (`key.count("-") >= 1`, satisfied by the tenant UUID's own hyphens) with a real `YYYY-MM` regex check |
-| `tests/voice/test_session_end.py` | 9 tests: happy path, ceiling-then-freed-then-mint-succeeds, client-duration ignored, idempotent second call, unknown token, metering-fails-still-releases (patches the *real* metering call site now, inside the store), release-fails-still-meters, missing-field validation, no-rate-limit-dependency |
-| `tests/voice/test_custom_llm.py` | 1 new end-to-end test: a single real turn through `POST /llm/chat/completions` bills minutes with `/session/end` never called at all — the direct proof for the round-2 fix |
+| `tests/voice/test_session_end.py` | 9 tests: happy path, ceiling-then-freed-then-mint-succeeds, client-duration ignored, idempotent second call, unknown token, metering-fails-still-releases (patches `_meter_turn`, the real seam now), release-fails-still-meters, missing-field validation, no-rate-limit-dependency |
+| `tests/voice/test_custom_llm.py` | 1 end-to-end test: a single real turn through `POST /llm/chat/completions` bills minutes with `/session/end` never called at all — the direct proof for the round-2 fix |
 
-API is additive — no existing contract touched. No migration involved. `app/services/voice/metering.py`
-has no diff; it already implemented the required interface.
+API is additive — no existing contract touched. No migration involved.
 
 ## Verification
 
 Run with `REDIS_URL=redis://localhost:6379/0` — `.env`'s Docker-internal hostname doesn't resolve
 from the host (same caveat as every prior voice-task SOP).
 
-- `tests/voice/` — **92 passed** (85 post-round-1 + 7 new: 5 in `test_session_tokens.py`, 1 in
-  `test_session_end.py`, 1 in `test_custom_llm.py`; `test_metering.py`'s count is unchanged, one
-  existing assertion fixed in place).
-- Full suite — **1019 passed, 1 failed, 33 skipped** (1012 post-round-1 + 7 new). The 1 failure,
+- `tests/voice/` — **94 passed** (92 post-round-2 + 2 new: `test_resolve_does_not_resurrect_a_key_deleted_mid_flight`
+  and `test_concurrent_resolves_do_not_double_bill_the_same_delta`, both in `test_session_tokens.py`).
+- Full suite — **1021 passed, 1 failed, 33 skipped** (1019 post-round-2 + 2 new). The 1 failure,
   `tests/auditor/test_start_audit_redirect.py::test_different_host_requires_confirmation`, is the
   same pre-existing dev-DB row-pollution failure documented in every prior voice-task SOP —
   unrelated to this work.
-- `black`/`ruff` on the 7 files touched — clean.
-- **Break-it-then-revert, per-turn metering (`resolve()`):** disabled the tick-advance/metering
-  block inside `resolve()`. 5 tests went red across `test_session_tokens.py` (all 4 new per-turn
-  tests) and `test_custom_llm.py` (the new end-to-end proof test) — each on the *stored monthly
-  total* read back from Redis, not a mock-was-called assertion. Reverted; suite back to 92 passed.
-- **Break-it-then-revert, final-delta metering (`resolve_and_revoke()`):** disabled that method's
-  own metering call specifically (isolated from `resolve()`'s). 4 tests went red — the
-  final-delta unit test plus 3 in `test_session_end.py` that depend on the trailing delta being
-  billed. Reverted; suite back to 92 passed.
-- **Break-it-then-revert, rate-limit removal:** re-added the `voice_rate_limit` dependency to
-  `/session/end`. `test_session_end_has_no_rate_limit_dependency` went red. Reverted; suite back to
-  92 passed.
-- **Break-it-then-revert, metering-key format (Minor from review):** changed `_key`'s month segment
-  to a hardcoded non-date string. `test_counter_key_is_month_scoped` (rewritten to check a real
-  `YYYY-MM` suffix via regex) went red — the original `key.count("-") >= 1` assertion would NOT
-  have caught this, which is exactly the vacuity the review flagged. Reverted.
+- `black`/`ruff` on the 5 files touched in round 3 — clean.
+- **Break-it-then-revert, resurrection fix:** reverted `resolve()`'s TTL-slide from `EXPIRE` back to
+  round 2's payload-rewriting `SET`. `test_resolve_does_not_resurrect_a_key_deleted_mid_flight`
+  went red — the key it asserts is gone came back. Reverted; suite back to 94 passed.
+- **Break-it-then-revert, atomicity fix:** replaced `_meter_turn`'s Lua `EVAL` with an equivalent
+  non-atomic Python read/bill/write sequence (the literal round-2 shape).
+  `test_concurrent_resolves_do_not_double_bill_the_same_delta` went red with
+  `AssertionError: expected ~30s billed once (~0.5 min), got 1.000... min` — exactly the double-bill
+  the fix exists to prevent, not a vague failure. Reverted; suite back to 94 passed.
+- **Test-isolation fix along the way:** `test_resolve_tolerates_a_payload_minted_before_minted_at_existed`
+  originally used a hardcoded token string; `_meter_turn` always writes a tick key with the full
+  600s session TTL regardless of the test's own shorter 60s main-key TTL, so a second run within
+  that window read a stale tick left by a previous run and failed on
+  `assert 1.0166... < 1.0`. Fixed by making the token unique per run (`uuid4().hex` suffix) — the
+  same discipline every other test in this suite already uses for exactly this reason.
+- Round 2's earlier break-it-then-revert evidence (per-turn metering, final-delta metering,
+  rate-limit removal, metering-key format) is unchanged by round 3 and still holds; see the task
+  report for the full log.
 
 ## Operate / roll back
 
@@ -228,13 +282,13 @@ from the host (same caveat as every prior voice-task SOP).
   both gaps this task closed — not a safe rollback target once real traffic depends on it.
 - Not yet deployed anywhere — this branch hasn't merged to `develop`.
 
-## Follow-ups (documented per review round 2, not fixed in this task)
+## Follow-ups (documented per review, not fixed in this task)
 
-- **`resolve_and_revoke`'s `GETDEL`-then-parse window is not fully crash-proof.** If the process
-  dies between the `GETDEL` (which has already deleted the binding) and finishing the trailing-delta
-  metering call, that small delta is lost with no retry path — the token is already gone. Bounded to
-  one small trailing delta, not the whole call (which per-turn metering already covers), but not
-  zero.
+- **`resolve_and_revoke`'s `GETDEL`-then-`_meter_turn` window is not fully crash-proof.** If the
+  process dies between the `GETDEL` (which has already deleted the binding) and `_meter_turn`'s own
+  `EVAL` completing, that small trailing delta is lost with no retry path — the token is already
+  gone. Bounded to one small trailing delta, not the whole call (which per-turn metering already
+  covers), but not zero.
 - **A corrupt payload after `GETDEL` leaks the slot and meters nothing.** If `json.loads`/`UUID()`
   raises inside `resolve_and_revoke` (a payload corrupted after mint, not a normal path), the
   exception propagates out of the store method; the route's `except Exception` catches it and
@@ -252,6 +306,11 @@ from the host (same caveat as every prior voice-task SOP).
   round 1's whole-call `minted_at` gap, but still not a continuous meter — a periodic heartbeat or
   reconciliation against ElevenLabs' own call-duration data (see below) would close the remaining
   gap for audit-grade billing.
+- **A second Redis pool per turn.** `VoiceSessionTokenStore.__init__` constructs its own `VoiceMeter`
+  (which lazily opens its own Redis client) on top of the store's own client — a pre-existing
+  per-request-object pattern in this codebase (see Task 3's SOP), now amplified onto the hot path
+  since `resolve()` runs on every turn rather than once per mint. Flagged in review round 3 as
+  "worth a follow-up PR, not a fix round" — not addressed here.
 - **No Postgres flush yet.** `metering.py`'s original docstring mentions "a periodic Postgres flush
   for durable reporting" as a future task — Redis remains the only store for monthly minutes today
   (45-day TTL, comfortably past any billing cycle, but not a permanent record).
