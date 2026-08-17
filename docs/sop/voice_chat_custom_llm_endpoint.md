@@ -40,8 +40,9 @@ Three pieces, one per task:
   together. Went through two full external review rounds after the initial implementation:
   round 2 (commit `8fe4960`) found 7 Important issues plus 2 Minors, round 3 (commit `247babf`)
   found 5 more (the report is explicit that none of these 5 were new Critical/Important — three
-  were the same failure *shapes* from round 2 recurring one layer down, e.g. the TTL-render race
-  in `session_tokens.py::resolve()` below). Full finding-by-finding detail:
+  were the same failure *shapes* from round 2 recurring one layer down, e.g. the TTL-renewal
+  ordering bug in `session_tokens.py::resolve()` below — not a concurrency race, a sequencing
+  defect). Full finding-by-finding detail:
   `.superpowers/sdd/2026-08-16-voice-chat-backend/task-8-report.md`.
 
 ## Why
@@ -122,7 +123,9 @@ identity the caller could shape, only what our own server minted and can look up
 ### The exception structure
 
 This is the subtlest part of the endpoint and the part most likely to be "simplified" incorrectly
-in a future change, so it's worth spelling out exactly (`voice.py:370-384`):
+in a future change, so it's worth spelling out exactly (`voice.py:370-384`, abridged — the real
+code also logs via `logger.warning`/`logger.exception` and uses `status.HTTP_401_UNAUTHORIZED`,
+omitted here for brevity):
 
 ```python
 try:
@@ -242,11 +245,12 @@ still-open, not resolved by this slice:
   called from `/session/token`'s own failure cleanup (Slice 1); this endpoint never calls it. Every
   call that completes normally holds its concurrency slot until the sorted-set's 2h eviction window
   passes, not until the caller actually hangs up. That's Task 11 (session lifecycle + metering).
-- **`VoiceMeter.add_minutes` has no caller anywhere in the codebase.** There is no mid-call
-  minute-cap enforcement today — the monthly cap Slice 1's gating checks is read-only against
-  whatever was previously metered, and nothing in this slice or Slice 1 writes new minutes. Task 11
-  must add both the caller and, per the point above, a real duration ceiling now that the sliding
-  TTL removed the old accidental one.
+- **`VoiceMeter.add_minutes` has no caller in application code** — only a test fixture
+  (`tests/conftest.py:394`, `voice_usage_setter`) seeds it directly for test setup. There is no
+  mid-call minute-cap enforcement today — the monthly cap Slice 1's gating checks is read-only
+  against whatever was previously metered, and nothing in this slice or Slice 1 writes new minutes
+  from a real request path. Task 11 must add a production caller and, per the point above, a real
+  duration ceiling now that the sliding TTL removed the old accidental one.
 - **Cross-repo contract drift risk:** `VoiceTokenResponse.expires_in_seconds` (Slice 1) now
   describes an *idle* timeout given the sliding-TTL change, not an absolute token lifetime. The
   shipped frontend maps this field but doesn't act on it (no timer, no re-mint call) — harmless
@@ -324,7 +328,11 @@ without the override produces spurious failures unrelated to this work.
   is isolated to this one file. `_extract_voice_token()` similarly checks three carriers because
   the real one isn't confirmed (see Known-open items) — expect this function to shrink to a single
   branch once Spike 1 lands.
-- **Roll back the code:** revert the 8 commits `9f66322`..`247babf` on `feat/voice-chat-backend`.
+- **Roll back the code:** revert the 8 commits in `be59687..247babf` on `feat/voice-chat-backend`
+  (`be59687` — the last commit of Slice 1's SOP work — is excluded; `9f66322`, the first commit
+  *in* the range, is the one that creates `verify_elevenlabs_request` and must be included, or the
+  rollback leaves the shared-secret auth check in place while removing everything that depends on
+  it).
   No migration involved in this slice. Nothing else in the codebase imports
   `app/services/voice/auth.py` or `app/services/voice/sse.py`, or references
   `/llm/chat/completions`.
@@ -334,8 +342,8 @@ without the override produces spurious failures unrelated to this work.
 
 - **Task 11 (usage metering + session lifecycle)** is what closes the two biggest gaps this slice
   leaves open: releasing the concurrency slot at real call end (not just mint failure), and
-  replacing the duration ceiling the sliding TTL removed with a real one — likely wired through the
-  currently-uncalled `VoiceMeter.add_minutes`.
+  replacing the duration ceiling the sliding TTL removed with a real one — likely wired through
+  `VoiceMeter.add_minutes`, which today has no production caller (only a test fixture invokes it).
 - **Task 10 (escalate client-tool handler)** is the other consumer of this endpoint's context —
   out of scope here.
 - Spike 1 still open — see Known-open items above for everything gated on it.
