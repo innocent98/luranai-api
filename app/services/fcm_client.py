@@ -20,6 +20,7 @@ import httpx
 from jose import jwt
 
 from app.core.config import settings
+from app.db.models.agent_device import DevicePlatform
 
 logger = logging.getLogger(__name__)
 
@@ -102,13 +103,22 @@ async def _access_token() -> str:
 def _envelope(
     device_token: str,
     data: dict[str, str],
+    platform: DevicePlatform,
     notification: dict[str, str] | None,
 ) -> dict:
     """Build the HTTP v1 `message` body.
 
-    A `notification` block makes the push user-visible (the ring). Without it the
-    message is data-only and silent — that is how `clear_alert` reaches phones
-    without disturbing the agent.
+    A `notification` block makes the push OS-rendered and user-visible. On Android
+    that is a trap for anything the app needs to react to while backgrounded: when
+    a message carries a `notification` block, the system renders it itself and
+    `onBackgroundMessage` is never invoked — the app's full-screen-intent alert
+    never runs, and `clear_alert` can't cancel a notification the OS (not the app)
+    posted, because the plugin's `cancel(id)` only cancels notifications the app
+    itself posted. So the visible escalation alert is DATA-ONLY on Android: the
+    app wakes on `data`, renders its own notification on the channel it owns, and
+    can therefore cancel it when the clear arrives. iOS has no background-handler
+    suppression and no full-screen-intent equivalent — a data-only push displays
+    nothing there — so iOS keeps the `notification` block.
     """
     visible = notification is not None
     message: dict = {"token": device_token, "data": data}
@@ -116,14 +126,9 @@ def _envelope(
     apns_payload: dict = {"aps": {}}
 
     if visible:
-        message["notification"] = notification
-        android["notification"] = {
-            "channel_id": settings.AGENT_ALERT_ANDROID_CHANNEL_ID,
-            # The app builds its own full-screen-intent notification from `data`;
-            # this block is the OS fallback if the app cannot run.
-            "default_sound": True,
-        }
         apns_headers = {"apns-priority": "10"}
+        if platform is DevicePlatform.IOS:
+            message["notification"] = notification
     else:
         apns_payload["aps"]["content-available"] = 1
         apns_headers = {"apns-priority": "5", "apns-push-type": "background"}
@@ -137,6 +142,7 @@ async def send(
     device_token: str,
     data: dict[str, str],
     *,
+    platform: DevicePlatform,
     notification: dict[str, str] | None = None,
 ) -> FCMResult:
     """Send one FCM message. Never raises on delivery failure."""
@@ -147,7 +153,7 @@ async def send(
             resp = await client.post(
                 _SEND_URL.format(project_id=creds["project_id"]),
                 headers={"Authorization": f"Bearer {access}"},
-                json={"message": _envelope(device_token, data, notification)},
+                json={"message": _envelope(device_token, data, platform, notification)},
             )
     except Exception as exc:
         logger.warning("FCM send failed before dispatch: %s", exc)

@@ -5,8 +5,14 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from app.db.models.agent_device import DevicePlatform
 from app.services import fcm_client
 from app.services.fcm_client import FCMConfigError
+
+_RING_NOTIFICATION = {
+    "title": "Customer needs you",
+    "body": "A conversation was escalated to a human agent.",
+}
 
 _FAKE_CREDS = json.dumps(
     {
@@ -56,7 +62,9 @@ async def test_send_success(monkeypatch):
         patch.object(fcm_client, "_access_token", AsyncMock(return_value="ya29.fake")),
         patch("httpx.AsyncClient.post", AsyncMock(return_value=_Resp(200))),
     ):
-        result = await fcm_client.send("tok-1", {"type": "escalation_alert"})
+        result = await fcm_client.send(
+            "tok-1", {"type": "escalation_alert"}, platform=DevicePlatform.ANDROID
+        )
     assert result.ok is True
     assert result.unregistered is False
 
@@ -69,7 +77,9 @@ async def test_send_unregistered_token_is_flagged(monkeypatch):
         patch.object(fcm_client, "_access_token", AsyncMock(return_value="ya29.fake")),
         patch("httpx.AsyncClient.post", AsyncMock(return_value=_Resp(404, body))),
     ):
-        result = await fcm_client.send("tok-dead", {"type": "escalation_alert"})
+        result = await fcm_client.send(
+            "tok-dead", {"type": "escalation_alert"}, platform=DevicePlatform.ANDROID
+        )
     assert result.ok is False
     assert result.unregistered is True
 
@@ -80,7 +90,9 @@ async def test_send_transport_error_is_swallowed(monkeypatch):
     with (
         patch.object(fcm_client, "_access_token", AsyncMock(side_effect=RuntimeError("boom"))),
     ):
-        result = await fcm_client.send("tok-1", {"type": "escalation_alert"})
+        result = await fcm_client.send(
+            "tok-1", {"type": "escalation_alert"}, platform=DevicePlatform.ANDROID
+        )
     assert result.ok is False
     assert result.unregistered is False
     assert "boom" in (result.error or "")
@@ -103,3 +115,52 @@ async def test_access_token_is_cached(monkeypatch):
 def test_data_payload_values_are_all_strings():
     payload = fcm_client.stringify_data({"wait_minutes": 4, "reason": None, "type": "x"})
     assert payload == {"wait_minutes": "4", "type": "x"}
+
+
+def test_android_visible_alert_is_data_only():
+    """A `notification` block on Android suppresses `onBackgroundMessage` entirely —
+    the app never gets to render its own full-screen-intent alert, and `clear_alert`
+    can't cancel a notification the OS (not the app) posted. The visible escalation
+    alert must therefore carry no `notification` block on Android, only `data`, with
+    high priority so FCM doesn't defer it in Doze."""
+    envelope = fcm_client._envelope(
+        "tok-android", {"type": "escalation_alert"}, DevicePlatform.ANDROID, _RING_NOTIFICATION
+    )
+    assert "notification" not in envelope
+    assert envelope["data"] == {"type": "escalation_alert"}
+    assert envelope["android"]["priority"] == "high"
+    assert "notification" not in envelope["android"]
+
+
+def test_ios_visible_alert_keeps_the_notification_block():
+    """iOS has no full-screen-intent equivalent and displays nothing for a
+    data-only silent push, so it must keep getting a real `notification` block,
+    unlike Android."""
+    envelope = fcm_client._envelope(
+        "tok-ios", {"type": "escalation_alert"}, DevicePlatform.IOS, _RING_NOTIFICATION
+    )
+    assert envelope["notification"] == _RING_NOTIFICATION
+    assert envelope["apns"]["headers"]["apns-priority"] == "10"
+
+
+@pytest.mark.parametrize("platform", [DevicePlatform.ANDROID, DevicePlatform.IOS])
+def test_silent_messages_are_unchanged_on_both_platforms(platform):
+    """`clear_alert` and `missed_escalation` pass notification=None today and must
+    keep behaving identically on both platforms — still silent, still
+    content-available on iOS, never carrying a `notification` key."""
+    envelope = fcm_client._envelope("tok", {"type": "clear_alert"}, platform, None)
+    assert "notification" not in envelope
+    assert envelope["apns"]["payload"]["aps"]["content-available"] == 1
+    assert envelope["apns"]["headers"] == {
+        "apns-priority": "5",
+        "apns-push-type": "background",
+    }
+
+
+def test_data_payload_is_identical_across_platforms():
+    """The app parses the same `data` keys regardless of platform — only the
+    presence of the `notification` block differs."""
+    data = {"type": "escalation_alert", "ticket_id": "abc-123"}
+    android = fcm_client._envelope("tok-a", data, DevicePlatform.ANDROID, _RING_NOTIFICATION)
+    ios = fcm_client._envelope("tok-i", data, DevicePlatform.IOS, _RING_NOTIFICATION)
+    assert android["data"] == ios["data"] == data
