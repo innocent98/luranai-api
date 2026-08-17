@@ -19,7 +19,10 @@ from app.api.v1.endpoints.chat import send_message
 from app.core.config import settings
 from app.db.models.conversation import ConversationSession
 from app.schemas.conversation import MessageRequest
+from app.schemas.ticket import TicketCreate
 from app.schemas.voice import VoiceTokenRequest, VoiceTokenResponse
+from app.services.conversation_service import ConversationService
+from app.services.ticket_service import TicketService
 from app.services.voice.auth import verify_elevenlabs_request
 from app.services.voice.elevenlabs_client import ElevenLabsClient, ElevenLabsMintError
 from app.services.voice.gating import VoiceDenialReason, VoiceGate
@@ -422,3 +425,75 @@ async def voice_custom_llm(
         reply_text = _EMPTY_REPLY
 
     return _speak(reply_text, model=model)
+
+
+@router.post("/tools/escalate_to_human", dependencies=[Depends(verify_elevenlabs_request)])
+async def voice_escalate_to_human(
+    payload: dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+):
+    """Voice -> human handoff client tool. Converts the call to text (spec §7).
+
+    ElevenLabs invokes this client tool when the caller asks for a human.
+    The tool name (`escalate_to_human`) is case-sensitive and must match the
+    ElevenLabs Agent config exactly. The widget half (ending the EL session,
+    switching the UI to text) is Task 8's; this is only the server half:
+    mark the session escalated and create (or reuse) a ticket so a human can
+    pick the conversation up.
+
+    Tenant/session identity comes ONLY from resolving our own opaque voice
+    token server-side, the same boundary `voice_custom_llm` holds above —
+    never from any EL-supplied id in the request body.
+
+    Idempotent by design: a caller saying "get me a person" more than once
+    on the same session reuses the session's existing open ticket
+    (`TicketService.get_open_ticket_for_session`) rather than opening a
+    second one, and skips re-escalating a session that is already escalated.
+    """
+    try:
+        context = await VoiceSessionTokenStore().resolve(str(payload.get("voice_token") or ""))
+    except Exception as exc:  # noqa: BLE001 -- an infra hiccup here isn't the
+        # caller's fault (unlike a genuinely unresolvable token below, which
+        # stays a real 401) — mirrors the resolve-step fallback in
+        # `voice_custom_llm` above rather than letting it surface as a 500.
+        logger.error(f"Voice escalate-to-human token resolution failed: {exc}")
+        return {"switch_to_text": True, "ticket_id": None}
+
+    if context is None:
+        logger.warning("Voice escalate-to-human call carried an unresolvable voice token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="unknown voice session",
+        )
+
+    reason = str(payload.get("reason") or "Customer requested a human during a voice call")
+
+    ticket_service = TicketService(db)
+
+    try:
+        existing = ticket_service.get_open_ticket_for_session(context.luran_session_id)
+        if existing is not None:
+            return {"switch_to_text": True, "ticket_id": str(existing.id)}
+
+        # TODO(agent-caller): ring the on-call agent app here once it exists
+        # (see project_agent_caller_app in memory) — today this only opens a
+        # ticket for a human to pick up asynchronously.
+        ConversationService(db).escalate_session(context.luran_session_id, reason)
+        ticket = ticket_service.create_ticket(
+            TicketCreate(
+                tenant_id=context.tenant_id,
+                session_id=context.luran_session_id,
+                summary=reason,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 -- never leave the caller in silence
+        # A failure here (tenant ticket-creation capability disabled, the
+        # session vanishing mid-call, a DB hiccup) must still let the widget
+        # drop to text rather than surface a 500 that ElevenLabs cannot
+        # render as speech. No ticket_id in that case: there is genuinely no
+        # ticket for a human to pick up, but the caller isn't left hanging
+        # on the call either.
+        logger.error(f"Voice escalation failed for session {context.luran_session_id}: {exc}")
+        return {"switch_to_text": True, "ticket_id": None}
+
+    return {"switch_to_text": True, "ticket_id": str(ticket.id)}

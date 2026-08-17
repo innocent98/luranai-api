@@ -188,6 +188,39 @@ class TicketService:
 
         return self._to_ticket_response(ticket)
 
+    def get_open_ticket_for_session(self, session_id: UUID) -> TicketResponse | None:
+        """
+        Get the newest still-open ticket for a conversation session, if any.
+
+        Used to make escalation idempotent: a session that already has an
+        open ticket should reuse it rather than opening a second one.
+        Unlike `get_ticket_by_session`, this filters to open statuses only
+        (OPEN, IN_PROGRESS) — a session whose only ticket was resolved or
+        closed has no *open* ticket and should be free to escalate again.
+
+        Args:
+            session_id: Session UUID
+
+        Returns:
+            Newest open ticket for the session if any, None otherwise
+        """
+        stmt = (
+            select(Ticket)
+            .where(
+                Ticket.session_id == session_id,
+                Ticket.status.in_([TicketStatus.OPEN, TicketStatus.IN_PROGRESS]),
+            )
+            .order_by(desc(Ticket.created_at))
+            .limit(1)
+        )
+
+        ticket = self.db.execute(stmt).scalar_one_or_none()
+
+        if not ticket:
+            return None
+
+        return self._to_ticket_response(ticket)
+
     def update_ticket(self, ticket_id: UUID, ticket_data: TicketUpdate) -> TicketResponse:
         """
         Update ticket information.
