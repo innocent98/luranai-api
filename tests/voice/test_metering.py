@@ -1,3 +1,4 @@
+import re
 from uuid import uuid4
 
 import pytest
@@ -22,12 +23,17 @@ async def test_unused_tenant_reports_zero():
 @pytest.mark.asyncio
 async def test_counter_key_is_month_scoped():
     """Rollover is implicit: the key embeds the calendar month, so a new
-    month writes a fresh key rather than requiring a scheduled reset job."""
+    month writes a fresh key rather than requiring a scheduled reset job.
+
+    Pins the trailing segment to a real `YYYY-MM` shape. The original version
+    of this assertion (`key.count("-") >= 1`) was vacuous -- a tenant UUID
+    already contains hyphens, so it passed even for a key ending in
+    `:banana`, which has no month in it at all."""
     meter = VoiceMeter()
     tenant_id = uuid4()
     key = meter._key(tenant_id)
-    assert key.count("-") >= 1
-    assert key.endswith(f"{tenant_id}:{key.rsplit(':', 1)[-1]}")
+    assert key.startswith(f"voice:minutes:{tenant_id}:")
+    assert re.search(r":\d{4}-\d{2}$", key), f"key does not end in a YYYY-MM month segment: {key}"
 
 
 @pytest.mark.asyncio

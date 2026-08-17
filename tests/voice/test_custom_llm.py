@@ -476,3 +476,49 @@ def test_turn_rate_limiter_acquire_timeout_throttles_instead_of_hanging(
     mock.assert_not_called()
     spoken = _spoken_text(resp)
     assert spoken == "... Sorry, one moment please. "
+
+
+def test_a_single_turn_meters_minutes_without_session_end_ever_being_called(
+    pg_client, voice_tenant_factory, voice_session_factory, minted_voice_token
+):
+    """Task 11 review round 2, finding #1: metering must not depend on the
+    widget calling `/voice/session/end` -- a crashed or disconnected client
+    never does, so a purely end-triggered meter enforces nothing. This is
+    the end-to-end proof: hitting the REAL turn endpoint once, with
+    `/voice/session/end` never called at all, must still bill minutes on
+    its own via `VoiceSessionTokenStore.resolve()`'s per-turn metering."""
+    from app.services.voice.metering import VoiceMeter
+
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    session = voice_session_factory(tenant.id)
+    token = minted_voice_token(tenant.id, session.id)
+
+    async def _backdate_last_metered_at(seconds_ago: float) -> None:
+        store = VoiceSessionTokenStore()
+        redis = await store._get_redis()
+        key = f"voice:session_token:{token}"
+        raw = await redis.get(key)
+        data = json.loads(raw)
+        data["last_metered_at"] = time.time() - seconds_ago
+        ttl = await redis.ttl(key)
+        await redis.set(key, json.dumps(data), ex=ttl if ttl > 0 else 600)
+
+    # Simulate "the call has been running 2 minutes with no prior turn" by
+    # backdating the token's metering tick directly (mirrors
+    # test_session_tokens.py's `_set_ticks` helper).
+    asyncio.run(_backdate_last_metered_at(120))
+
+    with patch(
+        "app.api.v1.endpoints.voice.send_message",
+        new=AsyncMock(return_value=_fake_chat_response(session.id, "We open at nine.")),
+    ):
+        resp = pg_client.post(
+            "/api/v1/voice/llm/chat/completions", json=_body(token), headers=_auth()
+        )
+
+    assert resp.status_code == 200
+    metered = asyncio.run(VoiceMeter().get_monthly_minutes(tenant.id))
+    assert metered == pytest.approx(2.0, abs=0.05), (
+        "the turn itself must have billed the elapsed minutes -- "
+        "/voice/session/end was never called in this test"
+    )

@@ -1,12 +1,17 @@
 """Tests for POST /api/v1/voice/session/end.
 
-Duration is deliberately derived server-side from the token's recorded
-`minted_at`, never from a client-supplied field -- see the design note on
-`end_voice_session` in app/api/v1/endpoints/voice.py. Tests that need a
-non-trivial elapsed duration therefore backdate `minted_at` directly in
-Redis (the same pattern `test_session_tokens.py` already uses to simulate
-"deep into a long call"), rather than asking the endpoint to trust a
-duration the request body claims.
+Since Task 11 review round 2, metering is NOT primarily enforced by this
+route -- `VoiceSessionTokenStore.resolve()` meters incrementally on every
+conversational turn (see tests/voice/test_session_tokens.py), because a
+widget that crashes, loses network, or is simply closed never calls this
+route at all. `/session/end` now only bills the small trailing delta since
+the last turn and frees the concurrency slot. Tests here therefore focus on
+the route's own concerns (status codes, slot release, idempotency, failure
+isolation) rather than re-proving the metering math, which is covered at the
+store level. Tests that need a non-trivial metered delta backdate BOTH
+`minted_at` and `last_metered_at` directly in Redis (mirroring
+`test_session_tokens.py`'s `_set_ticks` helper), simulating "a call that
+started X seconds ago and has had no intervening turn."
 """
 
 import asyncio
@@ -22,9 +27,10 @@ from app.services.voice.metering import VoiceMeter
 from app.services.voice.session_tokens import VoiceSessionTokenStore
 
 
-def _backdate_minted_at(token: str, seconds_ago: float) -> None:
-    """Rewrite a minted token's `minted_at` to simulate a call that has
-    already been running for `seconds_ago` seconds, preserving its TTL."""
+def _backdate_ticks(token: str, seconds_ago: float) -> None:
+    """Rewrite a minted token's `minted_at` AND `last_metered_at` to
+    simulate a call that started `seconds_ago` seconds ago and has had no
+    turn (no `resolve()` call) since, preserving its TTL."""
 
     async def _do() -> None:
         store = VoiceSessionTokenStore()
@@ -33,7 +39,9 @@ def _backdate_minted_at(token: str, seconds_ago: float) -> None:
         raw = await redis.get(key)
         assert raw is not None, "token must exist before it can be backdated"
         data = json.loads(raw)
-        data["minted_at"] = time.time() - seconds_ago
+        backdated = time.time() - seconds_ago
+        data["minted_at"] = backdated
+        data["last_metered_at"] = backdated
         ttl = await redis.ttl(key)
         await redis.set(key, json.dumps(data), ex=ttl if ttl > 0 else 600)
 
@@ -61,14 +69,14 @@ def _reserve_slot(db_session, tenant_id, token) -> None:
     asyncio.run(VoiceGate(db_session).acquire_slot(tenant_id, token))
 
 
-def test_session_end_releases_slot_and_meters(
+def test_session_end_releases_slot_and_meters_the_trailing_delta(
     pg_client, db_session, voice_tenant_factory, voice_session_factory, minted_voice_token
 ):
     tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
     session = voice_session_factory(tenant.id)
     token = minted_voice_token(tenant.id, session.id)
     _reserve_slot(db_session, tenant.id, token)
-    _backdate_minted_at(token, seconds_ago=90)
+    _backdate_ticks(token, seconds_ago=90)
 
     resp = pg_client.post("/api/v1/voice/session/end", json={"voice_token": token})
 
@@ -133,9 +141,9 @@ def test_session_end_ignores_client_supplied_duration(
     pg_client, db_session, voice_tenant_factory, voice_session_factory, minted_voice_token
 ):
     """A client-reported duration is a number a client can lie about, and it
-    meters a paid resource -- the endpoint must derive elapsed time from the
-    server-recorded mint time and ignore any `duration_seconds` the request
-    body claims, even if such a field is present."""
+    meters a paid resource -- the endpoint must derive its trailing delta
+    from server-recorded timestamps and ignore any `duration_seconds` the
+    request body claims, even if such a field is present."""
     tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
     session = voice_session_factory(tenant.id)
     token = minted_voice_token(tenant.id, session.id)
@@ -158,7 +166,7 @@ def test_session_end_is_idempotent_second_call_is_a_noop(
     session = voice_session_factory(tenant.id)
     token = minted_voice_token(tenant.id, session.id)
     _reserve_slot(db_session, tenant.id, token)
-    _backdate_minted_at(token, seconds_ago=60)
+    _backdate_ticks(token, seconds_ago=60)
 
     first = pg_client.post("/api/v1/voice/session/end", json={"voice_token": token})
     metered_after_first = _monthly_minutes(tenant.id)
@@ -185,17 +193,18 @@ def test_session_end_unknown_token_returns_ok_without_error(pg_client):
 def test_session_end_never_500s_and_still_releases_slot_when_metering_fails(
     pg_client, db_session, voice_tenant_factory, voice_session_factory, minted_voice_token
 ):
-    """Metering and slot release are independent -- a failure writing the
-    metering counter must not prevent the (self-healing but still worth
-    freeing promptly) concurrency slot from being released."""
+    """A failure in `resolve_and_revoke`'s internal metering (swallowed
+    inside `VoiceSessionTokenStore`, see its docstring) must not prevent the
+    (self-healing but still worth freeing promptly) concurrency slot from
+    being released by the route."""
     tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
     session = voice_session_factory(tenant.id)
     token = minted_voice_token(tenant.id, session.id)
     _reserve_slot(db_session, tenant.id, token)
-    _backdate_minted_at(token, seconds_ago=60)
+    _backdate_ticks(token, seconds_ago=60)
 
     with patch(
-        "app.api.v1.endpoints.voice.VoiceMeter.add_minutes",
+        "app.services.voice.metering.VoiceMeter.add_minutes",
         new=AsyncMock(side_effect=RuntimeError("redis boom")),
     ):
         resp = pg_client.post("/api/v1/voice/session/end", json={"voice_token": token})
@@ -203,6 +212,9 @@ def test_session_end_never_500s_and_still_releases_slot_when_metering_fails(
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
     assert _slot_count(tenant.id) == 0
+    # Proves the failure was real, not a no-op: the delta that should have
+    # been billed genuinely wasn't.
+    assert _monthly_minutes(tenant.id) == 0
 
 
 def test_session_end_never_500s_and_still_meters_when_slot_release_fails(
@@ -215,7 +227,7 @@ def test_session_end_never_500s_and_still_meters_when_slot_release_fails(
     session = voice_session_factory(tenant.id)
     token = minted_voice_token(tenant.id, session.id)
     _reserve_slot(db_session, tenant.id, token)
-    _backdate_minted_at(token, seconds_ago=60)
+    _backdate_ticks(token, seconds_ago=60)
 
     with patch(
         "app.api.v1.endpoints.voice.VoiceGate.release_slot",
@@ -231,3 +243,20 @@ def test_session_end_never_500s_and_still_meters_when_slot_release_fails(
 def test_session_end_requires_voice_token_field(pg_client):
     resp = pg_client.post("/api/v1/voice/session/end", json={})
     assert resp.status_code == 422
+
+
+def test_session_end_has_no_rate_limit_dependency():
+    """Review round 2 finding: `/session/end` must NOT share a counter with
+    `/session/token`'s `voice_rate_limit` (same `http_voice` Redis prefix) --
+    doing so silently halved the mint budget (every call now costs 2 units)
+    and could 429 the cleanup/billing path itself for visitors behind shared
+    NAT. Asserted structurally against the route's dependants rather than by
+    hammering the endpoint N times, which would be both slow and a weaker
+    proof (a sufficiently high shared limit could hide the sharing)."""
+    from app.api.v1.endpoints.voice import router
+
+    end_route = next(r for r in router.routes if r.path == "/session/end")
+    dependency_calls = {dep.call for dep in end_route.dependant.dependencies}
+    from app.utils.http_rate_limiter import voice_rate_limit
+
+    assert voice_rate_limit not in dependency_calls

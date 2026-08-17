@@ -4,7 +4,6 @@ Spec: docs/superpowers/specs/2026-08-15-voice-chat-backend-design.md
 """
 
 import asyncio
-import time
 from typing import Any
 from uuid import UUID
 
@@ -32,7 +31,6 @@ from app.services.ticket_service import TicketService
 from app.services.voice.auth import verify_elevenlabs_request
 from app.services.voice.elevenlabs_client import ElevenLabsClient, ElevenLabsMintError
 from app.services.voice.gating import VoiceDenialReason, VoiceGate
-from app.services.voice.metering import VoiceMeter
 from app.services.voice.session_tokens import VoiceSessionContext, VoiceSessionTokenStore
 from app.services.voice.sse import stream_reply
 from app.utils.http_rate_limiter import voice_llm_turn_rate_limiter, voice_rate_limit
@@ -231,43 +229,49 @@ async def mint_voice_session_token(
     "/session/end",
     response_model=VoiceSessionEndResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(voice_rate_limit)],
 )
 async def end_voice_session(
     payload: VoiceSessionEndRequest,
     db: Session = Depends(get_db),
 ):
-    """Called by the widget on hang-up: meter the call's minutes and free its
-    concurrency slot. Deliberately unauthenticated like `/session/token` --
-    the opaque voice token IS the credential, and the worst a forged call
-    against this route can do is end a session that isn't its own, which
-    self-heals via the token/slot TTLs anyway.
+    """Called by the widget on hang-up: bill the call's final partial
+    minute and free its concurrency slot.
 
-    Idempotent by construction: `VoiceSessionTokenStore.resolve_and_revoke`
-    (Redis GETDEL) deletes the token's binding atomically as the very first
-    thing this does, so a second call for the same token -- a duplicate
-    hangup event, a client retry, a genuine race between two near-
-    simultaneous end requests -- resolves to `None` and no-ops rather than
-    metering or releasing twice. A browser that crashes or loses network
-    never calls this at all; that gap is accepted, not solved here (see
-    module docstring / task report): the slot self-heals via its own 2h TTL
-    and the minute cap fails safe (denies new calls), so an unended call
-    costs at most one leaked slot-hour, not unbounded minutes.
+    Metering is NOT primarily enforced here. `VoiceSessionTokenStore.resolve()`
+    meters incrementally on every conversational turn -- each turn is proof
+    the caller is still on the call -- so the minute cap has teeth mid-call
+    and a widget that crashes, loses network, or is simply closed still gets
+    billed for every turn it completed before that happened. This route only
+    bills the small trailing delta between the last turn and hang-up (via
+    `resolve_and_revoke`, see its docstring) and frees the concurrency slot;
+    both best-effort, since nothing here renders a failure to anyone -- the
+    widget has already torn the call down locally by the time this fires.
 
-    Duration is derived from the server-recorded `minted_at` on the
-    resolved token, never from anything the request body claims. A
-    client-reported duration is a number a client can lie about, and it
-    meters a paid resource -- the server has to own the number that becomes
-    an invoice line.
+    Deliberately unauthenticated like `/session/token` -- the opaque voice
+    token IS the credential, and possession of it is the only thing gating
+    this route. This is NOT a self-healing no-op if misused: `resolve_and_revoke`
+    deletes the token's binding immediately, so a call to this route against
+    someone else's still-live token ends that real call early -- its very
+    next turn 401s and goes silent for the caller who was still talking, not
+    "recovers via a TTL" the way a merely leaked slot would. Exploitability
+    is low in practice (the token is a 256-bit `secrets.token_urlsafe(32)`
+    value that only ever appears in the mint response and ElevenLabs' own
+    request), so this isn't asking for auth -- it's naming the actual blast
+    radius rather than a self-heal property this route does not have.
 
-    Metering and slot release are independent: each is wrapped in its own
-    try/except so a failure in one cannot skip the other. Metering runs
-    first because losing that write is a silent, non-self-healing
-    under-bill, whereas a slot leaked here still ages out via the
-    concurrency ZSET's own per-member TTL (2h, see gating.py). Either
-    failure is logged and swallowed, never surfaced as a 500 -- this route
-    fires at hangup, after the widget has already torn the call down
-    locally, so there is no caller left who could act on an error response.
+    Idempotent by construction against duplicate/racing calls for the SAME
+    token: `resolve_and_revoke` (Redis GETDEL) deletes the binding atomically
+    as the first thing this does, so a second call for that token -- a
+    duplicate hangup event, a client retry, a genuine race between two
+    near-simultaneous end requests -- resolves to `None` and no-ops rather
+    than metering or releasing twice.
+
+    Slot release is wrapped in its own try/except so a failure there is
+    logged and swallowed, never surfaced as a 500 -- a leaked slot here
+    still ages out via the concurrency ZSET's own per-member TTL (2h, see
+    gating.py). `resolve_and_revoke` already handles its own metering
+    failures internally (see its docstring) without raising, so there is
+    nothing further to guard between it and the slot release.
     """
     store = VoiceSessionTokenStore()
     try:
@@ -281,15 +285,9 @@ async def end_voice_session(
         # and no information worth leaking about which of those it was.
         return VoiceSessionEndResponse()
 
-    elapsed_minutes = max(0.0, time.time() - context.minted_at) / 60.0
-    try:
-        await VoiceMeter().add_minutes(context.tenant_id, elapsed_minutes)
-    except Exception as exc:  # noqa: BLE001 -- see docstring: independent of slot release
-        logger.error(f"Failed to meter voice minutes for tenant {context.tenant_id}: {exc}")
-
     try:
         await VoiceGate(db).release_slot(context.tenant_id, payload.voice_token)
-    except Exception as exc:  # noqa: BLE001 -- see docstring: independent of metering
+    except Exception as exc:  # noqa: BLE001 -- a leaked slot self-heals via its own TTL
         logger.error(
             f"Failed to release voice concurrency slot for tenant {context.tenant_id}: {exc}"
         )
