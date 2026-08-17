@@ -1,5 +1,7 @@
-import pytest
+import json
 from uuid import uuid4
+
+import pytest
 
 from app.core.config import settings
 from app.services.voice.session_tokens import VoiceSessionTokenStore
@@ -90,3 +92,25 @@ async def test_resolve_slides_ttl_forward_so_a_long_call_never_goes_silent():
         "resolve() must slide the TTL back to the full window, not leave the "
         "shrunk countdown running"
     )
+
+
+@pytest.mark.asyncio
+async def test_resolve_does_not_extend_ttl_for_a_corrupt_payload():
+    """A corrupt stored payload (fails json.loads or UUID()) must not have its
+    TTL renewed. If the `expire()` call ran before parsing, every failing
+    turn on a broken token would revive its lifetime forever — the same
+    unbounded-unfixable-loop shape finding #3 (round 2) closed for policy
+    rejections, just one layer lower: the caller would get `_FALLBACK_REPLY`
+    on an infinite loop instead of the binding aging out on its original
+    countdown."""
+    store = VoiceSessionTokenStore()
+    redis = await store._get_redis()
+    token = "corrupt-token"
+    key = f"voice:session_token:{token}"
+    await redis.set(key, "not valid json", ex=5)
+
+    with pytest.raises(json.JSONDecodeError):
+        await store.resolve(token)
+
+    ttl_after = await redis.ttl(key)
+    assert 0 < ttl_after <= 5, "TTL must not be extended for a payload that failed to parse"

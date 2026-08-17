@@ -59,6 +59,18 @@ class VoiceSessionTokenStore:
         raw = await redis.get(key)
         if not raw:
             return None
+        # Parse BEFORE renewing the TTL. A corrupt payload (fails json.loads
+        # or UUID() below) must be allowed to age out on its original
+        # countdown — renewing it here would mean every failing turn on a
+        # broken token revives its lifetime forever, trapping the caller in
+        # an infinite `_FALLBACK_REPLY` loop instead of the binding
+        # eventually expiring.
+        data = json.loads(raw)
+        context = VoiceSessionContext(
+            tenant_id=UUID(data["tenant_id"]),
+            luran_session_id=UUID(data["luran_session_id"]),
+            text_out=bool(data["text_out"]),
+        )
         # Slide the TTL forward on every successful resolve. Without this, a
         # call running longer than the mint TTL goes silent mid-conversation
         # the moment a later turn's resolve() 401s — a caller has no way to
@@ -66,12 +78,7 @@ class VoiceSessionTokenStore:
         # audio. Only a full TTL window of *inactivity* should end the
         # binding, not wall-clock time since mint.
         await redis.expire(key, settings.VOICE_SESSION_TOKEN_TTL_SECONDS)
-        data = json.loads(raw)
-        return VoiceSessionContext(
-            tenant_id=UUID(data["tenant_id"]),
-            luran_session_id=UUID(data["luran_session_id"]),
-            text_out=bool(data["text_out"]),
-        )
+        return context
 
     async def revoke(self, token: str) -> None:
         redis = await self._get_redis()

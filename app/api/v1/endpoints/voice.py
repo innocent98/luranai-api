@@ -3,6 +3,7 @@
 Spec: docs/superpowers/specs/2026-08-15-voice-chat-backend-design.md
 """
 
+import asyncio
 from typing import Any
 from uuid import UUID
 
@@ -49,7 +50,11 @@ _EMPTY_REPLY = "I'm not sure how to help with that. Could you try asking a diffe
 # phrasing, not "could you say that again?": inviting a retry here would trap
 # the caller in a loop that can never succeed while burning ElevenLabs
 # minutes every turn. The voice token is also revoked when this fires (see
-# `_revoke_voice_token_best_effort`), so the call actually ends.
+# `_revoke_voice_token_best_effort`) so the NEXT turn 401s cleanly instead of
+# repeating the same rejection — that ends OUR ability to answer, NOT the
+# call itself: the WebRTC session stays open (and billing) until the caller
+# or widget disconnects. Releasing the concurrency slot on disconnect is
+# Task 11's, not this endpoint's.
 _TERMINAL_REPLY = (
     "I'm sorry, but I'm not able to continue this call right now. "
     "Please check your account or contact support. Goodbye."
@@ -59,6 +64,14 @@ _TERMINAL_REPLY = (
 # Transient, unlike `_TERMINAL_REPLY` — no token revoke, the caller just
 # needs to slow down.
 _RATE_LIMITED_REPLY = "Sorry, one moment please."
+
+# Budget for RedisRateLimiter.acquire() inside `_turn_allowed`. Its own
+# internal loop can `asyncio.sleep` up to `window_seconds + 1` (61s for
+# `voice_llm_turn_rate_limiter`) if two concurrent turns on the same token
+# both pass the fast usage check and then race for the same slot. A stuck
+# acquire is worse than a false-positive throttle on the endpoint whose
+# whole purpose is preventing silence, so it gets cut short well before that.
+_TURN_RATE_LIMIT_TIMEOUT_SECONDS = 2.0
 
 
 async def _release_reserved_slot(
@@ -236,7 +249,11 @@ def _last_user_message(payload: dict[str, Any]) -> str:
     earlier turn would silently re-drive the pipeline with stale text,
     re-running lead scoring and the action engine, and speak a stale answer
     back to a caller who said nothing new. Any non-`user`, missing, or
-    non-dict last entry is "no input", never "look further back".
+    non-dict last entry is "no input", never "look further back". Whitespace-
+    only content (a realistic partial-ASR artifact — e.g. a single space) is
+    "no input" too: it's truthy in Python, so without stripping it would
+    clear the caller's no-input gate and reach the pipeline with nothing
+    actually said.
     """
     messages = payload.get("messages") or []
     if not messages:
@@ -245,13 +262,20 @@ def _last_user_message(payload: dict[str, Any]) -> str:
     if not isinstance(last, dict) or last.get("role") != "user":
         return ""
     content = last.get("content")
-    return str(content) if content else ""
+    if not content:
+        return ""
+    return str(content).strip()
 
 
 async def _revoke_voice_token_best_effort(token: str, tenant_id: UUID) -> None:
-    """Best-effort revoke after a terminal pipeline rejection, so the call
-    actually ends instead of repeating the same unfixable rejection every
-    turn until the caller hangs up or the token's own TTL eventually expires.
+    """Best-effort revoke after a terminal pipeline rejection.
+
+    This ends OUR ability to answer further turns on this token — the next
+    `resolve()` 401s instead of repeating the same unfixable rejection — but
+    NOT the call itself: the WebRTC session stays open and keeps burning
+    ElevenLabs minutes until the caller or widget disconnects. Ending the
+    call itself, and releasing the concurrency slot on disconnect, is out of
+    scope here (Task 11's).
 
     Mirrors `_release_reserved_slot`'s pattern above: failures are logged,
     not re-raised — we're already mid-response with a reply ready to send,
@@ -280,8 +304,19 @@ async def _turn_allowed(token: str) -> bool:
         usage = await voice_llm_turn_rate_limiter.get_current_usage(token)
         if usage["calls"] >= voice_llm_turn_rate_limiter.max_calls:
             return False
-        await voice_llm_turn_rate_limiter.acquire(token)
+        await asyncio.wait_for(
+            voice_llm_turn_rate_limiter.acquire(token),
+            timeout=_TURN_RATE_LIMIT_TIMEOUT_SECONDS,
+        )
         return True
+    except TimeoutError:
+        # `acquire()` re-checked the window itself (a second, later read than
+        # the `get_current_usage` above) and is stuck in its own sleep-and-
+        # retry loop — almost certainly a race with a concurrent turn on the
+        # same token. Treat "stuck" the same as "over budget": throttle this
+        # turn rather than hang the request for up to 61s.
+        logger.warning("Voice turn rate limiter acquire() timed out; throttling this turn")
+        return False
     except Exception as exc:  # noqa: BLE001 — fail open, infra errors must not throttle
         logger.error(f"Voice turn rate limiter failed open: {exc}")
         return True
@@ -371,7 +406,8 @@ async def voice_custom_llm(
         # not found) — not transient. Retrying with the same words can never
         # succeed, so falling back to `_FALLBACK_REPLY`'s "could you say that
         # again?" would trap the caller in an infinite loop burning
-        # ElevenLabs minutes. End the call instead.
+        # ElevenLabs minutes. Revoke so the next turn 401s cleanly instead —
+        # that ends our ability to answer, not the WebRTC call itself.
         logger.warning(f"Voice pipeline rejected session {context.luran_session_id}: {exc.detail}")
         await _revoke_voice_token_best_effort(token, context.tenant_id)
         return _speak(_TERMINAL_REPLY, model=model)
