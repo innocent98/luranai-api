@@ -221,7 +221,10 @@ existing contract touched.
   (`tests/auditor/test_start_audit_redirect.py::test_different_host_requires_confirmation`) — dev-DB
   row-count pollution, not caused by this work. See Verification.
 - **Next backend slice:** the custom-LLM SSE endpoint ElevenLabs' agent calls to get a spoken reply
-  from the real Luran pipeline — spike-independent, can proceed without Spike 1.
+  from the real Luran pipeline — spike-independent, can proceed without Spike 1. Shipped as
+  Slice 2 — see `docs/sop/voice_chat_custom_llm_endpoint.md`, which also documents a related
+  change to `VoiceSessionTokenStore.resolve()` (sliding TTL renewal) made after this SOP was
+  written.
 
 Design spec: `docs/superpowers/specs/2026-08-15-voice-chat-backend-design.md`
 Spike notes: `docs/superpowers/specs/2026-08-15-voice-chat-spikes.md`
