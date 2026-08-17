@@ -1,6 +1,6 @@
 # SOP — Agent Caller: escalation push infrastructure
 
-**Status:** Shipped (branch, pre-PR) · `feat/agent-caller-push` · commits `1bdbc80..195ce5b` (17 commits) · 2026-08-16/17
+**Status:** Shipped (branch, pre-PR) · `feat/agent-caller-push` · commits `1bdbc80..4397cf8` (18 commits) · 2026-08-16/17
 **Area:** `app/services`, `app/workers`, `app/api/v1/endpoints/agent_app.py`, `app/db/models`, one migration
 
 ---
@@ -246,6 +246,28 @@ Updated verification (supersedes the "999 passed" figure in Step 7 below):
 `tests/agent_caller` is now 81 passed (was 75); the full suite against a
 migrated Postgres is 1006 passed / 33 skipped / 0 failed (was 999/33/0) — net
 +7 for the 7 new tests this wave added, zero regressions.
+
+### Round 2 — re-review (2026-08-17), commit `4397cf8`
+
+The re-review confirmed F1-F6 and validated the fix; it also found that F1's
+own fix introduced a new Important bug, plus one test-strength gap. Detail
+appended to the same report file above.
+
+| # | Severity | Issue | Fix |
+|---|---|---|---|
+| N1 | Important | F1's ticket reuse treats a `MISSED` ticket as "live" and reuses it — but nothing re-rang it, so a session that went `MISSED` overnight got silence, forever, on every later re-escalation | `TicketService.reopen_missed_ticket` (atomic MISSED→OPEN) + `AgentAlertService.reset_ring` (purges the ticket's push-log rows so `claim_log` doesn't skip already-rung agents) + `enqueue_agent_alerts_async`'s new `attempt` keyword (derived from `ticket.updated_at`, suffixed onto both ARQ job ids so a re-ring isn't swallowed by arq's own ~24h job-id dedup) |
+| N2 | Minor | The call-site guard test only pinned ring-vs-resolution call *parity*, not that the ring was actually gated | Added `source.count('if ticket_created:') == 6` alongside the parity check |
+
+`tests/agent_caller` is now 87 passed (was 81); full suite against migrated
+Postgres is 1013 passed / 33 skipped / 0 failed (was 1006/33/0) — net +7,
+zero regressions.
+
+Also recorded (no code change): `POST /api/v1/tickets` (manual ticket
+creation) bypasses `_get_or_create_escalation_ticket` and can pre-populate a
+session's "live ticket" slot, which then suppresses a later AI-escalation
+ring for that session even though nobody has claimed it. Judged acceptable —
+a human already initiated that ticket — but it's a second path feeding the
+same one-live-ticket-per-session pool this wave's fixes assume.
 
 ## Operate / roll back
 
