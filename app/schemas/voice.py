@@ -16,3 +16,11 @@ class VoiceTokenResponse(BaseModel):
     agent_id: str
     voice_token: str
     expires_in_seconds: int
+
+
+class VoiceSessionEndRequest(BaseModel):
+    voice_token: str = Field(..., description="Opaque voice-session token from /session/token")
+
+
+class VoiceSessionEndResponse(BaseModel):
+    ok: bool = True

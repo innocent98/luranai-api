@@ -4,6 +4,7 @@ Spec: docs/superpowers/specs/2026-08-15-voice-chat-backend-design.md
 """
 
 import asyncio
+import time
 from typing import Any
 from uuid import UUID
 
@@ -20,12 +21,18 @@ from app.core.config import settings
 from app.db.models.conversation import ConversationSession
 from app.schemas.conversation import MessageRequest
 from app.schemas.ticket import TicketCreate
-from app.schemas.voice import VoiceTokenRequest, VoiceTokenResponse
+from app.schemas.voice import (
+    VoiceSessionEndRequest,
+    VoiceSessionEndResponse,
+    VoiceTokenRequest,
+    VoiceTokenResponse,
+)
 from app.services.conversation_service import ConversationService
 from app.services.ticket_service import TicketService
 from app.services.voice.auth import verify_elevenlabs_request
 from app.services.voice.elevenlabs_client import ElevenLabsClient, ElevenLabsMintError
 from app.services.voice.gating import VoiceDenialReason, VoiceGate
+from app.services.voice.metering import VoiceMeter
 from app.services.voice.session_tokens import VoiceSessionContext, VoiceSessionTokenStore
 from app.services.voice.sse import stream_reply
 from app.utils.http_rate_limiter import voice_llm_turn_rate_limiter, voice_rate_limit
@@ -218,6 +225,76 @@ async def mint_voice_session_token(
         voice_token=voice_token,
         expires_in_seconds=settings.VOICE_SESSION_TOKEN_TTL_SECONDS,
     )
+
+
+@router.post(
+    "/session/end",
+    response_model=VoiceSessionEndResponse,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(voice_rate_limit)],
+)
+async def end_voice_session(
+    payload: VoiceSessionEndRequest,
+    db: Session = Depends(get_db),
+):
+    """Called by the widget on hang-up: meter the call's minutes and free its
+    concurrency slot. Deliberately unauthenticated like `/session/token` --
+    the opaque voice token IS the credential, and the worst a forged call
+    against this route can do is end a session that isn't its own, which
+    self-heals via the token/slot TTLs anyway.
+
+    Idempotent by construction: `VoiceSessionTokenStore.resolve_and_revoke`
+    (Redis GETDEL) deletes the token's binding atomically as the very first
+    thing this does, so a second call for the same token -- a duplicate
+    hangup event, a client retry, a genuine race between two near-
+    simultaneous end requests -- resolves to `None` and no-ops rather than
+    metering or releasing twice. A browser that crashes or loses network
+    never calls this at all; that gap is accepted, not solved here (see
+    module docstring / task report): the slot self-heals via its own 2h TTL
+    and the minute cap fails safe (denies new calls), so an unended call
+    costs at most one leaked slot-hour, not unbounded minutes.
+
+    Duration is derived from the server-recorded `minted_at` on the
+    resolved token, never from anything the request body claims. A
+    client-reported duration is a number a client can lie about, and it
+    meters a paid resource -- the server has to own the number that becomes
+    an invoice line.
+
+    Metering and slot release are independent: each is wrapped in its own
+    try/except so a failure in one cannot skip the other. Metering runs
+    first because losing that write is a silent, non-self-healing
+    under-bill, whereas a slot leaked here still ages out via the
+    concurrency ZSET's own per-member TTL (2h, see gating.py). Either
+    failure is logged and swallowed, never surfaced as a 500 -- this route
+    fires at hangup, after the widget has already torn the call down
+    locally, so there is no caller left who could act on an error response.
+    """
+    store = VoiceSessionTokenStore()
+    try:
+        context = await store.resolve_and_revoke(payload.voice_token)
+    except Exception as exc:  # noqa: BLE001 -- never 500 on hangup
+        logger.error(f"Voice session-end token resolution failed: {exc}")
+        return VoiceSessionEndResponse()
+
+    if context is None:
+        # Unknown, already-ended, or expired token — nothing left to do,
+        # and no information worth leaking about which of those it was.
+        return VoiceSessionEndResponse()
+
+    elapsed_minutes = max(0.0, time.time() - context.minted_at) / 60.0
+    try:
+        await VoiceMeter().add_minutes(context.tenant_id, elapsed_minutes)
+    except Exception as exc:  # noqa: BLE001 -- see docstring: independent of slot release
+        logger.error(f"Failed to meter voice minutes for tenant {context.tenant_id}: {exc}")
+
+    try:
+        await VoiceGate(db).release_slot(context.tenant_id, payload.voice_token)
+    except Exception as exc:  # noqa: BLE001 -- see docstring: independent of metering
+        logger.error(
+            f"Failed to release voice concurrency slot for tenant {context.tenant_id}: {exc}"
+        )
+
+    return VoiceSessionEndResponse()
 
 
 def _extract_voice_token(payload: dict[str, Any]) -> str:
