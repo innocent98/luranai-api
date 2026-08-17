@@ -188,6 +188,39 @@ class TicketService:
 
         return self._to_ticket_response(ticket)
 
+    def get_open_ticket_for_session(self, session_id: UUID) -> TicketResponse | None:
+        """
+        Get the session's live (still-actionable) escalation ticket, if any.
+
+        Re-escalating an already-escalated session (the visitor sends another
+        message, a flow re-matches) must reuse this ticket instead of minting a
+        second one — a second ticket means a second ARQ job id and a second full
+        ring of every agent's phone. RESOLVED and CLOSED tickets don't count as
+        live; OPEN, IN_PROGRESS and MISSED do — a missed escalation is still
+        waiting to be handled, not a fresh one to be created.
+
+        Args:
+            session_id: Session UUID
+
+        Returns:
+            Most recent non-resolved, non-closed ticket for session, or None
+        """
+        stmt = (
+            select(Ticket)
+            .where(
+                Ticket.session_id == session_id,
+                Ticket.status.notin_([TicketStatus.RESOLVED, TicketStatus.CLOSED]),
+            )
+            .order_by(desc(Ticket.created_at))
+        )
+
+        ticket = self.db.execute(stmt).scalars().first()
+
+        if not ticket:
+            return None
+
+        return self._to_ticket_response(ticket)
+
     def update_ticket(self, ticket_id: UUID, ticket_data: TicketUpdate) -> TicketResponse:
         """
         Update ticket information.

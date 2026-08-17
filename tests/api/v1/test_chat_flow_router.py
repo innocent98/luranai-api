@@ -1,10 +1,12 @@
 """Integration tests for chat flow router behavior."""
 
+from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.api.v1.endpoints import chat as chat_module
 from app.db.models.conversation import Ticket
 from app.db.models.flow import Flow, FlowStatus, FlowTriggerType
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities
@@ -155,3 +157,65 @@ def test_start_router_to_flow_to_human_ticket(client: TestClient, db: Session):
 
     ticket = db.query(Ticket).filter(Ticket.id == UUID(escalate_data["ticket_id"])).first()
     assert ticket is not None
+
+
+def test_re_escalating_an_already_escalated_session_reuses_the_ticket_and_rings_once(
+    client: TestClient, db: Session
+):
+    """F1 regression: re-escalating an already-escalated session must not mint
+    a second ticket or ring agents a second time.
+
+    `escalate_session` already no-ops the session fields (reason, timestamp) on
+    a second call for the same session — but nothing downstream previously
+    stopped a second `create_ticket` + `_ring_agents` for the same live
+    escalation. A customer typing again while an agent already owns the ticket
+    would, before this fix, ring every phone on the tenant a second time and,
+    90 seconds later, page every admin and mark the ticket MISSED even though
+    it was being actively handled.
+
+    Drives the real `/api/v1/chat/message` endpoint twice for the same session
+    (not `escalate_session` in isolation) via the `__talk_to_human__` token,
+    which reaches the escalation branch on every call regardless of session
+    status.
+    """
+    tenant = _create_tenant_with_router_flow(db)
+    tenant_id = str(tenant.id)
+
+    enqueue = AsyncMock()
+    with patch.object(chat_module, "enqueue_agent_alerts_async", enqueue):
+        first = client.post(
+            "/api/v1/chat/message",
+            json={
+                "tenant_id": tenant_id,
+                "session_id": None,
+                "message": "__talk_to_human__",
+                "user_identifier": "reescalate_test_user",
+                "metadata": {"source": "pytest"},
+            },
+        )
+        assert first.status_code == 200
+        first_data = first.json()
+        assert first_data["should_escalate"] is True
+        assert first_data["ticket_id"] is not None
+        session_id = first_data["session_id"]
+
+        second = client.post(
+            "/api/v1/chat/message",
+            json={
+                "tenant_id": tenant_id,
+                "session_id": session_id,
+                "message": "__talk_to_human__",
+                "user_identifier": "reescalate_test_user",
+                "metadata": {"source": "pytest"},
+            },
+        )
+
+    assert second.status_code == 200
+    second_data = second.json()
+    assert second_data["should_escalate"] is True
+    assert second_data["ticket_id"] == first_data["ticket_id"]
+
+    tickets = db.query(Ticket).filter(Ticket.session_id == UUID(session_id)).all()
+    assert len(tickets) == 1, f"expected exactly one ticket for the session, found {len(tickets)}"
+
+    enqueue.assert_awaited_once()

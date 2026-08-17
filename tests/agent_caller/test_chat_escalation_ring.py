@@ -55,15 +55,30 @@ async def test_redis_failure_never_propagates():
 
 
 def test_every_ticket_creation_site_rings():
-    """Guard against a future escalation branch forgetting the ring.
+    """Guard against a future escalation branch forgetting the ring, or
+    bypassing the re-escalation reuse guard (F1).
 
     Asserting on source text (not behavior) is deliberate: a missed call site
     fails silently in production — the chat reply still succeeds, nobody ever
     gets rung, and no behavioural test would ever catch the gap.
+
+    Every escalation site must resolve its ticket through
+    `_get_or_create_escalation_ticket` (never call `ticket_service.create_ticket`
+    directly — a direct call reopens the F1 double-ticket bug) and every such
+    resolution must sit next to a `_ring_agents` call, gated on `ticket_created`
+    so a *reused* ticket doesn't ring a second time.
     """
     import inspect
 
     source = inspect.getsource(chat)
-    creations = source.count("ticket_service.create_ticket(")
+    direct_creates = source.count("ticket_service.create_ticket(")
+    resolutions = source.count("= _get_or_create_escalation_ticket(")
     rings = source.count("await _ring_agents(")
-    assert rings == creations, f"{creations} create_ticket sites but {rings} _ring_agents calls"
+    assert direct_creates == 1, (
+        f"expected exactly one direct create_ticket call (inside the reuse-guard "
+        f"helper itself), found {direct_creates} — new escalation sites must go "
+        f"through _get_or_create_escalation_ticket instead"
+    )
+    assert (
+        rings == resolutions
+    ), f"{resolutions} escalation-ticket resolution sites but {rings} _ring_agents calls"
