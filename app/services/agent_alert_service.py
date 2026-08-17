@@ -200,8 +200,21 @@ class AgentAlertService:
                 continue
         return list(dict.fromkeys(out))
 
-    def prune_token(self, device_token: str) -> None:
-        """Drop a device FCM has reported as UNREGISTERED."""
-        self.db.execute(delete(AgentDevice).where(AgentDevice.device_token == device_token))
+    def prune_token(self, user_id: uuid.UUID, device_token: str) -> None:
+        """Drop a device FCM has reported as UNREGISTERED.
+
+        Scoped to `user_id` as well as the token: the unique constraint on
+        `agent_devices` is `(user_id, device_token)`, not `device_token` alone,
+        so the same token string can legitimately belong to more than one
+        agent's row (e.g. a device handed over from one agent to another
+        without the first ever unregistering). Deleting by token alone would
+        let an UNREGISTERED report for one agent silently unregister another.
+        """
+        self.db.execute(
+            delete(AgentDevice).where(
+                AgentDevice.user_id == user_id,
+                AgentDevice.device_token == device_token,
+            )
+        )
         self.db.commit()
         logger.info("Pruned unregistered agent device token")

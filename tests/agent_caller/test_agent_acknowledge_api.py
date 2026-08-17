@@ -97,6 +97,41 @@ def test_second_claim_loses_with_409(client, db, auth_headers, escalation, admin
     assert resp.json()["detail"] == {"won": False, "handled_by": admin_full_name}
 
 
+def test_claiming_a_resolved_ticket_is_409_and_stays_resolved(client, db, auth_headers, escalation):
+    """F4 regression: `auto_resolve_stale_tickets` resolves stale OPEN/IN_PROGRESS
+    tickets without ever touching `assigned_to`, so an unassigned RESOLVED
+    ticket is exactly what a bare `assigned_to IS NULL` check would let a
+    stray tap resurrect back into IN_PROGRESS."""
+    ticket_id = escalation.id
+    escalation.status = TicketStatus.RESOLVED
+    db.commit()
+
+    resp = client.post(f"/api/v1/agent/escalations/{ticket_id}/acknowledge", headers=auth_headers)
+    assert resp.status_code == 409
+
+    ticket = db.get(Ticket, ticket_id)
+    assert ticket.status == TicketStatus.RESOLVED
+    assert ticket.assigned_to is None
+
+
+def test_claiming_a_missed_ticket_still_wins(client, db, auth_headers, escalation, agent_user):
+    """F4 must not over-tighten: a MISSED ticket (tier 1 didn't answer within
+    the wait window) is still a live, claimable escalation — an admin tapping
+    Take Over on it must win normally."""
+    ticket_id = escalation.id
+    escalation.status = TicketStatus.MISSED
+    db.commit()
+    agent_user_id = agent_user.id
+
+    resp = client.post(f"/api/v1/agent/escalations/{ticket_id}/acknowledge", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["won"] is True
+
+    ticket = db.get(Ticket, ticket_id)
+    assert ticket.status == TicketStatus.IN_PROGRESS
+    assert ticket.assigned_to == agent_user_id
+
+
 def test_reclaiming_your_own_escalation_is_idempotent(client, auth_headers, escalation):
     ticket_id = escalation.id
     first = client.post(f"/api/v1/agent/escalations/{ticket_id}/acknowledge", headers=auth_headers)

@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import timedelta
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -167,3 +168,40 @@ def test_cross_tenant_detail_is_404_not_403(client, db, auth_headers):
 def test_unknown_detail_is_404(client, auth_headers):
     resp = client.get(f"/api/v1/agent/escalations/{uuid.uuid4()}", headers=auth_headers)
     assert resp.status_code == 404
+
+
+def test_device_token_never_appears_in_any_response_body(client, auth_headers, escalation):
+    """The FCM registration token is written by POST /devices but must never
+    come back out of any endpoint — not /me, not the escalations list, not
+    the detail view, not the acknowledge response. `AgentDevice.device_token`
+    exists purely to drive server-side pushes; asserting the negative here
+    guards every response model in this router at once, not just the one
+    that currently happens to serialise the field."""
+    # Capture the id before issuing any request — the `client` fixture's
+    # dependency override closes the shared `db` session after every request
+    # (see tests/conftest.py), which detaches `escalation` from it.
+    escalation_id = escalation.id
+    token = f"tok-{uuid.uuid4().hex}-{uuid.uuid4().hex}"  # realistic FCM-length token
+    register_resp = client.post(
+        "/api/v1/agent/devices",
+        headers=auth_headers,
+        json={"device_token": token, "platform": "android"},
+    )
+    assert register_resp.status_code == 204
+    assert token not in register_resp.text
+
+    me_resp = client.get("/api/v1/agent/me", headers=auth_headers)
+    assert token not in me_resp.text
+
+    list_resp = client.get("/api/v1/agent/escalations", headers=auth_headers)
+    assert token not in list_resp.text
+
+    detail_resp = client.get(f"/api/v1/agent/escalations/{escalation_id}", headers=auth_headers)
+    assert token not in detail_resp.text
+
+    with patch("app.api.v1.endpoints.agent_app.enqueue_clear_alert_async", AsyncMock()):
+        ack_resp = client.post(
+            f"/api/v1/agent/escalations/{escalation_id}/acknowledge", headers=auth_headers
+        )
+    assert ack_resp.status_code == 200
+    assert token not in ack_resp.text

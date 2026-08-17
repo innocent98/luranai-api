@@ -168,8 +168,26 @@ def test_prune_token_removes_the_device(db):
     tenant_id = uuid.uuid4()
     user = _make_user(db, tenant_id, "a@x.com", UserRole.SUPPORT_AGENT)
     _make_device(db, user, "tok-dead")
-    AgentAlertService(db).prune_token("tok-dead")
+    AgentAlertService(db).prune_token(user.id, "tok-dead")
     assert AgentAlertService(db).devices_for([user.id], tenant_id) == []
+
+
+def test_prune_token_does_not_remove_another_agents_device_with_the_same_token(db):
+    """F6 regression: `agent_devices` is unique on (user_id, device_token), not
+    device_token alone — a device handed over from one agent to another (the
+    old agent never explicitly unregistering) can leave the same FCM token on
+    two rows. An UNREGISTERED report for one agent's row must not silently
+    unregister the other agent's identical token."""
+    tenant_id = uuid.uuid4()
+    handed_over_from = _make_user(db, tenant_id, "old@x.com", UserRole.SUPPORT_AGENT)
+    handed_over_to = _make_user(db, tenant_id, "new@x.com", UserRole.SUPPORT_AGENT)
+    _make_device(db, handed_over_from, "tok-shared")
+    _make_device(db, handed_over_to, "tok-shared")
+
+    AgentAlertService(db).prune_token(handed_over_from.id, "tok-shared")
+
+    assert AgentAlertService(db).devices_for([handed_over_from.id], tenant_id) == []
+    assert len(AgentAlertService(db).devices_for([handed_over_to.id], tenant_id)) == 1
 
 
 def test_devices_for_is_tenant_scoped(db):

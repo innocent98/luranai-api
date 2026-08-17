@@ -72,7 +72,7 @@ async def _push_tier(
             else:
                 last_error = result.error
                 if result.unregistered:
-                    svc.prune_token(device.device_token)
+                    svc.prune_token(device.user_id, device.device_token)
         svc.mark_log(log_id, sent=ok_any, error=last_error)
     return rung
 
@@ -228,6 +228,6 @@ async def clear_agent_alert(ctx, ticket_id: str, winner_user_id: str) -> None:
         for device in svc.devices_for(loser_ids, ticket.tenant_id):
             result = await fcm_client.send(device.device_token, payload, notification=None)
             if result.unregistered:
-                svc.prune_token(device.device_token)
+                svc.prune_token(device.user_id, device.device_token)
     finally:
         db.close()

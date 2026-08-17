@@ -270,12 +270,22 @@ async def acknowledge_escalation(
     no locks, no coordinator. `rowcount == 1` means we won. Losing is a normal
     outcome of broadcast routing, not an error: the other agents simply learn,
     by name, who got there first.
+
+    The status filter (OPEN or MISSED) stops this from resurrecting a ticket
+    `auto_resolve_stale_tickets` already closed out: that job resolves stale
+    OPEN/IN_PROGRESS tickets without ever touching `assigned_to`, so an
+    unassigned RESOLVED/CLOSED ticket is exactly what `assigned_to IS NULL`
+    alone would let a stray tap claim back into IN_PROGRESS.
     """
     ticket = _owned_ticket(db, ticket_id, current_agent.tenant_id)
 
     result = db.execute(
         update(Ticket)
-        .where(Ticket.id == ticket_id, Ticket.assigned_to.is_(None))
+        .where(
+            Ticket.id == ticket_id,
+            Ticket.assigned_to.is_(None),
+            Ticket.status.in_([TicketStatus.OPEN, TicketStatus.MISSED]),
+        )
         .values(
             assigned_to=current_agent.id,
             acknowledged_at=utcnow_naive(),
