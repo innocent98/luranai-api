@@ -32,11 +32,22 @@ def enqueue_jobs_sync(jobs: list[tuple[uuid.UUID, str]]) -> None:
     asyncio.run(_enqueue(jobs))
 
 
-async def enqueue_agent_alerts_async(ticket_id: uuid.UUID, wait_seconds: int) -> None:
+async def enqueue_agent_alerts_async(
+    ticket_id: uuid.UUID, wait_seconds: int, *, attempt: int = 1
+) -> None:
     """Enqueue the escalation ring plus its deferred supervisor-fallback timer.
 
     Both jobs carry a deterministic `_job_id`, so a duplicate escalation for the
-    same ticket cannot double-ring: ARQ rejects the second enqueue outright.
+    same (ticket, attempt) cannot double-ring: ARQ rejects the second enqueue
+    outright.
+
+    `attempt` distinguishes a genuinely new ring episode for the same ticket
+    (re-escalating a MISSED, still-unassigned ticket — see chat.py's
+    `_get_or_create_escalation_ticket`) from the original ring. Without it,
+    ARQ's own job-id dedup would silently swallow the re-enqueue: a job key
+    lives for ~24h by default regardless of whether the job has already run,
+    so reusing the same id hours later for a second episode is a guaranteed
+    silent no-op, not a retry.
 
     This sits on the customer's chat-reply path (called from chat.py's
     `_ring_agents`, which swallows any exception so a Redis hiccup never fails
@@ -51,12 +62,12 @@ async def enqueue_agent_alerts_async(ticket_id: uuid.UUID, wait_seconds: int) ->
         await redis.enqueue_job(
             "alert_escalation",
             str(ticket_id),
-            _job_id=f"alert_escalation:{ticket_id}",
+            _job_id=f"alert_escalation:{ticket_id}:{attempt}",
         )
         await redis.enqueue_job(
             "alert_escalation_fallback",
             str(ticket_id),
-            _job_id=f"alert_escalation_fallback:{ticket_id}",
+            _job_id=f"alert_escalation_fallback:{ticket_id}:{attempt}",
             _defer_by=timedelta(seconds=wait_seconds),
         )
     finally:

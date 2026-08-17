@@ -200,6 +200,29 @@ class AgentAlertService:
                 continue
         return list(dict.fromkeys(out))
 
+    def reset_ring(self, ticket_id: uuid.UUID) -> None:
+        """Clear this ticket's push-channel notification log rows.
+
+        Only ever called when re-escalating a MISSED, still-unassigned ticket
+        (see `chat.py`'s `_get_or_create_escalation_ticket`) — a genuinely new
+        ring episode for the same ticket, not a retry of the old one.
+        `claim_log`'s dedupe is keyed on (tenant, event, channel, ticket,
+        recipient) with no notion of "episode": without clearing the old
+        episode's rows first, any agent already rung (and missed) the first
+        time would silently be skipped by `claim_log` on the second ring, even
+        though a brand new ARQ job successfully enqueues and runs. Skip this
+        and the fix looks complete but rings the exact agents who most need
+        the second chance to answer.
+        """
+        self.db.execute(
+            delete(NotificationLog).where(
+                NotificationLog.entity_type == _ENTITY_TYPE,
+                NotificationLog.entity_id == ticket_id,
+                NotificationLog.channel == NotifChannel.PUSH,
+            )
+        )
+        self.db.commit()
+
     def prune_token(self, user_id: uuid.UUID, device_token: str) -> None:
         """Drop a device FCM has reported as UNREGISTERED.
 

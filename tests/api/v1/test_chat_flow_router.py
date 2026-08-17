@@ -4,10 +4,11 @@ from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.api.v1.endpoints import chat as chat_module
-from app.db.models.conversation import Ticket
+from app.db.models.conversation import Ticket, TicketStatus
 from app.db.models.flow import Flow, FlowStatus, FlowTriggerType
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities
 
@@ -219,3 +220,85 @@ def test_re_escalating_an_already_escalated_session_reuses_the_ticket_and_rings_
     assert len(tickets) == 1, f"expected exactly one ticket for the session, found {len(tickets)}"
 
     enqueue.assert_awaited_once()
+
+
+def test_re_escalating_a_missed_ticket_reopens_it_and_rings_again(client: TestClient, db: Session):
+    """N1 regression: F1's ticket-reuse fix must not silently drop the ring
+    for a session whose escalation already went MISSED.
+
+    Concrete failure this guards against: a customer escalates overnight,
+    nobody answers, the fallback stamps the ticket MISSED. Hours later,
+    during staffed hours, the same customer writes again. Treating MISSED as
+    an ordinary "live, reuse it" ticket (as `get_open_ticket_for_session`
+    alone does) means `_get_or_create_escalation_ticket` reports
+    `ticket_created=False` and nothing rings — not delayed, never, for the
+    rest of that session's life. That is worse than the duplicate-ring bug
+    F1 set out to fix, and it silently drops exactly the customers who
+    already waited longest and were failed once.
+
+    Drives the real request path twice, with the same conditional UPDATE the
+    real `alert_escalation_fallback` job uses (see agent_alerts.py) standing
+    in for "the fallback already ran and nobody answered" in between.
+    """
+    tenant = _create_tenant_with_router_flow(db)
+    tenant_id = str(tenant.id)
+
+    first_enqueue = AsyncMock()
+    with patch.object(chat_module, "enqueue_agent_alerts_async", first_enqueue):
+        first = client.post(
+            "/api/v1/chat/message",
+            json={
+                "tenant_id": tenant_id,
+                "session_id": None,
+                "message": "__talk_to_human__",
+                "user_identifier": "missed_reescalate_test_user",
+                "metadata": {"source": "pytest"},
+            },
+        )
+    assert first.status_code == 200
+    first_data = first.json()
+    ticket_id = UUID(first_data["ticket_id"])
+    session_id = first_data["session_id"]
+    first_enqueue.assert_awaited_once()
+
+    # Nobody answered within the wait window — the same conditional UPDATE
+    # the real alert_escalation_fallback job uses once it decides to mark a
+    # still-open, still-unassigned ticket MISSED.
+    result = db.execute(
+        update(Ticket)
+        .where(
+            Ticket.id == ticket_id,
+            Ticket.assigned_to.is_(None),
+            Ticket.status == TicketStatus.OPEN,
+        )
+        .values(status=TicketStatus.MISSED)
+    )
+    db.commit()
+    assert result.rowcount == 1
+
+    second_enqueue = AsyncMock()
+    with patch.object(chat_module, "enqueue_agent_alerts_async", second_enqueue):
+        second = client.post(
+            "/api/v1/chat/message",
+            json={
+                "tenant_id": tenant_id,
+                "session_id": session_id,
+                "message": "__talk_to_human__",
+                "user_identifier": "missed_reescalate_test_user",
+                "metadata": {"source": "pytest"},
+            },
+        )
+    assert second.status_code == 200
+    second_data = second.json()
+    assert second_data["ticket_id"] == str(
+        ticket_id
+    ), "must reuse the same ticket, not mint a second"
+
+    tickets = db.query(Ticket).filter(Ticket.session_id == UUID(session_id)).all()
+    assert len(tickets) == 1, f"expected exactly one ticket for the session, found {len(tickets)}"
+
+    second_enqueue.assert_awaited_once()  # THE regression: the ring must fire again
+
+    ticket = db.get(Ticket, ticket_id)
+    assert ticket.status == TicketStatus.OPEN, "reopened, not left stuck MISSED forever"
+    assert ticket.assigned_to is None

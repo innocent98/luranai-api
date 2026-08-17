@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models.conversation import ConversationSession, Ticket, TicketStatus
@@ -220,6 +220,43 @@ class TicketService:
             return None
 
         return self._to_ticket_response(ticket)
+
+    def reopen_missed_ticket(self, ticket_id: UUID) -> TicketResponse | None:
+        """
+        Atomically flip a MISSED, still-unassigned ticket back to OPEN.
+
+        `auto_resolve_stale_tickets` never sweeps MISSED tickets (it only ages
+        out OPEN/IN_PROGRESS), so a MISSED ticket that gets reused for a
+        re-escalation (see `get_open_ticket_for_session`) needs to become
+        actionable again — OPEN so the fallback's own `status == OPEN` guard
+        still works for a fresh 90s window, not left permanently MISSED.
+
+        A conditional UPDATE, not read-then-write: if a claim (or a
+        concurrent reopen) landed first, `rowcount` is 0 and this returns
+        `None` rather than resurrecting a ticket someone already owns.
+
+        Args:
+            ticket_id: Ticket UUID
+
+        Returns:
+            The reopened ticket, or None if it was no longer MISSED-and-
+            unassigned by the time this ran.
+        """
+        result = self.db.execute(
+            update(Ticket)
+            .where(
+                Ticket.id == ticket_id,
+                Ticket.status == TicketStatus.MISSED,
+                Ticket.assigned_to.is_(None),
+            )
+            .values(status=TicketStatus.OPEN)
+        )
+        self.db.commit()
+
+        if result.rowcount == 0:
+            return None
+
+        return self.get_ticket(ticket_id)
 
     def update_ticket(self, ticket_id: UUID, ticket_data: TicketUpdate) -> TicketResponse:
         """

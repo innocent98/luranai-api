@@ -164,6 +164,48 @@ def test_rung_user_ids_covers_both_tiers(db):
     assert set(svc.rung_user_ids(ticket.id)) == {a.id, b.id}
 
 
+def test_reset_ring_lets_a_previously_rung_agent_be_claimed_again(db):
+    """N1 regression, the layer beneath the ARQ job-id fix: `claim_log`'s
+    dedupe is keyed on (tenant, event, channel, ticket, recipient) with no
+    notion of "episode". Without `reset_ring` clearing the first episode's
+    rows, an agent already rung (and missed) once would be silently skipped
+    by `claim_log` on a second ring for the same ticket — even after a brand
+    new ARQ job id lets the job itself enqueue and run. This is the exact
+    trap the coordinator warned about for the job-id layer, one layer down:
+    a fix that "looks correct and does nothing"."""
+    tenant_id = uuid.uuid4()
+    ticket, _ = _make_escalation(db, tenant_id)
+    agent = _make_user(db, tenant_id, "a@x.com", UserRole.SUPPORT_AGENT)
+    svc = AgentAlertService(db)
+
+    first_episode = svc.claim_log(tenant_id, NotifEvent.ESCALATION_ALERT, ticket.id, agent.id)
+    assert first_episode is not None
+    blocked_retry = svc.claim_log(tenant_id, NotifEvent.ESCALATION_ALERT, ticket.id, agent.id)
+    assert blocked_retry is None, "sanity check: the dedupe this test is about must be real"
+
+    svc.reset_ring(ticket.id)
+
+    second_episode = svc.claim_log(tenant_id, NotifEvent.ESCALATION_ALERT, ticket.id, agent.id)
+    assert second_episode is not None, "the same agent must be claimable again after reset_ring"
+
+
+def test_reset_ring_is_scoped_to_the_ticket_and_push_channel(db):
+    tenant_id = uuid.uuid4()
+    ticket, _ = _make_escalation(db, tenant_id)
+    other_ticket, _ = _make_escalation(db, tenant_id)
+    agent = _make_user(db, tenant_id, "a@x.com", UserRole.SUPPORT_AGENT)
+    svc = AgentAlertService(db)
+
+    svc.claim_log(tenant_id, NotifEvent.ESCALATION_ALERT, ticket.id, agent.id)
+    svc.claim_log(tenant_id, NotifEvent.ESCALATION_ALERT, other_ticket.id, agent.id)
+
+    svc.reset_ring(ticket.id)
+
+    # This ticket's log is gone (claimable again); the other ticket's is not.
+    assert svc.claim_log(tenant_id, NotifEvent.ESCALATION_ALERT, ticket.id, agent.id) is not None
+    assert svc.claim_log(tenant_id, NotifEvent.ESCALATION_ALERT, other_ticket.id, agent.id) is None
+
+
 def test_prune_token_removes_the_device(db):
     tenant_id = uuid.uuid4()
     user = _make_user(db, tenant_id, "a@x.com", UserRole.SUPPORT_AGENT)

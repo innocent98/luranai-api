@@ -27,6 +27,7 @@ from app.db.models.conversation import (
     SessionStatus,
     Ticket,
     TicketPriority,
+    TicketStatus,
 )
 from app.db.models.business_profile import BusinessProfile
 from app.db.models.flow import Flow, FlowExecution, FlowStatus
@@ -51,6 +52,7 @@ from app.schemas.visitor import VisitorEnrichmentUpdate
 from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.sales.intent import is_trigger_intent
+from app.services.agent_alert_service import AgentAlertService
 from app.services.conversation_service import ConversationService
 from app.services.chat_automation_orchestrator import ChatAutomationOrchestrator
 from app.services.flow_engine import FlowEngine
@@ -428,20 +430,27 @@ def _persist_contact_name_to_visitor(
     )
 
 
-async def _ring_agents(ticket_id: UUID | None) -> None:
+async def _ring_agents(ticket: TicketResponse | None) -> None:
     """Ring the tenant's agents on their phones for a fresh escalation.
 
     Best-effort by design: the email escalation is the always-on backstop, so a
-    Redis hiccup must never turn into a failed customer chat response. The two
-    ARQ jobs carry deterministic job ids, so re-escalating the same ticket
-    cannot double-ring.
+    Redis hiccup must never turn into a failed customer chat response.
+
+    `attempt` is derived from `ticket.updated_at` so a freshly created ticket
+    and a MISSED ticket just reopened for re-escalation (see
+    `_get_or_create_escalation_ticket`) get distinct ARQ job ids — reusing the
+    same id for a later, distinct ring episode would let ARQ's own dedup
+    silently swallow it (job keys live ~24h regardless of completion).
     """
-    if ticket_id is None or not settings.AGENT_ALERT_ENABLED:
+    if ticket is None or not settings.AGENT_ALERT_ENABLED:
         return
+    attempt = int(ticket.updated_at.timestamp() * 1000)
     try:
-        await enqueue_agent_alerts_async(ticket_id, settings.AGENT_ALERT_WAIT_SECONDS)
+        await enqueue_agent_alerts_async(
+            ticket.id, settings.AGENT_ALERT_WAIT_SECONDS, attempt=attempt
+        )
     except Exception:  # noqa: BLE001 — never break the chat reply over a push
-        logger.exception("Failed to enqueue agent alert for ticket %s", ticket_id)
+        logger.exception("Failed to enqueue agent alert for ticket %s", ticket.id)
 
 
 def _get_or_create_escalation_ticket(
@@ -457,11 +466,27 @@ def _get_or_create_escalation_ticket(
     the ticket-side half of the same guard. Reusing the live ticket instead of
     minting a second one keeps the ring to exactly one per live escalation.
 
+    A MISSED, still-unassigned ticket is a special case, not an ordinary
+    reuse: tier 1 already failed to answer once, and `auto_resolve_stale_tickets`
+    never sweeps MISSED tickets (it only ages out OPEN/IN_PROGRESS) — so
+    nothing else will ever ring this session again unless re-escalating it
+    does. Reopen it back to OPEN, reset its ring bookkeeping so `claim_log`
+    doesn't skip agents already (unsuccessfully) rung the first time, and ring
+    again. The customer who already waited longest and was failed once must
+    not be the one silently dropped forever.
+
     Returns:
-        (ticket, created) — created is False when an existing open ticket was reused.
+        (ticket, should_ring) — True for a brand-new ticket and for a
+        just-reopened MISSED one; False for any other reuse (already OPEN or
+        IN_PROGRESS, and therefore already ringing or already being handled).
     """
     existing = ticket_service.get_open_ticket_for_session(session_id)
     if existing is not None:
+        if existing.status == TicketStatus.MISSED and existing.assigned_to is None:
+            reopened = ticket_service.reopen_missed_ticket(existing.id)
+            if reopened is not None:
+                AgentAlertService(ticket_service.db).reset_ring(reopened.id)
+                return reopened, True
         return existing, False
     return ticket_service.create_ticket(ticket_data), True
 
@@ -916,7 +941,7 @@ async def send_message(
                 )
                 ticket_id = ticket.id
                 if ticket_created:
-                    await _ring_agents(ticket_id)
+                    await _ring_agents(ticket)
 
                     # Notify support/admin team via email
                     tenant_for_email = tenant_service.get_tenant_by_id(
@@ -1112,7 +1137,7 @@ async def send_message(
                     )
                     ticket_id = ticket.id
                     if ticket_created:
-                        await _ring_agents(ticket_id)
+                        await _ring_agents(ticket)
                         logger.info(f"Ticket created from flow: {ticket.ticket_number}")
 
                         # Send email notifications
@@ -1351,7 +1376,7 @@ async def send_message(
                         )
                         ticket_id = ticket.id
                         if ticket_created:
-                            await _ring_agents(ticket_id)
+                            await _ring_agents(ticket)
                             logger.info(f"Ticket created from flow: {ticket.ticket_number}")
 
                             # Send email notifications
@@ -1577,7 +1602,7 @@ async def send_message(
             )
             ticket_id = ticket.id
             if ticket_created:
-                await _ring_agents(ticket_id)
+                await _ring_agents(ticket)
 
                 tenant_for_email = tenant_service.get_tenant_by_id(
                     session.tenant_id, include_relations=False
@@ -1743,7 +1768,7 @@ async def send_message(
                 )
                 ticket_id = ticket.id
                 if ticket_created:
-                    await _ring_agents(ticket_id)
+                    await _ring_agents(ticket)
                     logger.info(f"Ticket created: {ticket.ticket_number}")
 
                     # Send email notifications
@@ -2449,7 +2474,7 @@ async def send_message(
                 )
                 ticket_id = ticket.id
                 if ticket_created:
-                    await _ring_agents(ticket_id)
+                    await _ring_agents(ticket)
 
                     logger.info(f"Ticket created: {ticket.ticket_number} with {priority} priority")
 
