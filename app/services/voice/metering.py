@@ -38,6 +38,17 @@ class VoiceMeter:
         month = datetime.now(UTC).strftime("%Y-%m")
         return f"{_KEY_PREFIX}{tenant_id}:{month}"
 
+    def key_and_ttl(self, tenant_id: UUID) -> tuple[str, int]:
+        """Expose this tenant's current monthly-minutes Redis key and its
+        TTL, for a caller that needs to increment it atomically alongside
+        other state inside its own Lua script rather than through
+        `add_minutes` directly. Today's only caller is
+        `VoiceSessionTokenStore._meter_turn` -- billing a call's per-turn
+        minute delta and advancing its metering tick have to happen as one
+        indivisible Redis operation (see that method's docstring for why),
+        which `add_minutes`'s own separate round trip can't provide."""
+        return self._key(tenant_id), _MINUTE_KEY_TTL_SECONDS
+
     async def add_minutes(self, tenant_id: UUID, minutes: float) -> float:
         redis = await self._get_redis()
         key = self._key(tenant_id)

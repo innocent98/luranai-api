@@ -496,12 +496,12 @@ def test_a_single_turn_meters_minutes_without_session_end_ever_being_called(
     async def _backdate_last_metered_at(seconds_ago: float) -> None:
         store = VoiceSessionTokenStore()
         redis = await store._get_redis()
-        key = f"voice:session_token:{token}"
-        raw = await redis.get(key)
-        data = json.loads(raw)
-        data["last_metered_at"] = time.time() - seconds_ago
-        ttl = await redis.ttl(key)
-        await redis.set(key, json.dumps(data), ex=ttl if ttl > 0 else 600)
+        # The metering tick lives in its own Redis key, separate from the
+        # token's payload (see session_tokens.py's `_TICK_KEY_PREFIX` and
+        # Task 11 review round 3 for why).
+        tick_key = f"voice:session_tick:{token}"
+        ttl = await redis.ttl(tick_key)
+        await redis.set(tick_key, time.time() - seconds_ago, ex=ttl if ttl > 0 else 600)
 
     # Simulate "the call has been running 2 minutes with no prior turn" by
     # backdating the token's metering tick directly (mirrors

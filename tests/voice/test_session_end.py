@@ -28,22 +28,27 @@ from app.services.voice.session_tokens import VoiceSessionTokenStore
 
 
 def _backdate_ticks(token: str, seconds_ago: float) -> None:
-    """Rewrite a minted token's `minted_at` AND `last_metered_at` to
-    simulate a call that started `seconds_ago` seconds ago and has had no
-    turn (no `resolve()` call) since, preserving its TTL."""
+    """Rewrite a minted token's `minted_at` (in its JSON payload) AND its
+    metering tick (its own separate Redis key, see `session_tokens.py`'s
+    `_TICK_KEY_PREFIX`) to simulate a call that started `seconds_ago`
+    seconds ago and has had no turn (no `resolve()` call) since, preserving
+    both keys' TTLs."""
 
     async def _do() -> None:
         store = VoiceSessionTokenStore()
         redis = await store._get_redis()
         key = f"voice:session_token:{token}"
+        tick_key = f"voice:session_tick:{token}"
         raw = await redis.get(key)
         assert raw is not None, "token must exist before it can be backdated"
         data = json.loads(raw)
         backdated = time.time() - seconds_ago
         data["minted_at"] = backdated
-        data["last_metered_at"] = backdated
         ttl = await redis.ttl(key)
         await redis.set(key, json.dumps(data), ex=ttl if ttl > 0 else 600)
+
+        tick_ttl = await redis.ttl(tick_key)
+        await redis.set(tick_key, backdated, ex=tick_ttl if tick_ttl > 0 else 600)
 
     asyncio.run(_do())
 
@@ -196,7 +201,11 @@ def test_session_end_never_500s_and_still_releases_slot_when_metering_fails(
     """A failure in `resolve_and_revoke`'s internal metering (swallowed
     inside `VoiceSessionTokenStore`, see its docstring) must not prevent the
     (self-healing but still worth freeing promptly) concurrency slot from
-    being released by the route."""
+    being released by the route. Patches `_meter_turn` itself -- the actual
+    seam metering runs through now (a Lua `EVAL` inside that method, not a
+    separate `VoiceMeter.add_minutes` call) -- to a no-op, simulating an
+    internally-swallowed metering failure without reaching into a specific
+    Redis client instance the endpoint creates fresh per request."""
     tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
     session = voice_session_factory(tenant.id)
     token = minted_voice_token(tenant.id, session.id)
@@ -204,8 +213,8 @@ def test_session_end_never_500s_and_still_releases_slot_when_metering_fails(
     _backdate_ticks(token, seconds_ago=60)
 
     with patch(
-        "app.services.voice.metering.VoiceMeter.add_minutes",
-        new=AsyncMock(side_effect=RuntimeError("redis boom")),
+        "app.services.voice.session_tokens.VoiceSessionTokenStore._meter_turn",
+        new=AsyncMock(return_value=None),
     ):
         resp = pg_client.post("/api/v1/voice/session/end", json={"voice_token": token})
 
