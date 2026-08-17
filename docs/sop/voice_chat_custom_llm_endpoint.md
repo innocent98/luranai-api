@@ -344,11 +344,14 @@ without the override produces spurious failures unrelated to this work.
   leaves open: releasing the concurrency slot at real call end (not just mint failure), and
   replacing the duration ceiling the sliding TTL removed with a real one — likely wired through
   `VoiceMeter.add_minutes`, which today has no production caller (only a test fixture invokes it).
-- **Task 10 (escalate client-tool handler)** is the other consumer of this endpoint's context —
-  out of scope here.
+- **Task 10 (escalate client-tool handler)** — shipped; see
+  `docs/sop/voice_chat_escalate_to_human_tool.md`. Reuses this task's tenant/session-resolution
+  pattern (opaque `voice_token` → `VoiceSessionTokenStore().resolve()`) on a separate, non-SSE
+  route.
 - Spike 1 still open — see Known-open items above for everything gated on it.
 
 Design spec: `docs/superpowers/specs/2026-08-15-voice-chat-backend-design.md`
 Spike notes: `docs/superpowers/specs/2026-08-15-voice-chat-spikes.md`
 Plan: `docs/superpowers/plans/2026-08-16-voice-chat-backend.md`
 Slice 1 SOP: `docs/sop/voice_chat_gating_and_token_mint.md`
+Task 10 SOP: `docs/sop/voice_chat_escalate_to_human_tool.md`
