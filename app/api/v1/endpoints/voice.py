@@ -4,6 +4,7 @@ Spec: docs/superpowers/specs/2026-08-15-voice-chat-backend-design.md
 """
 
 import asyncio
+import re
 from typing import Any
 from uuid import UUID
 
@@ -32,7 +33,7 @@ from app.services.voice.auth import verify_elevenlabs_request
 from app.services.voice.elevenlabs_client import ElevenLabsClient, ElevenLabsMintError
 from app.services.voice.gating import VoiceDenialReason, VoiceGate
 from app.services.voice.session_tokens import VoiceSessionContext, VoiceSessionTokenStore
-from app.services.voice.sse import stream_reply
+from app.services.voice.sse import stream_reply, stream_tool_call
 from app.utils.http_rate_limiter import voice_llm_turn_rate_limiter, voice_rate_limit
 
 router = APIRouter()
@@ -72,6 +73,27 @@ _TERMINAL_REPLY = (
 # Transient, unlike `_TERMINAL_REPLY` — no token revoke, the caller just
 # needs to slow down.
 _RATE_LIMITED_REPLY = "Sorry, one moment please."
+
+# Must exactly match the tool name declared in the ElevenLabs Agent config's
+# `escalate_to_human` CLIENT tool (see `voice_escalate_to_human` below,
+# `POST /tools/escalate_to_human`) -- ElevenLabs matches an emitted
+# tool_calls[].function.name against its own tool inventory by exact
+# string, so this cannot silently drift from that route's name.
+_ESCALATE_TOOL_NAME = "escalate_to_human"
+
+# Spoken when ElevenLabs calls this endpoint with the escalate_to_human
+# CLIENT tool's RESULT as the next turn (`messages[-1].role == "tool"`) --
+# see `_is_tool_result_turn`. That turn carries no new caller speech to
+# feed the pipeline: the escalation itself already happened via the
+# browser invoking `POST /tools/escalate_to_human` directly (that route
+# marks the session escalated and creates/reuses the ticket), so re-running
+# the pipeline here would have nothing new to send it, and re-escalating
+# would risk a second ticket for a caller who has already been handed off.
+# Deliberately NOT `_NO_INPUT_REPLY`'s wording ("I did not catch that") --
+# this isn't a failed-ASR turn, it's EL reporting a tool result back to us,
+# and telling the caller we didn't catch something they never said would be
+# confusing right after they asked for a human.
+_ESCALATION_ACK_REPLY = "Thanks for waiting. I'm connecting you with a member of our team now."
 
 # Budget for RedisRateLimiter.acquire() inside `_turn_allowed`. Its own
 # internal loop can `asyncio.sleep` up to `window_seconds + 1` (61s for
@@ -172,11 +194,12 @@ async def mint_voice_session_token(
 
         el_succeeded = False
         try:
-            # `dynamic_variables` isn't actually transmitted yet — see the
-            # TODO(spike-1) on ElevenLabsClient.mint_conversation_token.
+            # `participant_name` is the confirmed (Spike 1) carrier for our
+            # opaque voice_token — see ElevenLabsClient.mint_conversation_token's
+            # docstring for the full mint -> JWT -> prompt-substitution chain.
             conversation_token = await ElevenLabsClient().mint_conversation_token(
                 agent_id=settings.ELEVENLABS_AGENT_ID,
-                dynamic_variables={"voice_token": voice_token},
+                participant_name=voice_token,
             )
             el_succeeded = True
         except ElevenLabsMintError as exc:
@@ -295,26 +318,67 @@ async def end_voice_session(
     return VoiceSessionEndResponse()
 
 
+# Our minted tokens are always `secrets.token_urlsafe(32)` -- base64 of 32
+# random bytes, URL-safe alphabet, stripped of padding. 32 bytes % 3 == 2,
+# so base64 always emits exactly 44 chars with one '=' pad char, which
+# `token_urlsafe` strips -- the length is therefore a CONSTANT, not merely
+# a typical value, and validating it exactly (not ">= some minimum") is
+# what makes this fail closed rather than accepting arbitrary trailing text
+# after "Session:" (e.g. the unsubstituted literal "{{voice_token}}", or a
+# KB document that happens to contain the word "Session:").
+_VOICE_TOKEN_LENGTH = 43
+_VOICE_TOKEN_ALPHABET = "A-Za-z0-9_-"
+_SESSION_TOKEN_RE = re.compile(
+    rf"Session:\s*([{_VOICE_TOKEN_ALPHABET}]{{{_VOICE_TOKEN_LENGTH}}})(?![{_VOICE_TOKEN_ALPHABET}])"
+)
+
+
 def _extract_voice_token(payload: dict[str, Any]) -> str:
-    """Pull our opaque token out of wherever ElevenLabs put it.
+    """Pull our opaque token out of `messages[0].content` -- the ElevenLabs
+    Agent's system prompt, after EL's own `{{voice_token}}` template
+    substitution.
 
-    We check several carriers because Spike 1 has not yet pinned down which
-    one EL actually uses in production. All of them are opaque-token
-    carriers, never trusted ids — the token is only ever meaningful after
-    `VoiceSessionTokenStore.resolve` looks it up server-side.
+    Confirmed live in Spike 1 (2026-08-19, 28 captured requests against a
+    real throwaway ElevenLabs Agent): the custom-LLM request body contains
+    EXACTLY `messages`, `model`, `max_tokens`, `stream`, `stream_options`,
+    `temperature`, `tools` -- there is no `elevenlabs_extra_body`, no
+    `dynamic_variables`, no `user`, no `conversation_id`, no `agent_id`. The
+    three carriers this function used to check never existed on the wire.
+
+    The real mechanism: `ElevenLabsClient.mint_conversation_token` sends our
+    voice_token as the mint call's `participant_name` query param; EL binds
+    that into the session JWT as `sub`; the Agent's (operator-configured)
+    system prompt contains the literal template text
+    `Session: {{voice_token}}`; EL substitutes `{{voice_token}}` with the
+    JWT's bound value when building the prompt; that substituted prompt is
+    what arrives here as `messages[0].content`.
+
+    NOT line-anchored: the real captured shape has "Session:" embedded
+    mid-string, preceded by "Agent character description: " on the same
+    line, and followed by a newline plus indentation before more prompt
+    text continues -- `^Session:` would never match it.
+
+    Fails closed (returns "", which `VoiceSessionTokenStore.resolve()`
+    treats as unconditionally unresolvable -> 401) whenever the shape isn't
+    exactly right: no `messages[0]`, non-dict `messages[0]`, non-string
+    content, no `Session:` marker at all (operator never configured the
+    prompt template), or a `Session:` marker not followed by a real
+    43-char token (most notably the literal unsubstituted template text
+    `{{voice_token}}` itself, if EL substitution didn't happen for some
+    reason -- see `test_unsubstituted_template_placeholder_fails_closed`).
+    Never returns a guess or a partial match.
     """
-    extra = payload.get("elevenlabs_extra_body") or {}
-    if isinstance(extra, dict) and extra.get("voice_token"):
-        return str(extra["voice_token"])
-
-    variables = payload.get("dynamic_variables") or {}
-    if isinstance(variables, dict) and variables.get("voice_token"):
-        return str(variables["voice_token"])
-
-    if payload.get("user"):
-        return str(payload["user"])
-
-    return ""
+    messages = payload.get("messages") or []
+    if not messages:
+        return ""
+    first = messages[0]
+    if not isinstance(first, dict):
+        return ""
+    content = first.get("content")
+    if not isinstance(content, str):
+        return ""
+    match = _SESSION_TOKEN_RE.search(content)
+    return match.group(1) if match else ""
 
 
 def _last_user_message(payload: dict[str, Any]) -> str:
@@ -343,6 +407,27 @@ def _last_user_message(payload: dict[str, Any]) -> str:
     if not content:
         return ""
     return str(content).strip()
+
+
+def _is_tool_result_turn(payload: dict[str, Any]) -> bool:
+    """True when EL's current turn is the tool-RESULT callback that follows
+    a tool_calls turn, not a fresh caller utterance.
+
+    OpenAI shape: `{"role": "tool", "tool_call_id": ..., "content": ...}`
+    appended as the new `messages[-1]` on the NEXT custom-LLM call after we
+    emitted a tool_calls delta (see `_ESCALATE_TOOL_NAME` usage below).
+    Deliberately only checks the role, not `tool_call_id` or `content`
+    shape -- any malformed/unexpected extra fields on a genuine tool-result
+    message must still be recognized as one, not fall through to
+    `_last_user_message` and speak the wrong ("did not catch that")
+    fallback. Mirrors `_last_user_message`'s own malformed-last-message
+    guard: non-dict or missing `messages` -> False, never a crash.
+    """
+    messages = payload.get("messages") or []
+    if not messages:
+        return False
+    last = messages[-1]
+    return isinstance(last, dict) and last.get("role") == "tool"
 
 
 async def _revoke_voice_token_best_effort(token: str, tenant_id: UUID) -> None:
@@ -412,6 +497,17 @@ def _speak(reply_text: str, *, model: str) -> StreamingResponse:
     )
 
 
+def _speak_tool_call(tool_name: str, *, model: str) -> StreamingResponse:
+    """Like `_speak`, but for an OpenAI tool_calls turn instead of text --
+    see `stream_tool_call`'s docstring for why this can't reuse `_speak`
+    (no buffer word, no content frames, `finish_reason: "tool_calls"` not
+    `"stop"`)."""
+    return StreamingResponse(
+        iter(list(stream_tool_call(tool_name, model=model))),
+        media_type="text/event-stream",
+    )
+
+
 @router.post("/llm/chat/completions", dependencies=[Depends(verify_elevenlabs_request)])
 async def voice_custom_llm(
     payload: dict[str, Any] = Body(...),
@@ -454,7 +550,12 @@ async def voice_custom_llm(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="unknown voice session",
             )
-        user_text = _last_user_message(payload)
+        # A tool-result callback turn (see `_is_tool_result_turn`) carries
+        # no new caller speech -- computed here, before `_last_user_message`,
+        # so that turn never gets misread as "no input" by the generic
+        # empty-content check below.
+        tool_result_turn = _is_tool_result_turn(payload)
+        user_text = "" if tool_result_turn else _last_user_message(payload)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001 — never leave a caller in silence
@@ -464,6 +565,13 @@ async def voice_custom_llm(
     if not await _turn_allowed(token):
         logger.warning(f"Voice turn rate limit exceeded for session {context.luran_session_id}")
         return _speak(_RATE_LIMITED_REPLY, model=model)
+
+    if tool_result_turn:
+        # The escalation itself already happened via the browser's direct
+        # call to `POST /tools/escalate_to_human` -- nothing to re-run here,
+        # and re-entering the pipeline with no real user text would either
+        # no-input-fallback or (worse) persist a junk turn.
+        return _speak(_ESCALATION_ACK_REPLY, model=model)
 
     if not user_text:
         return _speak(_NO_INPUT_REPLY, model=model)
@@ -478,6 +586,24 @@ async def voice_custom_llm(
             db,
         )
         reply_text = chat_response.message.content
+        if chat_response.should_escalate:
+            # The ESCALATION DECISION STAYS IN OUR PIPELINE. ElevenLabs hands
+            # `escalate_to_human` to us in `tools` and only invokes the browser
+            # client tool once we emit a tool_calls delta -- so before this
+            # branch existed the tool could never fire, no matter what the
+            # caller said (confirmed live in Spike 1: a caller asked for a
+            # human twice and nothing happened).
+            #
+            # Emit ONLY the tool call, not spoken text: EL speaks whatever the
+            # client tool returns, so adding content here would talk over it.
+            # The follow-up tool-RESULT turn is caught above by
+            # `_is_tool_result_turn` and answered with `_ESCALATION_ACK_REPLY`,
+            # which is why this does not re-run the pipeline or re-escalate.
+            logger.info(
+                f"Voice escalating session {context.luran_session_id}: "
+                f"{chat_response.escalation_reason or 'no reason given'}"
+            )
+            return _speak_tool_call(_ESCALATE_TOOL_NAME, model=model)
     except HTTPException as exc:
         # send_message's own HTTPExceptions are policy/entitlement or
         # existence errors (e.g. 402 conversation-limit-reached, 404 session

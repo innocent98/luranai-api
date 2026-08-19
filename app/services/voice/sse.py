@@ -66,3 +66,57 @@ def stream_reply(
 
     yield chunk({}, finish_reason="stop")
     yield "data: [DONE]\n\n"
+
+
+def stream_tool_call(
+    tool_name: str,
+    *,
+    model: str,
+    arguments: str = "{}",
+) -> Iterator[str]:
+    """Yield an OpenAI tool_calls delta as SSE frames, instead of text.
+
+    ElevenLabs only invokes a client tool (e.g. `escalate_to_human`) when it
+    sees THIS shape from us -- plain spoken text, however phrased, never
+    triggers it. `finish_reason` must be the literal string `"tool_calls"`,
+    not `"stop"` (see `stream_reply`'s finish frame) -- EL's OpenAI-
+    compatible client branches on that exact value.
+
+    Unlike `stream_reply`, there is no buffer word and no content frame at
+    all: a tool-call turn is silent by design (the caller hears nothing
+    while EL hands off to the client tool), so nothing here should be
+    mistaken for something needing prosody cover.
+
+    `arguments` is a JSON-encoded STRING (OpenAI's wire shape for
+    `function.arguments`), not a bare dict -- our only tool today
+    (`escalate_to_human`) takes no parameters, so the default `"{}"` covers
+    it, but the shape must stay a string if a future tool needs real args.
+    """
+    completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+    created = int(time.time())
+    call_id = f"call_{uuid.uuid4().hex[:24]}"
+
+    def chunk(delta: dict, finish_reason: str | None = None) -> str:
+        return openai_chunk(
+            completion_id=completion_id,
+            model=model,
+            created=created,
+            delta=delta,
+            finish_reason=finish_reason,
+        )
+
+    yield chunk({"role": "assistant"})
+    yield chunk(
+        {
+            "tool_calls": [
+                {
+                    "index": 0,
+                    "id": call_id,
+                    "type": "function",
+                    "function": {"name": tool_name, "arguments": arguments},
+                }
+            ]
+        }
+    )
+    yield chunk({}, finish_reason="tool_calls")
+    yield "data: [DONE]\n\n"

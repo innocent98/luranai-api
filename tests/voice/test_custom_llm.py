@@ -11,27 +11,63 @@ from app.core.config import settings
 from app.services.voice.session_tokens import VoiceSessionTokenStore
 from app.utils.http_rate_limiter import voice_llm_turn_rate_limiter
 
+# --- The real ElevenLabs custom-LLM request shape -----------------------
+# Spike 1 (2026-08-19, 28 live requests captured against a real throwaway
+# ElevenLabs Agent) proved the request body contains EXACTLY `messages`,
+# `model`, `max_tokens`, `stream`, `stream_options`, `temperature`, `tools`
+# -- no `elevenlabs_extra_body`, no `dynamic_variables`, no `user`. The old
+# `_body()` helper here built `{"elevenlabs_extra_body": {"voice_token":
+# token}}`, which never once appeared on the wire -- every test built on it
+# was proving nothing about a real ElevenLabs request. `_body()` below
+# instead embeds the token the real way: substituted into `messages[0]`
+# (the system prompt) as `Session: <token>`, mirroring the real captured
+# shape (see tests/voice/test_voice_token_extraction.py for the literal
+# captures and the parser's own dedicated unit tests).
+
+
+def _system_content(token: str) -> str:
+    return (
+        "Task description: You are an AI agent. Your current language is: en=English \n"
+        f"                Agent character description: Session: {token}\n"
+        "                Everything following this section is the documentation "
+        "knowledge base.\n                No additional documentation provided"
+    )
+
 
 def _body(voice_token: str, user_text: str = "what are your hours?") -> dict:
     return {
         "model": "luran-voice",
         "stream": True,
         "messages": [
-            {"role": "system", "content": "you are a helpful agent"},
+            {"role": "system", "content": _system_content(voice_token)},
             {"role": "user", "content": user_text},
         ],
-        "elevenlabs_extra_body": {"voice_token": voice_token},
     }
 
 
-def _fake_chat_response(session_id, text):
+# Spike 1, captures.jsonl line 22: real captured system-prompt content where
+# EL left the literal template text `{{voice_token}}` unsubstituted (the
+# mint call in that capture ran without `participant_name`). Used verbatim
+# as a negative control at the full endpoint level -- the parser-level unit
+# test for the same fixture lives in test_voice_token_extraction.py; this
+# proves the SAME fixture also 401s through the real route, dependencies,
+# and all.
+_UNSUBSTITUTED_CAPTURED_CONTENT = 'Task description: You are an AI agent. Your character definition is provided below, stick to it. You should not provide any personal information. You should also not provide any medical, legal, or financial advice. You should not provide any information that is false or misleading. You should not provide any information that is offensive or inappropriate. You should not provide any information that is harmful or dangerous. You should not provide any information that is confidential or proprietary. You should not provide any information that is copyrighted or trademarked. Do not format your text response with bullet points, bold or headers. Since your answers will be converted to audio, make sure to not use symbols like $, %, #, @, etc. or digits in your responses, if you need to use them write them out as words e.g. "three dollars", "hashtag", "one", "two", etc.". Unless specified differently in the character answer in around 3-4 sentences for most cases. If a user responds with \'...\' it means that they didn\'t respond or say anything, you should prompt them to speak, or if they don\'t respond for a while then ask if they\'re still there. You may also be supplied with an additional documentation knowledge base which may contain information that will help you to answer questions from the user. Your current language is: en=English \n                Agent character description: Session: {{voice_token}}\n                Everything following this section is the documentation knowledge base. You can use this information to answer questions from the user though it might not be needed. It is supplied as a series of documents, each in HTML or Markdown format.\n                No additional documentation provided\nThe current date and time is Wednesday, 18:12 19 August 2026 (Africa/Lagos)\n                '
+
+# Spike 1, captures.jsonl line 4: real captured system-prompt content from
+# an agent whose character description never had the `Session:` template
+# text at all -- the operator-never-configured-it case.
+_NO_MARKER_CAPTURED_CONTENT = 'Task description: You are an AI agent. Your character definition is provided below, stick to it. You should not provide any personal information. You should also not provide any medical, legal, or financial advice. You should not provide any information that is false or misleading. You should not provide any information that is offensive or inappropriate. You should not provide any information that is harmful or dangerous. You should not provide any information that is confidential or proprietary. You should not provide any information that is copyrighted or trademarked. Do not format your text response with bullet points, bold or headers. Since your answers will be converted to audio, make sure to not use symbols like $, %, #, @, etc. or digits in your responses, if you need to use them write them out as words e.g. "three dollars", "hashtag", "one", "two", etc.". Unless specified differently in the character answer in around 3-4 sentences for most cases. If a user responds with \'...\' it means that they didn\'t respond or say anything, you should prompt them to speak, or if they don\'t respond for a while then ask if they\'re still there. You may also be supplied with an additional documentation knowledge base which may contain information that will help you to answer questions from the user. Your current language is: en=English \n                Agent character description: \n                Everything following this section is the documentation knowledge base. You can use this information to answer questions from the user though it might not be needed. It is supplied as a series of documents, each in HTML or Markdown format.\n                No additional documentation provided\nThe current date and time is Wednesday, 15:11 19 August 2026 (Africa/Lagos)\n                '
+
+
+def _fake_chat_response(session_id, text, *, should_escalate=False):
     from types import SimpleNamespace
 
     return SimpleNamespace(
         session_id=session_id,
         message=SimpleNamespace(content=text),
-        should_escalate=False,
-        escalation_reason=None,
+        should_escalate=should_escalate,
+        escalation_reason="customer asked for a person" if should_escalate else None,
         ticket_id=None,
     )
 
@@ -46,7 +82,7 @@ def _fresh_turn_rate_limiter():
     """`voice_llm_turn_rate_limiter` is a process-wide singleton whose cached
     Redis client is bound to whichever test's event loop created it first.
     Each `pg_client` runs its own loop, so a client left over from an
-    earlier test fails with "Event loop is closed" here — `_turn_allowed`
+    earlier test fails with "Event loop is closed" here -- `_turn_allowed`
     fails open on that (see voice.py), but resetting the cached client keeps
     every test's rate-limit behaviour deterministic rather than silently
     skipped. Same pattern as `test_mint_is_rate_limited` in test_token_mint.py.
@@ -60,13 +96,17 @@ def _auth():
     return {"Authorization": "Bearer s3cret"}
 
 
+def _frames(resp) -> list[dict]:
+    out = []
+    for line in resp.text.split("\n\n"):
+        if not line.startswith("data: ") or line.endswith("[DONE]"):
+            continue
+        out.append(json.loads(line[len("data: ") :]))
+    return out
+
+
 def _spoken_text(resp) -> str:
-    frames = [
-        json.loads(line[len("data: ") :])
-        for line in resp.text.split("\n\n")
-        if line.startswith("data: ") and not line.endswith("[DONE]")
-    ]
-    contents = [f["choices"][0]["delta"].get("content") for f in frames]
+    contents = [f["choices"][0]["delta"].get("content") for f in _frames(resp)]
     return "".join(c for c in contents if c)
 
 
@@ -78,7 +118,7 @@ def test_unauthenticated_request_is_rejected(
     here is what isolates the auth guard: with a bogus token, this test would
     still pass at 401 even if the guard were deleted entirely, because
     resolve() would separately 401 it (see test_unknown_voice_token_is_rejected)
-    — same status, no signal. Asserting the exact `detail` string that only
+    -- same status, no signal. Asserting the exact `detail` string that only
     `auth.py::verify_elevenlabs_request` produces is what pins this to the
     guard specifically.
     """
@@ -96,6 +136,38 @@ def test_unknown_voice_token_is_rejected(pg_client):
     resp = pg_client.post(
         "/api/v1/voice/llm/chat/completions", json=_body("bogus"), headers=_auth()
     )
+    assert resp.status_code == 401
+
+
+def test_unsubstituted_template_placeholder_is_rejected(pg_client):
+    """Fail-closed proof #1 at the FULL endpoint level (see
+    test_voice_token_extraction.py for the parser-unit-level proof against
+    the same literal capture): an agent whose prompt still carries the
+    unsubstituted `{{voice_token}}` literal must 401, never resolve into
+    some guessed/partial session."""
+    body = {
+        "model": "luran-voice",
+        "messages": [
+            {"role": "system", "content": _UNSUBSTITUTED_CAPTURED_CONTENT},
+            {"role": "user", "content": "hello"},
+        ],
+    }
+    resp = pg_client.post("/api/v1/voice/llm/chat/completions", json=body, headers=_auth())
+    assert resp.status_code == 401
+
+
+def test_no_session_marker_at_all_is_rejected(pg_client):
+    """Fail-closed proof #2 at the full endpoint level: an operator who
+    never added the `Session: {{voice_token}}` template text to their
+    Agent's character description at all must also 401."""
+    body = {
+        "model": "luran-voice",
+        "messages": [
+            {"role": "system", "content": _NO_MARKER_CAPTURED_CONTENT},
+            {"role": "user", "content": "hello"},
+        ],
+    }
+    resp = pg_client.post("/api/v1/voice/llm/chat/completions", json=body, headers=_auth())
     assert resp.status_code == 401
 
 
@@ -145,16 +217,7 @@ def test_cross_tenant_fields_in_body_are_never_honoured(
 ):
     """Injecting tenant B's ids into the body alongside tenant A's real voice
     token must never leak into the pipeline call. Only the token's resolved
-    binding may ever reach `send_message`. A bug like
-
-        tenant_id=UUID(payload["tenant_id"]) if payload.get("tenant_id") else context.tenant_id
-
-    — trusting a body-supplied id when present — is exactly the injection the
-    brief forbids, and previous versions of this test (which never put tenant
-    B's ids anywhere in the body) could not have caught it: the assertion
-    `tenant_id != tenant_b.id` was implied by `tenant_id == tenant_a.id` with
-    nothing in the request even offering tenant_b as an alternative.
-    """
+    binding may ever reach `send_message`."""
     tenant_a = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
     tenant_b = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
     session_a = voice_session_factory(tenant_a.id)
@@ -170,6 +233,7 @@ def test_cross_tenant_fields_in_body_are_never_honoured(
         "tenant_id": str(tenant_b.id),
         "session_id": str(session_b.id),
     }
+    body["elevenlabs_extra_body"] = {"voice_token": "totally-different-token"}
 
     mock = AsyncMock(return_value=_fake_chat_response(session_a.id, "ok"))
     with patch("app.api.v1.endpoints.voice.send_message", new=mock):
@@ -188,7 +252,7 @@ def test_pipeline_error_still_returns_speakable_audio(
 ):
     """A pipeline exception must not leave the caller in silence, and must be
     distinguishable (by exact spoken content) from the no-input and policy-
-    denial fallbacks — a test that only checks "sorry" is in the text can't
+    denial fallbacks -- a test that only checks "sorry" is in the text can't
     tell `_FALLBACK_REPLY` apart from any of those."""
     tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
     session = voice_session_factory(tenant.id)
@@ -236,7 +300,7 @@ def test_stale_empty_last_turn_does_not_redrive_pipeline(
 ):
     """Only the LAST message in the array is the caller's current turn. A
     failed-ASR or silent turn (empty content) after a real answer must not
-    fall back to re-sending the previous user message — that would silently
+    fall back to re-sending the previous user message -- that would silently
     re-drive the pipeline (re-running lead scoring, the action engine, etc.)
     with stale text and speak the old answer back to a caller who said
     nothing new this turn."""
@@ -247,12 +311,11 @@ def test_stale_empty_last_turn_does_not_redrive_pipeline(
     body = {
         "model": "luran-voice",
         "messages": [
-            {"role": "system", "content": "you are a helpful agent"},
+            {"role": "system", "content": _system_content(token)},
             {"role": "user", "content": "what are your hours?"},
             {"role": "assistant", "content": "We open at nine."},
             {"role": "user", "content": ""},
         ],
-        "elevenlabs_extra_body": {"voice_token": token},
     }
 
     mock = AsyncMock(return_value=_fake_chat_response(session.id, "We open at nine."))
@@ -271,10 +334,7 @@ def test_whitespace_only_last_turn_does_not_redrive_pipeline(
 ):
     """A last user turn of a single space (a realistic partial-ASR artifact,
     distinct from a fully empty string but no more meaningful) must be
-    treated as no input too. `content == " "` is truthy in Python, so without
-    stripping it clears the `if not user_text` gate and reaches the
-    pipeline — persisting a junk message and re-firing lead scoring and the
-    action engine for zero actual caller input."""
+    treated as no input too."""
     tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
     session = voice_session_factory(tenant.id)
     token = minted_voice_token(tenant.id, session.id)
@@ -294,7 +354,7 @@ def test_whitespace_only_last_turn_does_not_redrive_pipeline(
 def test_no_user_turn_speaks_no_input_fallback(
     pg_client, voice_tenant_factory, voice_session_factory, minted_voice_token
 ):
-    """`_NO_INPUT_REPLY` previously had zero test coverage — this pins it to
+    """`_NO_INPUT_REPLY` previously had zero test coverage -- this pins it to
     a body that never had a user turn to begin with."""
     tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
     session = voice_session_factory(tenant.id)
@@ -302,8 +362,7 @@ def test_no_user_turn_speaks_no_input_fallback(
 
     body = {
         "model": "luran-voice",
-        "messages": [{"role": "system", "content": "you are a helpful agent"}],
-        "elevenlabs_extra_body": {"voice_token": token},
+        "messages": [{"role": "system", "content": _system_content(token)}],
     }
 
     mock = AsyncMock()
@@ -320,15 +379,23 @@ def test_malformed_last_message_is_treated_as_no_input(
     pg_client, voice_tenant_factory, voice_session_factory, minted_voice_token
 ):
     """A `messages` entry that isn't a dict (some malformed EL payload) must
-    be treated as no input, never crash the extraction into a 500."""
+    be treated as no input, never crash the extraction into a 500 -- this is
+    specifically about `_last_user_message`'s guard on `messages[-1]`, so
+    `messages[0]` here is a VALID system message carrying a real, resolvable
+    token: a malformed *first* message is `_extract_voice_token`'s own
+    fail-closed concern, covered separately in
+    test_voice_token_extraction.py and by
+    test_no_session_marker_at_all_is_rejected above."""
     tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
     session = voice_session_factory(tenant.id)
     token = minted_voice_token(tenant.id, session.id)
 
     body = {
         "model": "luran-voice",
-        "messages": ["not a dict"],
-        "elevenlabs_extra_body": {"voice_token": token},
+        "messages": [
+            {"role": "system", "content": _system_content(token)},
+            "not a dict",
+        ],
     }
 
     resp = pg_client.post("/api/v1/voice/llm/chat/completions", json=body, headers=_auth())
@@ -342,12 +409,10 @@ def test_resolve_failure_still_returns_speakable_audio(
     pg_client, voice_tenant_factory, voice_session_factory, minted_voice_token
 ):
     """A Redis outage (or any other failure) during token resolution must not
-    leave the caller in silence — this happens before we even know who the
+    leave the caller in silence -- this happens before we even know who the
     caller is, so it can't get the tenant-aware `_FALLBACK_REPLY` logging,
     but it must still end in a speakable 200 carrying EXACTLY the generic
-    setup-failure fallback, not merely something containing "sorry" — every
-    one of `_FALLBACK_REPLY`, `_NO_INPUT_REPLY`, and `_TERMINAL_REPLY`
-    contains that word, so a substring check can't tell them apart."""
+    setup-failure fallback."""
     tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
     session = voice_session_factory(tenant.id)
     token = minted_voice_token(tenant.id, session.id)
@@ -370,14 +435,9 @@ def test_pipeline_policy_denial_speaks_terminal_reply_and_ends_ability_to_answer
     pg_client, voice_tenant_factory, voice_session_factory, minted_voice_token
 ):
     """An entitlement/existence HTTPException from the pipeline (e.g. 402
-    conversation-limit-reached) is not transient — retrying with the same
-    words can never succeed. It must speak EXACTLY `_TERMINAL_REPLY`, not
-    merely something that isn't `_FALLBACK_REPLY`'s or `_NO_INPUT_REPLY`'s
-    text (two negatives don't prove the terminal reply was the one actually
-    spoken). The voice token must also be revoked so the *next* turn 401s
-    cleanly instead of repeating the same rejection — that ends OUR ability
-    to answer, not the WebRTC call itself (which stays open until the caller
-    or widget disconnects; see the production comment on `_TERMINAL_REPLY`)."""
+    conversation-limit-reached) is not transient -- retrying with the same
+    words can never succeed. It must speak EXACTLY `_TERMINAL_REPLY` and
+    revoke the voice token so the *next* turn 401s cleanly."""
     tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
     session = voice_session_factory(tenant.id)
     token = minted_voice_token(tenant.id, session.id)
@@ -409,12 +469,9 @@ def test_turn_rate_limit_still_returns_speakable_audio(
     pg_client, voice_tenant_factory, voice_session_factory, minted_voice_token, monkeypatch
 ):
     """Once a single voice token exceeds its turn budget, further turns on
-    that token must still get a speakable 200 (never a raw 429 ElevenLabs
-    can't render as audio) carrying EXACTLY `_RATE_LIMITED_REPLY` — not just
-    something other than the buffer word alone, which `_NO_INPUT_REPLY`
-    would also satisfy — and the pipeline must not be invoked for a
-    throttled turn. This is a per-token limit so it can't be satisfied by
-    the existing IP-keyed `voice_rate_limit`."""
+    that token must still get a speakable 200 carrying EXACTLY
+    `_RATE_LIMITED_REPLY`, and the pipeline must not be invoked for a
+    throttled turn."""
     monkeypatch.setattr(voice_llm_turn_rate_limiter, "max_calls", 1)
 
     tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
@@ -443,12 +500,9 @@ def test_turn_rate_limiter_acquire_timeout_throttles_instead_of_hanging(
     """`RedisRateLimiter.acquire()` re-checks its own window and can
     `asyncio.sleep` up to `window_seconds + 1` (61s for
     `voice_llm_turn_rate_limiter`) if two concurrent turns on the same token
-    both pass the fast usage check and then race for the same slot. A 61s
-    hang is far worse than a false-positive throttle on the one endpoint
-    whose entire purpose is preventing silence — a stuck `acquire()` must
-    resolve to a throttled (but still speakable, still fast) turn, not hang
-    the request. Patches `acquire` to hang well past a tiny monkeypatched
-    timeout budget and asserts the response returns quickly anyway."""
+    both pass the fast usage check and then race for the same slot. A stuck
+    `acquire()` must resolve to a throttled (but still speakable, still
+    fast) turn, not hang the request."""
     import app.api.v1.endpoints.voice as voice_module
 
     monkeypatch.setattr(voice_module, "_TURN_RATE_LIMIT_TIMEOUT_SECONDS", 0.05)
@@ -496,16 +550,10 @@ def test_a_single_turn_meters_minutes_without_session_end_ever_being_called(
     async def _backdate_last_metered_at(seconds_ago: float) -> None:
         store = VoiceSessionTokenStore()
         redis = await store._get_redis()
-        # The metering tick lives in its own Redis key, separate from the
-        # token's payload (see session_tokens.py's `_TICK_KEY_PREFIX` and
-        # Task 11 review round 3 for why).
         tick_key = f"voice:session_tick:{token}"
         ttl = await redis.ttl(tick_key)
         await redis.set(tick_key, time.time() - seconds_ago, ex=ttl if ttl > 0 else 600)
 
-    # Simulate "the call has been running 2 minutes with no prior turn" by
-    # backdating the token's metering tick directly (mirrors
-    # test_session_tokens.py's `_set_ticks` helper).
     asyncio.run(_backdate_last_metered_at(120))
 
     with patch(
@@ -522,3 +570,130 @@ def test_a_single_turn_meters_minutes_without_session_end_ever_being_called(
         "the turn itself must have billed the elapsed minutes -- "
         "/voice/session/end was never called in this test"
     )
+
+
+# --- escalate_to_human: tool_calls emission (Spike 1 fix) ----------------
+# Confirmed live: ElevenLabs only invokes the escalate_to_human CLIENT tool
+# when it sees an OpenAI tool_calls delta from us. Before this fix,
+# `voice_custom_llm` never read `chat_response.should_escalate` at all --
+# escalation was dead end-to-end even though `ChatResponse` already carried
+# the flag; the pipeline's decision never reached ElevenLabs in a shape it
+# would act on.
+
+
+def test_escalation_emits_tool_call_instead_of_spoken_text(
+    pg_client, voice_tenant_factory, voice_session_factory, minted_voice_token
+):
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    session = voice_session_factory(tenant.id)
+    token = minted_voice_token(tenant.id, session.id)
+
+    with patch(
+        "app.api.v1.endpoints.voice.send_message",
+        new=AsyncMock(
+            return_value=_fake_chat_response(
+                session.id, "Let me get you a human.", should_escalate=True
+            )
+        ),
+    ):
+        resp = pg_client.post(
+            "/api/v1/voice/llm/chat/completions", json=_body(token), headers=_auth()
+        )
+
+    assert resp.status_code == 200
+    payloads = _frames(resp)
+    tool_call_frames = [p for p in payloads if "tool_calls" in p["choices"][0]["delta"]]
+    assert len(tool_call_frames) == 1, "expected exactly one tool_calls delta"
+    call = tool_call_frames[0]["choices"][0]["delta"]["tool_calls"][0]
+    assert call["type"] == "function"
+    assert call["function"]["name"] == "escalate_to_human"
+
+    finishes = [p for p in payloads if p["choices"][0]["finish_reason"] is not None]
+    assert len(finishes) == 1
+    assert finishes[0]["choices"][0]["finish_reason"] == "tool_calls"
+
+    # The pipeline's spoken text must NOT leak out as content when
+    # escalating -- ElevenLabs would try to speak it AND invoke the tool,
+    # which isn't the intended UX (the tool call itself is what triggers
+    # the widget's switch-to-text handoff, see voice_escalate_to_human).
+    spoken = _spoken_text(resp)
+    assert "Let me get you a human." not in spoken
+
+
+def test_non_escalating_reply_still_speaks_text_not_a_tool_call(
+    pg_client, voice_tenant_factory, voice_session_factory, minted_voice_token
+):
+    """Regression guard the other direction: a normal (non-escalating) reply
+    must keep speaking text, not suddenly emit a tool call."""
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    session = voice_session_factory(tenant.id)
+    token = minted_voice_token(tenant.id, session.id)
+
+    with patch(
+        "app.api.v1.endpoints.voice.send_message",
+        new=AsyncMock(
+            return_value=_fake_chat_response(session.id, "We open at nine.", should_escalate=False)
+        ),
+    ):
+        resp = pg_client.post(
+            "/api/v1/voice/llm/chat/completions", json=_body(token), headers=_auth()
+        )
+
+    assert resp.status_code == 200
+    payloads = _frames(resp)
+    tool_call_frames = [p for p in payloads if "tool_calls" in p["choices"][0]["delta"]]
+    assert tool_call_frames == []
+    assert "We open at nine." in _spoken_text(resp)
+
+
+# --- the tool-result callback turn (the trap) -----------------------------
+# After the escalate_to_human CLIENT tool runs, ElevenLabs calls this
+# endpoint AGAIN with the tool's result appended as the next turn:
+# {"role": "tool", "tool_call_id": ..., "content": ...}. `_last_user_message`
+# only ever inspects `messages[-1]` and returns "" for any non-"user" role
+# -- so unhandled, this turn would hit `_NO_INPUT_REPLY` ("Sorry, I did not
+# catch that") immediately after an escalation, which is confusing and
+# wrong: the caller didn't say anything unclear, EL just reported back a
+# tool result.
+
+
+def test_tool_result_turn_speaks_ack_and_does_not_redrive_pipeline(
+    pg_client, voice_tenant_factory, voice_session_factory, minted_voice_token
+):
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    session = voice_session_factory(tenant.id)
+    token = minted_voice_token(tenant.id, session.id)
+
+    body = {
+        "model": "luran-voice",
+        "messages": [
+            {"role": "system", "content": _system_content(token)},
+            {"role": "user", "content": "I need to speak to a human"},
+            {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_abc123",
+                        "type": "function",
+                        "function": {"name": "escalate_to_human", "arguments": "{}"},
+                    }
+                ],
+            },
+            {"role": "tool", "tool_call_id": "call_abc123", "content": "switched to text"},
+        ],
+    }
+
+    mock = AsyncMock(return_value=_fake_chat_response(session.id, "should not be called"))
+    with patch("app.api.v1.endpoints.voice.send_message", new=mock):
+        resp = pg_client.post("/api/v1/voice/llm/chat/completions", json=body, headers=_auth())
+
+    mock.assert_not_called()
+    assert resp.status_code == 200
+    payloads = _frames(resp)
+    assert [p for p in payloads if "tool_calls" in p["choices"][0]["delta"]] == []
+    spoken = _spoken_text(resp)
+    assert "did not catch" not in spoken.lower(), (
+        "a tool-result callback turn must not be mistaken for no-input -- " f"got: {spoken!r}"
+    )
+    assert spoken.strip() != "...".strip()

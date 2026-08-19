@@ -1,13 +1,14 @@
 """Verify that an inbound request really came from ElevenLabs.
 
-TODO(spike-1): SWAP POINT. Today this is a constant-time shared-secret bearer
-check, which is what the ElevenLabs custom-LLM config lets us set today. If
-Spike 1 shows EL sends a verifiable HMAC signature instead (e.g. an
-`xi-signature: t=…,v0=…` header), add that branch HERE, inside
-verify_elevenlabs_request — every caller (Tasks 8 and 10) depends only on
-this function's contract ("raises 401 unless the request is genuinely from
-ElevenLabs"), never on how that's checked, so the swap touches nothing else
-in the voice-chat backend.
+CONFIRMED (Spike 1, 2026-08-19, 28 captured live requests): ElevenLabs sends
+a static `Authorization: Bearer <secret>` on every custom-LLM call — no HMAC
+signature, no timestamp. A constant-time shared-secret bearer check is
+therefore the real, final mechanism here, not a placeholder pending a spike
+result. Every caller (Tasks 8 and 10) still depends only on this function's
+contract ("raises 401 unless the request is genuinely from ElevenLabs"),
+never on how that's checked — so if ElevenLabs ever adds a verifiable
+signature on top of the static secret, the swap is still isolated to this
+one function.
 """
 
 import hmac

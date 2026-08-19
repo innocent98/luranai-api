@@ -15,23 +15,34 @@ class ElevenLabsClient:
         self.api_key = api_key or settings.ELEVENLABS_API_KEY
         self.api_base = (api_base or settings.ELEVENLABS_API_BASE).rstrip("/")
 
-    async def mint_conversation_token(self, *, agent_id: str, dynamic_variables: dict) -> str:
+    async def mint_conversation_token(self, *, agent_id: str, participant_name: str) -> str:
         """Mint a short-lived WebRTC conversation token for the browser.
 
-        TODO(spike-1): `dynamic_variables` is accepted to match the published
-        interface — it's meant to be the mechanism by which the custom-LLM
-        endpoint and tool webhooks receive our opaque voice_token on every
-        call — but it is NOT currently transmitted to ElevenLabs. The real
-        wire shape for attaching dynamic variables to a WebRTC
-        conversation-token mint is unresolved pending Spike 1 (still with
-        the user). Until that lands and this method is updated, the
-        voice_token does not reach ElevenLabs through this call. Do not
-        assume otherwise elsewhere in the codebase.
+        `participant_name` is how our opaque `voice_token` actually reaches
+        the custom-LLM endpoint — confirmed live against ElevenLabs in
+        Spike 1 (2026-08-19, 28 captured requests). The chain is non-obvious
+        end to end, so it's worth spelling out in full for whoever next
+        looks at this parameter and is tempted to call it unused:
 
-        NOTE: the exact mint path/param shape here is unverified against the
-        live ElevenLabs API (pending Spike 1). If the spike shows a different
-        endpoint or payload, change only this method — nothing else in the
-        voice-chat backend depends on its internals.
+        1. This mint call sends `participant_name` as a query parameter.
+        2. ElevenLabs binds it into the session JWT as both `name` and `sub`.
+        3. The Agent's system prompt (operator-configured) contains the
+           literal template text `Session: {{voice_token}}`.
+        4. ElevenLabs substitutes `{{voice_token}}` with the JWT's bound
+           value when it builds the prompt for the call.
+        5. That substituted prompt arrives at our custom-LLM endpoint as
+           `messages[0].content` — see `_extract_voice_token` in
+           `app/api/v1/endpoints/voice.py`, which parses it back out.
+
+        Verified negative control: minting without `participant_name` left
+        `{{voice_token}}` unsubstituted in `messages[0].content` — proving
+        the substitution is genuinely driven by this parameter, not
+        coincidence.
+
+        The response also carries `conversation_id` (e.g. `conv_...`),
+        currently unused here — a natural future correlation key (e.g. for
+        joining ElevenLabs-side conversation logs/analytics to our own
+        session), not built on yet.
         """
         if not self.api_key:
             raise ElevenLabsMintError("ELEVENLABS_API_KEY is not configured")
@@ -41,7 +52,7 @@ class ElevenLabsClient:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(
                     url,
-                    params={"agent_id": agent_id},
+                    params={"agent_id": agent_id, "participant_name": participant_name},
                     headers={"xi-api-key": self.api_key},
                 )
         except httpx.HTTPError as exc:

@@ -45,6 +45,35 @@ def test_mint_succeeds_and_returns_tokens(pg_client, voice_tenant_factory, voice
     assert body["expires_in_seconds"] == 600
 
 
+def test_mint_passes_voice_token_as_participant_name(
+    pg_client, voice_tenant_factory, voice_session_factory
+):
+    """Spike 1 proved `participant_name` is the ONLY wire mechanism that
+    carries our opaque voice_token to ElevenLabs (see
+    ElevenLabsClient.mint_conversation_token's docstring). If the endpoint
+    stopped wiring `voice_token` through as `participant_name` -- e.g.
+    reverted to the old (never-transmitted) `dynamic_variables` shape, or
+    passed some other value -- every custom-LLM request for that call would
+    silently carry no token at all, and `_extract_voice_token` would 401
+    every turn. This asserts the actual kwargs `mint_conversation_token` was
+    called with, not just that mint succeeded."""
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    session = voice_session_factory(tenant.id)
+
+    mock_mint = AsyncMock(return_value="el-convo-token-abc")
+    with patch(
+        "app.api.v1.endpoints.voice.ElevenLabsClient.mint_conversation_token", new=mock_mint
+    ):
+        resp = pg_client.post("/api/v1/voice/session/token", json=_payload(tenant.id, session.id))
+
+    assert resp.status_code == 200
+    voice_token = resp.json()["voice_token"]
+    mock_mint.assert_awaited_once_with(
+        agent_id="test-agent-id",
+        participant_name=voice_token,
+    )
+
+
 def test_mint_409_when_flag_disabled(pg_client, voice_tenant_factory, voice_session_factory):
     tenant = voice_tenant_factory(can_use_voice=False, max_voice_minutes_per_month=None)
     session = voice_session_factory(tenant.id)
