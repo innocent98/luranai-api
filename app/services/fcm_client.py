@@ -29,6 +29,11 @@ _SCOPE = "https://www.googleapis.com/auth/firebase.messaging"
 _SEND_URL = "https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
 _TIMEOUT = 10.0
 
+# Must match the filename of the .caf bundled into the iOS app's Runner.app
+# (ios/Runner/luran_escalation.caf on feat/agent-caller-app). iOS silently falls back
+# to the default sound on any mismatch — no error, nothing observable server-side.
+_IOS_ALERT_SOUND = "luran_escalation.caf"
+
 # client_email -> (access_token, expires_at_epoch)
 _token_cache: dict[str, tuple[str, float]] = {}
 
@@ -118,7 +123,9 @@ def _envelope(
     app wakes on `data`, renders its own notification on the channel it owns, and
     can therefore cancel it when the clear arrives. iOS has no background-handler
     suppression and no full-screen-intent equivalent — a data-only push displays
-    nothing there — so iOS keeps the `notification` block.
+    nothing there — so iOS keeps the `notification` block, plus `aps.sound`: on
+    iOS the sound is chosen by the payload, not the app, so the custom escalation
+    ringtone has to be named here or iOS silently plays the system default.
     """
     visible = notification is not None
     message: dict = {"token": device_token, "data": data}
@@ -129,6 +136,7 @@ def _envelope(
         apns_headers = {"apns-priority": "10"}
         if platform is DevicePlatform.IOS:
             message["notification"] = notification
+            apns_payload["aps"]["sound"] = _IOS_ALERT_SOUND
     else:
         apns_payload["aps"]["content-available"] = 1
         apns_headers = {"apns-priority": "5", "apns-push-type": "background"}

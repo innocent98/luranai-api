@@ -13,6 +13,15 @@ claims the ticket and the live text chat; everyone else's ring is cleared. If no
 within the wait window, a single supervisor-fallback tier rings once. Supplements — never
 replaces — the existing email escalation.
 
+**iOS now plays the bundled custom escalation ringtone, not the system default.** On iOS the
+notification sound is chosen by the APNs payload, not by the app — unlike Android, where the
+app's own notification channel picks the sound. `_envelope()` in `app/services/fcm_client.py`
+sets `aps.sound` to `luran_escalation.caf` for every visible iOS alert, matching the `.caf`
+bundled into `Runner.app` on `feat/agent-caller-app` (commit `ed73874`). The filename lives in
+the module-level `_IOS_ALERT_SOUND` constant specifically because a silent mismatch between this
+string and the bundled asset's filename is the entire failure mode: iOS falls back to the
+default sound with no error and nothing observable server-side.
+
 Design spec: `docs/superpowers/specs/2026-08-15-agent-caller-backend-escalation-push-design.md`
 Plan: `docs/superpowers/plans/2026-08-16-agent-caller-backend-push.md`
 
@@ -334,6 +343,52 @@ $ DATABASE_URL="postgresql://luran:luran@localhost:55432/luran_migtest" poetry r
 Was 1013 passed / 33 skipped / 0 failed before this fix; net +5 for the 5 new `_envelope()` test
 cases (the parametrized platform test counts as 2), zero regressions.
 
+## Fix — iOS escalation push named no custom sound (2026-08-19)
+
+**What shipped:** `app/services/fcm_client.py`'s `_envelope()` now sets `aps.sound` to
+`luran_escalation.caf` for every **visible** alert on **iOS**. The filename lives in a new
+module-level constant, `_IOS_ALERT_SOUND`, rather than inline, so there is exactly one place to
+keep it in sync with the bundled asset. Android is untouched — its visible alert stays data-only
+(no `notification` block, per the fix above) and gets no sound key anywhere in the envelope,
+since Android's sound comes from the app's own notification channel, not the push payload.
+Silent pushes (`clear_alert`, `missed_escalation`) are untouched on both platforms: still
+`content-available: 1`, `apns-push-type: background`, `apns-priority: 5`, never a sound key.
+
+**Why:** Android and iOS choose notification sounds differently. Android plays whatever sound is
+configured on the notification channel the app itself owns (`AGENT_ALERT_ANDROID_CHANNEL_ID`) —
+no backend involvement. **iOS has no equivalent concept**: the sound is chosen by the value of
+`aps.sound` in the push payload the backend sends, not by anything the app configures locally.
+The Flutter app (`feat/agent-caller-app`, commit `ed73874`) already bundles
+`ios/Runner/luran_escalation.caf` into `Runner.app` — verified present in the built bundle, not
+merely referenced in the Xcode project — but without this change the payload never named it, so
+iOS silently fell back to the system default ringtone. "Silently" is the operative word: a
+filename mismatch between `_IOS_ALERT_SOUND` and the bundled asset produces no error and nothing
+observable server-side, which is why the constant exists and why it has a dedicated test rather
+than relying on the general envelope tests to catch drift.
+
+**Tests added** (`tests/agent_caller/test_fcm_client.py`), exercising `_envelope()` directly:
+`test_ios_visible_alert_names_the_custom_escalation_sound`,
+`test_android_visible_alert_has_no_sound_key`. Both fail against the pre-fix code (verified by
+stashing the `fcm_client.py` change and re-running). `test_silent_messages_are_unchanged_on_both_platforms`
+gained an explicit `"sound" not in envelope["apns"]["payload"]["aps"]` assertion so a future
+change that accidentally adds a sound to the clear/missed pushes — which would re-ring every
+losing agent — fails loudly.
+
+**Verification:**
+```
+$ poetry run ruff check app/          # All checks passed!
+$ poetry run black --check app/       # 218 files would be left unchanged.
+$ poetry run pytest tests/agent_caller -q --no-cov
+====================== 94 passed, 6596 warnings in 1.28s =======================
+$ poetry run pytest tests/api/v1/test_chat_flow_router.py tests/api/v1/test_flow_action_call_regressions.py -q --no-cov
+====================== 14 passed, 1597 warnings in 0.46s =======================
+$ DATABASE_URL="postgresql://luran:luran@localhost:55432/luran_migtest" poetry run pytest tests -q --no-cov
+1020 passed, 33 skipped, 173906 warnings in 151.03s (0:02:31)
+```
+
+Was 1018 passed / 33 skipped / 0 failed before this fix; net +2 for the 2 new `_envelope()` test
+cases, zero regressions.
+
 ## Operate / roll back
 
 - **Kill switch:** `AGENT_ALERT_ENABLED=false` disables all pushes instantly, no deploy needed —
@@ -350,8 +405,10 @@ cases (the parametrized platform test counts as 2), zero regressions.
 - **Live FCM smoke test** — the client has never yet been exercised against real Google
   credentials/device tokens; only unit-tested against a faked HTTP layer. First deploy to
   staging should include one manual end-to-end ring.
-- **iOS** — pending the APNs auth key upload to the Firebase project; until then the ring only
-  reaches Android devices.
+- **iOS APNs auth key** — still pending upload to the Firebase project; until then the ring only
+  reaches Android devices regardless of payload correctness. (The payload itself is now
+  correct — see "Fix — iOS escalation push named no custom sound" above — this is purely the
+  Firebase Console config step.)
 - **Device-upsert TOCTOU race** — two near-simultaneous `POST /agent/devices` calls for the same
   token could both see "no row" and both insert; worth an `ON CONFLICT` upsert like
   `docs/sop/analytics_visit_idempotent_upsert.md`'s fix for the same class of bug.

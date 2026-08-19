@@ -143,14 +143,41 @@ def test_ios_visible_alert_keeps_the_notification_block():
     assert envelope["apns"]["headers"]["apns-priority"] == "10"
 
 
+def test_ios_visible_alert_names_the_custom_escalation_sound():
+    """On iOS the OS — not the app — chooses the notification sound, and it
+    chooses it from `aps.sound`. Unless the payload names the bundled .caf
+    exactly, iOS silently falls back to the default sound with nothing
+    observable server-side, so this filename is the whole failure mode."""
+    envelope = fcm_client._envelope(
+        "tok-ios", {"type": "escalation_alert"}, DevicePlatform.IOS, _RING_NOTIFICATION
+    )
+    assert envelope["apns"]["payload"]["aps"]["sound"] == "luran_escalation.caf"
+    assert envelope["apns"]["payload"]["aps"]["sound"] == fcm_client._IOS_ALERT_SOUND
+
+
+def test_android_visible_alert_has_no_sound_key():
+    """Android's sound comes from the app's own notification channel, not the
+    push payload — the envelope must not carry a sound key anywhere, and the
+    data-only-on-Android contract from `test_android_visible_alert_is_data_only`
+    must still hold."""
+    envelope = fcm_client._envelope(
+        "tok-android", {"type": "escalation_alert"}, DevicePlatform.ANDROID, _RING_NOTIFICATION
+    )
+    assert "notification" not in envelope
+    assert "sound" not in envelope["apns"]["payload"]["aps"]
+    assert "sound" not in envelope["android"]
+
+
 @pytest.mark.parametrize("platform", [DevicePlatform.ANDROID, DevicePlatform.IOS])
 def test_silent_messages_are_unchanged_on_both_platforms(platform):
     """`clear_alert` and `missed_escalation` pass notification=None today and must
     keep behaving identically on both platforms — still silent, still
-    content-available on iOS, never carrying a `notification` key."""
+    content-available on iOS, never carrying a `notification` key, and never a
+    sound: a sound on the clear would ring every losing agent a second time."""
     envelope = fcm_client._envelope("tok", {"type": "clear_alert"}, platform, None)
     assert "notification" not in envelope
     assert envelope["apns"]["payload"]["aps"]["content-available"] == 1
+    assert "sound" not in envelope["apns"]["payload"]["aps"]
     assert envelope["apns"]["headers"] == {
         "apns-priority": "5",
         "apns-push-type": "background",
