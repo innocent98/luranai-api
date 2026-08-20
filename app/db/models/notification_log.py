@@ -14,6 +14,9 @@ class NotifEvent(str, enum.Enum):
     SALES_READY_LEAD = "sales_ready_lead"
     MEETING_BOOKED = "meeting_booked"
     QUOTE_GENERATED = "quote_generated"
+    ESCALATION_ALERT = "escalation_alert"
+    ESCALATION_FALLBACK = "escalation_fallback"
+    ESCALATION_MISSED = "escalation_missed"
 
 
 class NotifChannel(str, enum.Enum):
@@ -21,6 +24,7 @@ class NotifChannel(str, enum.Enum):
     IN_APP = "in_app"
     SLACK = "slack"
     CRM = "crm"
+    PUSH = "push"
 
 
 class NotifStatus(str, enum.Enum):

@@ -21,6 +21,13 @@ class UserRole(str, enum.Enum):
     VIEWER = "viewer"  # Read-only access
 
 
+class AvailabilityStatus(str, enum.Enum):
+    """Agent availability for escalation broadcast (manual toggle only)."""
+
+    AVAILABLE = "available"
+    AWAY = "away"
+
+
 class User(Base, UUIDMixin, TimestampMixin):
     """
     Tenant users (company staff members).
@@ -87,6 +94,17 @@ class User(Base, UUIDMixin, TimestampMixin):
         server_default="false",
         nullable=False,
         comment="Whether user must change password on next login (temp password)",
+    )
+    availability_status: Mapped[AvailabilityStatus] = mapped_column(
+        SQLEnum(
+            AvailabilityStatus,
+            name="availability_status",
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        default=AvailabilityStatus.AVAILABLE,
+        server_default="available",
+        nullable=False,
+        comment="Whether this agent is rung in the escalation broadcast tier",
     )
 
     def __repr__(self) -> str:
