@@ -1,6 +1,7 @@
 """Database models package."""
 
 from app.db.base import Base
+from app.db.models.agent_device import AgentDevice, DevicePlatform
 from app.db.models.api_key import APIKey, APIKeyType
 from app.db.models.automation import (
     ActionAuthType,
@@ -75,7 +76,7 @@ from app.db.models.visit_analytics import DailyVisit
 
 # Import all models to ensure they're registered with SQLAlchemy
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
-from app.db.models.user import User, UserRole
+from app.db.models.user import AvailabilityStatus, User, UserRole
 from app.db.models.visitor import DeviceType, Visitor, VisitorSession, VisitorSource
 
 __all__ = [
@@ -106,6 +107,7 @@ __all__ = [
     # User models
     "User",
     "UserRole",
+    "AvailabilityStatus",
     "CustomerUser",
     "CustomerBusinessFollow",
     "TenantChannelPost",
@@ -184,4 +186,7 @@ __all__ = [
     "FlowStatus",
     "FlowTriggerType",
     "FlowExecutionStatus",
+    # Agent caller models
+    "AgentDevice",
+    "DevicePlatform",
 ]

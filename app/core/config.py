@@ -124,6 +124,12 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str
 
+    # Agent Caller — escalation push (FCM HTTP v1)
+    FIREBASE_CREDENTIALS_JSON: str = ""
+    AGENT_ALERT_ENABLED: bool = True
+    AGENT_ALERT_WAIT_SECONDS: int = 90
+    AGENT_ALERT_ANDROID_CHANNEL_ID: str = "luran_escalation"
+
     # Qdrant Vector Database
     QDRANT_URL: str
     QDRANT_API_KEY: str | None = None

@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    agent_app,
     analytics,
     api_keys,
     auditor,
@@ -263,6 +264,9 @@ api_router.include_router(voice.router, prefix="/voice", tags=["voice"])
 
 # Ticket management endpoints
 api_router.include_router(tickets.router, prefix="/tickets", tags=["tickets"])
+
+# Agent Caller mobile app endpoints
+api_router.include_router(agent_app.router, prefix="/agent", tags=["agent-app"])
 
 # Flow management endpoints
 api_router.include_router(flows.router, prefix="/flows", tags=["flows"])
