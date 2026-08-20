@@ -33,6 +33,32 @@ chat_rate_limiter = RedisRateLimiter(
     window_seconds=60,
 )
 
+# Voice session-token minting — public, unauthenticated (like chat above),
+# but a much lower ceiling than chat: each call that clears gating spends
+# billable ElevenLabs quota, so the request *rate* needs its own throttle
+# independent of the concurrency ceiling (which only caps how many can be
+# simultaneously active, not how fast a single caller can churn through
+# mint → fail → retry).
+voice_rate_limiter = RedisRateLimiter(
+    key_prefix="http_voice",
+    max_calls=10,
+    window_seconds=60,
+)
+
+# Voice custom-LLM turns — ElevenLabs calls this endpoint server-to-server
+# for every tenant's every conversational turn, almost certainly from a
+# small, shared pool of egress IPs. An IP- or user-keyed limit (like
+# `voice_rate_limit` above) would throttle every unrelated tenant's call
+# sharing that IP together. This is keyed by the already-resolved,
+# unguessable voice token instead (see app/api/v1/endpoints/voice.py), so
+# hitting the ceiling only throttles the one call spamming turns, not every
+# voice caller on the platform.
+voice_llm_turn_rate_limiter = RedisRateLimiter(
+    key_prefix="http_voice_llm_turn",
+    max_calls=30,
+    window_seconds=60,
+)
+
 upload_rate_limiter = RedisRateLimiter(
     key_prefix="http_upload",
     max_calls=10,
@@ -186,6 +212,7 @@ platform_admin_auth_rate_limit = create_rate_limit_dependency(
     platform_admin_auth_rate_limiter, "ip"
 )
 chat_rate_limit = create_rate_limit_dependency(chat_rate_limiter, "user")
+voice_rate_limit = create_rate_limit_dependency(voice_rate_limiter, "user")
 upload_rate_limit = create_rate_limit_dependency(upload_rate_limiter, "user")
 
 # Public endpoints (each with separate rate limiter)
