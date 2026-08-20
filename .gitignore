@@ -99,3 +99,6 @@ backups/*.sql
 backups/*.sql.gz
 backups/*.dump
 backups/*.log
+
+# Firebase
+firebase-adminsdk.json
