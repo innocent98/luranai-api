@@ -158,6 +158,13 @@ class TenantCapabilitiesBase(BaseModel):
     max_webhooks_per_flow: int | None = Field(
         None, ge=0, description="Maximum webhook nodes allowed per flow"
     )
+    can_use_voice: bool = Field(
+        default=False,
+        description="Whether the tenant can use in-widget voice chat (paid, per-minute).",
+    )
+    max_voice_minutes_per_month: int | None = Field(
+        None, ge=0, description="Monthly voice-minute cap; None = unlimited"
+    )
 
 
 # Create schemas
@@ -250,6 +257,8 @@ class TenantCapabilitiesUpdate(BaseModel):
     can_use_webhooks: bool | None = None
     max_flows: int | None = Field(None, ge=0)
     max_webhooks_per_flow: int | None = Field(None, ge=0)
+    can_use_voice: bool | None = None
+    max_voice_minutes_per_month: int | None = Field(None, ge=0)
 
 
 # Response schemas
