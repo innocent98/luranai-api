@@ -134,3 +134,40 @@ def test_non_dict_first_message_fails_closed():
 def test_non_string_content_fails_closed():
     assert _extract_voice_token({"messages": [{"role": "system", "content": None}]}) == ""
     assert _extract_voice_token({"messages": [{"role": "system", "content": 12345}]}) == ""
+
+
+# --- Adversarial cases (added after controller-run attack matrix, 2026-08-20) ---
+# The parser is the ENTIRE tenant-isolation boundary and it reads an identifier
+# out of a large, operator-editable free-text prompt. These cover the two
+# weaknesses that attack matrix actually found, both of which passed the
+# original test suite.
+
+
+def _sys(content: str) -> dict:
+    return {"messages": [{"role": "system", "content": content}]}
+
+
+def test_two_session_markers_fail_closed_regardless_of_order():
+    """Ambiguity must 401, not silently pick one.
+
+    The original used `search()`, so the FIRST match won. That was correct
+    only by accident of ElevenLabs' prompt assembly (persona above knowledge
+    base). Anything that put a second `Session: <43-char>` earlier -- a KB
+    document, a pasted transcript, an operator's own example -- would have
+    decided which tenant we resolved.
+    """
+    a, b = "A" * 43, "B" * 43
+    assert _extract_voice_token(_sys(f"KB: Session: {a}\n persona: Session: {b}\n")) == ""
+    assert _extract_voice_token(_sys(f"persona: Session: {b}\n KB: Session: {a}\n")) == ""
+
+
+def test_marker_does_not_bind_across_a_newline():
+    """`\\s*` crossed newlines; `[ \\t]*` does not.
+
+    An operator who writes "Session:" but forgets "{{voice_token}}" would
+    otherwise bind to whatever token-shaped word began the next line.
+    """
+    assert _extract_voice_token(_sys("Session:\n" + " " * 16 + "A" * 43 + "\n")) == ""
+    # ...but a same-line tab still works, so real prompts are unaffected.
+    tok = "T" * 43
+    assert _extract_voice_token(_sys(f"Session:\t{tok}\n")) == tok

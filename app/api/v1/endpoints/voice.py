@@ -328,8 +328,11 @@ async def end_voice_session(
 # KB document that happens to contain the word "Session:").
 _VOICE_TOKEN_LENGTH = 43
 _VOICE_TOKEN_ALPHABET = "A-Za-z0-9_-"
+# `[ \t]*` NOT `\s*`: `\s` crosses newlines, so a prompt whose operator wrote
+# "Session:" but forgot "{{voice_token}}" would happily bind to whatever
+# token-shaped word began the NEXT line. Same-line only.
 _SESSION_TOKEN_RE = re.compile(
-    rf"Session:\s*([{_VOICE_TOKEN_ALPHABET}]{{{_VOICE_TOKEN_LENGTH}}})(?![{_VOICE_TOKEN_ALPHABET}])"
+    rf"Session:[ \t]*([{_VOICE_TOKEN_ALPHABET}]{{{_VOICE_TOKEN_LENGTH}}})(?![{_VOICE_TOKEN_ALPHABET}])"
 )
 
 
@@ -377,8 +380,20 @@ def _extract_voice_token(payload: dict[str, Any]) -> str:
     content = first.get("content")
     if not isinstance(content, str):
         return ""
-    match = _SESSION_TOKEN_RE.search(content)
-    return match.group(1) if match else ""
+    matches = _SESSION_TOKEN_RE.findall(content)
+    # AMBIGUITY FAILS CLOSED. `search()` would silently take the FIRST match,
+    # so any second `Session: <43-char>` appearing earlier in the prompt --
+    # a knowledge-base document, a pasted transcript, an operator's own
+    # example text -- would decide which tenant we resolve. Today the real
+    # marker happens to come first (EL puts the persona above the KB), so
+    # first-match is correct by accident of their prompt assembly, not by
+    # design. Requiring exactly one match removes the dependence on that
+    # ordering: two candidates is an unanswerable question, so we 401 rather
+    # than guess. (A forged token still has to resolve in our own Redis, so
+    # this is defence in depth, not the only barrier.)
+    if len(matches) != 1:
+        return ""
+    return matches[0]
 
 
 def _last_user_message(payload: dict[str, Any]) -> str:
