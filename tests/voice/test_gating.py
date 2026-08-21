@@ -1,5 +1,6 @@
 import asyncio
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -167,11 +168,13 @@ async def test_tenant_disabled_voice_is_denied_even_when_granted(
 async def test_ungranted_tenant_is_denied_by_the_grant_not_the_preference(
     db_session, voice_tenant_factory
 ):
-    """Ordering is load-bearing: the grant is checked FIRST.
+    """An ungranted tenant is denied regardless of their preference setting.
 
-    A tenant with no grant but preference ON must still be denied. Would fail
-    if the two checks were swapped, or if the preference check short-circuited
-    the grant check.
+    A tenant with no grant but preference ON must still be denied. This test
+    cannot prove ordering (both the grant and preference checks return the same
+    reason code), but it does guard against the preference check short-circuiting
+    the grant denial. See test_ungranted_tenant_never_consults_the_preference
+    for a mock-based test that actually proves ordering.
     """
     from app.db.models.tenant import TenantAIConfig
 
@@ -200,3 +203,29 @@ async def test_missing_ai_config_row_does_not_block_a_granted_tenant(
     result = await VoiceGate(db_session).check(tenant.id)
 
     assert result.allowed is True
+
+
+@pytest.mark.asyncio
+async def test_ungranted_tenant_never_consults_the_preference(
+    db_session, voice_tenant_factory
+):
+    """Ordering is load-bearing and result-only assertions cannot prove it.
+
+    Both guards return the same FLAG_DISABLED reason, so a test that only
+    inspects the returned result passes whichever order they sit in —
+    verified by physically swapping the blocks. The observable difference is
+    a side effect: with the grant checked first, the preference lookup is
+    never reached at all. That is also the property we actually want, since
+    an ungranted tenant should cost no extra query.
+    """
+    tenant = voice_tenant_factory(can_use_voice=False, max_voice_minutes_per_month=None)
+    gate = VoiceGate(db_session)
+
+    with patch.object(
+        VoiceGate, "_voice_enabled_by_tenant", return_value=True
+    ) as preference_lookup:
+        result = await gate.check(tenant.id)
+
+    assert result.allowed is False
+    assert result.reason == VoiceDenialReason.FLAG_DISABLED
+    preference_lookup.assert_not_called()

@@ -1,4 +1,4 @@
-"""Voice access gating: tenant flag, monthly minute cap, concurrency ceiling.
+"""Voice access gating: tenant flag, tenant preference, monthly minute cap, concurrency ceiling.
 
 Checked in that order at token-mint time (spec §5). Any failure yields a 409
 with a machine-readable reason the widget uses to fall back to text.
