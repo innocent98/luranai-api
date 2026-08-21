@@ -1,18 +1,27 @@
 """Tenant self-management endpoints (for tenant admins managing their own tenant)."""
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_db
+from app.db.models.tenant import TenantAIConfig
 from app.schemas.tenant import (
+    CuratedVoiceResponse,
     TenantAIConfigResponse,
     TenantAIConfigUpdate,
     TenantCapabilitiesResponse,
     TenantResponse,
     TenantUpdate,
+    VoiceSettingsResponse,
 )
 from app.schemas.user import UserResponse
 from app.services.tenant_service import TenantService
+from app.services.voice.metering import VoiceMeter
+from app.services.voice.voices import CURATED_VOICES
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -190,3 +199,43 @@ def get_my_capabilities(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Capabilities not found")
 
     return capabilities
+
+
+@router.get(
+    "/voice/settings",
+    response_model=VoiceSettingsResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def get_my_voice_settings(
+    db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_tenant_admin),
+):
+    """Everything the tenant's Voice Chat settings page needs, in one call.
+
+    Always returns every field regardless of `granted` — the endpoint reports
+    state and the page decides what to render. A conditional shape would be
+    harder to type on the client and gives the page less than it needs.
+    """
+    tenant_service = TenantService(db)
+    capabilities = tenant_service.get_capabilities(current_user.tenant_id)
+
+    config = (
+        db.query(TenantAIConfig).filter(TenantAIConfig.tenant_id == current_user.tenant_id).first()
+    )
+
+    # Usage must DEGRADE, not fail. A settings page that 500s because a cache
+    # is down is worse than one missing a number.
+    try:
+        minutes_used = await VoiceMeter().get_monthly_minutes(current_user.tenant_id)
+    except Exception:  # noqa: BLE001 — usage is informational, never load-bearing
+        logger.warning("Voice usage read failed for tenant %s", current_user.tenant_id)
+        minutes_used = None
+
+    return VoiceSettingsResponse(
+        granted=bool(capabilities and capabilities.can_use_voice),
+        enabled=True if config is None else config.voice_enabled,
+        voice_id=config.voice_id if config else None,
+        minutes_used=minutes_used,
+        minutes_limit=capabilities.max_voice_minutes_per_month if capabilities else None,
+        available_voices=[CuratedVoiceResponse(**vars(v)) for v in CURATED_VOICES],
+    )
