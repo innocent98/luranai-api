@@ -19,7 +19,23 @@
   `DATABASE_URL=postgresql://luran_user:...@db:5432/luran_db`, and `db` is the Docker-internal
   hostname. From the host, run migrations as
   `DATABASE_URL="$(grep '^DATABASE_URL' .env | sed 's/^DATABASE_URL=//' | sed 's/@db:/@localhost:/')" poetry run alembic ...`
-- **The dev database is drifted** (`alembic_version` says `c1a0` while later tables already exist),
+- **USE A PROPERLY-MIGRATED TEST DATABASE.** The dev DB (`luran_db`) is *partially* applied: it is
+  stamped `c1a0`, yet `agent_devices` already exists while `users.availability_status` and
+  `tickets.acknowledged_at` do not. So `alembic upgrade head` against it fails on
+  `DuplicateTable: agent_devices`, AND any test inserting a `User` or a `Ticket` row fails on the missing
+  columns. `PG_DATABASE_URL` in `tests/conftest.py` reads the `DATABASE_URL` env var, so point the suite
+  at a clean database instead — the dev DB is shared and must be left alone:
+  ```bash
+  PW=$(grep -E '^DATABASE_URL' .env | sed 's|.*://luran_user:||' | sed 's|@.*||')
+  TESTDB="postgresql://luran_user:${PW}@localhost:5432/luran_test"
+  # one-time: docker exec luran_db psql -U luran_user -d postgres -c "CREATE DATABASE luran_test;"
+  #           DATABASE_URL="$TESTDB" poetry run alembic upgrade head
+  DATABASE_URL="$TESTDB" REDIS_URL=redis://localhost:6379/0 poetry run pytest tests/voice/ -q --no-cov
+  ```
+  **Against `luran_test` the whole voice suite passes with ZERO failures** — including the three
+  `tests/voice/test_escalate.py` tests previously believed pre-existing-broken. They were never broken;
+  the dev DB was. Treat any failure there as real.
+- **(Superseded) The dev database is drifted** (`alembic_version` says `c1a0` while later tables already exist),
   so `alembic upgrade head` against it fails with `DuplicateTable: relation "agent_devices"
   already exists`. That is pre-existing and NOT caused by this work. Verify migrations against a
   scratch database instead: `CREATE DATABASE migtest_voice`, run the full chain against it, then
