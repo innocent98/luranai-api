@@ -140,3 +140,63 @@ async def test_try_acquire_slot_evicts_stale_members(db_session, voice_tenant_fa
     assert acquired is True, "a stale slot must not count against the ceiling"
     members = await redis.zrange(key, 0, -1)
     assert members == ["fresh-tok"], "the stale entry must actually be evicted, not just skipped"
+
+
+@pytest.mark.asyncio
+async def test_tenant_disabled_voice_is_denied_even_when_granted(
+    db_session, voice_tenant_factory
+):
+    """The whole point of the preference: granted, but the tenant said no.
+
+    Would fail if the preference check were missing entirely (the tenant would
+    be allowed) — which is the defect this task exists to prevent.
+    """
+    from app.db.models.tenant import TenantAIConfig
+
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    db_session.add(TenantAIConfig(tenant_id=tenant.id, voice_enabled=False))
+    db_session.commit()
+
+    result = await VoiceGate(db_session).check(tenant.id)
+
+    assert result.allowed is False
+    assert result.reason == VoiceDenialReason.FLAG_DISABLED
+
+
+@pytest.mark.asyncio
+async def test_ungranted_tenant_is_denied_by_the_grant_not_the_preference(
+    db_session, voice_tenant_factory
+):
+    """Ordering is load-bearing: the grant is checked FIRST.
+
+    A tenant with no grant but preference ON must still be denied. Would fail
+    if the two checks were swapped, or if the preference check short-circuited
+    the grant check.
+    """
+    from app.db.models.tenant import TenantAIConfig
+
+    tenant = voice_tenant_factory(can_use_voice=False, max_voice_minutes_per_month=None)
+    db_session.add(TenantAIConfig(tenant_id=tenant.id, voice_enabled=True))
+    db_session.commit()
+
+    result = await VoiceGate(db_session).check(tenant.id)
+
+    assert result.allowed is False
+    assert result.reason == VoiceDenialReason.FLAG_DISABLED
+
+
+@pytest.mark.asyncio
+async def test_missing_ai_config_row_does_not_block_a_granted_tenant(
+    db_session, voice_tenant_factory
+):
+    """A tenant with no TenantAIConfig row at all must still get voice.
+
+    The preference defaults to enabled, so absence means 'not opted out', not
+    'disabled'. Would fail if the lookup treated a missing row as False —
+    which would silently kill voice for every tenant lacking that row.
+    """
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+
+    result = await VoiceGate(db_session).check(tenant.id)
+
+    assert result.allowed is True
