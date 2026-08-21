@@ -1,9 +1,12 @@
 import pytest
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from app.core.security import create_access_token
-from app.db.models.tenant import TenantCapabilities
+from app.db.models.tenant import TenantAIConfig, TenantCapabilities
 from app.db.models.user import User, UserRole
+from app.services.voice.metering import VoiceMeter
+from app.services.voice.voices import CURATED_VOICES
 from tests.conftest import _bare_voice_tenant as _tenant
 
 
@@ -74,7 +77,11 @@ def test_get_returns_every_field_even_when_not_granted(pg_client, voice_admin):
     """The response shape is unconditional — the page decides what to render.
 
     Would fail if the endpoint omitted fields when `granted` is false, which
-    would make the response shape conditional and harder to consume.
+    would make the response shape conditional and harder to consume. Asserts
+    on actual values rather than key presence: presence alone is guaranteed
+    by the response model (FastAPI would 500 on serialization otherwise, and
+    the status_code assertion already catches that), so a presence-only check
+    can never fail and proves nothing.
     """
     _, token = voice_admin(can_use_voice=False)
 
@@ -85,9 +92,60 @@ def test_get_returns_every_field_even_when_not_granted(pg_client, voice_admin):
     assert resp.status_code == 200
     body = resp.json()
     assert body["granted"] is False
-    assert "enabled" in body
-    assert "minutes_used" in body
-    assert "available_voices" in body
+    assert body["enabled"] is True
+    assert body["minutes_used"] == pytest.approx(0, abs=1)
+    assert len(body["available_voices"]) >= 1
+
+
+def test_get_reflects_tenant_ai_config_preference(pg_client, db_session, voice_admin):
+    """The preference half of the contract: `enabled`/`voice_id` must come
+    from the tenant's own `TenantAIConfig` row, not just its `config is None`
+    defaults.
+
+    Would fail if the endpoint hardcoded `enabled=True, voice_id=None` and
+    never read `TenantAIConfig` at all — `voice_admin` alone never creates
+    that row, so `test_get_returns_grant_preference_and_usage` only ever
+    exercises the default path. This test creates a config row with
+    non-default values and asserts they round-trip.
+    """
+    tenant, token = voice_admin(can_use_voice=True)
+    chosen_voice_id = CURATED_VOICES[0].id
+    db_session.add(
+        TenantAIConfig(tenant_id=tenant.id, voice_enabled=False, voice_id=chosen_voice_id)
+    )
+    db_session.commit()
+
+    resp = pg_client.get(
+        "/api/v1/tenant/voice/settings", headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["enabled"] is False
+    assert body["voice_id"] == chosen_voice_id
+
+
+def test_usage_degrades_to_null_when_the_meter_fails(pg_client, voice_admin):
+    """A settings page that 500s because a cache is down is worse than one
+    missing a number. Patching the meter exercises the degradation branch
+    without needing Redis reachable at all -- which is why the fixture's
+    seeding dependency is not a blocker here.
+
+    Would fail if the `try/except` around `get_monthly_minutes` were widened,
+    removed, or made to re-raise -- the response would 500 instead of
+    degrading to `minutes_used: null`.
+    """
+    _, token = voice_admin(can_use_voice=True, max_voice_minutes_per_month=500)
+
+    with patch.object(
+        VoiceMeter, "get_monthly_minutes", AsyncMock(side_effect=Exception("redis down"))
+    ):
+        resp = pg_client.get(
+            "/api/v1/tenant/voice/settings", headers={"Authorization": f"Bearer {token}"}
+        )
+
+    assert resp.status_code == 200
+    assert resp.json()["minutes_used"] is None
 
 
 def test_get_requires_authentication(pg_client):
