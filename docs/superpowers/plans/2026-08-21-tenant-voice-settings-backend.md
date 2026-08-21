@@ -15,6 +15,15 @@
 - Branch off `develop`. Do **not** commit to `develop` — senior reviews before merge.
 - No `Co-Authored-By: Claude` trailer.
 - **Run the voice suite as `REDIS_URL=redis://localhost:6379/0 poetry run pytest tests/voice/ -q --no-cov`.** `.env` holds `redis://redis:6379/0`, the Docker-internal hostname, which does not resolve from the host; without the override you get ~17 spurious failures that are **not** regressions. Containers: `docker compose up -d db redis`.
+- **Alembic also needs a host override**, for the same reason: `.env` has
+  `DATABASE_URL=postgresql://luran_user:...@db:5432/luran_db`, and `db` is the Docker-internal
+  hostname. From the host, run migrations as
+  `DATABASE_URL="$(grep '^DATABASE_URL' .env | sed 's/^DATABASE_URL=//' | sed 's/@db:/@localhost:/')" poetry run alembic ...`
+- **The dev database is drifted** (`alembic_version` says `c1a0` while later tables already exist),
+  so `alembic upgrade head` against it fails with `DuplicateTable: relation "agent_devices"
+  already exists`. That is pre-existing and NOT caused by this work. Verify migrations against a
+  scratch database instead: `CREATE DATABASE migtest_voice`, run the full chain against it, then
+  drop it.
 - Exactly one genuinely pre-existing full-suite failure: `tests/auditor/test_start_audit_redirect.py::test_different_host_requires_confirmation`. Baseline before this plan: **1045 passing, 118 voice.**
 - `black` wants to reformat ~63 unrelated files (pre-existing drift). Run `black`/`ruff` but **commit only your own files**, reverting unrelated reformatting.
 - The denial reason for a tenant-disabled voice is the existing `VoiceDenialReason.FLAG_DISABLED = "voice_disabled"` — do **not** add a new reason string. Reasons cross the API boundary and the shipped widget already handles this value.
