@@ -296,6 +296,26 @@ class TenantAIConfig(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Action when retrieval confidence is low: answer, clarify, escalate, refuse",
     )
+
+    # Voice chat (in-widget). NOT `brand_voice` above — that is AI tone.
+    # This is the tenant's own on/off for voice chat plus their chosen
+    # ElevenLabs voice. Deliberately here and NOT on TenantCapabilities:
+    # capabilities are what the PLATFORM GRANTS, and keeping preference on a
+    # separate table means the tenant-facing write path has no reference to
+    # the grant at all.
+    voice_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default="true",
+        nullable=False,
+        comment="Tenant's own on/off for voice chat (grant is TenantCapabilities.can_use_voice)",
+    )
+    voice_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Chosen ElevenLabs voice id; null = platform default",
+    )
+
     no_retrieval_action: Mapped[str] = mapped_column(
         String(20),
         default="clarify",
