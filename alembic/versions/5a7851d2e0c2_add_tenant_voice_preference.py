@@ -4,6 +4,9 @@ Revision ID: 5a7851d2e0c2
 Revises: d1e2mergevoicecaller
 Create Date: 2026-08-21 16:24:11.217880
 
+NOTE: Migration upgrade/downgrade paths are not exercised by the test suite
+(which builds the schema from models via Base.metadata.create_all). Path coverage
+is external to CI — see tests/voice/test_tenant_voice_preference.py for details.
 """
 from alembic import op
 import sqlalchemy as sa
