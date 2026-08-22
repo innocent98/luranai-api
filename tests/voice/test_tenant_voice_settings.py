@@ -168,11 +168,7 @@ def test_put_updates_preference_and_voice(pg_client, db_session, voice_admin):
 
     assert resp.status_code == 200
     db_session.expire_all()
-    config = (
-        db_session.query(TenantAIConfig)
-        .filter(TenantAIConfig.tenant_id == tenant.id)
-        .first()
-    )
+    config = db_session.query(TenantAIConfig).filter(TenantAIConfig.tenant_id == tenant.id).first()
     assert config.voice_enabled is False
     assert config.voice_id == voice_id
 
@@ -216,3 +212,9 @@ def test_put_rejects_a_voice_id_we_do_not_offer(pg_client, voice_admin):
     )
 
     assert resp.status_code == 422
+
+
+def test_put_requires_authentication(pg_client):
+    """Would fail if the route were registered without the tenant-admin dependency."""
+    resp = pg_client.put("/api/v1/tenant/voice/settings", json={"enabled": True, "voice_id": None})
+    assert resp.status_code in (401, 403)

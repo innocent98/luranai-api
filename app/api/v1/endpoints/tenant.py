@@ -266,9 +266,7 @@ async def update_my_voice_settings(
         )
 
     config = (
-        db.query(TenantAIConfig)
-        .filter(TenantAIConfig.tenant_id == current_user.tenant_id)
-        .first()
+        db.query(TenantAIConfig).filter(TenantAIConfig.tenant_id == current_user.tenant_id).first()
     )
     if config is None:
         config = TenantAIConfig(tenant_id=current_user.tenant_id)
