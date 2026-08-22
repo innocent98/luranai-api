@@ -464,6 +464,19 @@ class TenantService:
         for field, value in update_data.items():
             setattr(capabilities, field, value)
 
+        # Record each explicitly-set field as a manual override so a later
+        # tier sync (SubscriptionService._update_capabilities_for_tier)
+        # preserves it instead of silently reverting to the plan default.
+        # Merge onto any existing overrides -- a tenant accumulates these
+        # across separate admin actions. Assign a new dict rather than
+        # mutating in place: SQLAlchemy does not track in-place mutation of
+        # a JSON column, so `capabilities.override_flags[field] = True`
+        # would not be persisted on commit.
+        if update_data:
+            merged_overrides = dict(capabilities.override_flags or {})
+            merged_overrides.update(dict.fromkeys(update_data, True))
+            capabilities.override_flags = merged_overrides
+
         self.db.commit()
         self.db.refresh(capabilities)
 
