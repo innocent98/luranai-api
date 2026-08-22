@@ -15,11 +15,12 @@ from app.schemas.tenant import (
     TenantResponse,
     TenantUpdate,
     VoiceSettingsResponse,
+    VoiceSettingsUpdate,
 )
 from app.schemas.user import UserResponse
 from app.services.tenant_service import TenantService
 from app.services.voice.metering import VoiceMeter
-from app.services.voice.voices import CURATED_VOICES
+from app.services.voice.voices import CURATED_VOICES, is_curated_voice_id
 
 logger = logging.getLogger(__name__)
 
@@ -239,3 +240,42 @@ async def get_my_voice_settings(
         minutes_limit=capabilities.max_voice_minutes_per_month if capabilities else None,
         available_voices=[CuratedVoiceResponse(**vars(v)) for v in CURATED_VOICES],
     )
+
+
+@router.put(
+    "/voice/settings",
+    response_model=VoiceSettingsResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def update_my_voice_settings(
+    payload: VoiceSettingsUpdate,
+    db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_tenant_admin),
+):
+    """Update the tenant's OWN voice preference.
+
+    This endpoint has no code path that reads or writes TenantCapabilities.
+    A tenant can switch their own voice off and on and choose a voice; they
+    cannot grant themselves the capability. `enabled` is writable even when
+    ungranted — a tenant may pre-configure, and the gate still refuses to mint.
+    """
+    if payload.voice_id is not None and not is_curated_voice_id(payload.voice_id):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Unknown voice id",
+        )
+
+    config = (
+        db.query(TenantAIConfig)
+        .filter(TenantAIConfig.tenant_id == current_user.tenant_id)
+        .first()
+    )
+    if config is None:
+        config = TenantAIConfig(tenant_id=current_user.tenant_id)
+        db.add(config)
+
+    config.voice_enabled = payload.enabled
+    config.voice_id = payload.voice_id
+    db.commit()
+
+    return await get_my_voice_settings(db=db, current_user=current_user)

@@ -152,3 +152,67 @@ def test_get_requires_authentication(pg_client):
     """Would fail if the route were registered without the tenant-admin dependency."""
     resp = pg_client.get("/api/v1/tenant/voice/settings")
     assert resp.status_code in (401, 403)
+
+
+def test_put_updates_preference_and_voice(pg_client, db_session, voice_admin):
+    """Would fail if the write silently no-opped — assert the stored row, not
+    just the response body."""
+    tenant, token = voice_admin(can_use_voice=True)
+    voice_id = CURATED_VOICES[0].id
+
+    resp = pg_client.put(
+        "/api/v1/tenant/voice/settings",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"enabled": False, "voice_id": voice_id},
+    )
+
+    assert resp.status_code == 200
+    db_session.expire_all()
+    config = (
+        db_session.query(TenantAIConfig)
+        .filter(TenantAIConfig.tenant_id == tenant.id)
+        .first()
+    )
+    assert config.voice_enabled is False
+    assert config.voice_id == voice_id
+
+
+def test_put_cannot_grant_the_capability(pg_client, db_session, voice_admin):
+    """THE security test. A tenant must never self-grant a paid capability.
+
+    Posts `can_use_voice` in the body and asserts the grant is unchanged. The
+    schema has no such field, so this is a regression guard against someone
+    adding one — it would fail the moment `can_use_voice` became writable here.
+    """
+    tenant, token = voice_admin(can_use_voice=False)
+
+    resp = pg_client.put(
+        "/api/v1/tenant/voice/settings",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"enabled": True, "voice_id": None, "can_use_voice": True},
+    )
+
+    assert resp.status_code == 200
+    db_session.expire_all()
+    caps = (
+        db_session.query(TenantCapabilities)
+        .filter(TenantCapabilities.tenant_id == tenant.id)
+        .first()
+    )
+    assert caps.can_use_voice is False
+
+
+def test_put_rejects_a_voice_id_we_do_not_offer(pg_client, voice_admin):
+    """Reject at write time, not mint time — far from the mistake is far too late.
+
+    Would fail if validation were missing: an arbitrary id would be stored and
+    then fail on a live call."""
+    _, token = voice_admin(can_use_voice=True)
+
+    resp = pg_client.put(
+        "/api/v1/tenant/voice/settings",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"enabled": True, "voice_id": "not-a-voice-we-offer"},
+    )
+
+    assert resp.status_code == 422
