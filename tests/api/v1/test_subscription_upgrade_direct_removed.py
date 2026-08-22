@@ -15,6 +15,13 @@ This test asserts the route itself is gone (404), not merely that some
 identity is rejected (401/403) -- a 401/403 would mean the endpoint is still
 live and merely unreachable without credentials, which does not close the
 escalation path for anyone who does authenticate as a tenant admin.
+
+A bare 404 on its own can't distinguish "this specific route was deleted"
+from "the whole subscription router failed to mount" (a config/import
+error would 404 every route under the prefix, including the ones that must
+still work). The second assertion checks a sibling public route
+(`/subscription/plans`, no auth required) still resolves, proving the
+router itself is alive and the 404 above is specific to the deleted path.
 """
 
 from fastapi.testclient import TestClient
@@ -27,3 +34,8 @@ def test_upgrade_direct_route_returns_404(client: TestClient):
     )
 
     assert response.status_code == 404
+
+    # Prove the router is actually mounted -- a sibling public route on the
+    # same router must still resolve, so the 404 above means "this route was
+    # deleted," not "the whole subscription router is missing."
+    assert client.get("/api/v1/subscription/plans").status_code != 404
