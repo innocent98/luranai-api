@@ -173,6 +173,48 @@ def test_put_updates_preference_and_voice(pg_client, db_session, voice_admin):
     assert config.voice_id == voice_id
 
 
+def test_put_on_existing_config_is_a_full_replace(pg_client, db_session, voice_admin):
+    """Exercises the branch that actually runs in production, and pins the
+    endpoint's full-replace semantic in the same test.
+
+    `voice_admin` never creates a `TenantAIConfig` row, so every other PUT
+    test here goes through the `config is None` create branch -- which is
+    effectively dead in production, since `TenantService.create_tenant`
+    always creates the row up front. This test seeds one first, so the PUT
+    goes through the `config is not None` update branch instead.
+
+    It also pins that this endpoint is a full replace, unlike
+    `PUT /tenant/ai-config` next door (which is PATCH-like via
+    `model_dump(exclude_unset=True)`): every field on `VoiceSettingsUpdate`
+    is written unconditionally, including `voice_id`'s default of `None`
+    when the caller omits it. A tenant with a saved voice who PUTs only
+    `{"enabled": False}` loses that voice -- documented in the SOP's Operate
+    section as "send both fields every time".
+
+    Would fail (voice_id staying set to `chosen_voice_id`) if this endpoint
+    were ever changed to a partial update without this test being updated
+    in the same breath.
+    """
+    tenant, token = voice_admin(can_use_voice=True)
+    chosen_voice_id = CURATED_VOICES[0].id
+    db_session.add(
+        TenantAIConfig(tenant_id=tenant.id, voice_enabled=True, voice_id=chosen_voice_id)
+    )
+    db_session.commit()
+
+    resp = pg_client.put(
+        "/api/v1/tenant/voice/settings",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"enabled": False},
+    )
+
+    assert resp.status_code == 200
+    db_session.expire_all()
+    config = db_session.query(TenantAIConfig).filter(TenantAIConfig.tenant_id == tenant.id).first()
+    assert config.voice_enabled is False
+    assert config.voice_id is None  # full-replace: omitted voice_id clears the saved choice
+
+
 def test_put_cannot_grant_the_capability(pg_client, db_session, voice_admin):
     """THE security test. A tenant must never self-grant a paid capability.
 
