@@ -1,5 +1,6 @@
 import asyncio
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -140,3 +141,87 @@ async def test_try_acquire_slot_evicts_stale_members(db_session, voice_tenant_fa
     assert acquired is True, "a stale slot must not count against the ceiling"
     members = await redis.zrange(key, 0, -1)
     assert members == ["fresh-tok"], "the stale entry must actually be evicted, not just skipped"
+
+
+@pytest.mark.asyncio
+async def test_tenant_disabled_voice_is_denied_even_when_granted(db_session, voice_tenant_factory):
+    """The whole point of the preference: granted, but the tenant said no.
+
+    Would fail if the preference check were missing entirely (the tenant would
+    be allowed) — which is the defect this task exists to prevent.
+    """
+    from app.db.models.tenant import TenantAIConfig
+
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    db_session.add(TenantAIConfig(tenant_id=tenant.id, voice_enabled=False))
+    db_session.commit()
+
+    result = await VoiceGate(db_session).check(tenant.id)
+
+    assert result.allowed is False
+    assert result.reason == VoiceDenialReason.FLAG_DISABLED
+
+
+@pytest.mark.asyncio
+async def test_ungranted_tenant_is_denied_by_the_grant_not_the_preference(
+    db_session, voice_tenant_factory
+):
+    """An ungranted tenant is denied regardless of their preference setting.
+
+    A tenant with no grant but preference ON must still be denied. This test
+    cannot prove ordering (both the grant and preference checks return the same
+    reason code), but it does guard against the preference check short-circuiting
+    the grant denial. See test_ungranted_tenant_never_consults_the_preference
+    for a mock-based test that actually proves ordering.
+    """
+    from app.db.models.tenant import TenantAIConfig
+
+    tenant = voice_tenant_factory(can_use_voice=False, max_voice_minutes_per_month=None)
+    db_session.add(TenantAIConfig(tenant_id=tenant.id, voice_enabled=True))
+    db_session.commit()
+
+    result = await VoiceGate(db_session).check(tenant.id)
+
+    assert result.allowed is False
+    assert result.reason == VoiceDenialReason.FLAG_DISABLED
+
+
+@pytest.mark.asyncio
+async def test_missing_ai_config_row_does_not_block_a_granted_tenant(
+    db_session, voice_tenant_factory
+):
+    """A tenant with no TenantAIConfig row at all must still get voice.
+
+    The preference defaults to enabled, so absence means 'not opted out', not
+    'disabled'. Would fail if the lookup treated a missing row as False —
+    which would silently kill voice for every tenant lacking that row.
+    """
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+
+    result = await VoiceGate(db_session).check(tenant.id)
+
+    assert result.allowed is True
+
+
+@pytest.mark.asyncio
+async def test_ungranted_tenant_never_consults_the_preference(db_session, voice_tenant_factory):
+    """Ordering is load-bearing and result-only assertions cannot prove it.
+
+    Both guards return the same FLAG_DISABLED reason, so a test that only
+    inspects the returned result passes whichever order they sit in —
+    verified by physically swapping the blocks. The observable difference is
+    a side effect: with the grant checked first, the preference lookup is
+    never reached at all. That is also the property we actually want, since
+    an ungranted tenant should cost no extra query.
+    """
+    tenant = voice_tenant_factory(can_use_voice=False, max_voice_minutes_per_month=None)
+    gate = VoiceGate(db_session)
+
+    with patch.object(
+        VoiceGate, "_voice_enabled_by_tenant", return_value=True
+    ) as preference_lookup:
+        result = await gate.check(tenant.id)
+
+    assert result.allowed is False
+    assert result.reason == VoiceDenialReason.FLAG_DISABLED
+    preference_lookup.assert_not_called()

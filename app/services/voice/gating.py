@@ -1,4 +1,4 @@
-"""Voice access gating: tenant flag, monthly minute cap, concurrency ceiling.
+"""Voice access gating: tenant flag, tenant preference, monthly minute cap, concurrency ceiling.
 
 Checked in that order at token-mint time (spec §5). Any failure yields a 409
 with a machine-readable reason the widget uses to fall back to text.
@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.db.models.tenant import TenantCapabilities
+from app.db.models.tenant import TenantAIConfig, TenantCapabilities
 from app.services.voice.metering import VoiceMeter
 
 _CONCURRENCY_KEY = "voice:concurrent:{tenant_id}"
@@ -98,6 +98,19 @@ class VoiceGate:
             select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant_id)
         ).scalar_one_or_none()
 
+    def _voice_enabled_by_tenant(self, tenant_id: UUID) -> bool:
+        """The tenant's own on/off, independent of the platform grant.
+
+        A missing row means 'never configured', which is NOT 'disabled' — the
+        column defaults to enabled so that granting voice makes it work
+        immediately. Returning False here would silently kill voice for every
+        tenant without a TenantAIConfig row.
+        """
+        config = self.db.execute(
+            select(TenantAIConfig).where(TenantAIConfig.tenant_id == tenant_id)
+        ).scalar_one_or_none()
+        return True if config is None else config.voice_enabled
+
     async def check(self, tenant_id: UUID) -> VoiceGateResult:
         caps = self._capabilities(tenant_id)
 
@@ -105,13 +118,21 @@ class VoiceGate:
         if caps is None or not caps.can_use_voice:
             return VoiceGateResult(False, VoiceDenialReason.FLAG_DISABLED)
 
-        # 2. Monthly minute cap (null = unlimited).
+        # 2. Tenant's own preference. AFTER the grant so an ungranted tenant is
+        # never told anything about their preference, and BEFORE the cap so a
+        # disabled tenant costs no Redis read. Reuses FLAG_DISABLED because the
+        # reason crosses the API boundary and the shipped widget already handles
+        # that value with the right copy.
+        if not self._voice_enabled_by_tenant(tenant_id):
+            return VoiceGateResult(False, VoiceDenialReason.FLAG_DISABLED)
+
+        # 3. Monthly minute cap (null = unlimited).
         if caps.max_voice_minutes_per_month is not None:
             used = await self._meter.get_monthly_minutes(tenant_id)
             if used >= caps.max_voice_minutes_per_month:
                 return VoiceGateResult(False, VoiceDenialReason.MINUTE_CAP_REACHED)
 
-        # 3. Concurrency ceiling — non-atomic peek; try_acquire_slot() below
+        # 4. Concurrency ceiling — non-atomic peek; try_acquire_slot() below
         # is the authoritative, race-free check used at actual mint time.
         # Counts only members scored within the TTL window rather than the
         # raw ZCARD, so a peek taken between two try_acquire_slot() calls

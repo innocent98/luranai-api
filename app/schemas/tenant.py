@@ -319,3 +319,26 @@ class TenantListResponse(TenantBase):
     created_at: datetime
     updated_at: datetime
     category: TenantCategory | None = None
+
+
+class CuratedVoiceResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    preview_url: str
+
+
+class VoiceSettingsResponse(BaseModel):
+    granted: bool = Field(..., description="Platform grant (TenantCapabilities.can_use_voice)")
+    enabled: bool = Field(..., description="Tenant's own on/off")
+    voice_id: str | None = Field(None, description="Chosen voice; null = platform default")
+    minutes_used: float | None = Field(
+        None, description="Minutes used this month; null when usage is unavailable"
+    )
+    minutes_limit: int | None = Field(None, description="Monthly cap; null = unlimited")
+    available_voices: list[CuratedVoiceResponse]
+
+
+class VoiceSettingsUpdate(BaseModel):
+    enabled: bool
+    voice_id: str | None = None
