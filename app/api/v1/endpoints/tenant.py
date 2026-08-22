@@ -1,5 +1,6 @@
 """Tenant self-management endpoints (for tenant admins managing their own tenant)."""
 
+import dataclasses
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -229,7 +230,9 @@ async def get_my_voice_settings(
     try:
         minutes_used = await VoiceMeter().get_monthly_minutes(current_user.tenant_id)
     except Exception:  # noqa: BLE001 — usage is informational, never load-bearing
-        logger.warning("Voice usage read failed for tenant %s", current_user.tenant_id)
+        logger.warning(
+            "Voice usage read failed for tenant %s", current_user.tenant_id, exc_info=True
+        )
         minutes_used = None
 
     return VoiceSettingsResponse(
@@ -238,7 +241,7 @@ async def get_my_voice_settings(
         voice_id=config.voice_id if config else None,
         minutes_used=minutes_used,
         minutes_limit=capabilities.max_voice_minutes_per_month if capabilities else None,
-        available_voices=[CuratedVoiceResponse(**vars(v)) for v in CURATED_VOICES],
+        available_voices=[CuratedVoiceResponse(**dataclasses.asdict(v)) for v in CURATED_VOICES],
     )
 
 
