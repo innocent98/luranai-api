@@ -207,6 +207,7 @@ def get_escalation(
     return EscalationDetail(
         **base.model_dump(),
         handled_by=handler.full_name if handler else None,
+        handled_by_user_id=ticket.assigned_to,
         acknowledged_at=ticket.acknowledged_at,
         transcript=[
             TranscriptMessage(

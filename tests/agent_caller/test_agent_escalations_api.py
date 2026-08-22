@@ -127,6 +127,7 @@ def test_detail_includes_transcript(client, auth_headers, escalation):
         "Let me get a human for you",
     ]
     assert body["handled_by"] is None
+    assert body["handled_by_user_id"] is None
 
 
 def test_detail_reports_handler_once_claimed(client, db, auth_headers, escalation, agent_user):
@@ -135,7 +136,11 @@ def test_detail_reports_handler_once_claimed(client, db, auth_headers, escalatio
     escalation.acknowledged_at = utcnow_naive()
     db.commit()
     body = client.get(f"/api/v1/agent/escalations/{escalation.id}", headers=auth_headers).json()
+    # Assert both together: a future refactor must not silently swap the
+    # display name for the id, or vice versa — the app needs both, for
+    # different purposes (name to render, id to gate the Rejoin action).
     assert body["handled_by"] == agent_user.full_name
+    assert body["handled_by_user_id"] == str(agent_user.id)
     assert body["acknowledged_at"] is not None
 
 
