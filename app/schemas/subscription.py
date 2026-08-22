@@ -6,26 +6,6 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class SubscriptionUpgradeRequest(BaseModel):
-    """Schema for subscription upgrade request."""
-
-    tier: str = Field(..., description="Target tier: lite, professional, growth, enterprise")
-    billing_cycle: str = Field(default="monthly", description="Billing cycle: monthly, annual")
-
-    model_config = ConfigDict(
-        json_schema_extra={"example": {"tier": "professional", "billing_cycle": "annual"}}
-    )
-
-
-class SubscriptionUpgradeResponse(BaseModel):
-    """Schema for subscription upgrade response."""
-
-    message: str
-    tier: str
-    status: str
-    billing_cycle: str | None = None
-
-
 class MySubscriptionResponse(BaseModel):
     """Schema for user's current subscription details."""
 

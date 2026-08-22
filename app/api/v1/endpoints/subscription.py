@@ -20,8 +20,6 @@ from app.schemas.subscription import (
     SubscriptionCancelResponse,
     SubscriptionDowngradeRequest,
     SubscriptionDowngradeResponse,
-    SubscriptionUpgradeRequest,
-    SubscriptionUpgradeResponse,
 )
 from app.schemas.user import UserResponse
 from app.services.paystack_service import PaystackService
@@ -225,75 +223,6 @@ async def verify_subscription_payment(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to verify payment: {str(e)}",
         ) from e
-
-
-@router.post(
-    "/upgrade",
-    response_model=SubscriptionUpgradeResponse,
-    dependencies=[Depends(payment_rate_limit)],
-)
-async def upgrade_subscription_direct(
-    upgrade_data: SubscriptionUpgradeRequest,
-    current_user: UserResponse = Depends(get_current_tenant_admin),
-    db: Session = Depends(get_db),
-):
-    """
-    Direct subscription upgrade (for testing/admin use only).
-
-    ⚠️ DEPRECATED: Use /upgrade/initialize for production.
-
-    This endpoint upgrades subscription without payment processing.
-    Should only be used for:
-    - Testing
-    - Admin manual upgrades
-    - Promotional free upgrades
-
-    Args:
-        upgrade_data: Upgrade request with tier and billing cycle
-        current_user: Current authenticated tenant admin
-        db: Database session
-
-    Returns:
-        Subscription upgrade response
-
-    Raises:
-        HTTPException 400: Invalid tier
-        HTTPException 404: Tenant not found
-    """
-    subscription_service = SubscriptionService(db)
-
-    try:
-        from app.db.models.tenant import Tenant
-
-        tenant = db.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
-        if not tenant:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
-
-        if _tier_rank(upgrade_data.tier) <= _tier_rank(str(tenant.subscription_tier)):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Use the downgrade endpoint for lower-tier changes.",
-            )
-
-        tenant = subscription_service.upgrade_subscription(
-            tenant_id=current_user.tenant_id,
-            tier=upgrade_data.tier,
-            billing_cycle=upgrade_data.billing_cycle,
-        )
-
-        return SubscriptionUpgradeResponse(
-            message="Subscription upgraded successfully (direct - no payment)",
-            tier=tenant.subscription_tier,
-            status=tenant.subscription_status,
-            billing_cycle=tenant.billing_cycle,
-        )
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        ) from e
-    except HTTPException:
-        raise
 
 
 @router.get(
