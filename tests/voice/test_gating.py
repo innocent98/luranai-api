@@ -144,9 +144,7 @@ async def test_try_acquire_slot_evicts_stale_members(db_session, voice_tenant_fa
 
 
 @pytest.mark.asyncio
-async def test_tenant_disabled_voice_is_denied_even_when_granted(
-    db_session, voice_tenant_factory
-):
+async def test_tenant_disabled_voice_is_denied_even_when_granted(db_session, voice_tenant_factory):
     """The whole point of the preference: granted, but the tenant said no.
 
     Would fail if the preference check were missing entirely (the tenant would
@@ -206,9 +204,7 @@ async def test_missing_ai_config_row_does_not_block_a_granted_tenant(
 
 
 @pytest.mark.asyncio
-async def test_ungranted_tenant_never_consults_the_preference(
-    db_session, voice_tenant_factory
-):
+async def test_ungranted_tenant_never_consults_the_preference(db_session, voice_tenant_factory):
     """Ordering is load-bearing and result-only assertions cannot prove it.
 
     Both guards return the same FLAG_DISABLED reason, so a test that only
