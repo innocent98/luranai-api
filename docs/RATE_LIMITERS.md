@@ -84,7 +84,7 @@ All rate limiters use Redis for distributed rate limiting and are applied at the
 - **Endpoints:**
   - `POST /api/v1/subscription/upgrade/initialize`
   - `POST /api/v1/subscription/upgrade/verify`
-  - `POST /api/v1/subscription/upgrade`
+  <!-- POST /api/v1/subscription/upgrade removed 2026-08-22 -- see docs/sop/capability_override_hardening.md -->
 - **Rate Limiter:** `payment_rate_limit`
 - **Limit:** 5 requests per 5 minutes
 - **Identifier:** User ID
