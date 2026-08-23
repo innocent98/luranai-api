@@ -298,26 +298,16 @@ destroys the tenant's saved `voice_id` — verified live during the final review
   Settings page must not imply that picking a voice changes anything yet** — the copy needs to be
   honest about this until the mint path is wired up, on top of already needing to wait on real
   ElevenLabs ids (see the placeholder-ids Follow-up above).
-- **`POST /api/v1/subscription/upgrade` is a prerequisite audit before voice keys enter plan
-  config.** Added 2026-08-22 during final-branch review. The isolation claim in decision 1 above is
-  scoped to `update_my_voice_settings` specifically, and holds there — but there is a *different*,
-  already-existing tenant-facing route to `TenantCapabilities`:
-  `upgrade_subscription_direct` (`app/api/v1/endpoints/subscription.py:235`) is
-  `Depends(get_current_tenant_admin)`, has no additional router-level guard, is documented in its
-  own docstring as upgrading "without payment processing" (intended for testing/admin/promotional
-  use, not production traffic), and calls `_update_capabilities_for_tier`
-  (`app/services/subscription_service.py:63`), which `setattr`s every key present in
-  `SubscriptionPlan.get_capabilities()` onto the tenant's `TenantCapabilities` row. **Today this
-  cannot touch voice** — confirmed live: `get_capabilities()`
-  (`app/db/models/subscription_plan.py:117-137`) has no `can_use_voice` or
-  `max_voice_minutes_per_month` key, and neither does `SubscriptionPlan`'s column set. **The moment
-  plan-tier voice keys are added to that model — which is explicitly the next piece of planned
-  work for this feature — a tenant admin gains the ability to self-grant `can_use_voice` and
-  `max_voice_minutes_per_month` by calling one endpoint that does no payment processing.** Not
-  introduced by this branch, not fixed here — it's out of scope for a voice-settings change and
-  needs its own deliberate remediation (e.g. gate the endpoint behind a platform-admin role, or
-  exclude capability keys the endpoint isn't meant to grant). **Audit and close this before any
-  commit adds voice keys to `SubscriptionPlan`/`get_capabilities()`.**
+- ~~`POST /api/v1/subscription/upgrade` is a prerequisite audit before voice keys enter plan
+  config.~~ **Closed 2026-08-22** — see `docs/sop/capability_override_hardening.md`.
+  `upgrade_subscription_direct` was deleted outright rather than re-gated (`app/api/v1/endpoints/subscription.py`
+  no longer has an `/upgrade` handler; the audit found it had zero callers and was already
+  superseded by the platform-admin `override_tenant_subscription` path). The same pass also found
+  and fixed the actual bug this bullet was flagging as a prerequisite: `override_flags` — the guard
+  meant to stop a *legitimate* capability-granting path from being undone by a tier sync — was read
+  in several places and written in none, so a manual grant never actually survived anything. Both
+  are fixed and tested before any commit adds voice keys to `get_plan_config`/`get_capabilities()`,
+  so this is no longer a blocking prerequisite for that follow-on work.
 - **Frontend not built.** This is backend-only; the dashboard Voice Settings page consuming these
   two endpoints is separate, unstarted work. (See the `voice_id`-not-consumed Follow-up above —
   whatever page gets built must not imply voice choice already does something at call time.)

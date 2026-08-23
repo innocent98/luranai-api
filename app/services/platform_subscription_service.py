@@ -580,12 +580,31 @@ class PlatformSubscriptionService:
         respect_overrides: bool = True,
     ):
         """
-        Update tenant capabilities based on tier, respecting manual overrides.
+        Update tenant capabilities based on tier.
+
+        When respect_overrides is True (the normal tier sync -- upgrade,
+        downgrade, webhook-confirmed payment), any field listed in
+        override_flags is left untouched: a platform admin's manual
+        capability grant survives.
+
+        When respect_overrides is False (a deliberate bypass -- reached via
+        override_tenant_subscription(apply_tier_capabilities=True) and both
+        PromotionalGrantService call sites, create_grant and
+        _revert_tenant_to_snapshot), every field in the tier's plan config
+        is reset to the tier default regardless of override_flags. Because
+        that reset makes the field no longer "manually overridden," its
+        entry (if any) is also removed from override_flags -- otherwise the
+        flag would keep exempting that field from every future ordinary
+        sync, pinned to whatever value this bypass happened to write, with
+        no admin action responsible for the pin. Fields the bypass's plan
+        config doesn't mention keep their existing flags untouched.
 
         Args:
             tenant_id: Tenant UUID
             tier: New tier
-            respect_overrides: If True, preserve fields in override_flags
+            respect_overrides: If True, preserve fields in override_flags;
+                if False, reset every config field to the tier default and
+                clear its override flag.
         """
         config = self.plan_service.get_plan_config(tier)
 
@@ -598,15 +617,29 @@ class PlatformSubscriptionService:
         if not capabilities:
             raise ValueError("Capabilities not found")
 
+        existing_flags = capabilities.override_flags or {}
         # Get override flags (fields that should NOT be reset)
-        override_flags = capabilities.override_flags or {} if respect_overrides else {}
+        override_flags = existing_flags if respect_overrides else {}
 
-        # Update capability fields
+        # Update capability fields, tracking which previously-flagged fields
+        # the bypass actually overwrote so their flags can be cleared below.
+        bypassed_fields = []
         for key, value in config.items():
             if hasattr(capabilities, key):
                 # Skip if manually overridden and respect_overrides is True
                 if key not in override_flags:
                     setattr(capabilities, key, value)
+                    if not respect_overrides and key in existing_flags:
+                        bypassed_fields.append(key)
                 # else: keep current value (override persists)
+
+        if bypassed_fields:
+            # Assign a new dict rather than mutating in place -- SQLAlchemy
+            # does not track in-place mutation of a JSON column.
+            capabilities.override_flags = {
+                field: flag
+                for field, flag in existing_flags.items()
+                if field not in bypassed_fields
+            }
 
         self.db.commit()
