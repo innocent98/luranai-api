@@ -70,6 +70,7 @@ class EscalationDetail(EscalationSummary):
     """Detail view: summary fields plus the conversation transcript."""
 
     handled_by: str | None = None
+    handled_by_user_id: UUID | None = None
     acknowledged_at: datetime | None = None
     transcript: list[TranscriptMessage]
 
