@@ -7,6 +7,13 @@ cookie (same as REST). The endpoint now accepts the agent JWT from EITHER the
 query param OR the cookie; the JWT itself and every authorization check applied
 to it are unchanged.
 
+Because the cookie is an ambient credential the browser attaches automatically
+and WebSocket handshakes bypass CORS, the cookie path is Origin-gated against
+``settings.BACKEND_CORS_ORIGINS`` to prevent Cross-Site WebSocket Hijacking
+(CSWSH). The query-token path is a bearer secret and is intentionally NOT
+Origin-gated (the Flutter app sends no Origin header). These tests cover both
+the auth source and the Origin gate.
+
 The endpoint opens its own DB sessions via ``SessionLocal`` (it does not use the
 ``get_db`` dependency), so these tests bind ``SessionLocal`` to a self-contained
 SQLite database seeded with a committed agent user, tenant, and session. The
@@ -31,13 +38,18 @@ from app.db.models.tenant import Tenant
 from app.db.models.user import User, UserRole
 from app.main import app
 
+ALLOWED_ORIGIN = "https://dashboard.luran.test"
+DISALLOWED_ORIGIN = "https://evil.example"
+
 
 @pytest.fixture()
 def agent_ws_env(tmp_path, monkeypatch):
     """Seed a committed agent user + tenant + session and point SessionLocal at it.
 
-    Returns a small namespace with the TestClient, the session id, and helpers
-    to mint a valid or expired agent JWT for that seeded agent.
+    Returns a small namespace with the TestClient, the session id/url, the
+    trusted Origin, and helpers to mint a valid or expired agent JWT. The CORS
+    allowlist is pinned to ``ALLOWED_ORIGIN`` so the Origin gate is deterministic
+    regardless of the ambient ``.env``.
     """
     db_path = tmp_path / "agent_ws.sqlite"
     engine = create_engine(
@@ -87,6 +99,8 @@ def agent_ws_env(tmp_path, monkeypatch):
 
     # The endpoint resolves its DB via SessionLocal, not the get_db override.
     monkeypatch.setattr(ws_module, "SessionLocal", session_factory)
+    # Pin the CORS allowlist the Origin gate checks against.
+    monkeypatch.setattr(ws_module.settings, "BACKEND_CORS_ORIGINS", [ALLOWED_ORIGIN])
 
     def valid_token() -> str:
         return create_access_token(
@@ -107,6 +121,7 @@ def agent_ws_env(tmp_path, monkeypatch):
     env = Env()
     env.session_id = session_id
     env.url = f"/api/v1/ws/agent/{session_id}"
+    env.allowed_origin = ALLOWED_ORIGIN
     env.valid_token = valid_token
     env.expired_token = expired_token
     env.client = TestClient(app)
@@ -124,59 +139,94 @@ def _assert_ping_pong(websocket) -> None:
     assert reply["type"] == "pong"
 
 
-def test_agent_ws_authenticates_via_cookie(agent_ws_env):
-    """Dashboard path: JWT supplied via the access_token cookie, no query token."""
+def _expect_close(env, url, *, headers=None):
+    """Attempt a handshake expected to be rejected; return the close code."""
+    with pytest.raises(WebSocketDisconnect) as exc_info:
+        with env.client.websocket_connect(url, headers=headers or {}):
+            pass
+    return exc_info.value.code
+
+
+# --- Cookie path (dashboard): Origin-gated ---------------------------------
+
+
+def test_agent_ws_authenticates_via_cookie_allowed_origin(agent_ws_env):
+    """Dashboard path: JWT via access_token cookie + trusted Origin -> accepted."""
     agent_ws_env.client.cookies.set("access_token", agent_ws_env.valid_token())
-    with agent_ws_env.client.websocket_connect(agent_ws_env.url) as websocket:
+    with agent_ws_env.client.websocket_connect(
+        agent_ws_env.url, headers={"Origin": agent_ws_env.allowed_origin}
+    ) as websocket:
         _assert_ping_pong(websocket)
 
 
-def test_agent_ws_authenticates_via_query_token(agent_ws_env):
-    """Flutter app path: JWT supplied via the ?token= query param."""
+def test_agent_ws_cookie_disallowed_origin_rejected_4403(agent_ws_env):
+    """CSWSH guard: cookie present but Origin NOT in allowlist -> 4403."""
+    agent_ws_env.client.cookies.set("access_token", agent_ws_env.valid_token())
+    code = _expect_close(agent_ws_env, agent_ws_env.url, headers={"Origin": DISALLOWED_ORIGIN})
+    assert code == 4403
+
+
+def test_agent_ws_cookie_missing_origin_rejected_4403(agent_ws_env):
+    """CSWSH guard: cookie present but no usable Origin -> 4403 (never reaches decode)."""
+    agent_ws_env.client.cookies.set("access_token", agent_ws_env.valid_token())
+    code = _expect_close(agent_ws_env, agent_ws_env.url)
+    assert code == 4403
+
+
+def test_agent_ws_invalid_cookie_token_allowed_origin_rejected_4003(agent_ws_env):
+    """Trusted Origin but malformed cookie token -> passes Origin gate, JWTError -> 4003."""
+    agent_ws_env.client.cookies.set("access_token", "not-a-real-jwt")
+    code = _expect_close(
+        agent_ws_env, agent_ws_env.url, headers={"Origin": agent_ws_env.allowed_origin}
+    )
+    assert code == 4003
+
+
+def test_agent_ws_expired_cookie_token_allowed_origin_rejected_4003(agent_ws_env):
+    """Trusted Origin but expired cookie token -> 4003."""
+    agent_ws_env.client.cookies.set("access_token", agent_ws_env.expired_token())
+    code = _expect_close(
+        agent_ws_env, agent_ws_env.url, headers={"Origin": agent_ws_env.allowed_origin}
+    )
+    assert code == 4003
+
+
+def test_agent_ws_no_token_no_cookie_allowed_origin_rejected_4003(agent_ws_env):
+    """Trusted Origin but neither query token nor cookie present -> 4003."""
+    code = _expect_close(
+        agent_ws_env, agent_ws_env.url, headers={"Origin": agent_ws_env.allowed_origin}
+    )
+    assert code == 4003
+
+
+# --- Query-token path (native app): NOT Origin-gated -----------------------
+
+
+def test_agent_ws_authenticates_via_query_token_no_origin(agent_ws_env):
+    """Flutter app path: JWT via ?token= with NO Origin header -> accepted."""
     url = f"{agent_ws_env.url}?token={agent_ws_env.valid_token()}"
     with agent_ws_env.client.websocket_connect(url) as websocket:
         _assert_ping_pong(websocket)
 
 
-def test_agent_ws_rejects_when_no_token_present(agent_ws_env):
-    """Neither query token nor cookie -> rejected with 4003."""
-    with pytest.raises(WebSocketDisconnect) as exc_info:
-        with agent_ws_env.client.websocket_connect(agent_ws_env.url):
-            pass
-    assert exc_info.value.code == 4003
+def test_agent_ws_query_token_bypasses_origin_gate(agent_ws_env):
+    """A valid query token is a secret and is accepted even with a hostile Origin."""
+    url = f"{agent_ws_env.url}?token={agent_ws_env.valid_token()}"
+    with agent_ws_env.client.websocket_connect(
+        url, headers={"Origin": DISALLOWED_ORIGIN}
+    ) as websocket:
+        _assert_ping_pong(websocket)
 
 
-def test_agent_ws_rejects_invalid_query_token(agent_ws_env):
-    """Malformed token via the query param -> JWTError -> 4003."""
+def test_agent_ws_invalid_query_token_rejected_4003(agent_ws_env):
+    """Malformed token via the query param -> JWTError -> 4003 (no Origin gate)."""
     url = f"{agent_ws_env.url}?token=not-a-real-jwt"
-    with pytest.raises(WebSocketDisconnect) as exc_info:
-        with agent_ws_env.client.websocket_connect(url):
-            pass
-    assert exc_info.value.code == 4003
+    code = _expect_close(agent_ws_env, url)
+    assert code == 4003
 
 
-def test_agent_ws_rejects_invalid_cookie_token(agent_ws_env):
-    """Malformed token via the cookie -> JWTError -> 4003 (cookie IS read)."""
-    agent_ws_env.client.cookies.set("access_token", "not-a-real-jwt")
-    with pytest.raises(WebSocketDisconnect) as exc_info:
-        with agent_ws_env.client.websocket_connect(agent_ws_env.url):
-            pass
-    assert exc_info.value.code == 4003
-
-
-def test_agent_ws_rejects_expired_query_token(agent_ws_env):
+def test_agent_ws_expired_query_token_rejected_4003(agent_ws_env):
     """Expired token via the query param -> 4003."""
     url = f"{agent_ws_env.url}?token={agent_ws_env.expired_token()}"
-    with pytest.raises(WebSocketDisconnect) as exc_info:
-        with agent_ws_env.client.websocket_connect(url):
-            pass
-    assert exc_info.value.code == 4003
-
-
-def test_agent_ws_rejects_expired_cookie_token(agent_ws_env):
-    """Expired token via the cookie -> 4003."""
-    agent_ws_env.client.cookies.set("access_token", agent_ws_env.expired_token())
-    with pytest.raises(WebSocketDisconnect) as exc_info:
-        with agent_ws_env.client.websocket_connect(agent_ws_env.url):
-            pass
-    assert exc_info.value.code == 4003
+    code = _expect_close(agent_ws_env, url)
+    assert code == 4003

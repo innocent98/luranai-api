@@ -366,6 +366,9 @@ async def agent_websocket(
     ?token= query param, while the web dashboard opens the socket with no query
     token and relies on the browser sending the httponly ``access_token`` cookie
     automatically. Both carry the same JWT and are validated identically below.
+    The cookie path is additionally Origin-gated (against ``BACKEND_CORS_ORIGINS``)
+    to prevent Cross-Site WebSocket Hijacking; the query-token path is not, since
+    the token is a secret and the native app sends no Origin header.
 
     Query params:
         token: JWT authentication token for agent (optional; the ``access_token``
@@ -376,10 +379,25 @@ async def agent_websocket(
     tenant_id = None
     agent_full_name = None
 
-    # Resolve the effective token from the query param first, then the cookie.
-    # Only the SOURCE differs between clients; the token itself and every check
-    # applied to it below are identical.
-    effective_token = token or websocket.cookies.get("access_token")
+    # Resolve the effective token from either source. Both carry the same JWT,
+    # but they have different trust properties, so they are gated differently:
+    #   * ?token= is a bearer SECRET a cross-origin page cannot read, and the
+    #     Flutter app sends no Origin header -> accept as-is (CSWSH-safe).
+    #   * the access_token cookie is an AMBIENT credential the browser attaches
+    #     automatically, and WebSocket handshakes are exempt from CORS. Without
+    #     an Origin check a malicious cross-origin page could open this socket
+    #     and ride the victim agent's cookie (Cross-Site WebSocket Hijacking).
+    #     So the cookie path additionally requires a trusted Origin, matched
+    #     against the same allowlist REST CORS already enforces.
+    origin = websocket.headers.get("origin")
+    if token:
+        effective_token = token
+    else:
+        if not origin or origin not in settings.BACKEND_CORS_ORIGINS:
+            await websocket.close(code=4403, reason="Origin not allowed")
+            return
+        effective_token = websocket.cookies.get("access_token")
+
     if not effective_token:
         await websocket.close(code=4003, reason="Missing authentication")
         return
