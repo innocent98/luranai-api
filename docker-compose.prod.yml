@@ -32,7 +32,11 @@ services:
       OPENAI_LLM_MODEL: ${OPENAI_LLM_MODEL}
       EMBEDDING_DIMENSION: ${EMBEDDING_DIMENSION}
       ENVIRONMENT: ${ENVIRONMENT:-production}
-      API_WORKERS: ${API_WORKERS:-4}
+      # Prod takes this default (2). The api is async/I/O-bound and loads no ML
+      # models — all heavy work runs in the separate `worker` container — so it
+      # does not need 4 gunicorn workers. Staging sets API_WORKERS=1 in its own
+      # `.env` (owner-managed encrypted env); it is not set here.
+      API_WORKERS: ${API_WORKERS:-2}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     healthcheck:
       test:

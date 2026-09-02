@@ -2,7 +2,10 @@ name: Docker Build and Push
 
 on:
   push:
-    branches: [main, develop]
+    # develop is the single build+push gate. main is a no-rebuild promotion:
+    # cd.yml's production-deploy pulls the image already built here for the
+    # develop commit (by its long SHA tag), so main must NOT rebuild/push.
+    branches: [develop]
     tags:
       - 'v*'
   pull_request:
@@ -45,6 +48,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha
+            type=sha,format=long
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5

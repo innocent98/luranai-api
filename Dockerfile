@@ -82,4 +82,6 @@ CMD gunicorn app.main:app \
     --log-level ${LOG_LEVEL:-info} \
     --timeout 120 \
     --graceful-timeout 30 \
-    --keep-alive 5
+    --keep-alive 5 \
+    --max-requests 1000 \
+    --max-requests-jitter 200
