@@ -52,21 +52,43 @@ class SubscriptionService:
         tenant.subscription_starts_at = datetime.now(UTC)
         tenant.trial_ends_at = None  # Clear trial
 
-        # Update capabilities based on tier
-        self._update_capabilities_for_tier(tenant_id, tier)
+        # Update capabilities based on tier. Upgrades preserve manual overrides.
+        self._update_capabilities_for_tier(tenant_id, tier, respect_overrides=True)
 
         self.db.commit()
         self.db.refresh(tenant)
 
         return tenant
 
-    def _update_capabilities_for_tier(self, tenant_id: UUID, tier: str):
+    def _update_capabilities_for_tier(
+        self, tenant_id: UUID, tier: str, respect_overrides: bool = False
+    ):
         """
-        Update tenant capabilities based on tier (respecting manual overrides).
+        Update tenant capabilities based on tier.
 
-        Manual capability overrides tracked in override_flags will be preserved
-        during tier upgrades. This allows platform admins to grant custom limits
-        that persist through subscription changes.
+        respect_overrides controls whether a super admin's manual capability
+        override (tracked in override_flags) survives this sync. Callers
+        pass it explicitly rather than have it inferred from tier
+        comparison -- the caller already knows its own direction
+        (downgrade_subscription validates that direction against its own
+        tier_order check before ever reaching this call), so a second,
+        inferred source of truth for direction would only invite drift.
+
+        - True (what upgrade_subscription passes): a field listed in
+          override_flags is left untouched. This is the decided intent --
+          a platform admin's manual grant should not be undone by a
+          routine tier bump.
+        - False (what downgrade_subscription passes, and the default so a
+          caller that forgets to pass this explicitly cannot accidentally
+          leak a capability past a downgrade): every field in the tier's
+          plan config is written unconditionally, and any override flag
+          for a field this sync just overwrote is cleared. Keeping a
+          manually-raised limit past a downgrade would be undetected
+          revenue leakage; clearing the flag (not just the value) also
+          prevents that field from staying permanently exempt from every
+          future ordinary sync -- same fix as
+          PlatformSubscriptionService._update_capabilities_with_overrides's
+          bypass mode.
         """
         config = self.plan_service.get_plan_config(tier)
 
@@ -79,16 +101,30 @@ class SubscriptionService:
         if not capabilities:
             raise ValueError("Capabilities not found")
 
+        existing_flags = capabilities.override_flags or {}
         # Get override flags (fields that should NOT be reset)
-        override_flags = capabilities.override_flags or {}
+        override_flags = existing_flags if respect_overrides else {}
 
-        # Update capability fields, skipping manually overridden ones
+        # Update capability fields, tracking which previously-flagged fields
+        # this sync actually overwrote so their flags can be cleared below.
+        overwritten_fields = []
         for key, value in config.items():
             if hasattr(capabilities, key):
-                # Skip if manually overridden by platform admin
+                # Skip if manually overridden and respect_overrides is True
                 if key not in override_flags:
                     setattr(capabilities, key, value)
+                    if not respect_overrides and key in existing_flags:
+                        overwritten_fields.append(key)
                 # else: keep current value (override persists)
+
+        if overwritten_fields:
+            # Assign a new dict rather than mutating in place -- SQLAlchemy
+            # does not track in-place mutation of a JSON column.
+            capabilities.override_flags = {
+                field: flag
+                for field, flag in existing_flags.items()
+                if field not in overwritten_fields
+            }
 
         self.db.commit()
 
@@ -438,8 +474,11 @@ class SubscriptionService:
                 "Downgrade completed, but billing system update may require manual adjustment"
             )
 
-        # 8. Update capabilities based on new tier
-        self._update_capabilities_for_tier(tenant_id, new_tier)
+        # 8. Update capabilities based on new tier. Downgrades ignore manual
+        # overrides -- a tenant landing on a lower tier gets that tier's
+        # real limits, including any field a super admin previously raised
+        # by hand (see _update_capabilities_for_tier's docstring).
+        self._update_capabilities_for_tier(tenant_id, new_tier, respect_overrides=False)
 
         # 9. Record in subscription history
         history = SubscriptionHistory(

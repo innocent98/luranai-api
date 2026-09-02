@@ -1,8 +1,12 @@
 name: CI
 
 on:
+  # develop is the single validation gate: full CI runs on every push to it and
+  # on PRs into main/develop. Merging develop -> main does NOT re-run CI (main is
+  # removed from the push trigger) — main is a no-re-test production promotion
+  # (see cd.yml production-deploy).
   push:
-    branches: [main, develop]
+    branches: [develop]
   pull_request:
     branches: [main, develop]
 

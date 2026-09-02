@@ -320,3 +320,120 @@ def churned_tenants_factory(db_session):
         return tenants
 
     return factory
+
+
+def _bare_voice_tenant(db_session):
+    """Create a minimal, valid `Tenant` row (no `TenantCapabilities`).
+
+    Shared by `voice_tenant_factory` below and by
+    `tests/voice/test_voice_capabilities.py::_tenant`, which imports this
+    directly rather than keeping its own copy — both need the same
+    genuinely-required `Tenant` columns (`name`, `display_name`,
+    `api_key_hash`, `subscription_tier`, `subscription_status`; `Tenant` has
+    no `slug` column, so a factory built from that field fails at insert
+    time).
+    """
+    from app.db.models.tenant import Tenant
+
+    unique_prefix = uuid4().hex[:8]
+    tenant = Tenant(
+        name=f"voice_test_{unique_prefix}",
+        display_name=f"Voice Test {unique_prefix}",
+        api_key_hash=uuid4().hex,
+        subscription_tier="trial",
+        subscription_status="trialing",
+    )
+    db_session.add(tenant)
+    db_session.flush()
+    db_session.refresh(tenant)
+    return tenant
+
+
+@pytest.fixture(scope="function")
+def voice_tenant_factory(db_session):
+    """Create a tenant with specific voice capabilities."""
+    from app.db.models.tenant import TenantCapabilities
+
+    def _make(*, can_use_voice: bool, max_voice_minutes_per_month: int | None):
+        tenant = _bare_voice_tenant(db_session)
+        db_session.add(
+            TenantCapabilities(
+                tenant_id=tenant.id,
+                can_use_voice=can_use_voice,
+                max_voice_minutes_per_month=max_voice_minutes_per_month,
+            )
+        )
+        db_session.commit()
+        db_session.refresh(tenant)
+        return tenant
+
+    return _make
+
+
+@pytest.fixture(scope="function")
+def voice_usage_setter():
+    """Seed the Redis monthly voice-minute counter for a tenant.
+
+    Synchronous on purpose so it is usable from both async tests and sync
+    TestClient tests. Never use `asyncio.get_event_loop()` — it is deprecated
+    and errors on Python 3.12+ when no loop is running.
+
+    `asyncio.run()` alone is not enough: our own async voice tests (e.g.
+    `test_minute_cap_reached_denies`) already have a pytest-asyncio event
+    loop running for the duration of the test body, and `asyncio.run()`
+    raises `RuntimeError: asyncio.run() cannot be called from a running
+    event loop` if called from inside one. When a loop is already running,
+    fall back to a dedicated thread with its own fresh loop instead.
+    """
+    import asyncio
+    import threading
+
+    from app.services.voice.metering import VoiceMeter
+
+    def _set(tenant_id, *, minutes: int):
+        coro = VoiceMeter().add_minutes(tenant_id, minutes)
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(coro)
+            return
+
+        thread = threading.Thread(target=asyncio.run, args=(coro,))
+        thread.start()
+        thread.join()
+
+    return _set
+
+
+@pytest.fixture(scope="function")
+def voice_session_factory(db_session):
+    """Create a ConversationSession belonging to a tenant."""
+    from app.db.models.conversation import ConversationSession, SessionStatus
+
+    def _make(tenant_id):
+        session = ConversationSession(
+            tenant_id=tenant_id,
+            user_identifier=f"visitor-{uuid4().hex[:8]}",
+            status=SessionStatus.ACTIVE,
+        )
+        db_session.add(session)
+        db_session.commit()
+        return session
+
+    return _make
+
+
+@pytest.fixture(scope="function")
+def minted_voice_token():
+    """Mint a real voice token so endpoint tests exercise the true resolve path."""
+    import asyncio
+
+    from app.services.voice.session_tokens import VoiceSessionTokenStore
+
+    def _make(tenant_id, session_id, *, text_out: bool = False):
+        store = VoiceSessionTokenStore()
+        return asyncio.run(
+            store.mint(tenant_id=tenant_id, luran_session_id=session_id, text_out=text_out)
+        )
+
+    return _make

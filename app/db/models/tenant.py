@@ -296,6 +296,26 @@ class TenantAIConfig(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Action when retrieval confidence is low: answer, clarify, escalate, refuse",
     )
+
+    # Voice chat (in-widget). NOT `brand_voice` above — that is AI tone.
+    # This is the tenant's own on/off for voice chat plus their chosen
+    # ElevenLabs voice. Deliberately here and NOT on TenantCapabilities:
+    # capabilities are what the PLATFORM GRANTS, and keeping preference on a
+    # separate table means the tenant-facing write path has no reference to
+    # the grant at all.
+    voice_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        server_default="true",
+        nullable=False,
+        comment="Tenant's own on/off for voice chat (grant is TenantCapabilities.can_use_voice)",
+    )
+    voice_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Chosen ElevenLabs voice id; null = platform default",
+    )
+
     no_retrieval_action: Mapped[str] = mapped_column(
         String(20),
         default="clarify",
@@ -417,6 +437,18 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
         Integer,
         nullable=True,
         comment="Maximum automation actions allowed (null = unlimited)",
+    )
+    can_use_voice: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default="false",
+        comment="Can use in-widget voice chat",
+    )
+    max_voice_minutes_per_month: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Monthly voice minutes cap (null = unlimited)",
     )
     max_automation_executions_per_month: Mapped[int | None] = mapped_column(
         Integer,

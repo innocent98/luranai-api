@@ -264,6 +264,12 @@ class ConversationService:
         if not session:
             raise ValueError("Session not found")
 
+        # Already escalated: the first escalation owns the reason, the timestamp
+        # and the ticket. Re-entering this path (customer keeps typing, a second
+        # flow fires) must not restart the clock or mint a second escalation.
+        if session.status == SessionStatus.ESCALATED:
+            return self._to_session_response(session)
+
         session.status = SessionStatus.ESCALATED
         session.escalation_reason = reason
         session.escalated_at = utcnow_naive()

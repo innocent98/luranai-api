@@ -5657,54 +5657,20 @@ This separation ensures:
 
 ---
 
-### 12.3 Direct Subscription Upgrade (Deprecated)
+### 12.3 Direct Subscription Upgrade (Removed)
 
-**⚠️ DEPRECATED:** This endpoint is for testing/admin purposes only. Production upgrades should use the payment flow (12.1 + 12.2).
+**⚠️ REMOVED 2026-08-22.** `POST /subscription/upgrade` no longer exists (404 on every call,
+regardless of auth). It let any tenant admin grant themselves any subscription tier — and, once
+plan configs carry more capability keys, arbitrary capabilities — with no payment processing.
+Deletion, not re-gating, was the fix: the request body has no `tenant_id`, so a platform-admin
+version of this route isn't possible without a different contract. See
+`docs/sop/capability_override_hardening.md`.
 
-**Endpoint:** `POST /subscription/upgrade`
+**If you need a manual/admin upgrade:** use the platform-admin `override_tenant_subscription`
+endpoint instead (super-admin auth, not a tenant token) — it was already the correct path for
+"testing/admin manual upgrades/promotional free upgrades" before this removal.
 
-**Headers:**
-```
-Authorization: Bearer {tenant_token}
-```
-
-**Required Role:** TENANT_ADMIN
-
-**Request:**
-```json
-{
-  "tier": "professional",
-  "billing_cycle": "monthly"
-}
-```
-
-**Response:**
-```json
-{
-  "message": "Subscription upgraded successfully",
-  "tier": "professional",
-  "status": "active",
-  "billing_cycle": "monthly"
-}
-```
-
-**What Happens:**
-1. Bypasses payment processing
-2. Directly upgrades tenant to specified tier
-3. Updates `subscription_tier`, `subscription_status`, `billing_cycle`
-4. Updates tenant capabilities based on tier configuration
-5. Clears trial period fields
-
-**Use Cases:**
-- Testing subscription features without payment
-- Admin manually upgrading accounts
-- Handling enterprise contracts
-
-**Production Warning:**
-- Does NOT create payment records
-- Does NOT charge customer
-- Does NOT set up recurring billing
-- Should be disabled in production or restricted to platform admins
+Production upgrades continue to use the payment flow (12.1 + 12.2), unaffected by this removal.
 
 ---
 

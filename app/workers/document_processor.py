@@ -1218,6 +1218,12 @@ class WorkerSettings:
         sync_lead_to_crm,
     )
 
+    from app.workers.agent_alerts import (  # type: ignore[misc]
+        alert_escalation,
+        alert_escalation_fallback,
+        clear_agent_alert,
+    )
+
     functions = [
         process_document_ingestion,
         run_website_audit,
@@ -1225,6 +1231,9 @@ class WorkerSettings:
         send_slack_notification,
         send_visitor_meeting_confirmation,
         sync_lead_to_crm,
+        alert_escalation,
+        alert_escalation_fallback,
+        clear_agent_alert,
         auto_abandon_inactive_conversations,
         auto_resolve_stale_tickets,
         check_trial_expiration_3days,

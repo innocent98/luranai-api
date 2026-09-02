@@ -117,14 +117,21 @@ curl -X POST http://localhost:8000/api/v1/chat/message \
 
 ## 🔄 Test 4: Subscription Upgrade (IN PROGRESS)
 
+**⚠️ `POST /api/v1/subscription/upgrade` was removed 2026-08-22** (see
+`docs/sop/capability_override_hardening.md`) — it let a tenant admin grant themselves any tier for
+free, with no payment processing. The replacement for a manual/admin upgrade is the platform-admin
+override endpoint below, which needs a super-admin token, not a tenant admin one.
+
 ### Upgrade to Professional Tier
 ```bash
-curl -X POST http://localhost:8000/api/v1/subscription/upgrade \
+curl -X POST http://localhost:8000/api/v1/platform/subscriptions/<TENANT_ID>/override \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <ADMIN_TOKEN>" \
+  -H "Authorization: Bearer <SUPER_ADMIN_TOKEN>" \
   -d '{
     "tier": "professional",
-    "billing_cycle": "annual"
+    "billing_cycle": "annual",
+    "reason": "manual test upgrade via SUBSCRIPTION_TESTING_GUIDE",
+    "apply_tier_capabilities": true
   }'
 ```
 

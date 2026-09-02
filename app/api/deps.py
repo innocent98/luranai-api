@@ -175,6 +175,18 @@ async def get_current_tenant_admin(
     return current_user
 
 
+async def get_current_agent(
+    current_user: UserResponse = Depends(get_current_user),
+) -> UserResponse:
+    """Verify the caller is an escalation-capable agent (Agent Caller app)."""
+    if current_user.role not in (UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions. Agent access required.",
+        )
+    return current_user
+
+
 async def verify_subscription_active(
     current_user: UserResponse = Depends(get_current_user),
     db: Session = Depends(get_db),
