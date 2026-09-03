@@ -272,23 +272,26 @@ jobs:
 
       - name: Promote prebuilt image (no rebuild) and save
         env:
-          # docker.yml pushes `type=sha,format=long` -> ghcr.io/<repo>:sha-<full sha>.
-          # Because develop -> main is a fast-forward, github.sha here equals the
-          # develop commit that built this image, so the tag resolves exactly.
+          # Promote the image docker.yml already built for the latest develop
+          # commit, published via `type=ref,event=branch` as the moving `:develop`
+          # tag. main is a promotion of develop, so this is exactly the image
+          # develop validated — and it resolves regardless of HOW develop was
+          # merged into main (merge commit / squash / fast-forward all work),
+          # because we no longer look the image up by main's own (post-merge) SHA.
           REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
-          IMAGE_TAG: ${{ github.sha }}
+          LOCAL_TAG: ${{ github.sha }}
         run: |
           set -euo pipefail
-          SRC="${REGISTRY_IMAGE}:sha-${IMAGE_TAG}"
-          echo "Promoting prebuilt image: $SRC (no rebuild)"
+          SRC="${REGISTRY_IMAGE}:develop"
+          echo "Promoting latest develop image: $SRC (no rebuild)"
           if ! docker pull "$SRC"; then
-            echo "::error::Prebuilt image $SRC not found in GHCR." >&2
-            echo "main must be fast-forwarded from a develop commit whose docker.yml build+push succeeded." >&2
-            echo "A merge/squash commit creates a new SHA with no prebuilt image — rebase main onto develop, or re-run develop CI." >&2
+            echo "::error::Image $SRC not found in GHCR." >&2
+            echo "docker.yml publishes the moving :develop tag on every push to develop." >&2
+            echo "Ensure develop's most recent 'Docker Build and Push' run succeeded before promoting to main." >&2
             exit 1
           fi
-          docker tag "$SRC" "luran-api:${IMAGE_TAG}"
-          docker save "luran-api:${IMAGE_TAG}" | gzip > api-image.tar.gz
+          docker tag "$SRC" "luran-api:${LOCAL_TAG}"
+          docker save "luran-api:${LOCAL_TAG}" | gzip > api-image.tar.gz
 
       - name: Decrypt production .env
         env:
