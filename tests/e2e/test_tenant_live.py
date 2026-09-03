@@ -8,6 +8,7 @@ from tests.e2e.helpers import assert_ok
 pytestmark = pytest.mark.e2e
 
 
+@pytest.mark.smoke
 def test_professional_tenant_capabilities_are_exposed(pro_client):
     tenant = assert_ok(pro_client.get("/tenant"))
     capabilities = assert_ok(pro_client.get("/tenant/capabilities"))

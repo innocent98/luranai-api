@@ -10,6 +10,7 @@ from tests.e2e.helpers import assert_ok
 pytestmark = pytest.mark.e2e
 
 
+@pytest.mark.smoke
 def test_tenant_login_and_me_endpoint(e2e_config):
     client = LiveApiClient(e2e_config.base_url, e2e_config.timeout_seconds)
     login_payload = client.login(e2e_config.pro.email, e2e_config.pro.password)

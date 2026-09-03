@@ -118,6 +118,7 @@ asyncio_mode = "auto"
 addopts = "-v --strict-markers --cov=app --cov-report=term-missing --cov-report=html"
 markers = [
     "e2e: live end-to-end tests against a deployed environment",
+    "smoke: fast critical-path checks run automatically after a staging deploy (a subset of e2e)",
 ]
 
 [tool.coverage.run]
