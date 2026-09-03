@@ -2820,9 +2820,11 @@ async def send_agent_message(
     # Create message
     message = conversation_service.add_message(
         session_id=session_id,
-        # DB enum currently stores lower-case human_agent while user/assistant/system
-        # are upper-case. Send explicit value to avoid enum-name mismatch.
-        role=MessageRole.HUMAN_AGENT.value,  # type: ignore[arg-type]
+        # message_role stores enum NAMES (USER/ASSISTANT/SYSTEM/HUMAN_AGENT) — pass
+        # the member, not `.value`. (The old `.value` "workaround" was inert:
+        # SQLAlchemy stores the name regardless, which is why the mis-cased
+        # `human_agent` enum label caused 500s until migration d1f2humanagentname.)
+        role=MessageRole.HUMAN_AGENT,
         content=message_data.message,
         meta={
             "agent_id": str(current_user.id),

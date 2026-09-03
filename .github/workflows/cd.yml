@@ -160,6 +160,79 @@ jobs:
           echo "Staging API URL: ${{ secrets.APP_URL }}/api/v1"
           echo "Deployed backend SHA: ${{ github.event.workflow_run.head_sha || github.sha }}"
 
+  staging-smoke:
+    name: Staging post-deploy smoke
+    runs-on: ubuntu-latest
+    needs: staging-deploy
+    # Automatic, lightweight post-deploy verification. Runs a fast, stable subset
+    # of the live E2E (health + auth + an authenticated DB-backed read + a public
+    # read) against staging right after every deploy — catching "healthy but
+    # broken" deploys that the /health liveness gate alone cannot. The FULL E2E
+    # suite stays manual (staging-api-e2e); this is the cheap per-deploy signal.
+    if: needs.staging-deploy.result == 'success'
+    environment:
+      name: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: 1.8.4
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-root --with dev
+
+      - name: Reset staging rate-limit keys
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            docker compose -f docker-compose.prod.yml exec -T redis sh -lc '
+              for pattern in http_auth* http_subscription* http_subscription_read*; do
+                for key in $(redis-cli --scan --pattern "$pattern"); do
+                  redis-cli DEL "$key" >/dev/null
+                done
+              done
+              echo "Staging rate-limit keys cleared"
+            '
+
+      - name: Run smoke checks
+        env:
+          LURAN_E2E_BASE_URL: ${{ secrets.APP_URL }}/api/v1
+          LURAN_E2E_PRO_EMAIL: ${{ secrets.LURAN_E2E_PRO_EMAIL }}
+          LURAN_E2E_PRO_PASSWORD: ${{ secrets.LURAN_E2E_PRO_PASSWORD }}
+          LURAN_E2E_LITE_EMAIL: ${{ secrets.LURAN_E2E_LITE_EMAIL }}
+          LURAN_E2E_LITE_PASSWORD: ${{ secrets.LURAN_E2E_LITE_PASSWORD }}
+          LURAN_E2E_QUOTA_EMAIL: ${{ secrets.LURAN_E2E_QUOTA_EMAIL }}
+          LURAN_E2E_QUOTA_PASSWORD: ${{ secrets.LURAN_E2E_QUOTA_PASSWORD }}
+          LURAN_E2E_PLATFORM_EMAIL: ${{ secrets.LURAN_E2E_PLATFORM_EMAIL }}
+          LURAN_E2E_PLATFORM_PASSWORD: ${{ secrets.LURAN_E2E_PLATFORM_PASSWORD }}
+          LURAN_E2E_TIMEOUT_SECONDS: '30'
+        run: |
+          poetry run pytest tests/e2e -m smoke -q | tee staging-smoke.log
+
+      - name: Upload smoke logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: staging-smoke-logs
+          path: staging-smoke.log
+
   staging-api-e2e:
     name: Run staging API E2E
     runs-on: ubuntu-latest

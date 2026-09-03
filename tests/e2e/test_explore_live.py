@@ -15,6 +15,7 @@ from tests.e2e.helpers import assert_ok
 pytestmark = pytest.mark.e2e
 
 
+@pytest.mark.smoke
 def test_public_browse_returns_directory_shape(anonymous_client):
     payload = assert_ok(anonymous_client.get("/public/businesses"))
 

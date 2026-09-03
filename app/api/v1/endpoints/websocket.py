@@ -533,8 +533,9 @@ async def agent_websocket(
                     conversation_service = ConversationService(db)
                     message = conversation_service.add_message(
                         session_id=session_id,
-                        # DB enum currently stores this role as lower-case literal.
-                        role=MessageRole.HUMAN_AGENT.value,  # type: ignore[arg-type]
+                        # message_role stores enum NAMES — pass the member (the old
+                        # `.value` was inert; see migration d1f2humanagentname).
+                        role=MessageRole.HUMAN_AGENT,
                         content=content,
                         meta={
                             "agent_id": str(agent_id),
