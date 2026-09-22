@@ -35,6 +35,7 @@ from app.schemas.agent_app import (
 )
 from app.schemas.user import UserResponse
 from app.services.agent_alert_service import _PRIORITY_WIRE, customer_name
+from app.services.conversation_service import emit_agent_joined
 from app.services.notification_enqueue import enqueue_clear_alert_async
 from app.utils.datetime import utcnow_naive
 
@@ -249,6 +250,13 @@ async def _finish_claim(db: Session, ticket: Ticket, current_agent: UserResponse
         session.agent_id = current_agent.id
         session.agent_joined_at = utcnow_naive()
         db.commit()
+        # Announce the join to the customer — the same SYSTEM notice + WS fanout
+        # the web dashboard's takeover emits, so the customer widget renders it
+        # identically whether the agent took over from web or mobile. Guarded by
+        # the `agent_id != current_agent.id` check above so an idempotent retry
+        # (this path re-runs per acknowledge_escalation's retry logic) does not
+        # double-post the notice.
+        await emit_agent_joined(db, session, current_agent)
 
     try:
         await enqueue_clear_alert_async(ticket.id, current_agent.id)
