@@ -424,6 +424,95 @@ def test_purge_user_scrubs_subscription_history_changed_by_name(db_session):
     assert surviving_history.action == "upgrade"  # non-PII content preserved
 
 
+def test_purge_user_scrubs_email_notification_recipient_and_template_data(db_session):
+    """Fix round 2: email_notifications has no users.id FK at all — it's
+    matched by tenant_id + the user's original email, which is why this
+    must run before _anonymize_user overwrites .email."""
+    tenant = _make_tenant(db_session)
+    admin = _make_user(db_session, tenant, role=UserRole.TENANT_ADMIN, email="admin@example.com")
+    notification = EmailNotification(
+        tenant_id=tenant.id,
+        notification_type="trial_expiring",
+        recipient_email="admin@example.com",
+        subject="Your trial is ending",
+        template_data={"admin_name": "Admin Full Name", "company_name": "Acme"},
+    )
+    db_session.add(notification)
+    db_session.flush()
+    notification_id = notification.id
+
+    service = AccountPurgeService(db_session)
+    service.purge_user(admin.id)
+
+    surviving = db_session.get(EmailNotification, notification_id)
+    assert surviving is not None  # the send/audit record itself survives
+    assert surviving.recipient_email != "admin@example.com"
+    assert surviving.recipient_email.endswith("@purged.invalid")
+    assert surviving.template_data is None
+    assert surviving.subject == "Your trial is ending"  # non-PII content preserved
+
+
+def test_purge_user_scrubs_notification_log_recipient(db_session):
+    """Fix round 2: notification_logs.recipient is the same class of gap —
+    keyed by tenant_id + the user's original email, no users.id FK."""
+    tenant = _make_tenant(db_session)
+    agent = _make_user(db_session, tenant, email="rep@example.com")
+    log = NotificationLog(
+        tenant_id=tenant.id,
+        event=NotifEvent.SALES_READY_LEAD,
+        channel=NotifChannel.EMAIL,
+        entity_type="lead",
+        entity_id=uuid4(),
+        recipient="rep@example.com",
+        title="New sales-ready lead",
+        body="Jane Doe · Acme Corp · score 80",
+    )
+    db_session.add(log)
+    db_session.flush()
+    log_id = log.id
+
+    service = AccountPurgeService(db_session)
+    service.purge_user(agent.id)
+
+    surviving = db_session.get(NotificationLog, log_id)
+    assert surviving is not None  # the notification record itself survives
+    assert surviving.recipient != "rep@example.com"
+    assert surviving.recipient.endswith("@purged.invalid")
+    # title/body describe the lead, not the recipient — no PII of the
+    # purged user in either, left untouched deliberately (see docstring).
+    assert surviving.title == "New sales-ready lead"
+    assert surviving.body == "Jane Doe · Acme Corp · score 80"
+
+
+def test_purge_user_does_not_scrub_another_tenants_matching_email(db_session):
+    """The match is tenant_id + email, not email alone — a coincidentally
+    identical recipient address in a different tenant must survive."""
+    tenant_a = _make_tenant(db_session)
+    tenant_b = _make_tenant(db_session)
+    agent_a = _make_user(db_session, tenant_a, email="shared@example.com")
+    # Note: User.email_hash is globally unique, so tenant_b intentionally
+    # has no User row with this address — the point is that the
+    # EmailNotification match key is (tenant_id, recipient_email), not a
+    # second real user, so a same-looking recipient row that merely
+    # belongs to a different tenant must still survive untouched.
+    other_tenant_notification = EmailNotification(
+        tenant_id=tenant_b.id,
+        notification_type="trial_expiring",
+        recipient_email="shared@example.com",
+        subject="hi",
+    )
+    db_session.add(other_tenant_notification)
+    db_session.flush()
+    other_id = other_tenant_notification.id
+
+    service = AccountPurgeService(db_session)
+    service.purge_user(agent_a.id)
+
+    surviving = db_session.get(EmailNotification, other_id)
+    assert surviving is not None
+    assert surviving.recipient_email == "shared@example.com"
+
+
 # ---------------------------------------------------------------------------
 # purge_user / purge_tenant — (f) PII-free deletion audit survives
 # ---------------------------------------------------------------------------

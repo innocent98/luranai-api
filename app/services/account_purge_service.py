@@ -43,6 +43,16 @@ Design choices worth knowing before extending this file
   the user's raw email/name as platform marketing data, redacted) while the
   owning row survives untouched.
 
+* **Not every leak is FK-shaped — fix round 2.** Two tables denormalize
+  the user's email *by value* into a ``tenant_id``-scoped row with no
+  ``users.id`` column at all (``email_notifications.recipient_email``,
+  ``notification_logs.recipient``), so the FK grep above structurally
+  cannot find them. ``_redact_denormalized_pii_by_value`` matches these by
+  the user's original email string instead — which means it MUST run
+  before ``_anonymize_user`` overwrites ``user.email`` (same ordering trap
+  as the ``audit_logs.ip_address`` fix in round 1: the match key has to be
+  captured/used while it's still the real value).
+
 * **``purge_tenant`` hard-deletes every tenant-scoped table — no retained
   billing/audit subset.** ``payment_transactions``, ``subscription_
   history``, ``promotional_grants``, ``audit_logs`` and
@@ -129,6 +139,23 @@ separate, non-tenant-scoped ``PublicFeedback`` model (anonymous
 landing-page feedback, no ``submitted_by``/user FK at all, out of this
 service's remit entirely). ``PlatformFeedback.submitted_by`` nulling above
 is the complete fix for that table on the single-user path.
+
+Not FK-shaped at all — denormalized by value, keyed by the user's email
+string (fixed in fix round 2, see ``_redact_denormalized_pii_by_value``):
+    email_notifications.recipient_email  -> redacted placeholder, plus
+        .template_data -> NULL (confirmed, not hypothetical: at least one
+        flow sets template_data["admin_name"] = admin.full_name — see
+        email_notification_service.py:326 — so the whole JSON blob is
+        nulled rather than picked apart key-by-key)
+    notification_logs.recipient          -> redacted placeholder
+        (.title/.body checked and found to describe the lead/meeting/
+        quote being notified about, never the recipient's own name — left
+        untouched, not guessed at)
+Both matched on `tenant_id` + the user's ORIGINAL email (captured before
+``_anonymize_user`` overwrites it — these tables have no ``users.id``
+column to match on instead). On ``purge_tenant``'s per-member loop this is
+a harmless no-op, since both tables are already hard-deleted for the whole
+tenant earlier in that method — kept for defence in depth.
 
 ============================================================================
 ``purge_tenant`` — tables hard-deleted (tenant-scoped; no retained subset)
@@ -246,6 +273,7 @@ class AccountPurgeService:
             return
 
         self._deidentify_user_references(user.id)
+        self._redact_denormalized_pii_by_value(user)
         self._anonymize_user(user)
         self.db.commit()
 
@@ -344,6 +372,12 @@ class AccountPurgeService:
         for member in members:
             if member.deletion_status != DeletionStatus.PURGED:
                 self._deidentify_user_references(member.id)
+                # email_notifications/notification_logs for this tenant were
+                # already hard-deleted above, so this is a harmless no-op
+                # here — kept for defence in depth / consistency with the
+                # purge_user path, in case the delete order above ever
+                # changes.
+                self._redact_denormalized_pii_by_value(member)
                 self._anonymize_user(member)
 
         self.db.commit()
@@ -480,6 +514,67 @@ class AccountPurgeService:
             recipient.user_id = None
             recipient.recipient_email = f"redacted-{recipient.id}@purged.invalid"
             recipient.recipient_name = None
+
+    def _redact_denormalized_pii_by_value(self, user: User) -> None:
+        """Scrub the user's PII out of tenant-owned tables that denormalize
+        it BY VALUE rather than by FK to ``users.id`` — fix round 2, the
+        same class of gap as ``changed_by_name``/``ip_address`` in
+        ``_anonymize_user``, just on tables the FK sweep in
+        ``_deidentify_user_references`` structurally cannot reach (no
+        ``users.id`` column at all; only ``tenant_id`` + a raw copy of the
+        address).
+
+        **Must be called with the user's ORIGINAL ``.email`` still intact**
+        — i.e. before ``_anonymize_user`` overwrites it — since the match
+        key is the email string itself, not an id. Both call sites
+        (``purge_user``, ``purge_tenant``'s per-member loop) already call
+        this before ``_anonymize_user``; do not reorder.
+
+        Verified against the actual model columns (not assumed):
+        ``email_notifications.recipient_email`` (``app/db/models/
+        email_notification.py``) is set to a tenant admin's raw email by
+        ``EmailNotificationService`` for trial/subscription reminders —
+        confirmed by reading ``app/services/email_notification_service.py``,
+        e.g. ``recipient_email=admin.email``. Its ``template_data`` JSON
+        blob also denormalizes the recipient's name in at least one flow
+        (``template_data["admin_name"] = admin.full_name``,
+        ``email_notification_service.py:326``) — confirmed, not
+        hypothetical, so it is nulled outright rather than picked apart
+        key-by-key. ``notification_logs.recipient`` (``app/db/models/
+        notification_log.py``) is the tenant rep's email, set by
+        ``NotificationService._rep_recipient`` (``app/services/
+        notification_service.py``). Its ``title``/``body`` were checked
+        too (``NotificationService._render_in_app_text``) and found to
+        describe the lead/meeting/quote being notified about, never the
+        recipient's own name — left untouched, not guessed at.
+
+        ``User`` has no ``phone`` column (checked — see the module
+        docstring's PII field list), so there is nothing to match on
+        beyond email.
+        """
+        original_email = user.email
+        if not original_email:
+            return
+
+        self.db.execute(
+            EmailNotification.__table__.update()
+            .where(
+                EmailNotification.tenant_id == user.tenant_id,
+                EmailNotification.recipient_email == original_email,
+            )
+            .values(
+                recipient_email=f"redacted-{user.id}@purged.invalid",
+                template_data=None,
+            )
+        )
+        self.db.execute(
+            NotificationLog.__table__.update()
+            .where(
+                NotificationLog.tenant_id == user.tenant_id,
+                NotificationLog.recipient == original_email,
+            )
+            .values(recipient=f"redacted-{user.id}@purged.invalid")
+        )
 
     def _anonymize_tenant(self, tenant: Tenant) -> None:
         """No-commit PII/identity scrub of the ``Tenant`` row itself, kept

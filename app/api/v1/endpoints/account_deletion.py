@@ -21,6 +21,7 @@ statistical timing analysis impractical.
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from jose import JWTError, jwt
+from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -117,12 +118,18 @@ async def request_account_deletion(
         # is a transient (non-mapped) attribute the service attaches for the
         # caller to email — see `AccountDeletionService`'s module docstring.
         assert deletion_request.scheduled_purge_at is not None
-        email_service.send_account_deletion_confirmation_email(
+        confirmation_sent = email_service.send_account_deletion_confirmation_email(
             email=user.email,
             cancel_token=deletion_request.raw_cancel_token,  # type: ignore[attr-defined]
             scheduled_purge_at=deletion_request.scheduled_purge_at,
             frontend_url=settings.FRONTEND_URL,
         )
+        if not confirmation_sent:
+            logger.warning(
+                "Account-deletion confirmation email failed to send for user "
+                f"{user.id} — the raw cancel token is now stranded (only its "
+                "hash is persisted); the user cannot cancel via email."
+            )
 
         return AccountDeletionGraceResponse(
             message="Your account is scheduled for deletion. Check your email for a link to cancel.",
@@ -186,12 +193,18 @@ def verify_account_deletion(
 
     user = db.get(UserModel, deletion_request.user_id)
     if user is not None:
-        email_service.send_account_deletion_confirmation_email(
+        confirmation_sent = email_service.send_account_deletion_confirmation_email(
             email=user.email,
             cancel_token=deletion_request.raw_cancel_token,  # type: ignore[attr-defined]
             scheduled_purge_at=deletion_request.scheduled_purge_at,
             frontend_url=settings.FRONTEND_URL,
         )
+        if not confirmation_sent:
+            logger.warning(
+                "Account-deletion confirmation email failed to send for user "
+                f"{user.id} — the raw cancel token is now stranded (only its "
+                "hash is persisted); the user cannot cancel via email."
+            )
 
     return AccountDeletionGraceResponse(
         message="Your account is now scheduled for deletion. Check your email for a link to cancel.",
@@ -287,12 +300,18 @@ def request_tenant_deletion(
         revoke_token(jti, settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60)
 
     assert deletion_request.scheduled_purge_at is not None
-    email_service.send_account_deletion_confirmation_email(
+    confirmation_sent = email_service.send_account_deletion_confirmation_email(
         email=admin.email,
         cancel_token=deletion_request.raw_cancel_token,  # type: ignore[attr-defined]
         scheduled_purge_at=deletion_request.scheduled_purge_at,
         frontend_url=settings.FRONTEND_URL,
     )
+    if not confirmation_sent:
+        logger.warning(
+            "Account-deletion confirmation email failed to send for tenant "
+            f"admin {admin.id} — the raw cancel token is now stranded (only "
+            "its hash is persisted); the admin cannot cancel via email."
+        )
 
     return AccountDeletionGraceResponse(
         message="This tenant is scheduled for deletion. Check your email for a link to cancel.",
