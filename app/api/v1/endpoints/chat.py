@@ -53,7 +53,7 @@ from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.sales.intent import is_trigger_intent
 from app.services.agent_alert_service import AgentAlertService
-from app.services.conversation_service import ConversationService
+from app.services.conversation_service import ConversationService, emit_agent_joined
 from app.services.chat_automation_orchestrator import ChatAutomationOrchestrator
 from app.services.flow_engine import FlowEngine
 from app.sales.pricing import compute_quote
@@ -2737,30 +2737,10 @@ async def agent_takeover(
         except ValueError as e:
             logger.warning(f"Could not assign ticket: {e}")
 
-    # Send system message to indicate agent joined
-    conversation_service.add_message(
-        session_id=session_id,
-        role=MessageRole.SYSTEM,
-        content=f"{current_user.full_name} joined the conversation",
-        meta={"event": "agent_joined", "agent_id": str(current_user.id)},
-    )
-
-    # Broadcast to customer via WebSocket (local + cross-worker)
-    await connection_manager.fanout_event(
-        session_id=session_id,
-        message={
-            "type": "agent_joined",
-            "agent_name": current_user.full_name,
-            "agent_id": str(current_user.id),
-            "timestamp": (
-                updated_session.agent_joined_at.isoformat()
-                if updated_session.agent_joined_at
-                else None
-            ),
-        },
-        to_customer=True,
-        to_agents=False,
-    )
+    # Persist the SYSTEM "joined" notice and fan it out to the customer widget.
+    # Shared with the mobile Agent Caller path (`_finish_claim`) so both clients
+    # produce an identical join notice.
+    await emit_agent_joined(db, updated_session, current_user)
 
     logger.info("Agent took over session")
 
