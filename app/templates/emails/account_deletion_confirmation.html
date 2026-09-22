@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}Your account deletion is scheduled{% endblock %}
+
+{% block content %}
+<h1>Account deletion scheduled</h1>
+
+<p>
+    Your Luran account is scheduled for permanent deletion on
+    <strong>{{ scheduled_purge_at }}</strong>. You can cancel this at any
+    time before then.
+</p>
+
+<center>
+    <a href="{{ cancel_link }}" class="button">
+        Cancel Deletion
+    </a>
+</center>
+
+<p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+    Or copy and paste this link into your browser: <br>
+    <span style="word-break: break-all;">{{ cancel_link }}</span>
+</p>
+
+<div class="warning">
+    <strong>Didn't request this?</strong> Click the button above right away
+    to cancel the deletion and keep your account.
+</div>
+
+<p style="margin-top: 30px; color: #6b7280;">— The Luran Team</p>
+{% endblock %}

@@ -6,12 +6,13 @@ import redis as redis_lib
 from fastapi import Depends, HTTPException, Request, status
 from jose import JWTError, jwt
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models.platform_admin import PlatformAdminRole
 from app.db.models.tenant import Tenant
-from app.db.models.user import UserRole
+from app.db.models.user import DeletionStatus, User as UserModel, UserRole
 from app.db.session import get_db
 from app.schemas.customer_auth import CustomerUserResponse
 from app.schemas.platform_admin import PlatformAdminResponse
@@ -53,6 +54,38 @@ def revoke_token(jti: str, ttl_seconds: int) -> None:
         _get_redis().setex(f"revoked:{jti}", ttl_seconds, "1")
     except Exception:
         pass
+
+
+# A user whose deletion request has been verified (or is a public request
+# awaiting verification) must be hard-blocked on every authenticated
+# request, not just at login — an access token minted before the grace
+# period started (and not the one jti the deletion flow blacklists) is
+# otherwise still valid until it naturally expires. Mirrors
+# `app.services.auth_service._LOGIN_BLOCKED_DELETION_STATUSES`.
+_REQUEST_BLOCKED_DELETION_STATUSES = (DeletionStatus.PENDING_VERIFICATION, DeletionStatus.GRACE)
+
+
+def _raise_if_pending_deletion(db: Session, user_id: UUID) -> None:
+    """Hard-block `get_current_user` for a user mid account-deletion.
+
+    A single indexed column lookup — `AuthService.get_user_by_id` returns a
+    `UserResponse` (no `deletion_status` field), so this reads it directly
+    off the ORM row rather than growing that schema for every caller.
+    """
+    deletion_status = db.execute(
+        select(UserModel.deletion_status).where(UserModel.id == user_id)
+    ).scalar_one_or_none()
+    if deletion_status in _REQUEST_BLOCKED_DELETION_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "account_pending_deletion",
+                "message": (
+                    "This account is scheduled for deletion. Cancel the deletion "
+                    "to restore access."
+                ),
+            },
+        )
 
 
 class AuthContext(BaseModel):
@@ -106,6 +139,8 @@ async def get_current_user(
 
         if not user:
             raise credentials_exception
+
+        _raise_if_pending_deletion(db, user.id)
 
         if not user.is_active:
             raise HTTPException(

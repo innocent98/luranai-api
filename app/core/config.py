@@ -213,6 +213,12 @@ class Settings(BaseSettings):
     # Use with caution; empty by default for safer SSRF posture.
     AUTOMATION_OUTBOUND_HOST_ALLOWLIST: str = ""
 
+    # Account deletion (Google Play / GDPR right-to-erasure)
+    # Cancellable grace period between a verified deletion request and purge.
+    ACCOUNT_DELETION_GRACE_DAYS: int = 30
+    # How long an emailed public verification link stays valid.
+    ACCOUNT_DELETION_VERIFICATION_TOKEN_TTL_HOURS: int = 24
+
     # AI Website Auditor (Stage 4)
     # Public teaser scan: small page budget keeps it fast + token-frugal (only
     # a score + teaser gaps are shown; the full scan runs later in-dashboard).

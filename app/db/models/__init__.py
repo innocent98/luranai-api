@@ -39,6 +39,7 @@ from app.db.models.customer_engagement import (
     TenantChannelPost,
 )
 from app.db.models.customer_user import CustomerUser
+from app.db.models.deletion_request import DeletionRequest, DeletionRequestedVia, DeletionScope
 from app.db.models.email_notification import EmailNotification
 from app.db.models.business_profile import BusinessProfile, BusinessProfileSource
 from app.db.models.flow import (
@@ -76,7 +77,7 @@ from app.db.models.visit_analytics import DailyVisit
 
 # Import all models to ensure they're registered with SQLAlchemy
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
-from app.db.models.user import AvailabilityStatus, User, UserRole
+from app.db.models.user import AvailabilityStatus, DeletionStatus, User, UserRole
 from app.db.models.visitor import DeviceType, Visitor, VisitorSession, VisitorSource
 
 __all__ = [
@@ -108,6 +109,7 @@ __all__ = [
     "User",
     "UserRole",
     "AvailabilityStatus",
+    "DeletionStatus",
     "CustomerUser",
     "CustomerBusinessFollow",
     "TenantChannelPost",
@@ -189,4 +191,8 @@ __all__ = [
     # Agent caller models
     "AgentDevice",
     "DevicePlatform",
+    # Account deletion models
+    "DeletionRequest",
+    "DeletionScope",
+    "DeletionRequestedVia",
 ]
