@@ -53,7 +53,8 @@ class EscalationSummary(BaseModel):
 
     escalation_id: UUID
     session_id: UUID
-    customer_name: str
+    ticket_number: str
+    customer_name: str | None
     reason: str
     priority: str
     status: str

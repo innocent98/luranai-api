@@ -20,7 +20,7 @@ from app.schemas.user import (
     UserPasswordUpdate,
     UserResponse,
 )
-from app.services.auth_service import AuthService
+from app.services.auth_service import AccountPendingDeletionError, AuthService
 from app.utils.http_rate_limiter import auth_rate_limit
 
 router = APIRouter()
@@ -44,6 +44,11 @@ def login(login_data: LoginRequest, response: Response, db: Session = Depends(ge
             "expires_in": result["expires_in"],
             "must_change_password": result["must_change_password"],
         }
+    except AccountPendingDeletionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"code": "account_pending_deletion", "message": str(e)},
+        ) from e
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

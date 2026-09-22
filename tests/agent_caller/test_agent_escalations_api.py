@@ -15,6 +15,7 @@ from app.db.models.conversation import (
     TicketPriority,
     TicketStatus,
 )
+from app.db.models.visitor import Visitor, VisitorSource
 from app.utils.datetime import utcnow_naive
 
 
@@ -49,6 +50,24 @@ def escalation(db, agent_tenant):
     return ticket
 
 
+@pytest.fixture
+def identified_visitor(db, agent_tenant):
+    """A visitor who has given a name — the identified-customer case."""
+    now = utcnow_naive()
+    visitor = Visitor(
+        tenant_id=agent_tenant.id,
+        public_token=f"tok-{uuid.uuid4().hex}",
+        name="Ada Lovelace",
+        first_seen_at=now,
+        last_seen_at=now,
+        created_from=VisitorSource.WIDGET,
+    )
+    db.add(visitor)
+    db.commit()
+    db.refresh(visitor)
+    return visitor
+
+
 def test_list_returns_pending_escalation(client, auth_headers, escalation):
     resp = client.get("/api/v1/agent/escalations", headers=auth_headers)
     assert resp.status_code == 200
@@ -59,7 +78,22 @@ def test_list_returns_pending_escalation(client, auth_headers, escalation):
     assert row["status"] == "pending"
     assert row["priority"] == "critical"
     assert row["reason"] == "Customer requested a refund"
-    assert row["customer_name"] == "Customer"
+    # Unidentified public-widget visitor: the app must be able to tell this
+    # apart from a named customer, so the name is null (not the "Customer"
+    # placeholder the ring push uses) and it renders `#<ticket_number>` instead.
+    assert row["customer_name"] is None
+    assert row["ticket_number"] == escalation.ticket_number
+
+
+def test_list_customer_name_is_real_name_for_identified_visitor(
+    client, db, auth_headers, escalation, identified_visitor
+):
+    session = db.get(ConversationSession, escalation.session_id)
+    session.visitor_id = identified_visitor.id
+    db.commit()
+    row = client.get("/api/v1/agent/escalations", headers=auth_headers).json()[0]
+    assert row["customer_name"] == "Ada Lovelace"
+    assert row["ticket_number"] == escalation.ticket_number
 
 
 @pytest.mark.parametrize(
@@ -128,6 +162,22 @@ def test_detail_includes_transcript(client, auth_headers, escalation):
     ]
     assert body["handled_by"] is None
     assert body["handled_by_user_id"] is None
+    # Detail extends the summary, so it carries ticket_number and the same
+    # nullable customer_name contract (unidentified visitor -> null).
+    assert body["ticket_number"] == escalation.ticket_number
+    assert body["customer_name"] is None
+
+
+def test_detail_customer_name_is_real_name_for_identified_visitor(
+    client, db, auth_headers, escalation, identified_visitor
+):
+    session = db.get(ConversationSession, escalation.session_id)
+    session.visitor_id = identified_visitor.id
+    db.commit()
+    escalation_id = escalation.id
+    body = client.get(f"/api/v1/agent/escalations/{escalation_id}", headers=auth_headers).json()
+    assert body["customer_name"] == "Ada Lovelace"
+    assert body["ticket_number"] == escalation.ticket_number
 
 
 def test_detail_reports_handler_once_claimed(client, db, auth_headers, escalation, agent_user):

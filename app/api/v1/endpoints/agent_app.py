@@ -20,6 +20,7 @@ from app.db.models.agent_device import AgentDevice
 from app.db.models.conversation import ConversationSession, Message, Ticket, TicketStatus
 from app.db.models.tenant import Tenant
 from app.db.models.user import User
+from app.db.models.visitor import Visitor
 from app.db.session import get_db
 from app.schemas.agent_app import (
     AcknowledgeLost,
@@ -34,7 +35,8 @@ from app.schemas.agent_app import (
     TranscriptMessage,
 )
 from app.schemas.user import UserResponse
-from app.services.agent_alert_service import _PRIORITY_WIRE, customer_name
+from app.services.agent_alert_service import _PRIORITY_WIRE
+from app.services.conversation_service import emit_agent_joined
 from app.services.notification_enqueue import enqueue_clear_alert_async
 from app.utils.datetime import utcnow_naive
 
@@ -147,11 +149,27 @@ def _owned_ticket(db: Session, ticket_id: UUID, tenant_id: UUID) -> Ticket:
     return ticket
 
 
+def _visitor_display_name_or_none(db: Session, session: ConversationSession | None) -> str | None:
+    """The visitor's real name, or None for an unidentified public-widget visitor.
+
+    Deliberately NOT the shared `customer_name()` ring helper, which defaults to
+    the "Customer" placeholder for the FCM push payload and must keep doing so.
+    The agent app needs to tell an identified customer from an anonymous one so
+    it can render `#<ticket_number>` instead of a generic "Customer" label —
+    which a non-null placeholder here would defeat.
+    """
+    if session is None or session.visitor_id is None:
+        return None
+    visitor = db.get(Visitor, session.visitor_id)
+    return visitor.name if visitor and visitor.name else None
+
+
 def _summary(db: Session, ticket: Ticket, session: ConversationSession | None) -> EscalationSummary:
     return EscalationSummary(
         escalation_id=ticket.id,
         session_id=ticket.session_id,
-        customer_name=customer_name(db, session) if session else "Customer",
+        ticket_number=ticket.ticket_number,
+        customer_name=_visitor_display_name_or_none(db, session),
         reason=(session.escalation_reason if session else None) or ticket.summary or "",
         priority=_PRIORITY_WIRE.get(ticket.priority, "normal"),
         status=_wire_status(ticket),
@@ -249,6 +267,13 @@ async def _finish_claim(db: Session, ticket: Ticket, current_agent: UserResponse
         session.agent_id = current_agent.id
         session.agent_joined_at = utcnow_naive()
         db.commit()
+        # Announce the join to the customer — the same SYSTEM notice + WS fanout
+        # the web dashboard's takeover emits, so the customer widget renders it
+        # identically whether the agent took over from web or mobile. Guarded by
+        # the `agent_id != current_agent.id` check above so an idempotent retry
+        # (this path re-runs per acknowledge_escalation's retry logic) does not
+        # double-post the notice.
+        await emit_agent_joined(db, session, current_agent)
 
     try:
         await enqueue_clear_alert_async(ticket.id, current_agent.id)

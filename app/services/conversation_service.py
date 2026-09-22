@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from app.core.websocket import connection_manager
 from app.db.models.conversation import ConversationSession, Message, MessageRole, SessionStatus
 from app.db.models.visitor import Visitor
 from app.schemas.conversation import (
@@ -536,3 +537,42 @@ class ConversationService:
         session.customer_last_read_at = datetime.now(UTC)
         self.db.commit()
         return True
+
+
+async def emit_agent_joined(db: Session, session: ConversationSession, agent) -> None:
+    """Announce a human agent joining an escalated chat, to the customer only.
+
+    Two customer-facing side effects, kept together so every takeover path
+    produces an identical join notice:
+      1. A persisted SYSTEM message the customer widget renders in the transcript.
+      2. An `agent_joined` WebSocket fanout the widget listens for live.
+
+    Shared by both takeover entry points — the web dashboard (`agent_takeover`)
+    and the mobile Agent Caller acknowledge (`_finish_claim`) — so the customer
+    sees "X joined the conversation" regardless of which client the agent used.
+
+    The caller must have already assigned the agent and committed
+    `session.agent_joined_at` before calling this, because that timestamp is
+    echoed to the widget as the event's `timestamp`. `session` may be the ORM
+    `ConversationSession` or a `SessionResponse`; both expose `.id` and
+    `.agent_joined_at`. `agent` is a `User`/`UserResponse` with `.full_name`
+    and `.id`.
+    """
+    ConversationService(db).add_message(
+        session_id=session.id,
+        role=MessageRole.SYSTEM,
+        content=f"{agent.full_name} joined the conversation",
+        meta={"event": "agent_joined", "agent_id": str(agent.id)},
+    )
+
+    await connection_manager.fanout_event(
+        session_id=session.id,
+        message={
+            "type": "agent_joined",
+            "agent_name": agent.full_name,
+            "agent_id": str(agent.id),
+            "timestamp": (session.agent_joined_at.isoformat() if session.agent_joined_at else None),
+        },
+        to_customer=True,
+        to_agents=False,
+    )

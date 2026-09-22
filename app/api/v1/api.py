@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.endpoints import (
+    account_deletion,
     agent_app,
     analytics,
     api_keys,
@@ -69,6 +70,13 @@ api_router.include_router(
     company_registration.router,
     prefix="/auth",
     tags=["registration"],
+)
+
+# Account-deletion request/verify/cancel/tenant endpoints (dual-mode: public
+# + authed). No prefix — paths already start with /account/... under /api/v1.
+api_router.include_router(
+    account_deletion.router,
+    tags=["account-deletion"],
 )
 
 # Customer-facing authentication endpoints

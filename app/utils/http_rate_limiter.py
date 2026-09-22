@@ -84,6 +84,17 @@ resend_verification_rate_limiter = RedisRateLimiter(
     window_seconds=3600,  # 5 resends per hour (allow retries, prevent spam)
 )
 
+# Public, unauthenticated account-deletion request (IP-based). Deliberately
+# tight — this endpoint resolves an arbitrary email to an account/no-account
+# outcome, so both abuse (spamming deletion emails at a victim) and
+# enumeration-by-volume deserve a low ceiling, same posture as
+# `resend_verification_rate_limiter`.
+account_deletion_public_rate_limiter = RedisRateLimiter(
+    key_prefix="http_account_deletion_public",
+    max_calls=5,
+    window_seconds=3600,  # 5 per hour
+)
+
 # Webhook endpoints (IP-based)
 webhook_rate_limiter = RedisRateLimiter(
     key_prefix="http_webhook",
@@ -222,6 +233,10 @@ resend_verification_rate_limit = create_rate_limit_dependency(
     resend_verification_rate_limiter, "ip"
 )
 webhook_rate_limit = create_rate_limit_dependency(webhook_rate_limiter, "ip")
+# No `create_rate_limit_dependency` wrapper for account_deletion_public: the
+# deletion-request endpoint is dual-mode (authed vs public) and must only
+# rate-limit the public branch, so it calls `check_rate_limit` directly
+# inside that branch instead of via a blanket `Depends`.
 
 # Authenticated endpoints
 payment_rate_limit = create_rate_limit_dependency(payment_rate_limiter, "user")

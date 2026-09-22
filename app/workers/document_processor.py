@@ -1209,6 +1209,10 @@ class WorkerSettings:
         auto_resolve_stale_tickets,
     )
 
+    from app.workers.account_deletion_purge import (  # type: ignore[misc]
+        purge_due_deletion_requests,
+    )
+
     from app.auditor.pipeline import run_website_audit  # type: ignore[misc]
 
     from app.workers.sales_notifications import (  # type: ignore[misc]
@@ -1236,6 +1240,7 @@ class WorkerSettings:
         clear_agent_alert,
         auto_abandon_inactive_conversations,
         auto_resolve_stale_tickets,
+        purge_due_deletion_requests,
         check_trial_expiration_3days,
         expire_lapsed_trials,
         check_subscription_renewal_reminders,
@@ -1269,6 +1274,13 @@ class WorkerSettings:
             auto_abandon_inactive_conversations,
             minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
             run_at_startup=True,  # Run once on worker startup
+        ),
+        # Purge account-deletion requests past their grace period - every 5
+        # minutes (same cadence as auto_abandon_inactive_conversations above)
+        cron(
+            purge_due_deletion_requests,
+            minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
+            run_at_startup=True,  # catch any overdue purges on worker start/deploy
         ),
         # Reap audits stranded by a killed worker - every 10 minutes
         cron(
