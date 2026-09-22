@@ -28,6 +28,15 @@ class AvailabilityStatus(str, enum.Enum):
     AWAY = "away"
 
 
+class DeletionStatus(str, enum.Enum):
+    """Account-deletion lifecycle stage, mirrored from the latest DeletionRequest."""
+
+    ACTIVE = "active"  # No deletion in progress
+    PENDING_VERIFICATION = "pending_verification"  # Requested, awaiting email verification
+    GRACE = "grace"  # Verified, cancellable grace period before purge
+    PURGED = "purged"  # Irreversibly purged
+
+
 class User(Base, UUIDMixin, TimestampMixin):
     """
     Tenant users (company staff members).
@@ -105,6 +114,22 @@ class User(Base, UUIDMixin, TimestampMixin):
         server_default="available",
         nullable=False,
         comment="Whether this agent is rung in the escalation broadcast tier",
+    )
+    deletion_status: Mapped[DeletionStatus] = mapped_column(
+        SQLEnum(
+            DeletionStatus,
+            name="deletion_status",
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        default=DeletionStatus.ACTIVE,
+        server_default="active",
+        nullable=False,
+        comment="Account-deletion lifecycle stage, mirrored from the latest DeletionRequest",
+    )
+    deletion_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="When the current (or most recent) deletion request was created",
     )
 
     def __repr__(self) -> str:
