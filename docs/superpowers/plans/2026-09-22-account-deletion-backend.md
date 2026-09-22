@@ -16,7 +16,7 @@
 - Reproduce CI locally and make green BEFORE pushing: `poetry run ruff check app/`, `poetry run black --check app/`, `poetry run pytest tests/` (match the exact CI steps + pinned tool versions).
 - Alembic: exactly one new migration, chaining off current head `z3a4b5c6d7e8`; prove upgrade→downgrade→upgrade round-trips on a fresh DB. Single head.
 - **Irreversibility discipline:** no PII in logs; purge is idempotent; every destructive path requires the request to be in the correct state; the public endpoint must be constant-shape and MUST NOT leak whether an email exists.
-- **Legal sign-off (pre-launch, flag don't block):** the exact deleted-vs-retained field list in Task 3 is a proposed default — mark it clearly for compliance review before production launch.
+- **HARD DELETE model (decision 2026-09-22, supersedes an earlier anonymize+retain draft):** Task 3 hard-deletes ALL user PII after grace — NO retained legal/billing subset, no retention period, no legal-signoff field list. Tenant-owned records (tickets/messages) are KEPT but de-identified (assigned_to→NULL, author→"Former agent"); `purge_tenant` cascade-deletes everything. Keep a PII-free deletion audit. See spec §3.
 - Grace period from config `ACCOUNT_DELETION_GRACE_DAYS` (default 30).
 - Anchors: `app/db/models/user.py` (User: encrypted `email`, `email_hash`, `full_name`, `role`, `is_active`); `app/api/deps.py` (`get_current_user`:71, `get_current_tenant_admin`:166, `get_current_agent`:178); ARQ worker pattern `app/workers/conversation_auto_resolver.py`; email `app/services/email_service.py`; session revoke `revoked:{jti}` (`app/api/deps.py`); team/role for ownership transfer `app/api/v1/endpoints/users.py`.
 

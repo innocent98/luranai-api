@@ -18,12 +18,13 @@ Accounts are `User` rows with `role ∈ {tenant_admin, support_agent}`, each sco
 4. **Grace period = 30 days** (configurable via env, e.g. `ACCOUNT_DELETION_GRACE_DAYS`). During grace the request is **cancellable** → account restored (`deletion_status` cleared, login re-enabled). Cancel via a link in the email and/or re-login prompt.
 5. **Purge** (after grace): a scheduled ARQ worker (`account_deletion_purge`, mirrors the existing `conversation_auto_resolver` cadence) processes requests where `scheduled_purge_at <= now` and `status = grace` → applies the data policy in §3 → sets `status = purged`.
 
-## 3. Data policy — anonymize PII, retain minimal legal/audit subset
-On purge (approved direction — **anonymize, do not blanket soft-delete**):
-- **Delete / anonymize (PII):** `full_name`, `email`, `phone`, avatar, auth credentials/tokens, device push tokens, and personally-identifying free text the user authored. Replace with a stable pseudonymous tombstone id so referential integrity holds but the person is no longer identifiable.
-- **Retain (minimal, ideally already non-personal / anonymized):** billing/invoice/transaction records and anything under a legal-hold or fraud/abuse obligation — linked to the tombstone, not to identifiable PII. Aggregate/operational metrics that are already non-personal.
-- **Tombstone:** the `User` id is retained as an anonymized shell (`deletion_status = purged`, PII nulled/hashed) so it can't be reused and historical FKs (e.g. a resolved ticket's `assigned_to`) don't dangle. Content authored in customer conversations: author attribution anonymized ("former agent"), message bodies kept only where operationally/legally needed, else redacted.
-- The UI must **state plainly what is deleted vs retained** (Play requires this disclosure).
+## 3. Data policy — HARD DELETE after grace, nothing retained
+**Decision 2026-09-22 (supersedes an earlier anonymize+retain draft):** on purge, **hard-delete all of the user's personal data — no retained legal/billing subset, no retention period, no legal-signoff field list.** This deliberately keeps it simple.
+- **`purge_user`:** remove ALL of the user's PII — `full_name`, `email`, `email_hash`, `phone`, avatar, auth credentials/tokens, device push tokens, authored personal free-text. Either delete the `User` row or leave a fully PII-free shell (whichever is cleanest given inbound FK constraints); the binding requirement is that **no PII remains** for that user. Idempotent.
+- **Tenant-owned records are kept, de-identified — NOT deleted:** the tickets a support agent was assigned to and the customer-conversation messages they authored belong to the tenant and its customers. Keep them, but strip the person: `assigned_to` → NULL, author attribution → a neutral label ("Former agent"). Deleting them would destroy the tenant's customer-support history.
+- **`purge_tenant`** (last-admin explicit path): full hard **cascade delete** of ALL tenant-scoped data + all member users — everything goes.
+- Keep a **PII-free deletion audit** (that a purge ran + when) so it's provable; no personal data in it.
+- The UI states plainly that the account and personal data are deleted after the grace period.
 
 ## 4. Surfaces + endpoints (backend contract, `luran`)
 All under `/api/v1`. Exact schemas finalized in the plan; shapes here are the contract intent.
