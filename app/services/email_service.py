@@ -428,6 +428,86 @@ class EmailService:
             logger.error(f"Failed to send verification email: {e}")
             return False
 
+    def send_account_deletion_verification_email(
+        self,
+        email: str,
+        verification_token: str,
+        frontend_url: str | None = None,
+    ) -> bool:
+        """Send the public, unauthenticated account-deletion verification link.
+
+        Deliberately takes no user-identifying fields beyond the recipient
+        address itself. The caller (the public deletion-request endpoint)
+        must not do an extra lookup just to personalize this email — that
+        would reintroduce the exists-vs-doesn't-exist timing difference the
+        endpoint is built to avoid.
+
+        Args:
+            email: Recipient email (the address the request was made for)
+            verification_token: Single-use deletion-verification token
+            frontend_url: Optional override of the dashboard base URL
+
+        Returns:
+            True if sent successfully
+        """
+        try:
+            template = self.jinja_env.get_template("account_deletion_verification.html")
+            app_url = frontend_url or settings.FRONTEND_URL
+            verification_link = f"{app_url}/delete-account/verify?token={verification_token}"
+
+            html_content = template.render(
+                verification_link=verification_link,
+                current_year=datetime.now().year,
+            )
+
+            subject = "Confirm your account deletion request"
+            return self._send_email(email, subject, html_content)
+
+        except Exception as e:
+            logger.error(f"Failed to send account deletion verification email: {e}")
+            return False
+
+    def send_account_deletion_confirmation_email(
+        self,
+        email: str,
+        cancel_token: str,
+        scheduled_purge_at: datetime,
+        frontend_url: str | None = None,
+    ) -> bool:
+        """Send the deletion-scheduled confirmation + cancel link.
+
+        Used for both the authed self-serve/tenant paths and the public
+        path once its verification link has been clicked — in every case
+        the account is now in the cancellable grace period and this is the
+        one link that can restore it.
+
+        Args:
+            email: Recipient email
+            cancel_token: Single-use grace-period cancel token
+            scheduled_purge_at: When the grace period ends (irreversible purge)
+            frontend_url: Optional override of the dashboard base URL
+
+        Returns:
+            True if sent successfully
+        """
+        try:
+            template = self.jinja_env.get_template("account_deletion_confirmation.html")
+            app_url = frontend_url or settings.FRONTEND_URL
+            cancel_link = f"{app_url}/delete-account/cancel?token={cancel_token}"
+
+            html_content = template.render(
+                cancel_link=cancel_link,
+                scheduled_purge_at=scheduled_purge_at.strftime("%B %d, %Y"),
+                current_year=datetime.now().year,
+            )
+
+            subject = "Your account deletion is scheduled"
+            return self._send_email(email, subject, html_content)
+
+        except Exception as e:
+            logger.error(f"Failed to send account deletion confirmation email: {e}")
+            return False
+
 
 # Singleton instance
 email_service = EmailService()

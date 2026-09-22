@@ -16,10 +16,35 @@ from app.core.security import (
     verify_password,
 )
 from app.db.models.refresh_token import RefreshToken
-from app.db.models.user import User, UserRole
+from app.db.models.user import DeletionStatus, User, UserRole
 from app.schemas.user import LoginRequest, TokenData, UserCreate, UserResponse
 from app.services.token_service import token_service
 from app.services.email_service import email_service
+
+# A user whose deletion request has been verified (or is a public request
+# awaiting verification) must not be able to log in at all — distinct from
+# `is_active` (email-not-yet-verified), which `authenticate_user` already
+# handles below. Kept separate from `app.services.account_deletion_service`
+# to avoid a circular import (that module imports from `app.api.deps`, which
+# imports `AuthService` from this module).
+_LOGIN_BLOCKED_DELETION_STATUSES = (DeletionStatus.PENDING_VERIFICATION, DeletionStatus.GRACE)
+
+
+class AccountPendingDeletionError(Exception):
+    """Raised by `authenticate_user` when the account is scheduled for deletion.
+
+    Deliberately not a `ValueError` — callers must handle this distinctly
+    (403, not the generic 401 `ValueError` path) rather than let it fall
+    through the existing catch-all.
+    """
+
+    def __init__(
+        self,
+        message: str = (
+            "This account is scheduled for deletion. Cancel the deletion to restore access."
+        ),
+    ) -> None:
+        super().__init__(message)
 
 
 class AuthService:
@@ -45,6 +70,9 @@ class AuthService:
 
         if not user or not verify_password(password, user.hashed_password):
             return None
+
+        if user.deletion_status in _LOGIN_BLOCKED_DELETION_STATUSES:
+            raise AccountPendingDeletionError()
 
         if not user.is_active:
             raise ValueError("Please verify your email before signing in")

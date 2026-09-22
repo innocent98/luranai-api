@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Confirm your account deletion request{% endblock %}
+
+{% block content %}
+<h1>Confirm account deletion</h1>
+
+<p>
+    We received a request to delete the Luran account associated with this
+    email address. If this was you, click the button below to confirm.
+</p>
+
+<center>
+    <a href="{{ verification_link }}" class="button">
+        Confirm Deletion
+    </a>
+</center>
+
+<p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+    Or copy and paste this link into your browser: <br>
+    <span style="word-break: break-all;">{{ verification_link }}</span>
+</p>
+
+<div class="warning">
+    <strong>Didn't request this?</strong> You can safely ignore this email —
+    no action will be taken on your account unless this link is used.
+</div>
+
+<p style="margin-top: 30px; color: #6b7280;">— The Luran Team</p>
+{% endblock %}
