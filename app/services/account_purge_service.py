@@ -95,7 +95,11 @@ entry per inbound FK found by the grep above:
         published_by_user_id                          -> NULL
     platform_feedback.submitted_by                    -> NULL
     processing_jobs.created_by                        -> NULL
-    audit_logs.user_id                                -> NULL
+    audit_logs.user_id                                -> NULL, plus
+        .ip_address / .user_agent -> NULL in the SAME statement (GDPR
+        personal data denormalized on the row itself — fixed in fix round
+        1; nulling them in a second, separately-keyed UPDATE after user_id
+        is already NULL would silently match zero rows)
     platform_email_campaign_recipients.user_id        -> NULL, plus
         .recipient_email -> redacted placeholder and .recipient_name ->
         NULL (the only inbound-FK table that also denormalizes the user's
@@ -108,16 +112,23 @@ lives on that row to begin with (token hashes only).
 ``ConversationSession.agent_id``, which is de-identified above. There is
 nothing else to scrub for message authorship.
 
-Known gap, flagged for follow-up rather than guessed at: ``subscription_
-history.changed_by_name`` denormalizes a free-text name and
-``changed_by_id`` is a bare UUID column with no declared FK to ``users.id``
-(so it's outside the FK-driven sweep above). If a tenant_admin who once
-changed their own tenant's subscription is later purged via the
-single-user path (tenant continues to exist), their name could still read
-there. Scrubbing free-text name snapshots with no FK to drive the search is
-a full-text sweep, not a bounded one — out of scope here; flagging for
-legal/coordinator review rather than a partial guess. (Not a concern for
-``purge_tenant``, which deletes ``subscription_history`` entirely.)
+Not an inbound FK, but scrubbed alongside the sweep above (fixed in fix
+round 1 — was flagged as a known gap in the original submission, now
+closed): ``subscription_history.changed_by_id`` is a bare UUID column with
+no declared FK to ``users.id``, but ``changed_by_name`` denormalizes a
+free-text name. ``_deidentify_user_references`` nulls
+``changed_by_name`` wherever ``changed_by_id`` matches the purged user.
+``changed_by_id`` itself is left as a bare UUID (not PII on its own, no FK
+to null) — not a concern for ``purge_tenant``, which deletes
+``subscription_history`` entirely.
+
+**Reviewed and found NOT to apply** (fix round 1 checked this explicitly
+rather than guessing): ``PlatformFeedback`` has no ``name``/``email``/
+``company`` columns — those free-text contact fields exist only on the
+separate, non-tenant-scoped ``PublicFeedback`` model (anonymous
+landing-page feedback, no ``submitted_by``/user FK at all, out of this
+service's remit entirely). ``PlatformFeedback.submitted_by`` nulling above
+is the complete fix for that table on the single-user path.
 
 ============================================================================
 ``purge_tenant`` — tables hard-deleted (tenant-scoped; no retained subset)
@@ -133,7 +144,21 @@ conversation_sessions (cascades messages + tickets via their own
     (cascades audit_entries), processing_jobs, payment_transactions,
     subscription_history, promotional_grants, audit_logs (tenant-scoped
     rows only — a NULL tenant_id row is a platform-level action, not this
-    tenant's), analytics_metrics, tenant_ai_configs, tenant_capabilities.
+    tenant's), analytics_metrics, tenant_ai_configs, tenant_capabilities,
+    email_notifications (recipient_email — added in fix round 1, was
+    missing from the original delete list), platform_feedback (added in
+    fix round 1, same root cause).
+
+This list is now guarded by a completeness test
+(``test_purge_tenant_completeness_guard_...`` in the test file) that
+reflects every model with a declared ``tenant_id`` FK to ``tenants.id``
+straight off ``Base.metadata`` and asserts zero surviving rows per table
+except the explicit allowlist below — so a future tenant-scoped table
+that forgets to get added here fails the test instead of silently
+leaking. This is the fix for the original miss: because the ``Tenant``
+row is kept as a shell rather than hard-deleted, ``ondelete=CASCADE``
+never fires, and this explicit delete list is the ONLY thing that removes
+tenant data — it has to be exhaustive, and now it's mechanically checked.
 
 Left alone: ``deletion_requests`` (the audit trail — see above);
 ``platform_email_campaigns`` / ``platform_email_campaign_recipients``
@@ -171,6 +196,7 @@ from app.db.models.business_profile import BusinessProfile
 from app.db.models.conversation import ConversationSession, Ticket
 from app.db.models.customer_engagement import CustomerBusinessFollow, TenantChannelPost
 from app.db.models.deletion_request import DeletionRequest
+from app.db.models.email_notification import EmailNotification
 from app.db.models.flow import Flow, FlowExecution
 from app.db.models.job import ProcessingJob
 from app.db.models.knowledge import KnowledgeChunk, KnowledgeSource
@@ -284,6 +310,8 @@ class AccountPurgeService:
         self.db.execute(delete(AuditEntry).where(AuditEntry.tenant_id == tenant_id))
         self.db.execute(delete(AuditReport).where(AuditReport.tenant_id == tenant_id))
         self.db.execute(delete(ProcessingJob).where(ProcessingJob.tenant_id == tenant_id))
+        self.db.execute(delete(EmailNotification).where(EmailNotification.tenant_id == tenant_id))
+        self.db.execute(delete(PlatformFeedback).where(PlatformFeedback.tenant_id == tenant_id))
 
         # Billing/subscription/audit — no retained subset any more.
         self.db.execute(delete(PaymentTransaction).where(PaymentTransaction.tenant_id == tenant_id))
@@ -416,8 +444,25 @@ class AccountPurgeService:
             .where(ProcessingJob.created_by == user_id)
             .values(created_by=None)
         )
+        # ip_address/user_agent are personal data too (GDPR) — must go in
+        # the SAME statement as nulling user_id: a second UPDATE keyed on
+        # AuditLog.user_id == user_id would match zero rows once the first
+        # one has already cleared that column.
         self.db.execute(
-            AuditLog.__table__.update().where(AuditLog.user_id == user_id).values(user_id=None)
+            AuditLog.__table__.update()
+            .where(AuditLog.user_id == user_id)
+            .values(user_id=None, ip_address=None, user_agent=None)
+        )
+
+        # subscription_history.changed_by_id is a bare UUID column with no
+        # declared FK to users.id (so it's outside the grep-driven FK sweep
+        # above), but changed_by_name denormalizes a free-text name —
+        # scrub it explicitly. Not a concern for purge_tenant, which
+        # deletes subscription_history entirely.
+        self.db.execute(
+            SubscriptionHistory.__table__.update()
+            .where(SubscriptionHistory.changed_by_id == user_id)
+            .values(changed_by_name=None)
         )
 
         # The one inbound-FK table that also denormalizes raw PII —
