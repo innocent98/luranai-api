@@ -272,8 +272,20 @@ class TestConfiguration:
         assert hasattr(settings, "OPENAI_EMBEDDING_MODEL")
         assert settings.OPENAI_EMBEDDING_MODEL == "text-embedding-3-small"
 
+        # The LLM model is env-configurable (and rollback-able), so assert it is
+        # configured rather than pinning a specific value that differs per env.
         assert hasattr(settings, "OPENAI_LLM_MODEL")
-        assert settings.OPENAI_LLM_MODEL == "gpt-4o-mini"
+        assert isinstance(settings.OPENAI_LLM_MODEL, str)
+        assert settings.OPENAI_LLM_MODEL
+
+        assert hasattr(settings, "OPENAI_REASONING_EFFORT")
+        assert settings.OPENAI_REASONING_EFFORT in {
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+        }
 
     def test_embedding_dimension_updated(self):
         """Verify embedding dimension is updated to 1536."""
