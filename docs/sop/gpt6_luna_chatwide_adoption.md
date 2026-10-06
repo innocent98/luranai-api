@@ -83,19 +83,19 @@ Unaffected (separate model seams): embeddings (`OPENAI_EMBEDDING_MODEL`), the au
 
 ## Operate / roll back
 
-- **Activate the flip:** the flip only takes effect where `OPENAI_LLM_MODEL` is set. The
-  committed default is now `gpt-6-luna`, but each environment's `.env` pins the var, so staging
-  and production need their encrypted envs updated to `OPENAI_LLM_MODEL=gpt-6-luna` +
-  `OPENAI_REASONING_EFFORT=low` (via `scripts/env.sh decrypt/encrypt`). **Pending** — see Follow-ups.
+- **Activate the flip:** done in-branch (commit `a69d31f`). `.env.staging.enc` and
+  `.env.production.enc` now set `OPENAI_LLM_MODEL=gpt-6-luna` + `OPENAI_REASONING_EFFORT=low`
+  (before/after decrypt diff confirmed *only* those two keys changed; both `.enc` re-verified).
+  Takes effect on deploy: staging on merge→`develop`, production on the `develop`→`main` promotion.
 - **Roll back:** set `OPENAI_LLM_MODEL=gpt-4o-mini` in the environment's `.env` and redeploy. No
   code change needed — the builder restores classic sampling params for a non-reasoning model.
 
 ## Follow-ups
 
-- [ ] **Update staging + production encrypted envs** (`.env.staging.enc`, `.env.production.enc`) to
-  set `OPENAI_LLM_MODEL=gpt-6-luna` + `OPENAI_REASONING_EFFORT=low`. Local plaintext copies exist;
-  reconcile carefully to avoid clobbering local state. Until done, deployed envs keep `gpt-4o-mini`.
+- [x] **Staging + production encrypted envs updated** (commit `a69d31f`) — `gpt-6-luna` + effort
+  `low`; only those two keys changed (verified). Takes effect on deploy.
 - [ ] Update local dev `.env` to `gpt-6-luna` for parity (developer's machine; not committed).
+- [ ] Post-deploy: staging live smoke of chat + voice brain on luna.
 - [ ] No FE integration guide needed: the chat/voice response contract (`ChatResponse`) is
   unchanged — the swap is transparent to the frontend.
 - [ ] Consider measuring `reasoning_effort="none"` for plain chat if lower latency is wanted;
