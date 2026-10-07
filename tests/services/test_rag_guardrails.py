@@ -3,7 +3,8 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from app.services.rag_service import RAGService
+from app.core.config import settings
+from app.services.rag_service import RAGService, is_reasoning_model
 
 
 def _ai_config(
@@ -102,5 +103,12 @@ class TestRuntimeSystemMessage:
         call_kwargs = mock_client.chat.completions.create.call_args.kwargs
         assert call_kwargs["messages"][0]["role"] == "system"
         assert "multi-tenant platform" in call_kwargs["messages"][0]["content"]
-        assert call_kwargs["temperature"] == 0.2
-        assert call_kwargs["top_p"] == 0.8
+        # Sampling params are shaped to the model family (see test_llm_kwargs_builder).
+        # Reasoning models (e.g. gpt-6-luna) omit temperature/top_p; classic models keep them.
+        if is_reasoning_model(settings.OPENAI_LLM_MODEL):
+            assert "temperature" not in call_kwargs
+            assert "top_p" not in call_kwargs
+            assert "reasoning_effort" in call_kwargs
+        else:
+            assert call_kwargs["temperature"] == 0.2
+            assert call_kwargs["top_p"] == 0.8

@@ -22,6 +22,71 @@ if TYPE_CHECKING:
     from app.schemas.rag import EscalationDecision, PromptComponents, ResponseQuality
 
 
+# OpenAI reasoning-model families (o-series, gpt-5/6). These reject temperature/
+# top_p/max_tokens and instead take max_completion_tokens + reasoning_effort.
+_REASONING_MODEL_PREFIXES = ("o1", "o3", "o4", "gpt-5", "gpt-6")
+
+# reasoning_effort values accepted by gpt-6-luna (validated live 2026-10-06).
+# Note: "minimal" and "max" are NOT accepted; "none" is the floor.
+_VALID_REASONING_EFFORTS = frozenset({"none", "low", "medium", "high", "xhigh"})
+_DEFAULT_REASONING_EFFORT = "low"
+
+
+def is_reasoning_model(model: str) -> bool:
+    """True if `model` is an OpenAI reasoning model (o-series / gpt-5 / gpt-6)."""
+    m = (model or "").lower()
+    return any(m.startswith(prefix) for prefix in _REASONING_MODEL_PREFIXES)
+
+
+def build_chat_completion_kwargs(
+    *,
+    model: str,
+    messages: list[dict],
+    max_tokens: int,
+    temperature: float,
+    top_p: float | None = None,
+    response_format: dict | None = None,
+    tools: list[dict] | None = None,
+    tool_choice: str | None = None,
+    reasoning_effort: str = _DEFAULT_REASONING_EFFORT,
+) -> dict:
+    """Shape chat.completions.create kwargs to the model family.
+
+    Reasoning models (see `is_reasoning_model`) reject `temperature`/`top_p` and
+    `max_tokens`; they take `max_completion_tokens` + `reasoning_effort`. Function
+    tools additionally require `reasoning_effort="none"` on those models in
+    chat.completions (OpenAI constraint — validated live 2026-10-06). Classic
+    models keep the old sampling params, so a model rollback via env needs no code
+    change.
+    """
+    kwargs: dict = {"model": model, "messages": messages}
+
+    if is_reasoning_model(model):
+        kwargs["max_completion_tokens"] = max_tokens
+        effort = (
+            reasoning_effort
+            if reasoning_effort in _VALID_REASONING_EFFORTS
+            else _DEFAULT_REASONING_EFFORT
+        )
+        # Function tools + any non-none reasoning are incompatible in chat.completions.
+        if tools:
+            effort = "none"
+        kwargs["reasoning_effort"] = effort
+    else:
+        kwargs["max_tokens"] = max_tokens
+        kwargs["temperature"] = temperature
+        if top_p is not None:
+            kwargs["top_p"] = top_p
+
+    if response_format is not None:
+        kwargs["response_format"] = response_format
+    if tools:
+        kwargs["tools"] = tools
+        kwargs["tool_choice"] = tool_choice or "auto"
+
+    return kwargs
+
+
 @dataclass
 class ToolRoutingResult:
     """Result of asking the LLM which tenant action (if any) to invoke."""
@@ -988,14 +1053,16 @@ Instructions:
         try:
             await openai_llm_rate_limiter.acquire()
             client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
-            response = await client.chat.completions.create(  # type: ignore[call-overload]
+            kwargs = build_chat_completion_kwargs(
                 model=model,
                 messages=messages,
+                max_tokens=300,
+                temperature=0.1,
                 tools=tools or None,
                 tool_choice="auto" if tools else "none",
-                temperature=0.1,
-                max_tokens=300,
+                reasoning_effort=settings.OPENAI_REASONING_EFFORT,
             )
+            response = await client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
             message = response.choices[0].message
             tool_calls = getattr(message, "tool_calls", None)
             if not tool_calls:
@@ -1033,15 +1100,15 @@ Instructions:
             await openai_llm_rate_limiter.acquire()
             client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
-            kwargs: dict = {
-                "model": model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "temperature": 0.2,
-                "top_p": 0.8,
-            }
-            if response_format is not None:
-                kwargs["response_format"] = response_format
+            kwargs = build_chat_completion_kwargs(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=0.2,
+                top_p=0.8,
+                response_format=response_format,
+                reasoning_effort=settings.OPENAI_REASONING_EFFORT,
+            )
 
             logger.debug(f"Calling OpenAI API with max_tokens={max_tokens}")
             response = await client.chat.completions.create(**kwargs)

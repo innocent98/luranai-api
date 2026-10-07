@@ -158,7 +158,10 @@ class Settings(BaseSettings):
     # OpenAI
     OPENAI_API_KEY: str
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"  # 3K RPM, $0.00002/1K tokens
-    OPENAI_LLM_MODEL: str = "gpt-4o-mini"  # 500 RPM, $0.150/1M input, $0.600/1M output
+    OPENAI_LLM_MODEL: str = "gpt-6-luna"  # reasoning model; $0.10/1M in, $0.50/1M out
+    # reasoning_effort for gpt-6/reasoning models: none|low|medium|high|xhigh.
+    # Ignored for non-reasoning models (e.g. gpt-4o-mini). Tool-routing forces "none".
+    OPENAI_REASONING_EFFORT: str = "low"
 
     EMBEDDING_DIMENSION: int = 1536  # text-embedding-3-small produces 1536-dim vectors
 
