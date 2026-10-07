@@ -101,3 +101,24 @@ def test_already_linked_rejected_and_nothing_linked(db):
     db.refresh(good)
     assert good.message_id is None
     assert good.status == AttachmentStatus.UPLOADED
+
+
+def test_history_returns_linked_attachments(db):
+    from app.db.models.conversation import Message
+
+    s = _session(db)
+    msg = Message(session_id=s.id, role=MessageRole.USER, content="pic", meta={})
+    db.add(msg)
+    db.commit()
+    att = _att(db, s, message_id=msg.id, status=AttachmentStatus.LINKED)
+    plain = Message(session_id=s.id, role=MessageRole.ASSISTANT, content="ok", meta={})
+    db.add(plain)
+    db.commit()
+
+    svc = ConversationService(db)
+    history = {m.id: m for m in svc.get_session_messages(s.id)}
+    assert [a.id for a in history[msg.id].attachments] == [att.id]
+    assert history[msg.id].attachments[0].url == "https://c/x.jpg"
+    assert history[plain.id].attachments == []
+    paginated, _ = svc.get_session_messages_paginated(s.id)
+    assert any(a.id == att.id for m in paginated for a in m.attachments)
