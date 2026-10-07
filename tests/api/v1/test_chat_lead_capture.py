@@ -93,15 +93,11 @@ def _make_tenant(
 
 
 def _count_leads(db: Session, tenant_id: UUID) -> int:
-    return len(
-        db.execute(select(Lead).where(Lead.tenant_id == tenant_id)).scalars().all()
-    )
+    return len(db.execute(select(Lead).where(Lead.tenant_id == tenant_id)).scalars().all())
 
 
 def _only_lead(db: Session, tenant_id: UUID) -> Lead:
-    rows = db.execute(
-        select(Lead).where(Lead.tenant_id == tenant_id)
-    ).scalars().all()
+    rows = db.execute(select(Lead).where(Lead.tenant_id == tenant_id)).scalars().all()
     assert len(rows) == 1, f"Expected 1 lead, got {len(rows)}"
     return rows[0]
 
@@ -124,6 +120,7 @@ def _sales_llm_patch(intent: str, captured: dict, signals: dict):
         model_name=None,
         known_facts=None,
         company_website=None,
+        image_urls=None,
     ):
         reply = "Sounds great! Let me help you."
         sales_meta = {"intent": intent, "captured": captured, "signals": signals}
@@ -138,7 +135,9 @@ def _sales_llm_patch(intent: str, captured: dict, signals: dict):
 def _plain_llm_patch():
     """Return a patcher for RAGService.generate_ai_response."""
 
-    async def _fake(self, prompt, max_tokens=800, model_name=None, system_message=None):
+    async def _fake(
+        self, prompt, max_tokens=800, model_name=None, system_message=None, image_urls=None
+    ):
         return "Here is your answer.", 30, False
 
     return patch(
@@ -230,7 +229,11 @@ def test_enrich_same_lead_and_lead_captured_meta(client, db: Session):
         "mentioned_competitor": False,
         "ready_to_buy": False,
     }
-    with _sales_llm_patch("ENTERPRISE_PROSPECT", captured, signals), _retrieval_patch(), _automation_patch():
+    with (
+        _sales_llm_patch("ENTERPRISE_PROSPECT", captured, signals),
+        _retrieval_patch(),
+        _automation_patch(),
+    ):
         r2 = client.post(
             "/api/v1/chat/message",
             json={
@@ -308,7 +311,11 @@ def test_lead_captured_not_re_emitted_on_subsequent_turns(client, db: Session):
     # Turn 2 — email captured this turn → lead_captured in meta
     captured = {"name": "John", "email": "john@co.com"}
     signals = {}
-    with _sales_llm_patch("ENTERPRISE_PROSPECT", captured, signals), _retrieval_patch(), _automation_patch():
+    with (
+        _sales_llm_patch("ENTERPRISE_PROSPECT", captured, signals),
+        _retrieval_patch(),
+        _automation_patch(),
+    ):
         r2 = client.post(
             "/api/v1/chat/message",
             json={
@@ -322,7 +329,11 @@ def test_lead_captured_not_re_emitted_on_subsequent_turns(client, db: Session):
     assert r2.json()["message"]["meta"].get("lead_captured")
 
     # Turn 3 — same email, no re-emit
-    with _sales_llm_patch("ENTERPRISE_PROSPECT", captured, signals), _retrieval_patch(), _automation_patch():
+    with (
+        _sales_llm_patch("ENTERPRISE_PROSPECT", captured, signals),
+        _retrieval_patch(),
+        _automation_patch(),
+    ):
         r3 = client.post(
             "/api/v1/chat/message",
             json={
@@ -375,9 +386,9 @@ def test_offer_meeting_gate_off_suppresses_flag(client, db: Session):
 
     assert r.status_code == 200, r.text
     meta = r.json()["message"]["meta"] or {}
-    assert "offer_meeting" not in meta, (
-        f"offer_meeting must be absent when meeting_booking_enabled=False; got meta={meta}"
-    )
+    assert (
+        "offer_meeting" not in meta
+    ), f"offer_meeting must be absent when meeting_booking_enabled=False; got meta={meta}"
 
 
 def test_offer_meeting_gate_on_surfaces_flag(client, db: Session):
@@ -405,6 +416,6 @@ def test_offer_meeting_gate_on_surfaces_flag(client, db: Session):
 
     assert r.status_code == 200, r.text
     meta = r.json()["message"]["meta"] or {}
-    assert meta.get("offer_meeting") is True, (
-        f"offer_meeting must be True when meeting_booking_enabled=True; got meta={meta}"
-    )
+    assert (
+        meta.get("offer_meeting") is True
+    ), f"offer_meeting must be True when meeting_booking_enabled=True; got meta={meta}"

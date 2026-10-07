@@ -130,7 +130,10 @@ def test_migration_round_trip(alembic_config: Config, migration_test_db: str):
     # --- single head, before touching anything -----------------------------
     heads = script.get_heads()
     assert len(heads) == 1, f"expected a single alembic head, found {heads}"
-    assert heads[0] == "ad40accountdeletion"
+    # This migration must be in the chain reachable from head (don't pin the
+    # tip — later migrations legitimately advance it; just guard against forks).
+    revisions = {rev.revision for rev in script.walk_revisions()}
+    assert "ad40accountdeletion" in revisions
 
     engine = create_engine(migration_test_db)
 
