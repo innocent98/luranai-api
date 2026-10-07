@@ -175,13 +175,13 @@ def test_message_attachment_insert_and_tenant_scope(db, seed_session):  # seed_s
 - Test: `tests/services/test_image_moderation.py`
 
 **Interfaces — Produces:**
-- `async def moderate_image_url(image_url: str) -> tuple[bool, str | None]` → `(allowed, reason)`. `allowed=False` on a flagged image AND on any API error (fail-closed). `reason` is a short, non-leaking label.
+- `async def moderate_image(image_bytes: bytes, content_type: str) -> tuple[bool, str | None]` → `(allowed, reason)`. Builds a base64 `data:` URL from the in-hand bytes and calls omni-moderation on it (so a flagged image is never uploaded, and there is no OpenAI-fetch dependency — Task 1 ruling). `allowed=False` on a flagged image AND on any API error (fail-closed). `reason` is a short, non-leaking label.
 
 - [ ] **Step 1: Write failing tests** (mock `openai.AsyncOpenAI`):
 ```python
 import pytest
 from unittest.mock import AsyncMock, patch
-from app.services.image_moderation import moderate_image_url
+from app.services.image_moderation import moderate_image
 
 def _resp(flagged):
     class R: results = [type("x", (), {"flagged": flagged})()]
@@ -191,38 +191,40 @@ def _resp(flagged):
 async def test_clean_image_allowed():
     with patch("app.services.image_moderation.openai.AsyncOpenAI") as c:
         c.return_value.moderations.create = AsyncMock(return_value=_resp(False))
-        allowed, reason = await moderate_image_url("https://x/a.jpg")
+        allowed, reason = await moderate_image(b"\xff\xd8bytes", "image/jpeg")
     assert allowed is True and reason is None
 
 @pytest.mark.asyncio
 async def test_flagged_image_rejected():
     with patch("app.services.image_moderation.openai.AsyncOpenAI") as c:
         c.return_value.moderations.create = AsyncMock(return_value=_resp(True))
-        allowed, reason = await moderate_image_url("https://x/a.jpg")
+        allowed, reason = await moderate_image(b"\xff\xd8bytes", "image/jpeg")
     assert allowed is False and reason
 
 @pytest.mark.asyncio
 async def test_moderation_error_fails_closed():
     with patch("app.services.image_moderation.openai.AsyncOpenAI") as c:
         c.return_value.moderations.create = AsyncMock(side_effect=RuntimeError("boom"))
-        allowed, reason = await moderate_image_url("https://x/a.jpg")
+        allowed, reason = await moderate_image(b"\xff\xd8bytes", "image/jpeg")
     assert allowed is False and reason  # fail-closed
 ```
 - [ ] **Step 2: Run, verify fail.**
 - [ ] **Step 3: Implement:**
 ```python
+import base64
 import openai
 from loguru import logger
 from app.core.config import settings
 
 _REJECT = "This image can't be accepted. Please try a different one."
 
-async def moderate_image_url(image_url: str) -> tuple[bool, str | None]:
+async def moderate_image(image_bytes: bytes, content_type: str) -> tuple[bool, str | None]:
     try:
+        data_url = f"data:{content_type};base64," + base64.b64encode(image_bytes).decode()
         client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         resp = await client.moderations.create(
             model="omni-moderation-latest",
-            input=[{"type": "image_url", "image_url": {"url": image_url}}])
+            input=[{"type": "image_url", "image_url": {"url": data_url}}])
         if resp.results and resp.results[0].flagged:
             return False, _REJECT
         return True, None
@@ -242,14 +244,14 @@ async def moderate_image_url(image_url: str) -> tuple[bool, str | None]:
 - Modify: `app/utils/http_rate_limiter.py` (add an IP-keyed upload limiter dependency for the public endpoint)
 - Test: `tests/api/v1/test_chat_image_upload.py`
 
-**Interfaces — Consumes:** `cloudinary_manager.validate_image`, `upload_chat_image` (T2); `moderate_image_url` (T4); `MessageAttachment` (T3).
+**Interfaces — Consumes:** `cloudinary_manager.validate_image`, `upload_chat_image` (T2); `moderate_image` (T4, byte-based); `MessageAttachment` (T3).
 **Produces:** `POST /api/v1/chat/upload` (multipart `file`, form `session_id`) → `200 {attachment_id, url, content_type, width, height, bytes}`; errors 403 (gate off), 413, 415, 422 `{detail:{code:"image_rejected", reason}}`, 429.
 
 - [ ] **Step 1: Write failing tests** (mock cloudinary + moderation; a seeded session + tenant with `widget_allow_file_upload=True`):
   - clean upload → 200, a `message_attachments` row exists with `status=uploaded`, `message_id` NULL, `direction=inbound`.
   - tenant gate off → 403.
-  - `validate_image` returns invalid (wrong type / too big) → 415/413 and NO Cloudinary call, NO row.
-  - moderation returns `(False, reason)` → 422 `image_rejected`, NO Cloudinary upload persisted / row rolled back.
+  - `validate_image` returns invalid (wrong type / too big) → 415/413 and NO moderation/Cloudinary call, NO row.
+  - moderation returns `(False, reason)` → 422 `image_rejected`, and **NO Cloudinary upload happened** (moderation precedes upload) and NO row.
   - moderation error path (patched to raise) → 422 (fail-closed).
 ```python
 def test_upload_rejects_when_tenant_flag_off(client, session_flag_off):
@@ -266,7 +268,7 @@ def test_clean_upload_creates_unlinked_attachment(client, db, session_on, mock_c
     assert row.message_id is None and row.status == AttachmentStatus.UPLOADED
 ```
 - [ ] **Step 2: Run, verify fail** (404 route).
-- [ ] **Step 3: Implement.** Flow: resolve session → tenant; **check `tenant.widget_allow_file_upload` → 403 if off**; `file.read()`; `validate_image(content, max_size_mb=10)` → 413/415 on error; upload to Cloudinary (`upload_chat_image`); `moderate_image_url(secure_url)` → if not allowed, `cloudinary_manager.destroy(public_id)` and 422; else insert `MessageAttachment` (`direction=INBOUND`, `status=UPLOADED`, `moderation_status=PASSED`, `tenant_id=session.tenant_id`); return body. Add a dependency `chat_upload_rate_limit` in `http_rate_limiter.py` keyed `"ip"` (mirror `create_rate_limit_dependency(upload_rate_limiter, "ip")`) and attach it. Enforce **≤10 MB** before read via `request`/content-length guard, and belt-and-braces after read.
+- [ ] **Step 3: Implement.** Flow (moderation precedes upload — Task 1 ruling): resolve session → tenant; **check `tenant.widget_allow_file_upload` → 403 if off**; `content = await file.read()`; `validate_image(content, max_size_mb=10)` → 413/415 on error; `moderate_image(content, file.content_type)` → if not allowed, 422 `{detail:{code:"image_rejected", reason}}` (nothing uploaded, no row); else upload to Cloudinary (`upload_chat_image`) and insert `MessageAttachment` (`direction=INBOUND`, `status=UPLOADED`, `moderation_status=PASSED`, `tenant_id=session.tenant_id`); return body. Add a dependency `chat_upload_rate_limit` in `http_rate_limiter.py` keyed `"ip"` (mirror `create_rate_limit_dependency(upload_rate_limiter, "ip")`) and attach it. Enforce **≤10 MB** before read via `request`/content-length guard, and belt-and-braces after read.
 - [ ] **Step 4: Run tests; ruff/black.**
 - [ ] **Step 5: Commit** — `feat(chat): public image upload endpoint (validate+moderate+store)`.
 
@@ -314,7 +316,9 @@ def test_foreign_attachment_rejected(client, session_on, other_session_attachmen
 - Modify: `app/services/rag_service.py` — `generate_ai_response` (`:1099-1138`, messages at `:1120-1126`) and `generate_sales_response` (`:1140-`, messages at `:1185`)
 - Test: `tests/services/test_rag_vision.py`
 
-**Interfaces — Consumes:** Task 1's chosen approach. **Produces:**
+**Task 1 decision (DONE, live-verified):** luna vision WORKS via `chat.completions` with image content-parts at effort `low` (1.61s) and `none` (1.43s). → Use the **default branch** below (URL content-parts, effort from `settings.OPENAI_REASONING_EFFORT`). Do NOT re-probe; do NOT route through the Responses API.
+
+**Interfaces — Consumes:** Task 1's decision (above). **Produces:**
 - `generate_ai_response(..., image_urls: list[str] | None = None)` and `generate_sales_response(..., image_urls: list[str] | None = None)` — when `image_urls`, the user turn becomes content-parts.
 
 - [ ] **Step 1: Write failing test** (mock `_call_openai_raw`/client; assert the user message is a content-part list with one `image_url` per url when `image_urls` given, and stays a plain string when not):
