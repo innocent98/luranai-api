@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
 
 # Install Poetry
 ENV POETRY_HOME="/opt/poetry"
-ENV POETRY_VERSION=1.8.4
+ENV POETRY_VERSION=2.2.1
 RUN curl -sSL https://install.python-poetry.org | python3 - --version "${POETRY_VERSION}" && \
     ln -s /opt/poetry/bin/poetry /usr/local/bin/poetry
 
