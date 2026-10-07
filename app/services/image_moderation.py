@@ -1,0 +1,27 @@
+"""Fail-closed image moderation via OpenAI's free omni-moderation endpoint."""
+
+import base64
+
+import openai
+from loguru import logger
+
+from app.core.config import settings
+
+_REJECT = "This image can't be accepted. Please try a different one."
+
+
+async def moderate_image(image_bytes: bytes, content_type: str) -> tuple[bool, str | None]:
+    """Return (allowed, reason). Any flag or any error yields (False, reason)."""
+    try:
+        data_url = f"data:{content_type};base64," + base64.b64encode(image_bytes).decode()
+        client = openai.AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
+        resp = await client.moderations.create(
+            model="omni-moderation-latest",
+            input=[{"type": "image_url", "image_url": {"url": data_url}}],
+        )
+        if resp.results and resp.results[0].flagged:
+            return False, _REJECT
+        return True, None
+    except Exception as e:  # noqa: BLE001 - fail-closed
+        logger.error(f"Image moderation failed (fail-closed): {e}")
+        return False, _REJECT
