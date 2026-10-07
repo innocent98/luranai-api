@@ -73,6 +73,33 @@ Request: `{"session_id","message"?,"attachment_ids":[...]}` — `message` **opti
 
 **Errors:** `400` for an unknown / foreign-session / already-linked / >3 `attachment_id`; `422` if both `message` and `attachment_ids` are empty.
 
+## 4b. Sending on an ALREADY-ESCALATED session (no AI reply) `TESTS/CODE`
+
+Once a session is escalated (a human agent is handling it), the bot **must not auto-reply**. A REST `POST /api/v1/chat/message` on such a session now persists the customer's message (text or image, incl. the `_fanout_customer_images` push to the agent for images) and returns **without** any assistant/AI reply.
+
+**200 (escalated, image-only — derived from backend tests, not yet staging-captured):**
+```json
+{
+  "session_id": "8821fac5-...",
+  "message": {
+    "role": "user",
+    "content": "[image]",
+    "id": "a1b2c3d4-...",
+    "attachments": [],
+    "created_at": "2026-10-07T17:40:00Z"
+  },
+  "user_message_attachments": [
+    { "id": "6aecdb36-...", "url": "https://res.cloudinary.com/....jpg", "content_type": "image/png", "width": 480, "height": 300 }
+  ],
+  "should_escalate": false,
+  "escalation_reason": null,
+  "ticket_id": null
+}
+```
+> ⚠️ **THIRD SHAPE — do NOT render `message` as a bot bubble when the session is escalated.** Unlike §4 (where `message.role == "assistant"`), here `message` **echoes the customer's own message** (`role:"user"`, `content` is the text or `"[image]"`). There is deliberately **no AI turn**. The customer's images still arrive on top-level `user_message_attachments` (render from there, as always). Drive your "human mode / no bot" UI off the **session status**, not off this response — `should_escalate:false` here means only "no *new* escalation this turn", not "not escalated".
+>
+> **Exception:** a send whose message/`button_value` is the **`__talk_to_human__`** control token still goes through the normal escalation path (returns an assistant acknowledgement + may re-ring the agent) even on an escalated session — that is how a customer re-requests a human who missed the first ring. Plain text, images, and welcome/flow triggers are all suppressed; only that one control token is not.
+
 ## 5. Agent endpoints (bearer-authed) — takeover
 
 - **Upload:** `POST /api/v1/chat/sessions/{session_id}/upload` (multipart `file`) — **`LIVE`: returns `401` without a bearer** (auth-gated as designed). Happy-path body mirrors §3 with `direction=outbound`. `PENDING-AUTHED` live capture.
@@ -81,7 +108,10 @@ Request: `{"session_id","message"?,"attachment_ids":[...]}` — `message` **opti
 
 ## 6. History / rendering inbound (both surfaces) `PENDING-AUTHED`
 `GET /api/v1/chat/sessions/{id}` and the paginated history return each `MessageResponse` with **`attachments: [{id,url,content_type,width,height}]`** (customer messages `role:"user"`, agent `role:"human_agent"`). This path is **authed** (public flow got `401`), so capture its exact body against an authed session before finalising. The relationship is verified by backend tests; the shape matches `user_message_attachments`.
-> **Live-rendering open item (all 3 FEs flagged):** confirm whether the live **WebSocket** frame (`agent_message` / customer message) carries `attachments[]`, or whether inbound images only appear on reload/history fetch. **Not yet captured — verify on an authed WS session.**
+> **Live rendering — IMPLEMENTED (#106):** both WS directions now carry `attachments`: the `agent_message` frame (agent→customer, confirmed live) AND the `customer_message` frame to agents (`chat.py` `_fanout_customer_images`, fired when a customer HTTP-send has linked attachments). Shape: `attachments: [{id,url,content_type}]`. The exact live WS payload is `PENDING-AUTHED` (capture on an authed/WS session during the dashboard build). Note: HTTP *text-only* sends don't broadcast (customer text goes over WS already); only image sends use this HTTP broadcast.
+
+### 6b. Agent History / Missed — `GET /api/v1/agent/escalations/{id}` `SCHEMA (#106)`
+The escalation detail/transcript now returns each `TranscriptMessage` with **`attachments: [{id,url,content_type,width,height}]`** (default `[]`). Live-capture pending an authed agent session.
 
 ## 7. Gating
 `GET /api/v1/widget/public/config/{tenant_id}` (header `X-API-Key: <public key>`) → `allow_file_upload: bool`. Default **true**. When false, **hide** the attach affordance (and treat a `403` from upload as a hide, defensively).
@@ -101,11 +131,14 @@ The **same** `allow_file_upload: bool` flag (default **true**) is now also retur
 | Send text+image → luna vision reply | ✅ LIVE |
 | Image-only send (no text) | ✅ LIVE |
 | `user_message_attachments` vs `message.attachments` two-shape | ✅ LIVE |
+| Escalated send → no AI reply, `message` echoes the USER message (§4b) | ✅ TESTS/CODE · live-capture PENDING-AUTHED |
+| `__talk_to_human__` on escalated session still re-rings (§4b exception) | ✅ TESTS |
 | Agent upload auth-gated (401) | ✅ LIVE |
 | Upload 403 (gate off) / 413 / 415 / 422 image_rejected / 429 | ⬜ SCHEMA — capture live |
 | Agent upload/send happy-path | ⬜ PENDING-AUTHED |
 | History `MessageResponse.attachments[]` body | ⬜ PENDING-AUTHED |
-| WebSocket frames carry `attachments[]` | ⬜ PENDING — verify |
+| WS frames carry `attachments[]` (both directions) | ✅ CODE (#106) · live-capture PENDING-AUTHED |
+| Escalation `transcript[].attachments` (History/Missed) | ✅ CODE (#106) · live-capture PENDING-AUTHED |
 | **R7** `allow_file_upload` on `CustomerConversationDetail` + `PublicBusinessProfileResponse` (reflects tenant flag) | 🟨 CODE — tests assert true/false; authed live capture pending |
 | Authed customer send forwards `attachment_ids` → links + `user_message_attachments` | 🟨 CODE — test asserts link; authed live capture pending |
 

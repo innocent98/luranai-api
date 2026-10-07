@@ -914,7 +914,7 @@ async def _send_message_impl(
             logger.info("Session reactivated from abandoned to active")
         elif session.status == SessionStatus.RESOLVED:
             welcome_triggers = {"start", "hello", "hi", "hey", "welcome", "__init__", "__welcome__"}
-            if message_data.message.lower().strip() not in welcome_triggers:
+            if (message_data.message or "").lower().strip() not in welcome_triggers:
                 logger.info("Reopening resolved session after customer reply")
                 session = conversation_service.update_session(
                     session_id, ConversationSessionUpdate(status=SessionStatus.ACTIVE)
@@ -1077,6 +1077,32 @@ async def _send_message_impl(
     effective_message_lower = effective_message.lower().strip()
     session_meta = dict(session_model.meta or {})
     rag_only_mode = bool(session_meta.get("rag_only_mode", False))
+
+    # Escalated session: a human agent owns this conversation, so the bot must not auto-reply.
+    # Customers still send images (and text) over REST after escalation because images cannot go
+    # over the agent WebSocket; none of that should trigger an AI reply, a flow, or a welcome
+    # message that intrudes on the human<->customer thread. The sole exception is the explicit
+    # "talk to human" control token, which must still reach the escalation branch below so an
+    # again-requested or previously-missed escalation re-rings the agent (see the re-escalation
+    # regressions in test_chat_flow_router). For every other input we persist the customer's
+    # message (linking any attachments via the add_message wrapper installed above, so the
+    # wrapper's commit + agent-fanout path still fires) and return with no generation. The
+    # ChatResponse echoes the persisted USER message because the schema requires a MessageResponse
+    # and there is deliberately no assistant reply this turn.
+    if session.status == SessionStatus.ESCALATED and effective_message_lower != TALK_TO_HUMAN_TOKEN:
+        logger.info("Skipping AI generation: session is escalated to a human agent")
+        user_message = conversation_service.add_message(
+            session_id=session_id,
+            role=MessageRole.USER,
+            content=(message_data.message or "").strip() or IMAGE_ONLY_PLACEHOLDER,
+        )
+        return ChatResponse(
+            session_id=session_id,
+            message=user_message,
+            should_escalate=False,
+            escalation_reason=None,
+            ticket_id=None,
+        )
 
     # Global start router: if no active execution and at least one active flow,
     # present flow choices instead of relying on overlapping keywords.
