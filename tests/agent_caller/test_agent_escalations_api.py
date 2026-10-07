@@ -5,10 +5,15 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import select
 
 from app.db.models.conversation import (
+    AttachmentDirection,
+    AttachmentModeration,
+    AttachmentStatus,
     ConversationSession,
     Message,
+    MessageAttachment,
     MessageRole,
     SessionStatus,
     Ticket,
@@ -260,3 +265,41 @@ def test_device_token_never_appears_in_any_response_body(client, auth_headers, e
         )
     assert ack_resp.status_code == 200
     assert token not in ack_resp.text
+
+
+def test_detail_transcript_includes_attachments(client, db, auth_headers, escalation):
+    """Image refs ride on the transcript row; messages without images return []."""
+    user_msg = db.execute(
+        select(Message).where(
+            Message.session_id == escalation.session_id, Message.role == MessageRole.USER
+        )
+    ).scalar_one()
+    att = MessageAttachment(
+        session_id=escalation.session_id,
+        tenant_id=escalation.tenant_id,
+        message_id=user_msg.id,
+        direction=AttachmentDirection.INBOUND,
+        cloudinary_public_id="chat/x",
+        url="https://c/x.jpg",
+        content_type="image/png",
+        width=4,
+        height=3,
+        bytes=10,
+        moderation_status=AttachmentModeration.PASSED,
+        status=AttachmentStatus.LINKED,
+    )
+    db.add(att)
+    db.commit()
+
+    body = client.get(f"/api/v1/agent/escalations/{escalation.id}", headers=auth_headers).json()
+    with_img, without_img = body["transcript"]
+    assert with_img["attachments"] == [
+        {
+            "id": str(att.id),
+            "url": "https://c/x.jpg",
+            "content_type": "image/png",
+            "width": 4,
+            "height": 3,
+        }
+    ]
+    assert without_img["attachments"] == []

@@ -182,6 +182,7 @@ async def customer_websocket(
                         "content": content,
                         "user_identifier": user_identifier,
                         "timestamp": message_timestamp,
+                        "attachments": [],
                     },
                     to_customer=False,
                     to_agents=True,
@@ -321,6 +322,7 @@ async def authenticated_customer_websocket(
                         "content": content,
                         "user_identifier": customer.chat_user_key,
                         "timestamp": message_timestamp,
+                        "attachments": [],
                     },
                     to_customer=False,
                     to_agents=True,
@@ -482,6 +484,10 @@ async def agent_websocket(
                         "content": msg.content,
                         "user_identifier": session.user_identifier,
                         "timestamp": msg.created_at.isoformat(),
+                        "attachments": [
+                            {"id": str(a.id), "url": a.url, "content_type": a.content_type}
+                            for a in msg.attachments
+                        ],
                     }
                 )
             elif msg.role == MessageRole.HUMAN_AGENT:
