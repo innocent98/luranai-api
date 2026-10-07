@@ -257,7 +257,12 @@ class Message(Base, UUIDMixin):
     )
     attachments: Mapped[list["MessageAttachment"]] = relationship(
         "MessageAttachment",
-        lazy="selectin",
+        # Default lazy ("select"), NOT "selectin": a relationship-level eager load
+        # makes EVERY `select(Message)` touch message_attachments, which breaks the
+        # staged deploy's encryption backfills that query Message before the
+        # message_attachments migration runs. Read paths that render attachments
+        # eager-load explicitly via selectinload(Message.attachments).
+        lazy="select",
         order_by="MessageAttachment.created_at",
         passive_deletes=True,
     )
