@@ -12,7 +12,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_agent
 from app.core.config import settings
@@ -34,6 +34,7 @@ from app.schemas.agent_app import (
     EscalationSummary,
     TranscriptMessage,
 )
+from app.schemas.conversation import AttachmentOut
 from app.schemas.user import UserResponse
 from app.services.agent_alert_service import _PRIORITY_WIRE
 from app.services.conversation_service import emit_agent_joined
@@ -213,6 +214,7 @@ def get_escalation(
         db.execute(
             select(Message)
             .where(Message.session_id == ticket.session_id)
+            .options(selectinload(Message.attachments))
             .order_by(Message.created_at.asc())
             .limit(50)
         )
@@ -232,6 +234,7 @@ def get_escalation(
                 role=m.role.value if hasattr(m.role, "value") else str(m.role),
                 content=m.content,
                 created_at=m.created_at,
+                attachments=[AttachmentOut.model_validate(a) for a in m.attachments],
             )
             for m in messages
         ],

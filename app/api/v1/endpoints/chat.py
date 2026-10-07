@@ -19,7 +19,7 @@ from fastapi import (
 )
 from loguru import logger
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import (
     get_current_tenant_admin,
@@ -695,7 +695,45 @@ async def send_message(
         )
     if linked_attachments and isinstance(response, ChatResponse):
         response.user_message_attachments = linked_attachments
+        await _fanout_customer_images(db, response.session_id, linked_attachments)
     return response
+
+
+async def _fanout_customer_images(
+    db: Session, session_id: UUID, attachments: list[AttachmentOut]
+) -> None:
+    """Push the customer's image message to watching agents (text goes via the WS path).
+
+    Best-effort: the message is already persisted, so a fanout failure must not fail the send.
+    """
+    try:
+        message = db.execute(
+            select(Message)
+            .join(MessageAttachment, MessageAttachment.message_id == Message.id)
+            .where(MessageAttachment.id == attachments[0].id)
+            .options(selectinload(Message.attachments))
+        ).scalar_one_or_none()
+        session = db.get(ConversationSession, session_id)
+        if message is None or session is None:
+            return
+        await connection_manager.fanout_event(
+            session_id=session_id,
+            message={
+                "type": "customer_message",
+                "message_id": str(message.id),
+                "content": message.content,
+                "user_identifier": session.user_identifier,
+                "timestamp": message.created_at.isoformat(),
+                "attachments": [
+                    {"id": str(a.id), "url": a.url, "content_type": a.content_type}
+                    for a in message.attachments
+                ],
+            },
+            to_customer=False,
+            to_agents=True,
+        )
+    except Exception:
+        logger.exception("Failed to fan out customer image message to agents")
 
 
 def _fallback_link_attachments(

@@ -209,3 +209,63 @@ def test_more_than_three_attachments_422(client, db):
     assert r.status_code == 422
     r3 = _send(client, sid, "hi", ids[:3])
     assert r3.status_code == 200, r3.text
+
+
+def test_image_send_fans_out_customer_message_to_agents(client, db):
+    from unittest.mock import AsyncMock
+
+    from app.api.v1.endpoints import chat as chat_module
+
+    sid, tid = _session(db)
+    aid = _att(db, sid, tid)
+    fanout = AsyncMock()
+    with patch.object(chat_module.connection_manager, "fanout_event", new=fanout):
+        r = _send(client, sid, "look", [str(aid)])
+    assert r.status_code == 200, r.text
+
+    frames = [
+        c.kwargs for c in fanout.call_args_list if c.kwargs["message"]["type"] == "customer_message"
+    ]
+    assert len(frames) == 1
+    kw = frames[0]
+    assert kw["session_id"] == sid
+    assert kw["to_agents"] is True and kw["to_customer"] is False
+    msg = kw["message"]
+    row = db.execute(select(MessageAttachment).where(MessageAttachment.id == aid)).scalar_one()
+    assert msg["message_id"] == str(row.message_id)
+    assert msg["content"] == "look"
+    assert msg["user_identifier"].startswith("v-")
+    assert msg["timestamp"]
+    assert msg["attachments"] == [
+        {"id": str(aid), "url": "https://c/x.jpg", "content_type": "image/png"}
+    ]
+
+
+def test_text_only_send_does_not_fan_out_and_still_works(client, db):
+    from unittest.mock import AsyncMock
+
+    from app.api.v1.endpoints import chat as chat_module
+
+    sid, _ = _session(db)
+    fanout = AsyncMock()
+    with patch.object(chat_module.connection_manager, "fanout_event", new=fanout):
+        r = _send(client, sid, "just text", [])
+    assert r.status_code == 200, r.text
+    assert r.json()["user_message_attachments"] == []
+    assert not [
+        c for c in fanout.call_args_list if c.kwargs["message"]["type"] == "customer_message"
+    ]
+
+
+def test_fanout_failure_does_not_fail_the_send(client, db):
+    from unittest.mock import AsyncMock
+
+    from app.api.v1.endpoints import chat as chat_module
+
+    sid, tid = _session(db)
+    aid = _att(db, sid, tid)
+    fanout = AsyncMock(side_effect=RuntimeError("redis down"))
+    with patch.object(chat_module.connection_manager, "fanout_event", new=fanout):
+        r = _send(client, sid, "look", [str(aid)])
+    assert r.status_code == 200, r.text
+    assert [a["id"] for a in r.json()["user_message_attachments"]] == [str(aid)]
