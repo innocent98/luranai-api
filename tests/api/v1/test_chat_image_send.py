@@ -200,3 +200,12 @@ def test_guard_links_to_latest_user_message_when_branch_skipped_link(client, db)
     db.refresh(row)
     assert row.status == AttachmentStatus.LINKED
     assert row.message_id is not None
+
+
+def test_more_than_three_attachments_422(client, db):
+    sid, tid = _session(db)
+    ids = [str(_att(db, sid, tid)) for _ in range(4)]
+    r = _send(client, sid, "hi", ids)
+    assert r.status_code == 422
+    r3 = _send(client, sid, "hi", ids[:3])
+    assert r3.status_code == 200, r3.text

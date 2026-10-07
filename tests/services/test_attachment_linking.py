@@ -122,3 +122,15 @@ def test_history_returns_linked_attachments(db):
     assert history[plain.id].attachments == []
     paginated, _ = svc.get_session_messages_paginated(s.id)
     assert any(a.id == att.id for m in paginated for a in m.attachments)
+
+
+def test_too_many_attachments_rejected(db):
+    s = _session(db)
+    ids = [_att(db, s).id for _ in range(4)]
+    svc = ConversationService(db)
+    with pytest.raises(ValueError, match="Too many attachments"):
+        svc.get_linkable_attachments(s.id, ids)
+    msg = svc.add_message(s.id, MessageRole.USER, "hi")
+    with pytest.raises(ValueError, match="Too many attachments"):
+        svc.link_attachments(s.id, msg.id, ids)
+    assert len(svc.get_linkable_attachments(s.id, ids[:3])) == 3

@@ -17,6 +17,7 @@ from app.db.models.conversation import (
 )
 from app.db.models.visitor import Visitor
 from app.schemas.conversation import (
+    MAX_ATTACHMENTS_PER_MESSAGE,
     ConversationSessionCreate,
     ConversationSessionUpdate,
     MessageResponse,
@@ -378,6 +379,10 @@ class ConversationService:
             ValueError: If any id violates those rules (nothing is returned).
         """
         unique_ids = list(dict.fromkeys(attachment_ids))
+        if len(unique_ids) > MAX_ATTACHMENTS_PER_MESSAGE:
+            raise ValueError(
+                f"Too many attachments (max {MAX_ATTACHMENTS_PER_MESSAGE} per message)"
+            )
         rows = list(
             self.db.execute(select(MessageAttachment).where(MessageAttachment.id.in_(unique_ids)))
             .scalars()

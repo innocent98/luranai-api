@@ -9,6 +9,8 @@ from app.db.models.conversation import MessageRole, SessionStatus
 from app.schemas.explore import SourceMeta
 from app.schemas.visitor import VisitorIdentitySummary
 
+MAX_ATTACHMENTS_PER_MESSAGE = 3
+
 
 # Base schemas
 class ConversationSessionBase(BaseModel):
@@ -66,7 +68,9 @@ class MessageRequest(BaseModel):
         None, max_length=10000, description="User message (optional when attachments are sent)"
     )
     attachment_ids: list[UUID] | None = Field(
-        None, description="IDs of previously uploaded image attachments to link to this message"
+        None,
+        max_length=MAX_ATTACHMENTS_PER_MESSAGE,
+        description="IDs of previously uploaded image attachments to link to this message",
     )
     session_id: UUID | None = Field(None, description="Existing session ID or null for new")
     tenant_id: UUID | None = Field(None, description="Tenant ID (required for new sessions)")
