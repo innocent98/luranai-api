@@ -81,7 +81,10 @@ Request: `{"session_id","message"?,"attachment_ids":[...]}` — `message` **opti
 
 ## 6. History / rendering inbound (both surfaces) `PENDING-AUTHED`
 `GET /api/v1/chat/sessions/{id}` and the paginated history return each `MessageResponse` with **`attachments: [{id,url,content_type,width,height}]`** (customer messages `role:"user"`, agent `role:"human_agent"`). This path is **authed** (public flow got `401`), so capture its exact body against an authed session before finalising. The relationship is verified by backend tests; the shape matches `user_message_attachments`.
-> **Live-rendering open item (all 3 FEs flagged):** confirm whether the live **WebSocket** frame (`agent_message` / customer message) carries `attachments[]`, or whether inbound images only appear on reload/history fetch. **Not yet captured — verify on an authed WS session.**
+> **Live rendering — IMPLEMENTED (#106):** both WS directions now carry `attachments`: the `agent_message` frame (agent→customer, confirmed live) AND the `customer_message` frame to agents (`chat.py` `_fanout_customer_images`, fired when a customer HTTP-send has linked attachments). Shape: `attachments: [{id,url,content_type}]`. The exact live WS payload is `PENDING-AUTHED` (capture on an authed/WS session during the dashboard build). Note: HTTP *text-only* sends don't broadcast (customer text goes over WS already); only image sends use this HTTP broadcast.
+
+### 6b. Agent History / Missed — `GET /api/v1/agent/escalations/{id}` `SCHEMA (#106)`
+The escalation detail/transcript now returns each `TranscriptMessage` with **`attachments: [{id,url,content_type,width,height}]`** (default `[]`). Live-capture pending an authed agent session.
 
 ## 7. Gating
 `GET /api/v1/widget/public/config/{tenant_id}` (header `X-API-Key: <public key>`) → `allow_file_upload: bool`. Default **true**. When false, **hide** the attach affordance (and treat a `403` from upload as a hide, defensively).
@@ -99,6 +102,7 @@ Request: `{"session_id","message"?,"attachment_ids":[...]}` — `message` **opti
 | Upload 403 (gate off) / 413 / 415 / 422 image_rejected / 429 | ⬜ SCHEMA — capture live |
 | Agent upload/send happy-path | ⬜ PENDING-AUTHED |
 | History `MessageResponse.attachments[]` body | ⬜ PENDING-AUTHED |
-| WebSocket frames carry `attachments[]` | ⬜ PENDING — verify |
+| WS frames carry `attachments[]` (both directions) | ✅ CODE (#106) · live-capture PENDING-AUTHED |
+| Escalation `transcript[].attachments` (History/Missed) | ✅ CODE (#106) · live-capture PENDING-AUTHED |
 
 _Staging captures used a test tenant/session; the UUIDs/URLs above are real staging artifacts (not customer data), kept verbatim as the live shapes._
