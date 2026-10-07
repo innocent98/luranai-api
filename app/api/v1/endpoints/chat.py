@@ -1,12 +1,23 @@
 """Chat and conversation endpoints."""
 
+import io
 import re
 from datetime import timedelta
 from typing import Any, cast
 from types import SimpleNamespace
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -21,7 +32,11 @@ from app.api.deps import (
 from app.core.config import settings
 from app.core.websocket import connection_manager
 from app.db.models.conversation import (
+    AttachmentDirection,
+    AttachmentModeration,
+    AttachmentStatus,
     ConversationSession,
+    MessageAttachment,
     EscalationAction,
     MessageRole,
     SessionStatus,
@@ -31,7 +46,7 @@ from app.db.models.conversation import (
 )
 from app.db.models.business_profile import BusinessProfile
 from app.db.models.flow import Flow, FlowExecution, FlowStatus
-from app.db.models.tenant import TenantAIConfig
+from app.db.models.tenant import Tenant, TenantAIConfig
 from app.db.models.user import User, UserRole
 from app.db.models.visitor import VisitorSource
 from app.schemas.conversation import (
@@ -66,9 +81,118 @@ from app.services.ticket_service import TicketService
 from app.services.visitor_service import VisitorService
 from app.utils.datetime import ensure_utc_aware, utcnow_aware, utcnow_naive
 from app.utils.email import send_ticket_escalation_email
-from app.utils.http_rate_limiter import chat_rate_limit
+from app.services.image_moderation import moderate_image
+from app.utils.cloudinary_client import cloudinary_manager
+from app.utils.http_rate_limiter import chat_rate_limit, chat_upload_rate_limit
 
 router = APIRouter()
+
+_CHAT_UPLOAD_MAX_MB = 10
+_CHAT_UPLOAD_MAX_BYTES = _CHAT_UPLOAD_MAX_MB * 1024 * 1024
+
+
+@router.post(
+    "/upload",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(chat_upload_rate_limit)],
+)
+async def upload_chat_image(
+    request: Request,
+    session_id: UUID = Form(...),
+    file: UploadFile = File(..., description="Image (JPEG, PNG, GIF, WebP), max 10MB"),
+    db: Session = Depends(get_db),
+):
+    """Public customer image upload: validate, moderate, then store (unlinked)."""
+    session = db.execute(
+        select(ConversationSession).where(ConversationSession.id == session_id)
+    ).scalar_one_or_none()
+    if not session:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    tenant = db.execute(select(Tenant).where(Tenant.id == session.tenant_id)).scalar_one_or_none()
+    if not tenant or not tenant.widget_allow_file_upload:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="File upload is not enabled")
+
+    # Cheap early guard (multipart overhead is small relative to the 10MB cap).
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > _CHAT_UPLOAD_MAX_BYTES + 1024 * 1024:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image too large")
+
+    content = await file.read()
+    if len(content) > _CHAT_UPLOAD_MAX_BYTES:
+        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image too large")
+
+    is_valid, error = cloudinary_manager.validate_image(content, max_size_mb=_CHAT_UPLOAD_MAX_MB)
+    if not is_valid:
+        too_large = bool(error) and "exceeds maximum allowed" in error
+        raise HTTPException(
+            (
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
+                if too_large
+                else status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
+            ),
+            detail=error or "Invalid image",
+        )
+
+    content_type = file.content_type or "application/octet-stream"
+    # Moderation precedes storage: a flagged image is never uploaded. Fail closed.
+    try:
+        allowed, reason = await moderate_image(content, content_type)
+    except Exception as e:
+        logger.error(f"Chat image moderation raised (fail-closed): {e}")
+        allowed, reason = False, "Image could not be verified"
+    if not allowed:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "image_rejected", "reason": reason},
+        )
+
+    url, public_id, upload_error = cloudinary_manager.upload_chat_image(
+        file_content=content,
+        tenant_id=session.tenant_id,
+        session_id=session.id,
+        filename=file.filename or "image",
+    )
+    if upload_error or not url or not public_id:
+        logger.error(f"Chat image upload failed: {upload_error}")
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, detail="Image upload failed")
+
+    width = height = None
+    try:
+        from PIL import Image
+
+        with Image.open(io.BytesIO(content)) as img:
+            width, height = img.width, img.height
+    except Exception:
+        pass
+
+    attachment = MessageAttachment(
+        session_id=session.id,
+        tenant_id=session.tenant_id,
+        direction=AttachmentDirection.INBOUND,
+        status=AttachmentStatus.UPLOADED,
+        moderation_status=AttachmentModeration.PASSED,
+        cloudinary_public_id=public_id,
+        url=url,
+        content_type=content_type,
+        width=width,
+        height=height,
+        bytes=len(content),
+    )
+    db.add(attachment)
+    db.commit()
+    db.refresh(attachment)
+
+    return {
+        "attachment_id": str(attachment.id),
+        "url": url,
+        "content_type": content_type,
+        "width": width,
+        "height": height,
+        "bytes": len(content),
+    }
+
 
 SYSTEM_START_TRIGGER = "start"
 FLOW_START_PREFIX = "__flow_start__:"
