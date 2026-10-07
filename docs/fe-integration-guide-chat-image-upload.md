@@ -116,6 +116,12 @@ The escalation detail/transcript now returns each `TranscriptMessage` with **`at
 ## 7. Gating
 `GET /api/v1/widget/public/config/{tenant_id}` (header `X-API-Key: <public key>`) → `allow_file_upload: bool`. Default **true**. When false, **hide** the attach affordance (and treat a `403` from upload as a hide, defensively).
 
+The **same** `allow_file_upload: bool` flag (default **true**) is now also returned on the two **customer-app** surfaces so the app can gate the attach button without calling the widget config endpoint `(CODE-confirmed; authed live capture still pending)`:
+- `GET /api/v1/customer/conversations/{session_id}` (authed) → `CustomerConversationDetail.allow_file_upload` — top-level, alongside the `business_*` fields.
+- `GET /api/v1/public/business/{slug}` (public) → `PublicBusinessProfileResponse.allow_file_upload` — top-level. **Private tenants** (`is_private: true`) omit widget config, so this field falls back to its **default `true`**; rely on `is_private` (not this flag) to gate a private profile.
+
+> Field is named `allow_file_upload` on all three surfaces — one consistently-named flag to thread through the FE. Apply the same rule everywhere: `false` ⇒ hide the attach button; treat an upload `403` as a defensive hide.
+
 ## 8. Verification table
 | Behaviour | Status |
 |---|---|
@@ -133,5 +139,7 @@ The escalation detail/transcript now returns each `TranscriptMessage` with **`at
 | History `MessageResponse.attachments[]` body | ⬜ PENDING-AUTHED |
 | WS frames carry `attachments[]` (both directions) | ✅ CODE (#106) · live-capture PENDING-AUTHED |
 | Escalation `transcript[].attachments` (History/Missed) | ✅ CODE (#106) · live-capture PENDING-AUTHED |
+| **R7** `allow_file_upload` on `CustomerConversationDetail` + `PublicBusinessProfileResponse` (reflects tenant flag) | 🟨 CODE — tests assert true/false; authed live capture pending |
+| Authed customer send forwards `attachment_ids` → links + `user_message_attachments` | 🟨 CODE — test asserts link; authed live capture pending |
 
 _Staging captures used a test tenant/session; the UUIDs/URLs above are real staging artifacts (not customer data), kept verbatim as the live shapes._

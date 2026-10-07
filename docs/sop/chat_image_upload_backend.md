@@ -47,11 +47,18 @@ Customers often need to show a problem (screenshot, receipt, damaged product) ra
 - **HEIC deferred** (shared `validate_image` is PIL-only; needs `pillow-heif`). V1 = JPEG/PNG/WebP/GIF; FE widget should request JPEG so iOS converts.
 - **FE integration guide pending** — capture live request/response bodies after staging (global rule; not schema-derived).
 
+## Addendum — authed customer-app gate + attachment forwarding (2026-10-07, PR #108)
+
+Small follow-on so the customer app can gate + send images on its own surfaces:
+- Exposed `allow_file_upload: bool` (default true, reflects `Tenant.widget_allow_file_upload`) on `CustomerConversationDetail` (`GET /customer/conversations/{id}`) and `PublicBusinessProfileResponse` (`GET /public/business/{slug}`) — mirrors the widget public-config flag so the FE threads one consistently-named flag everywhere. Private-tenant profiles redact widget config, so the flag falls back to its default there (gate on `is_private`).
+- Fixed `send_customer_message` (`POST /customer/conversations/message`) silently dropping `attachment_ids` when it reconstructed the `MessageRequest` for the shared `send_message` handler — authed-customer image sends never linked. Now forwarded; links + surfaces on `user_message_attachments` identically to the public `/chat/message` path. (The authed upload reuses the public, session-scoped `POST /chat/upload` — no bearer gate blocks it.)
+- Tests: `tests/api/v1/test_customer_conversations.py` (gate true/false + attachment-link) and `tests/api/v1/test_public_business_profile.py` (gate true/false). ruff/black clean; touched + regression suites green.
+
 ---
 
-## Addendum — Suppress AI reply on an already-escalated session (2026-10-07)
+## Addendum — Suppress AI reply on an already-escalated session (2026-10-07, PR #109)
 
-**What shipped:** PR **#TBD** (`fix/suppress-ai-on-escalated-session` → `develop`). When a session is already `ESCALATED` (a human agent owns it), a REST send to `POST /api/v1/chat/message` now persists the customer's message and returns **without** generating an AI reply — instead of the bot intruding on the human↔customer thread.
+**What shipped:** PR **#109** (`fix/suppress-ai-on-escalated-session` → `develop`). When a session is already `ESCALATED` (a human agent owns it), a REST send to `POST /api/v1/chat/message` now persists the customer's message and returns **without** generating an AI reply — instead of the bot intruding on the human↔customer thread.
 
 **Why:** Customers send **images** over REST even after escalation (text goes over the agent WebSocket; images can't, so the widget uses `/chat/message` + `/customer/conversations/message`, which then fan out to the agent via `_fanout_customer_images`). That image send *also* ran the full RAG/model pipeline and produced a spurious assistant reply in the middle of a live human conversation. Root cause: `_send_message_impl` had no `ESCALATED` branch — only `ABANDONED→ACTIVE` and `RESOLVED→ACTIVE` — so generation always proceeded.
 

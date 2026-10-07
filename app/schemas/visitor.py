@@ -34,6 +34,7 @@ class PublicBusinessProfileResponse(BaseModel):
     widget_accent_color: str | None = None
     widget_logo_url: str | None = None
     widget_greeting_message: str | None = None
+    allow_file_upload: bool = True
     collect_name_before_chat: bool = False
     collect_email_before_chat: bool = False
 

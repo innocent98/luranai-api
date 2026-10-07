@@ -1,15 +1,26 @@
 """API tests for B2C customer conversations and pagination."""
 
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token
-from app.db.models.conversation import ConversationSession, Message, MessageRole, SessionStatus
+from app.db.models.conversation import (
+    AttachmentDirection,
+    AttachmentModeration,
+    AttachmentStatus,
+    ConversationSession,
+    Message,
+    MessageAttachment,
+    MessageRole,
+    SessionStatus,
+)
 from app.db.models.customer_user import CustomerUser
-from app.db.models.tenant import Tenant
+from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities
 from app.schemas.conversation import ChatResponse, MessageResponse
 
 
@@ -183,6 +194,8 @@ def test_customer_conversation_detail_and_messages_pagination(
     assert detail["business_name"] == tenant.display_name
     assert detail["business_widget_primary_color"] == tenant.widget_primary_color
     assert detail["business_widget_greeting_message"] == tenant.widget_greeting_message
+    # Gate flag defaults to the tenant default (True) and is present on the payload.
+    assert detail["allow_file_upload"] is True
     assert detail["has_more_messages"] is True
     assert [m["content"] for m in detail["conversation"]["messages"]] == ["Second", "Third"]
 
@@ -251,3 +264,122 @@ def test_customer_send_message_uses_customer_context(client: TestClient, db: Ses
     assert response.status_code == 200
     body = response.json()
     assert body["message"]["content"] == "Hello customer"
+
+
+def test_customer_conversation_detail_reflects_allow_file_upload_false(
+    client: TestClient, db: Session
+):
+    """Gate flag is wired to the real tenant column, not hard-coded True."""
+    tenant = _create_tenant(db)
+    tenant.widget_allow_file_upload = False
+    db.commit()
+    customer = _create_customer(db)
+    headers = _customer_headers(customer)
+    session = _create_session(db, tenant, customer, customer_user_id=customer.id)
+
+    detail_response = client.get(
+        f"/api/v1/customer/conversations/{session.id}",
+        headers=headers,
+    )
+    assert detail_response.status_code == 200
+    assert detail_response.json()["allow_file_upload"] is False
+
+
+def _patched_chat_pipeline():
+    """Stub the RAG + automation layers so send_message runs without OpenAI/Redis."""
+
+    async def _gen(
+        self, prompt, max_tokens=800, model_name=None, system_message=None, image_urls=None
+    ):
+        return "Thanks for the image.", 12, False
+
+    async def _retr(self, *, tenant_id, query, max_chunks, score_threshold):
+        return [], []
+
+    from app.services.chat_automation_orchestrator import AutomationTurnResult
+
+    async def _auto(self, **kwargs):
+        return AutomationTurnResult(handled=False)
+
+    return (
+        patch("app.services.rag_service.RAGService.generate_ai_response", new=_gen),
+        patch("app.services.rag_service.RAGService.retrieve_relevant_chunks", new=_retr),
+        patch(
+            "app.services.chat_automation_orchestrator.ChatAutomationOrchestrator.handle_turn",
+            new=_auto,
+        ),
+    )
+
+
+def test_customer_send_message_forwards_attachment_ids(client: TestClient, db: Session):
+    """An authed customer's attachment_ids must thread through to send_message and link.
+
+    Without forwarding, the reconstructed MessageRequest dropped attachment_ids and the
+    image was silently never linked to the user message.
+    """
+    tenant = _create_tenant(db)
+    db.add(
+        TenantAIConfig(
+            id=uuid4(),
+            tenant_id=tenant.id,
+            brand_voice={},
+            escalation_keywords=[],
+            max_response_tokens=250,
+            grounding_requirement=True,
+        )
+    )
+    db.add(
+        TenantCapabilities(
+            id=uuid4(),
+            tenant_id=tenant.id,
+            can_create_tickets=True,
+            can_access_analytics=True,
+            can_upload_knowledge=True,
+            max_conversations_per_month=1000,
+        )
+    )
+    customer = _create_customer(db)
+    headers = _customer_headers(customer)
+    session = _create_session(db, tenant, customer, customer_user_id=customer.id)
+
+    attachment = MessageAttachment(
+        session_id=session.id,
+        tenant_id=tenant.id,
+        direction=AttachmentDirection.INBOUND,
+        cloudinary_public_id="chat/customer-x",
+        url="https://res.cloudinary.com/x.jpg",
+        content_type="image/png",
+        width=4,
+        height=3,
+        bytes=10,
+        moderation_status=AttachmentModeration.PASSED,
+        status=AttachmentStatus.UPLOADED,
+    )
+    db.add(attachment)
+    db.commit()
+    attachment_id = attachment.id
+
+    p1, p2, p3 = _patched_chat_pipeline()
+    with p1, p2, p3:
+        response = client.post(
+            "/api/v1/customer/conversations/message",
+            headers=headers,
+            json={
+                "message": "look at this",
+                "session_id": str(session.id),
+                "attachment_ids": [str(attachment_id)],
+            },
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [a["id"] for a in body["user_message_attachments"]] == [str(attachment_id)]
+
+    row = db.execute(
+        select(MessageAttachment).where(MessageAttachment.id == attachment_id)
+    ).scalar_one()
+    db.refresh(row)
+    assert row.status == AttachmentStatus.LINKED
+    assert row.message_id is not None
+    user_msg = db.execute(select(Message).where(Message.id == row.message_id)).scalar_one()
+    assert user_msg.content == "look at this"
