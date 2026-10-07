@@ -73,6 +73,33 @@ Request: `{"session_id","message"?,"attachment_ids":[...]}` — `message` **opti
 
 **Errors:** `400` for an unknown / foreign-session / already-linked / >3 `attachment_id`; `422` if both `message` and `attachment_ids` are empty.
 
+## 4b. Sending on an ALREADY-ESCALATED session (no AI reply) `TESTS/CODE`
+
+Once a session is escalated (a human agent is handling it), the bot **must not auto-reply**. A REST `POST /api/v1/chat/message` on such a session now persists the customer's message (text or image, incl. the `_fanout_customer_images` push to the agent for images) and returns **without** any assistant/AI reply.
+
+**200 (escalated, image-only — derived from backend tests, not yet staging-captured):**
+```json
+{
+  "session_id": "8821fac5-...",
+  "message": {
+    "role": "user",
+    "content": "[image]",
+    "id": "a1b2c3d4-...",
+    "attachments": [],
+    "created_at": "2026-10-07T17:40:00Z"
+  },
+  "user_message_attachments": [
+    { "id": "6aecdb36-...", "url": "https://res.cloudinary.com/....jpg", "content_type": "image/png", "width": 480, "height": 300 }
+  ],
+  "should_escalate": false,
+  "escalation_reason": null,
+  "ticket_id": null
+}
+```
+> ⚠️ **THIRD SHAPE — do NOT render `message` as a bot bubble when the session is escalated.** Unlike §4 (where `message.role == "assistant"`), here `message` **echoes the customer's own message** (`role:"user"`, `content` is the text or `"[image]"`). There is deliberately **no AI turn**. The customer's images still arrive on top-level `user_message_attachments` (render from there, as always). Drive your "human mode / no bot" UI off the **session status**, not off this response — `should_escalate:false` here means only "no *new* escalation this turn", not "not escalated".
+>
+> **Exception:** a send whose message/`button_value` is the **`__talk_to_human__`** control token still goes through the normal escalation path (returns an assistant acknowledgement + may re-ring the agent) even on an escalated session — that is how a customer re-requests a human who missed the first ring. Plain text, images, and welcome/flow triggers are all suppressed; only that one control token is not.
+
 ## 5. Agent endpoints (bearer-authed) — takeover
 
 - **Upload:** `POST /api/v1/chat/sessions/{session_id}/upload` (multipart `file`) — **`LIVE`: returns `401` without a bearer** (auth-gated as designed). Happy-path body mirrors §3 with `direction=outbound`. `PENDING-AUTHED` live capture.
@@ -98,6 +125,8 @@ The escalation detail/transcript now returns each `TranscriptMessage` with **`at
 | Send text+image → luna vision reply | ✅ LIVE |
 | Image-only send (no text) | ✅ LIVE |
 | `user_message_attachments` vs `message.attachments` two-shape | ✅ LIVE |
+| Escalated send → no AI reply, `message` echoes the USER message (§4b) | ✅ TESTS/CODE · live-capture PENDING-AUTHED |
+| `__talk_to_human__` on escalated session still re-rings (§4b exception) | ✅ TESTS |
 | Agent upload auth-gated (401) | ✅ LIVE |
 | Upload 403 (gate off) / 413 / 415 / 422 image_rejected / 429 | ⬜ SCHEMA — capture live |
 | Agent upload/send happy-path | ⬜ PENDING-AUTHED |
