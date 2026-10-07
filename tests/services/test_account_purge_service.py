@@ -11,6 +11,7 @@ subset — there is no more such subset); and a PII-free DeletionRequest row
 survives as the minimal proof a purge ran.
 """
 
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -30,7 +31,11 @@ from app.db.models.automation import (
 )
 from app.db.models.business_profile import BusinessProfile
 from app.db.models.conversation import (
+    AttachmentDirection,
+    AttachmentModeration,
+    AttachmentStatus,
     ConversationSession,
+    MessageAttachment,
     Message,
     MessageRole,
     SessionStatus,
@@ -736,6 +741,81 @@ def _tenant_scoped_tables():
     return tables
 
 
+def _make_attachment(tenant_id, session_id, public_id: str | None = None) -> MessageAttachment:
+    return MessageAttachment(
+        tenant_id=tenant_id,
+        session_id=session_id,
+        direction=AttachmentDirection.INBOUND,
+        cloudinary_public_id=public_id or f"luran/chat/{uuid4().hex}",
+        url="https://res.cloudinary.com/demo/image/upload/x.jpg",
+        content_type="image/jpeg",
+        bytes=1234,
+        moderation_status=AttachmentModeration.PASSED,
+        status=AttachmentStatus.UPLOADED,
+    )
+
+
+def _seed_tenant_with_attachments(db_session, public_ids):
+    tenant = _make_tenant(db_session)
+    session = ConversationSession(
+        tenant_id=tenant.id,
+        user_identifier=f"visitor-{uuid4().hex[:8]}",
+        status=SessionStatus.ACTIVE,
+        last_message_at=utcnow_aware(),
+    )
+    db_session.add(session)
+    db_session.flush()
+    for pid in public_ids:
+        db_session.add(_make_attachment(tenant.id, session.id, pid))
+    db_session.flush()
+    return tenant
+
+
+def _attachment_count(db_session, tenant_id) -> int:
+    return db_session.execute(
+        select(func.count())
+        .select_from(MessageAttachment)
+        .where(MessageAttachment.tenant_id == tenant_id)
+    ).scalar_one()
+
+
+def test_purge_tenant_deletes_attachments_and_cloudinary_assets(db_session):
+    pids = [f"luran/chat/{uuid4().hex}", f"luran/chat/{uuid4().hex}"]
+    tenant = _seed_tenant_with_attachments(db_session, pids)
+
+    with patch(
+        "app.services.account_purge_service.cloudinary_manager.destroy",
+        return_value=(True, None),
+    ) as destroy:
+        AccountPurgeService(db_session).purge_tenant(tenant.id)
+
+    assert destroy.call_count == 2
+    assert {c.args[0] for c in destroy.call_args_list} == set(pids)
+    assert _attachment_count(db_session, tenant.id) == 0
+
+
+@pytest.mark.parametrize("failure", ["returns_false", "raises"])
+def test_purge_tenant_survives_cloudinary_destroy_failure(db_session, failure):
+    pids = [f"luran/chat/{uuid4().hex}", f"luran/chat/{uuid4().hex}"]
+    tenant = _seed_tenant_with_attachments(db_session, pids)
+
+    def flaky(public_id):
+        if public_id == pids[0]:
+            if failure == "raises":
+                raise RuntimeError("cloudinary down")
+            return False, "Failed to delete image"
+        return True, None
+
+    with patch(
+        "app.services.account_purge_service.cloudinary_manager.destroy", side_effect=flaky
+    ) as destroy:
+        AccountPurgeService(db_session).purge_tenant(tenant.id)
+
+    assert destroy.call_count == 2  # the other asset was still attempted
+    assert _attachment_count(db_session, tenant.id) == 0
+    assert db_session.get(Tenant, tenant.id) is not None
+
+
 def _seed_every_tenant_scoped_table(db_session, tenant: Tenant, agent: User) -> set[str]:
     """Put at least one row for `tenant` in every tenant-scoped table that
     isn't already covered by another test's fixtures, so the completeness
@@ -989,6 +1069,14 @@ def _seed_every_tenant_scoped_table(db_session, tenant: Tenant, agent: User) -> 
         ),
         "tickets",
     )
+    session_id = (
+        db_session.execute(
+            select(ConversationSession.id).where(ConversationSession.tenant_id == tenant.id)
+        )
+        .scalars()
+        .first()
+    )
+    _add(_make_attachment(tenant.id, session_id), "message_attachments")
 
     return seeded
 

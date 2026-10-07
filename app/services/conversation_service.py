@@ -7,9 +7,17 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.core.websocket import connection_manager
-from app.db.models.conversation import ConversationSession, Message, MessageRole, SessionStatus
+from app.db.models.conversation import (
+    AttachmentStatus,
+    ConversationSession,
+    Message,
+    MessageAttachment,
+    MessageRole,
+    SessionStatus,
+)
 from app.db.models.visitor import Visitor
 from app.schemas.conversation import (
+    MAX_ATTACHMENTS_PER_MESSAGE,
     ConversationSessionCreate,
     ConversationSessionUpdate,
     MessageResponse,
@@ -359,6 +367,55 @@ class ConversationService:
         self.db.refresh(db_message)
 
         return MessageResponse.model_validate(db_message)
+
+    def get_linkable_attachments(
+        self, session_id: UUID, attachment_ids: list[UUID]
+    ) -> list[MessageAttachment]:
+        """Load attachments that may be linked to a message in this session.
+
+        Each id must exist, belong to ``session_id``, be UPLOADED and unlinked.
+
+        Raises:
+            ValueError: If any id violates those rules (nothing is returned).
+        """
+        unique_ids = list(dict.fromkeys(attachment_ids))
+        if len(unique_ids) > MAX_ATTACHMENTS_PER_MESSAGE:
+            raise ValueError(
+                f"Too many attachments (max {MAX_ATTACHMENTS_PER_MESSAGE} per message)"
+            )
+        rows = list(
+            self.db.execute(select(MessageAttachment).where(MessageAttachment.id.in_(unique_ids)))
+            .scalars()
+            .all()
+        )
+        by_id = {r.id: r for r in rows}
+        ordered: list[MessageAttachment] = []
+        for att_id in unique_ids:
+            row = by_id.get(att_id)
+            if (
+                row is None
+                or row.session_id != session_id
+                or row.status != AttachmentStatus.UPLOADED
+                or row.message_id is not None
+            ):
+                raise ValueError("Invalid or already-used attachment")
+            ordered.append(row)
+        return ordered
+
+    def link_attachments(
+        self, session_id: UUID, message_id: UUID, attachment_ids: list[UUID]
+    ) -> list[MessageAttachment]:
+        """Link uploaded attachments to a message (all-or-nothing).
+
+        Raises:
+            ValueError: If any attachment is unknown, foreign, used or not UPLOADED.
+        """
+        rows = self.get_linkable_attachments(session_id, attachment_ids)
+        for row in rows:
+            row.message_id = message_id
+            row.status = AttachmentStatus.LINKED
+        self.db.flush()
+        return rows
 
     def get_session_messages(
         self, session_id: UUID, limit: int | None = None

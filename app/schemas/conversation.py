@@ -3,11 +3,13 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.db.models.conversation import MessageRole, SessionStatus
 from app.schemas.explore import SourceMeta
 from app.schemas.visitor import VisitorIdentitySummary
+
+MAX_ATTACHMENTS_PER_MESSAGE = 3
 
 
 # Base schemas
@@ -62,13 +64,26 @@ class SessionCreateRequest(BaseModel):
 class MessageRequest(BaseModel):
     """Schema for sending a message (user-facing API)."""
 
-    message: str = Field(..., min_length=1, max_length=10000, description="User message")
+    message: str | None = Field(
+        None, max_length=10000, description="User message (optional when attachments are sent)"
+    )
+    attachment_ids: list[UUID] | None = Field(
+        None,
+        max_length=MAX_ATTACHMENTS_PER_MESSAGE,
+        description="IDs of previously uploaded image attachments to link to this message",
+    )
     session_id: UUID | None = Field(None, description="Existing session ID or null for new")
     tenant_id: UUID | None = Field(None, description="Tenant ID (required for new sessions)")
     user_identifier: str | None = Field(
         None, description="User identifier (required for new sessions)"
     )
     metadata: dict | None = Field(None, description="Optional metadata for new sessions")
+
+    @model_validator(mode="after")
+    def _require_text_or_attachment(self) -> "MessageRequest":
+        if not (self.message and self.message.strip()) and not self.attachment_ids:
+            raise ValueError("Either a non-empty message or at least one attachment is required")
+        return self
 
 
 # Update schemas
@@ -83,6 +98,18 @@ class ConversationSessionUpdate(BaseModel):
 
 
 # Response schemas
+class AttachmentOut(BaseModel):
+    """Image attachment surfaced on a message."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    url: str
+    content_type: str
+    width: int | None = None
+    height: int | None = None
+
+
 class MessageResponse(MessageBase):
     """Schema for message response."""
 
@@ -92,6 +119,7 @@ class MessageResponse(MessageBase):
     session_id: UUID
     retrieved_chunk_ids: list[UUID] | None = None
     token_count: int | None = None
+    attachments: list[AttachmentOut] = Field(default_factory=list)
     meta: dict | None = Field(
         None,
         description=(
@@ -138,6 +166,10 @@ class ChatResponse(BaseModel):
 
     session_id: UUID
     message: MessageResponse
+    user_message_attachments: list[AttachmentOut] = Field(
+        default_factory=list,
+        description="Image attachments linked to the customer's message in this turn",
+    )
     should_escalate: bool = Field(
         default=False, description="Whether this should escalate to human"
     )

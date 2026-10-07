@@ -203,6 +203,7 @@ target of a PII purge.
 ============================================================================
 """
 
+import logging
 import uuid
 from uuid import UUID
 
@@ -220,7 +221,7 @@ from app.db.models.automation import (
     TenantAutomationConfig,
 )
 from app.db.models.business_profile import BusinessProfile
-from app.db.models.conversation import ConversationSession, Ticket
+from app.db.models.conversation import ConversationSession, MessageAttachment, Ticket
 from app.db.models.customer_engagement import CustomerBusinessFollow, TenantChannelPost
 from app.db.models.deletion_request import DeletionRequest
 from app.db.models.email_notification import EmailNotification
@@ -242,6 +243,7 @@ from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, Ten
 from app.db.models.user import DeletionStatus, User
 from app.db.models.visit_analytics import DailyVisit
 from app.db.models.visitor import Visitor, VisitorSession
+from app.utils.cloudinary_client import cloudinary_manager
 
 _TOMBSTONE_FULL_NAME = "Deleted user"
 _TOMBSTONE_TENANT_NAME_PREFIX = "deleted-tenant-"
@@ -250,6 +252,8 @@ _TOMBSTONE_DISPLAY_NAME = "Deleted tenant"
 # Bcrypt, matching the hashing scheme used everywhere else a password/API
 # key is stored (see conftest.py fixtures / app/core/security.py).
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+logger = logging.getLogger(__name__)
 
 
 class AccountPurgeService:
@@ -352,6 +356,30 @@ class AccountPurgeService:
 
         self.db.execute(delete(TenantAIConfig).where(TenantAIConfig.tenant_id == tenant_id))
         self.db.execute(delete(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant_id))
+
+        # Chat image attachments: remove the Cloudinary assets first, then the
+        # rows. A Cloudinary failure must NEVER abort the purge (a half-purged
+        # tenant is worse than an orphaned CDN asset), so each destroy is
+        # best-effort; `destroy` already treats "not found" as success.
+        attachment_public_ids = (
+            self.db.execute(
+                select(MessageAttachment.cloudinary_public_id).where(
+                    MessageAttachment.tenant_id == tenant_id
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for public_id in attachment_public_ids:
+            try:
+                ok, err = cloudinary_manager.destroy(public_id)
+                if not ok:
+                    logger.warning(
+                        "Cloudinary destroy failed during tenant purge (continuing): %s", err
+                    )
+            except Exception:
+                logger.exception("Cloudinary destroy raised during tenant purge (continuing)")
+        self.db.execute(delete(MessageAttachment).where(MessageAttachment.tenant_id == tenant_id))
 
         # Sessions last among the "chat" family — Message.session_id and
         # Ticket.session_id both declare ondelete="CASCADE" at the DB level,

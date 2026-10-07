@@ -1163,12 +1163,22 @@ Instructions:
                     True,
                 )
 
+    @staticmethod
+    def _user_content(text: str, image_urls: list[str] | None) -> "str | list[dict]":
+        """Plain string for text-only turns; content-parts (text + image_url) for vision."""
+        if not image_urls:
+            return text
+        return [{"type": "text", "text": text}] + [
+            {"type": "image_url", "image_url": {"url": u}} for u in image_urls
+        ]
+
     async def generate_ai_response(
         self,
         prompt: "PromptComponents",
         max_tokens: int = 800,  # Increased for comprehensive responses (was 200)
         model_name: str | None = None,
         system_message: str | None = None,
+        image_urls: list[str] | None = None,
     ) -> tuple[str, int | None, bool]:
         """
         Generate AI response using OpenAI API.
@@ -1189,7 +1199,7 @@ Instructions:
                 "role": "system",
                 "content": system_message or self.RUNTIME_SYSTEM_MESSAGE,
             },
-            {"role": "user", "content": prompt.full_prompt},
+            {"role": "user", "content": self._user_content(prompt.full_prompt, image_urls)},
         ]
         response_text, token_count, is_api_error = await self._call_openai_raw(
             messages,
@@ -1212,6 +1222,7 @@ Instructions:
         model_name: str | None = None,
         known_facts: dict | None = None,
         company_website: str | None = None,
+        image_urls: list[str] | None = None,
     ) -> tuple[str, dict | None, int | None, bool]:
         """
         Generate a structured sales response using OpenAI structured output.
@@ -1251,7 +1262,7 @@ Instructions:
 
         messages = [
             {"role": "system", "content": system_content},
-            {"role": "user", "content": prompt.full_prompt},
+            {"role": "user", "content": self._user_content(prompt.full_prompt, image_urls)},
         ]
         response_format: dict = {
             "type": "json_schema",

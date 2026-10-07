@@ -233,6 +233,8 @@ resend_verification_rate_limit = create_rate_limit_dependency(
     resend_verification_rate_limiter, "ip"
 )
 webhook_rate_limit = create_rate_limit_dependency(webhook_rate_limiter, "ip")
+# Public (unauthenticated) chat image upload: key by IP, not user.
+chat_upload_rate_limit = create_rate_limit_dependency(upload_rate_limiter, "ip")
 # No `create_rate_limit_dependency` wrapper for account_deletion_public: the
 # deletion-request endpoint is dual-mode (authed vs public) and must only
 # rate-limit the public branch, so it calls `check_rate_limit` directly

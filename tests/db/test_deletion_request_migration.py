@@ -130,7 +130,10 @@ def test_migration_round_trip(alembic_config: Config, migration_test_db: str):
     # --- single head, before touching anything -----------------------------
     heads = script.get_heads()
     assert len(heads) == 1, f"expected a single alembic head, found {heads}"
-    assert heads[0] == "ad40accountdeletion"
+    # This migration must be in the chain reachable from head (don't pin the
+    # tip — later migrations legitimately advance it; just guard against forks).
+    revisions = {rev.revision for rev in script.walk_revisions()}
+    assert "ad40accountdeletion" in revisions
 
     engine = create_engine(migration_test_db)
 
@@ -174,7 +177,10 @@ def test_migration_round_trip(alembic_config: Config, migration_test_db: str):
     # --- ORM round-trip: insert + read back every enum member ---------------
     _assert_orm_round_trip(engine)
 
-    # --- downgrade -1 removes everything this migration added ---------------
+    # --- downgrading the deletion migration removes everything it added -----
+    # First undo any migrations stacked above ad40 (e.g. message_attachments),
+    # then undo ad40 itself — robust to later migrations advancing the head.
+    command.downgrade(alembic_config, "ad40accountdeletion")
     command.downgrade(alembic_config, "-1")
 
     inspector = inspect(engine)

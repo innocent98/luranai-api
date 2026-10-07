@@ -250,6 +250,50 @@ class CloudinaryManager:
             logger.error(f"Channel image upload failed: {e}")
             return None, f"Upload failed: {str(e)}"
 
+    def upload_chat_image(
+        self,
+        file_content: bytes,
+        tenant_id: UUID,
+        session_id: UUID,
+        filename: str,
+    ) -> tuple[str | None, str | None, str | None]:
+        """Upload a chat image; returns (secure_url, public_id, error)."""
+        if not self.enabled:
+            return None, None, "Image upload is not configured"
+
+        try:
+            folder = f"{settings.CLOUDINARY_CHAT_FOLDER}/{tenant_id}/{session_id}"
+            result = cloudinary.uploader.upload(
+                file_content,
+                folder=folder,
+                public_id=uuid4().hex,
+                overwrite=False,
+                resource_type="image",
+                # HEIC -> jpg, strip metadata (EXIF/GPS), cap dimensions
+                format="jpg",
+                transformation=[{"width": 2000, "height": 2000, "crop": "limit"}],
+                image_metadata=False,
+                tags=["chat", str(tenant_id)],
+            )
+            return result.get("secure_url"), result.get("public_id"), None
+        except Exception as e:
+            logger.error(f"Chat image upload failed: {e}")
+            return None, None, "Failed to upload image"
+
+    def destroy(self, public_id: str) -> tuple[bool, str | None]:
+        """Delete an image by public_id; 'not found' counts as success."""
+        if not self.enabled:
+            return False, "Cloudinary not configured"
+
+        try:
+            res = cloudinary.uploader.destroy(public_id, resource_type="image")
+            if res.get("result") in ("ok", "not found"):
+                return True, None
+            return False, "Failed to delete image"
+        except Exception as e:
+            logger.error(f"Cloudinary destroy failed for {public_id}: {e}")
+            return False, "Failed to delete image"
+
 
 # Global instance
 cloudinary_manager = CloudinaryManager()
