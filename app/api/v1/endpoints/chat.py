@@ -49,6 +49,7 @@ from app.db.models.tenant import Tenant, TenantAIConfig
 from app.db.models.user import User, UserRole
 from app.db.models.visitor import VisitorSource
 from app.schemas.conversation import (
+    AttachmentOut,
     ChatResponse,
     ConversationSessionCreate,
     ConversationSessionUpdate,
@@ -183,6 +184,7 @@ async def upload_chat_image(
     }
 
 
+IMAGE_ONLY_PLACEHOLDER = "[image]"
 SYSTEM_START_TRIGGER = "start"
 FLOW_START_PREFIX = "__flow_start__:"
 TALK_TO_HUMAN_TOKEN = "__talk_to_human__"
@@ -660,6 +662,19 @@ async def send_message(
     message_data: MessageRequest,
     db: Session = Depends(get_db),
 ):
+    """Send a customer message; surfaces any linked image attachments on the response."""
+    linked_attachments: list[AttachmentOut] = []
+    response = await _send_message_impl(message_data, db, linked_attachments)
+    if linked_attachments and isinstance(response, ChatResponse):
+        response.user_message_attachments = linked_attachments
+    return response
+
+
+async def _send_message_impl(
+    message_data: MessageRequest,
+    db: Session,
+    linked_attachments: list[AttachmentOut],
+):
     """
     Send a message to the AI assistant and get a response.
 
@@ -686,6 +701,11 @@ async def send_message(
     visitor_service = VisitorService(db)
 
     logger.info("Processing chat message")
+
+    # Image attachments: an image-only send carries a minimal placeholder so every
+    # downstream string-based step (routing, flows, prompt assembly) stays valid.
+    if not (message_data.message and message_data.message.strip()):
+        message_data.message = IMAGE_ONLY_PLACEHOLDER
 
     # Step 1: Get or create session
     session_id = message_data.session_id
@@ -910,6 +930,43 @@ async def send_message(
         conversation_service.update_session_meta(session_id, current_session_meta)
         _persist_contact_email_to_visitor(visitor_service, session_id, customer_contact_email)
         session_model.meta = current_session_meta
+
+    # Attachments: validate up-front (nothing persisted on failure), then link them to
+    # the USER message at whichever branch persists it. The send endpoint has many
+    # branches that each call add_message(role=USER), so wrap add_message once here.
+    if message_data.attachment_ids:
+        try:
+            conversation_service.get_linkable_attachments(session_id, message_data.attachment_ids)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid or already-used attachment",
+            ) from None
+        _attachment_ids = message_data.attachment_ids
+        _plain_add_message = conversation_service.add_message
+        _linked = False
+
+        def _add_message_linking_attachments(*args, **kwargs):  # type: ignore[no-untyped-def]
+            nonlocal _linked
+            msg = _plain_add_message(*args, **kwargs)
+            role = kwargs.get("role", args[1] if len(args) > 1 else None)
+            if role == MessageRole.USER and not _linked:
+                try:
+                    rows = conversation_service.link_attachments(
+                        session_id, msg.id, _attachment_ids
+                    )
+                except ValueError:
+                    db.rollback()
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Invalid or already-used attachment",
+                    ) from None
+                db.commit()
+                _linked = True
+                linked_attachments.extend(AttachmentOut.model_validate(r) for r in rows)
+            return msg
+
+        conversation_service.add_message = _add_message_linking_attachments  # type: ignore[method-assign]
 
     # Step 2.5: Check for Flow Execution (BEFORE storing user message)
     flow_engine = FlowEngine(db)
