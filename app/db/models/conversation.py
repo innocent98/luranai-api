@@ -181,6 +181,26 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
         )
 
 
+class AttachmentDirection(str, enum.Enum):
+    """Who supplied the attachment."""
+
+    INBOUND = "inbound"
+    OUTBOUND = "outbound"
+
+
+class AttachmentStatus(str, enum.Enum):
+    """Attachment lifecycle: uploaded (orphan) -> linked to a message."""
+
+    UPLOADED = "uploaded"
+    LINKED = "linked"
+
+
+class AttachmentModeration(str, enum.Enum):
+    """Moderation outcome (only passing images are stored)."""
+
+    PASSED = "passed"
+
+
 class Message(Base, UUIDMixin):
     """
     Individual messages in a conversation.
@@ -235,9 +255,89 @@ class Message(Base, UUIDMixin):
         "ConversationSession",
         back_populates="messages",
     )
+    attachments: Mapped[list["MessageAttachment"]] = relationship(
+        "MessageAttachment",
+        # Default lazy ("select"), NOT "selectin": a relationship-level eager load
+        # makes EVERY `select(Message)` touch message_attachments, which breaks the
+        # staged deploy's encryption backfills that query Message before the
+        # message_attachments migration runs. Read paths that render attachments
+        # eager-load explicitly via selectinload(Message.attachments).
+        lazy="select",
+        order_by="MessageAttachment.created_at",
+        passive_deletes=True,
+    )
 
     def __repr__(self) -> str:
         return f"<Message(id={self.id}, session_id={self.session_id}, role={self.role})>"
+
+
+class MessageAttachment(Base, UUIDMixin):
+    """Image attachment on a chat message (stored on Cloudinary, URL encrypted)."""
+
+    __tablename__ = "message_attachments"
+
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"),
+        index=True,
+        nullable=True,
+        comment="Message this attachment is linked to (null until linked)",
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("conversation_sessions.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+        comment="Conversation session this attachment belongs to",
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+        comment="Tenant owning this attachment",
+    )
+    direction: Mapped[AttachmentDirection] = mapped_column(
+        SQLEnum(AttachmentDirection, name="attachment_direction"),
+        nullable=False,
+        comment="inbound (visitor) or outbound (agent)",
+    )
+    cloudinary_public_id: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+        comment="Cloudinary public id",
+    )
+    url: Mapped[str] = mapped_column(
+        EncryptedString,
+        nullable=False,
+        comment="Delivery URL — encrypted at rest",
+    )
+    content_type: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        comment="MIME type",
+    )
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    bytes: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        comment="File size in bytes",
+    )
+    moderation_status: Mapped[AttachmentModeration] = mapped_column(
+        SQLEnum(AttachmentModeration, name="attachment_moderation"),
+        nullable=False,
+    )
+    status: Mapped[AttachmentStatus] = mapped_column(
+        SQLEnum(AttachmentStatus, name="attachment_status"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=datetime.utcnow,
+        comment="When this attachment was created",
+    )
+
+    def __repr__(self) -> str:
+        return f"<MessageAttachment(id={self.id}, session_id={self.session_id})>"
 
 
 class Ticket(Base, UUIDMixin, TimestampMixin):

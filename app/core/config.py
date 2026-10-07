@@ -4,6 +4,21 @@ from pydantic import EmailStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def normalize_postgres_driver(url: str) -> str:
+    """Pin a bare ``postgresql://`` URL to the psycopg2 driver.
+
+    This project ships ``psycopg2-binary``. SQLAlchemy 2.1 changed the default
+    driver for a bare ``postgresql://`` URL to psycopg (v3), which is not
+    installed, so a bare URL breaks under 2.1 while working under 2.0.
+    Normalising to ``postgresql+psycopg2://`` keeps the driver deterministic
+    across SQLAlchemy versions. Already-qualified URLs (``postgresql+<driver>://``)
+    and non-Postgres URLs (sqlite, etc.) are left untouched.
+    """
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg2://" + url[len("postgresql://") :]
+    return url
+
+
 class Settings(BaseSettings):
     # Project Info
     PROJECT_NAME: str = "Luran"
@@ -121,6 +136,11 @@ class Settings(BaseSettings):
     DATABASE_POOL_SIZE: int = 20
     DATABASE_MAX_OVERFLOW: int = 40
 
+    @field_validator("DATABASE_URL")
+    @classmethod
+    def _pin_postgres_driver(cls, v: str) -> str:
+        return normalize_postgres_driver(v)
+
     # Redis
     REDIS_URL: str
 
@@ -138,7 +158,10 @@ class Settings(BaseSettings):
     # OpenAI
     OPENAI_API_KEY: str
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"  # 3K RPM, $0.00002/1K tokens
-    OPENAI_LLM_MODEL: str = "gpt-4o-mini"  # 500 RPM, $0.150/1M input, $0.600/1M output
+    OPENAI_LLM_MODEL: str = "gpt-6-luna"  # reasoning model; $0.10/1M in, $0.50/1M out
+    # reasoning_effort for gpt-6/reasoning models: none|low|medium|high|xhigh.
+    # Ignored for non-reasoning models (e.g. gpt-4o-mini). Tool-routing forces "none".
+    OPENAI_REASONING_EFFORT: str = "low"
 
     EMBEDDING_DIMENSION: int = 1536  # text-embedding-3-small produces 1536-dim vectors
 
@@ -161,6 +184,7 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: str | None = None
     CLOUDINARY_FOLDER: str = "luran/widget_logos"
     CLOUDINARY_PLATFORM_EMAIL_FOLDER: str = "luran/platform_email_images"
+    CLOUDINARY_CHAT_FOLDER: str = "luran/chat_images"
 
     # Paystack Payment Gateway
     PAYSTACK_SECRET_KEY: str

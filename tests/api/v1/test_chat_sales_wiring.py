@@ -40,6 +40,7 @@ def _spy_sales_llm(calls: list, intent: str = "PRICING_INQUIRY", captured: dict 
         model_name=None,
         known_facts=None,
         company_website=None,
+        image_urls=None,
     ):
         calls.append({"known_facts": known_facts, "company_website": company_website})
         sales_meta = {"intent": intent, "captured": captured or {}, "signals": {}}
@@ -51,7 +52,9 @@ def _spy_sales_llm(calls: list, intent: str = "PRICING_INQUIRY", captured: dict 
     )
 
 
-def _add_audit(db: Session, tenant_id: UUID, url: str, *, age_hours: int, status=AuditStatus.COMPLETED):
+def _add_audit(
+    db: Session, tenant_id: UUID, url: str, *, age_hours: int, status=AuditStatus.COMPLETED
+):
     db.add(
         AuditReport(
             id=uuid4(),

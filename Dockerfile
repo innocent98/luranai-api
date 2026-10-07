@@ -9,16 +9,18 @@ RUN apt-get update && apt-get install -y \
 
 # Install Poetry
 ENV POETRY_HOME="/opt/poetry"
-ENV POETRY_VERSION=1.8.4
+ENV POETRY_VERSION=2.2.1
 RUN curl -sSL https://install.python-poetry.org | python3 - --version "${POETRY_VERSION}" && \
     ln -s /opt/poetry/bin/poetry /usr/local/bin/poetry
 
 # Copy dependency files
 COPY pyproject.toml poetry.lock* ./
 
-# Install dependencies (no dev dependencies for production)
+# Install dependencies (no dev dependencies, don't install the app itself as a
+# package — Poetry 2.x would otherwise try to build the root project and fail on
+# the missing README in this stage; matches CI's `--no-root`).
 RUN poetry config virtualenvs.create false && \
-    poetry install --no-interaction --no-ansi --only main
+    poetry install --no-interaction --no-ansi --no-root --only main
 
 # Production stage
 FROM python:3.11-slim
