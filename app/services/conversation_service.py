@@ -4,7 +4,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import desc, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.websocket import connection_manager
 from app.db.models.conversation import (
@@ -430,13 +430,19 @@ class ConversationService:
         Returns:
             List of message responses ordered by creation time
         """
-        stmt = select(Message).where(Message.session_id == session_id).order_by(Message.created_at)
+        stmt = (
+            select(Message)
+            .where(Message.session_id == session_id)
+            .options(selectinload(Message.attachments))
+            .order_by(Message.created_at)
+        )
 
         if limit:
             # Get last N messages
             stmt = (
                 select(Message)
                 .where(Message.session_id == session_id)
+                .options(selectinload(Message.attachments))
                 .order_by(desc(Message.created_at))
                 .limit(limit)
             )
@@ -463,7 +469,11 @@ class ConversationService:
         Returns:
             Tuple of (messages ordered oldest->newest, has_more bool)
         """
-        stmt = select(Message).where(Message.session_id == session_id)
+        stmt = (
+            select(Message)
+            .where(Message.session_id == session_id)
+            .options(selectinload(Message.attachments))
+        )
         if before:
             stmt = stmt.where(Message.created_at < before)
 
