@@ -1,6 +1,6 @@
 # SOP — Chat image upload (backend, sub-project 1 of 4)
 
-**Status:** Shipped on branch `feat/chat-image-upload-backend` (stacked on `feat/adopt-gpt6-luna-chatwide` / PR #100). Feature commits `733730c..cc85147` (base = the luna branch tip, reviewed separately in #100). 2026-10-07. **Not yet merged** — awaiting PR → `develop` once #100 lands (see Operate).
+**Status:** ✅ **SHIPPED + LIVE (staging + prod), 2026-10-07.** Merged via PRs **#101** (image backend) on top of **#100** (luna) + **#102** (CI/build reproducibility) + **#103** (deploy lazy-load hotfix), promoted to prod via **#104** (develop→main). FE integration guide **#105** + two FE-driven follow-ups **#106** (live inbound to agents; History/Missed images) merged to `develop` — **pending a develop→main promotion** (deferred until the FEs are closer; dormant in prod meanwhile). Prod verified (`/upload` 422 live); staging happy-path live-captured (upload→moderation→Cloudinary→luna vision reply).
 **Area:** `app/api/v1/endpoints/chat.py`, `app/services/{rag_service,conversation_service,image_moderation,account_purge_service}.py`, `app/utils/cloudinary_client.py`, `app/db/models/conversation.py`, `app/workers/{attachment_cleanup,document_processor}.py`, `app/schemas/conversation.py`, `app/core/config.py`, Alembic `ma50_add_message_attachments.py`.
 **Spec:** `docs/superpowers/specs/2026-10-07-chat-image-upload-backend-design.md` · **Plan:** `docs/superpowers/plans/2026-10-07-chat-image-upload-backend.md`.
 
