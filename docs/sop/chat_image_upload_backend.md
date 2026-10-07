@@ -47,7 +47,7 @@ Customers often need to show a problem (screenshot, receipt, damaged product) ra
 - **HEIC deferred** (shared `validate_image` is PIL-only; needs `pillow-heif`). V1 = JPEG/PNG/WebP/GIF; FE widget should request JPEG so iOS converts.
 - **FE integration guide pending** — capture live request/response bodies after staging (global rule; not schema-derived).
 
-## Addendum — authed customer-app gate + attachment forwarding (2026-10-07, PR #<PR>)
+## Addendum — authed customer-app gate + attachment forwarding (2026-10-07, PR #108)
 
 Small follow-on so the customer app can gate + send images on its own surfaces:
 - Exposed `allow_file_upload: bool` (default true, reflects `Tenant.widget_allow_file_upload`) on `CustomerConversationDetail` (`GET /customer/conversations/{id}`) and `PublicBusinessProfileResponse` (`GET /public/business/{slug}`) — mirrors the widget public-config flag so the FE threads one consistently-named flag everywhere. Private-tenant profiles redact widget config, so the flag falls back to its default there (gate on `is_private`).
