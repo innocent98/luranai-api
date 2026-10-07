@@ -14,7 +14,6 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
-    Request,
     UploadFile,
     status,
 )
@@ -98,7 +97,6 @@ _CHAT_UPLOAD_MAX_BYTES = _CHAT_UPLOAD_MAX_MB * 1024 * 1024
     dependencies=[Depends(chat_upload_rate_limit)],
 )
 async def upload_chat_image(
-    request: Request,
     session_id: UUID = Form(...),
     file: UploadFile = File(..., description="Image (JPEG, PNG, GIF, WebP), max 10MB"),
     db: Session = Depends(get_db),
@@ -114,24 +112,15 @@ async def upload_chat_image(
     if not tenant or not tenant.widget_allow_file_upload:
         raise HTTPException(status.HTTP_403_FORBIDDEN, detail="File upload is not enabled")
 
-    # Cheap early guard (multipart overhead is small relative to the 10MB cap).
-    declared = request.headers.get("content-length")
-    if declared and declared.isdigit() and int(declared) > _CHAT_UPLOAD_MAX_BYTES + 1024 * 1024:
-        raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image too large")
-
-    content = await file.read()
+    # Bounded read: never buffer more than cap+1 bytes (covers chunked bodies).
+    content = await file.read(_CHAT_UPLOAD_MAX_BYTES + 1)
     if len(content) > _CHAT_UPLOAD_MAX_BYTES:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image too large")
 
     is_valid, error = cloudinary_manager.validate_image(content, max_size_mb=_CHAT_UPLOAD_MAX_MB)
     if not is_valid:
-        too_large = bool(error) and "exceeds maximum allowed" in error
         raise HTTPException(
-            (
-                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
-                if too_large
-                else status.HTTP_415_UNSUPPORTED_MEDIA_TYPE
-            ),
+            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail=error or "Invalid image",
         )
 

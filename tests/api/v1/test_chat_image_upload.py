@@ -113,15 +113,13 @@ def test_invalid_type_415_no_moderation_or_upload(client, db):
     assert _rows(db) == []
 
 
-def test_too_large_413_no_moderation_or_upload(client, db):
+def test_oversized_413_bounded_read_no_validation_moderation_or_upload(client, db):
     session = _seed(db, allow=True)
+    big = b"\x00" * (10 * 1024 * 1024 + 1)
     with patch(CM) as cm, patch(MOD, new=AsyncMock()) as mod:
-        cm.validate_image.return_value = (
-            False,
-            "File size (11.00MB) exceeds maximum allowed (10MB)",
-        )
-        r = _post(client, session)
+        r = _post(client, session, content=big)
     assert r.status_code == 413
+    cm.validate_image.assert_not_called()
     mod.assert_not_called()
     cm.upload_chat_image.assert_not_called()
     assert _rows(db) == []
