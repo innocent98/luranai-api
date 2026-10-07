@@ -106,19 +106,50 @@ async def test_cleanup_removes_old_unlinked_only(db, monkeypatch):
     assert db.query(MessageAttachment).filter_by(id=linked_id).count() == 1
 
 
-async def test_cleanup_continues_when_destroy_raises(db, monkeypatch):
+async def test_destroy_failure_keeps_row_and_not_counted(db, monkeypatch):
     import app.workers.attachment_cleanup as mod
     from app.workers.attachment_cleanup import cleanup_orphan_attachments
 
     monkeypatch.setattr(mod, "SessionLocal", lambda: _NoCloseSession(db))
     s = _session(db)
     old_at = datetime.now(UTC) - timedelta(hours=26)
-    _att(db, s, "chat/a", status=AttachmentStatus.UPLOADED, created_at=old_at)
-    _att(db, s, "chat/b", status=AttachmentStatus.UPLOADED, created_at=old_at)
+    bad = _att(db, s, "chat/bad", status=AttachmentStatus.UPLOADED, created_at=old_at)
+    good = _att(db, s, "chat/good", status=AttachmentStatus.UPLOADED, created_at=old_at)
+    bad_id, good_id = bad.id, good.id
+
+    def fake_destroy(public_id):
+        return (False, "x") if public_id == "chat/bad" else (True, None)
+
+    warnings = []
+    sink = mod.logger.add(lambda m: warnings.append(str(m)), level="WARNING")
+    try:
+        with patch("app.workers.attachment_cleanup.cloudinary_manager.destroy") as d:
+            d.side_effect = fake_destroy
+            n = await cleanup_orphan_attachments({})
+    finally:
+        mod.logger.remove(sink)
+
+    assert n == 1
+    assert db.query(MessageAttachment).filter_by(id=bad_id).count() == 1
+    assert db.query(MessageAttachment).filter_by(id=good_id).count() == 0
+    assert any("chat/bad" in w and str(bad_id) in w for w in warnings)
+
+
+async def test_cleanup_keeps_rows_when_destroy_raises(db, monkeypatch):
+    import app.workers.attachment_cleanup as mod
+    from app.workers.attachment_cleanup import cleanup_orphan_attachments
+
+    monkeypatch.setattr(mod, "SessionLocal", lambda: _NoCloseSession(db))
+    s = _session(db)
+    old_at = datetime.now(UTC) - timedelta(hours=26)
+    a = _att(db, s, "chat/a", status=AttachmentStatus.UPLOADED, created_at=old_at)
+    b = _att(db, s, "chat/b", status=AttachmentStatus.UPLOADED, created_at=old_at)
+    ids = [a.id, b.id]
 
     with patch("app.workers.attachment_cleanup.cloudinary_manager.destroy") as d:
         d.side_effect = RuntimeError("boom")
         n = await cleanup_orphan_attachments({})
 
-    assert n == 2
+    assert n == 0
     assert d.call_count == 2
+    assert db.query(MessageAttachment).filter(MessageAttachment.id.in_(ids)).count() == 2
