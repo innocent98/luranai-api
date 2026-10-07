@@ -16,9 +16,11 @@ RUN curl -sSL https://install.python-poetry.org | python3 - --version "${POETRY_
 # Copy dependency files
 COPY pyproject.toml poetry.lock* ./
 
-# Install dependencies (no dev dependencies for production)
+# Install dependencies (no dev dependencies, don't install the app itself as a
+# package — Poetry 2.x would otherwise try to build the root project and fail on
+# the missing README in this stage; matches CI's `--no-root`).
 RUN poetry config virtualenvs.create false && \
-    poetry install --no-interaction --no-ansi --only main
+    poetry install --no-interaction --no-ansi --no-root --only main
 
 # Production stage
 FROM python:3.11-slim
