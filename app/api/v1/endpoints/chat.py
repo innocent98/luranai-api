@@ -3067,7 +3067,7 @@ async def send_agent_message(
         try:
             conversation_service.get_linkable_attachments(session_id, message_data.attachment_ids)
         except ValueError as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     # Create message
     message = conversation_service.add_message(
@@ -3093,7 +3093,7 @@ async def send_agent_message(
             db.commit()
         except ValueError as e:
             db.rollback()
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
         attachments = [AttachmentOut.model_validate(r) for r in rows]
         message.attachments = attachments
 
