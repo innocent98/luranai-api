@@ -2303,6 +2303,10 @@ async def _send_message_impl(
             )
             prompt_components.full_prompt = f"{prompt_components.full_prompt}{directive_block}"
 
+            # Current turn's linked image URLs (populated when the USER message was
+            # persisted); None keeps the text-only path unchanged.
+            _turn_image_urls = [a.url for a in linked_attachments] or None
+
             if _sales_mode:
                 # State-threading: pin facts already captured this conversation so
                 # the agent never re-asks them (fixes "how large is your team?" twice).
@@ -2338,6 +2342,7 @@ async def _send_message_impl(
                         model_name=settings.OPENAI_LLM_MODEL,
                         known_facts=_known_facts,
                         company_website=_company_website,
+                        image_urls=_turn_image_urls,
                     )
                 )
             else:
@@ -2347,6 +2352,7 @@ async def _send_message_impl(
                         prompt=prompt_components,
                         max_tokens=tenant_ai_config.max_response_tokens,
                         model_name=settings.OPENAI_LLM_MODEL,
+                        image_urls=_turn_image_urls,
                     )
                 )
 

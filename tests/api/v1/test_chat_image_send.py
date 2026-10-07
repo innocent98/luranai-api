@@ -77,8 +77,14 @@ def _att(db, session_id, tenant_id, **kw):
     return a.id
 
 
+_SEEN_IMAGE_URLS: list = []
+
+
 def _patches():
-    async def _gen(self, prompt, max_tokens=800, model_name=None, system_message=None):
+    async def _gen(
+        self, prompt, max_tokens=800, model_name=None, system_message=None, image_urls=None
+    ):
+        _SEEN_IMAGE_URLS.append(image_urls)
         return "Nice picture.", 30, False
 
     async def _retr(self, *, tenant_id, query, max_chunks, score_threshold):
@@ -100,6 +106,7 @@ def _patches():
 
 
 def _send(client, session_id, message, ids):
+    _SEEN_IMAGE_URLS.clear()
     p1, p2, p3 = _patches()
     with p1, p2, p3:
         return client.post(
@@ -134,6 +141,7 @@ def test_text_and_image_links_and_surfaces(client, db):
     user_msg = db.execute(select(Message).where(Message.id == row.message_id)).scalar_one()
     assert user_msg.content == "look at this"
     assert [a["id"] for a in r.json()["user_message_attachments"]] == [str(aid)]
+    assert _SEEN_IMAGE_URLS == [["https://c/x.jpg"]]
 
 
 def test_foreign_attachment_rejected(client, db):
