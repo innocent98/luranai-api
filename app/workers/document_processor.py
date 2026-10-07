@@ -1213,6 +1213,10 @@ class WorkerSettings:
         purge_due_deletion_requests,
     )
 
+    from app.workers.attachment_cleanup import (  # type: ignore[misc]
+        cleanup_orphan_attachments,
+    )
+
     from app.auditor.pipeline import run_website_audit  # type: ignore[misc]
 
     from app.workers.sales_notifications import (  # type: ignore[misc]
@@ -1241,6 +1245,7 @@ class WorkerSettings:
         auto_abandon_inactive_conversations,
         auto_resolve_stale_tickets,
         purge_due_deletion_requests,
+        cleanup_orphan_attachments,
         check_trial_expiration_3days,
         expire_lapsed_trials,
         check_subscription_renewal_reminders,
@@ -1294,6 +1299,13 @@ class WorkerSettings:
             hour=2,
             minute=0,
             run_at_startup=False,  # Don't run on startup
+        ),
+        # Reap orphaned chat-image uploads (>24h, never sent) - daily at 3 AM UTC
+        cron(
+            cleanup_orphan_attachments,
+            hour={3},
+            minute=0,
+            run_at_startup=False,
         ),
         # Check trial expiration reminders (14/7/3/1/0 days) - daily at 9 AM UTC
         cron(
