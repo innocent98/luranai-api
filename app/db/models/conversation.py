@@ -255,6 +255,12 @@ class Message(Base, UUIDMixin):
         "ConversationSession",
         back_populates="messages",
     )
+    attachments: Mapped[list["MessageAttachment"]] = relationship(
+        "MessageAttachment",
+        lazy="selectin",
+        order_by="MessageAttachment.created_at",
+        passive_deletes=True,
+    )
 
     def __repr__(self) -> str:
         return f"<Message(id={self.id}, session_id={self.session_id}, role={self.role})>"

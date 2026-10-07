@@ -163,3 +163,32 @@ def test_empty_message_without_attachment_422(client, db):
     sid, _ = _session(db)
     r = _send(client, sid, "", [])
     assert r.status_code == 422
+
+
+def test_guard_links_to_latest_user_message_when_branch_skipped_link(client, db):
+    """If no branch linked attachments, the post-turn guard links them (not silently lost)."""
+    from app.api.v1.endpoints import chat as chat_module
+    from app.db.models.conversation import MessageRole
+    from app.schemas.conversation import ChatResponse, MessageResponse
+    from app.services.conversation_service import ConversationService
+
+    sid, tid = _session(db)
+    aid = _att(db, sid, tid)
+
+    async def _fake_impl(message_data, db_, linked):
+        svc = ConversationService(db_)
+        svc.add_message(sid, MessageRole.USER, "hello")  # unwrapped: never links
+        reply = svc.add_message(sid, MessageRole.ASSISTANT, "hi")
+        return ChatResponse(session_id=sid, message=MessageResponse.model_validate(reply))
+
+    with patch.object(chat_module, "_send_message_impl", new=_fake_impl):
+        r = client.post(
+            "/api/v1/chat/message",
+            json={"session_id": str(sid), "message": "hello", "attachment_ids": [str(aid)]},
+        )
+    assert r.status_code == 200, r.text
+    assert [a["id"] for a in r.json()["user_message_attachments"]] == [str(aid)]
+    row = db.execute(select(MessageAttachment).where(MessageAttachment.id == aid)).scalar_one()
+    db.refresh(row)
+    assert row.status == AttachmentStatus.LINKED
+    assert row.message_id is not None

@@ -35,6 +35,7 @@ from app.db.models.conversation import (
     AttachmentModeration,
     AttachmentStatus,
     ConversationSession,
+    Message,
     MessageAttachment,
     EscalationAction,
     MessageRole,
@@ -665,9 +666,48 @@ async def send_message(
     """Send a customer message; surfaces any linked image attachments on the response."""
     linked_attachments: list[AttachmentOut] = []
     response = await _send_message_impl(message_data, db, linked_attachments)
+    if (
+        message_data.attachment_ids
+        and not linked_attachments
+        and isinstance(response, ChatResponse)
+    ):
+        linked_attachments = _fallback_link_attachments(
+            db, response.session_id, message_data.attachment_ids
+        )
     if linked_attachments and isinstance(response, ChatResponse):
         response.user_message_attachments = linked_attachments
     return response
+
+
+def _fallback_link_attachments(
+    db: Session, session_id: UUID, attachment_ids: list[UUID]
+) -> list[AttachmentOut]:
+    """Guard: a turn branch never persisted a USER message, so attachments are still orphaned.
+
+    Link them to the most recent USER message of the session so images are not silently lost.
+    """
+    logger.error(
+        "Chat turn finished with attachment_ids but none were linked; "
+        "falling back to latest user message"
+    )
+    last_user = db.execute(
+        select(Message)
+        .where(Message.session_id == session_id, Message.role == MessageRole.USER)
+        .order_by(Message.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if last_user is None:
+        logger.error("No user message in session to link orphaned attachments to")
+        return []
+    service = ConversationService(db)
+    try:
+        rows = service.link_attachments(session_id, last_user.id, attachment_ids)
+        db.commit()
+    except ValueError:
+        db.rollback()
+        logger.error("Fallback attachment linking failed validation")
+        return []
+    return [AttachmentOut.model_validate(r) for r in rows]
 
 
 async def _send_message_impl(
