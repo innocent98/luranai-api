@@ -92,28 +92,17 @@ _CHAT_UPLOAD_MAX_MB = 10
 _CHAT_UPLOAD_MAX_BYTES = _CHAT_UPLOAD_MAX_MB * 1024 * 1024
 
 
-@router.post(
-    "/upload",
-    response_model=dict,
-    status_code=status.HTTP_200_OK,
-    dependencies=[Depends(chat_upload_rate_limit)],
-)
-async def upload_chat_image(
-    session_id: UUID = Form(...),
-    file: UploadFile = File(..., description="Image (JPEG, PNG, GIF, WebP), max 10MB"),
-    db: Session = Depends(get_db),
-):
-    """Public customer image upload: validate, moderate, then store (unlinked)."""
-    session = db.execute(
-        select(ConversationSession).where(ConversationSession.id == session_id)
-    ).scalar_one_or_none()
-    if not session:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+async def _process_image_upload(
+    file: UploadFile,
+    session: ConversationSession,
+    direction: AttachmentDirection,
+    db: Session,
+) -> MessageAttachment:
+    """Shared upload pipeline: bounded read, validate, moderate (fail-closed), store, insert.
 
-    tenant = db.execute(select(Tenant).where(Tenant.id == session.tenant_id)).scalar_one_or_none()
-    if not tenant or not tenant.widget_allow_file_upload:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="File upload is not enabled")
-
+    Authorization/feature gates are the caller's job. Raises HTTPException
+    (413 too large, 415 invalid image, 422 image_rejected, 502 storage failure).
+    """
     # Bounded read: never buffer more than cap+1 bytes (covers chunked bodies).
     content = await file.read(_CHAT_UPLOAD_MAX_BYTES + 1)
     if len(content) > _CHAT_UPLOAD_MAX_BYTES:
@@ -161,7 +150,7 @@ async def upload_chat_image(
     attachment = MessageAttachment(
         session_id=session.id,
         tenant_id=session.tenant_id,
-        direction=AttachmentDirection.INBOUND,
+        direction=direction,
         status=AttachmentStatus.UPLOADED,
         moderation_status=AttachmentModeration.PASSED,
         cloudinary_public_id=public_id,
@@ -175,14 +164,44 @@ async def upload_chat_image(
     db.commit()
     db.refresh(attachment)
 
+    return attachment
+
+
+def _upload_response(attachment: MessageAttachment) -> dict:
     return {
         "attachment_id": str(attachment.id),
-        "url": url,
-        "content_type": content_type,
-        "width": width,
-        "height": height,
-        "bytes": len(content),
+        "url": attachment.url,
+        "content_type": attachment.content_type,
+        "width": attachment.width,
+        "height": attachment.height,
+        "bytes": attachment.bytes,
     }
+
+
+@router.post(
+    "/upload",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+    dependencies=[Depends(chat_upload_rate_limit)],
+)
+async def upload_chat_image(
+    session_id: UUID = Form(...),
+    file: UploadFile = File(..., description="Image (JPEG, PNG, GIF, WebP), max 10MB"),
+    db: Session = Depends(get_db),
+):
+    """Public customer image upload: validate, moderate, then store (unlinked)."""
+    session = db.execute(
+        select(ConversationSession).where(ConversationSession.id == session_id)
+    ).scalar_one_or_none()
+    if not session:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    tenant = db.execute(select(Tenant).where(Tenant.id == session.tenant_id)).scalar_one_or_none()
+    if not tenant or not tenant.widget_allow_file_upload:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, detail="File upload is not enabled")
+
+    attachment = await _process_image_upload(file, session, AttachmentDirection.INBOUND, db)
+    return _upload_response(attachment)
 
 
 IMAGE_ONLY_PLACEHOLDER = "[image]"
@@ -2964,6 +2983,36 @@ async def agent_takeover(
 
 
 @router.post(
+    "/sessions/{session_id}/upload",
+    response_model=dict,
+    status_code=status.HTTP_200_OK,
+)
+async def upload_agent_chat_image(
+    session_id: UUID,
+    file: UploadFile = File(..., description="Image (JPEG, PNG, GIF, WebP), max 10MB"),
+    db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
+    _subscription_check: object = Depends(verify_subscription_active),
+):
+    """Agent image upload during takeover: same pipeline as the public upload (OUTBOUND).
+
+    The per-tenant ``widget_allow_file_upload`` flag governs *customer* uploads only
+    and deliberately does not apply here.
+    """
+    session = ConversationService(db).get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    verify_tenant_access(session.tenant_id, current_user)
+    if current_user.role not in [UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only support agents or admins can upload agent images",
+        )
+    attachment = await _process_image_upload(file, session, AttachmentDirection.OUTBOUND, db)
+    return _upload_response(attachment)
+
+
+@router.post(
     "/sessions/{session_id}/agent-message",
     response_model=MessageResponse,
     status_code=status.HTTP_201_CREATED,
@@ -3013,6 +3062,13 @@ async def send_agent_message(
             detail="Only support agents or admins can send agent messages",
         )
 
+    # Validate attachments before persisting anything (all-or-nothing, 400 on misuse).
+    if message_data.attachment_ids:
+        try:
+            conversation_service.get_linkable_attachments(session_id, message_data.attachment_ids)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
     # Create message
     message = conversation_service.add_message(
         session_id=session_id,
@@ -3021,12 +3077,25 @@ async def send_agent_message(
         # SQLAlchemy stores the name regardless, which is why the mis-cased
         # `human_agent` enum label caused 500s until migration d1f2humanagentname.)
         role=MessageRole.HUMAN_AGENT,
-        content=message_data.message,
+        content=(message_data.message or "").strip() or IMAGE_ONLY_PLACEHOLDER,
         meta={
             "agent_id": str(current_user.id),
             "agent_name": current_user.full_name,
         },
     )
+
+    attachments: list[AttachmentOut] = []
+    if message_data.attachment_ids:
+        try:
+            rows = conversation_service.link_attachments(
+                session_id, message.id, message_data.attachment_ids
+            )
+            db.commit()
+        except ValueError as e:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        attachments = [AttachmentOut.model_validate(r) for r in rows]
+        message.attachments = attachments
 
     # Broadcast to customer + other agents (local + cross-worker)
     await connection_manager.fanout_event(
@@ -3037,6 +3106,9 @@ async def send_agent_message(
             "content": message.content,
             "agent_name": current_user.full_name,
             "timestamp": message.created_at.isoformat(),
+            "attachments": [
+                {"id": str(a.id), "url": a.url, "content_type": a.content_type} for a in attachments
+            ],
         },
         to_customer=True,
         to_agents=True,
