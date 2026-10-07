@@ -95,6 +95,7 @@ class VisitorService:
             widget_accent_color=tenant.widget_accent_color,
             widget_logo_url=tenant.widget_logo_url,
             widget_greeting_message=tenant.widget_greeting_message,
+            allow_file_upload=tenant.widget_allow_file_upload,
             collect_name_before_chat=bool(
                 getattr(tenant.ai_config, "collect_name_before_chat", False)
             ),
@@ -433,6 +434,7 @@ class VisitorService:
                 widget_accent_color=tenant.widget_accent_color,
                 widget_logo_url=tenant.widget_logo_url,
                 widget_greeting_message=tenant.widget_greeting_message,
+                allow_file_upload=tenant.widget_allow_file_upload,
                 collect_name_before_chat=bool(
                     getattr(tenant.ai_config, "collect_name_before_chat", False)
                 ),

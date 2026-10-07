@@ -176,6 +176,7 @@ def get_customer_conversation(
         business_widget_primary_color=tenant.widget_primary_color if tenant else None,
         business_widget_accent_color=tenant.widget_accent_color if tenant else None,
         business_widget_greeting_message=tenant.widget_greeting_message if tenant else None,
+        allow_file_upload=tenant.widget_allow_file_upload if tenant else True,
         conversation=detail,
         has_more_messages=has_more,
     )
@@ -243,6 +244,7 @@ async def send_customer_message(
     chat_response = await send_message(
         MessageRequest(
             message=payload.message,
+            attachment_ids=payload.attachment_ids,
             session_id=target_session_id,
             tenant_id=payload.tenant_id,
             user_identifier=current_customer.chat_user_key,
