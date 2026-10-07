@@ -35,7 +35,9 @@ albums beyond the per-message cap; image editing.
 | Moderation failure | **Fail-closed** — if the moderation call errors, reject the upload (never store/show unmoderated) |
 | Data model | **Dedicated `message_attachments` table** (Alembic migration) |
 | Gating | Per-tenant `widget_allow_file_upload` — **default ON for all** (matches existing flag default) |
-| Limits | ≤10 MB/image; ≤3 images/message; JPEG, PNG, WebP, non-animated GIF, HEIC(→JPEG); strip EXIF/GPS |
+| Limits | ≤10 MB/image; ≤3 images/message; **JPEG, PNG, WebP, non-animated GIF** (HEIC **deferred** — see note); strip EXIF/GPS |
+
+> **HEIC deferred (ruling 2026-10-07):** V1 uses the shared `validate_image` (PIL), which supports JPEG/PNG/GIF/WebP only. HEIC needs a `pillow-heif` dependency + a change to that shared validator (used by logo/channel/email uploads) and is deferred to a follow-up. FE guidance: the widget's file input should request `image/jpeg,image/png,image/webp` so iOS converts HEIC to JPEG on selection.
 | Upload flow | **Two-step**: upload returns an attachment ref; send-message carries `attachment_ids[]` |
 
 ## 3. ⚠️ Validation-first (plan task 1, before building)
@@ -112,7 +114,7 @@ else in `rag_service` changes. Reuses `build_chat_completion_kwargs()` from PR #
 ## 7. Gating, limits, abuse controls
 
 - **Gate:** `widget_allow_file_upload` (default ON); widget bootstrap already exposes it (widget.py:73).
-- **Limits:** ≤10 MB, ≤3/message, allowed formats (HEIC converted to JPEG via Cloudinary), EXIF stripped.
+- **Limits:** ≤10 MB (bounded read), ≤3/message, formats JPEG/PNG/WebP/non-animated GIF (HEIC deferred — see §2 note), EXIF stripped.
 - **Rate limit:** reuse the existing limiter keyed by session + IP on the public upload endpoint.
 - **Moderation:** OpenAI omni-moderation on every upload; flagged → 422; moderation error → 422 (fail-closed).
 

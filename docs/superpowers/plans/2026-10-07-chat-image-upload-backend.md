@@ -19,7 +19,7 @@
 - **Secrets:** never cat/decrypt `.env`; use `scripts/env.sh` round-trip only. `OPENAI_API_KEY` is read from env.
 - **Encrypted columns** (`EncryptedString`/`EncryptedJSON` from `app.core.encryption`) emit as plain text/JSON at the DB level; migrations use the underlying `sa.String`/`sa.Text`/`sa.JSON`.
 - **Model calls go through `build_chat_completion_kwargs()`** (PR #100) — never hardcode sampling params.
-- **Limits (verbatim):** ≤10 MB/image; ≤3 images/message; formats JPEG, PNG, WebP, non-animated GIF, HEIC (convert to JPEG); strip EXIF/GPS.
+- **Limits (verbatim):** ≤10 MB/image (bounded read); ≤3 images/message; formats JPEG, PNG, WebP, non-animated GIF (HEIC **deferred** to a follow-up per the 2026-10-07 ruling — shared `validate_image` is PIL-only; needs `pillow-heif`); strip EXIF/GPS.
 - **Moderation is fail-closed:** any moderation error → reject the upload.
 - **Gate:** per-tenant `widget_allow_file_upload`, default ON.
 - **New `message_attachments` table MUST carry `tenant_id` FK → `tenants.id`** so the purge completeness guard auto-discovers it (then Task 9 wires the delete + seed).
