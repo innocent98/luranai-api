@@ -19,7 +19,7 @@ from fastapi import (
 )
 from loguru import logger
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import (
     get_current_tenant_admin,
@@ -695,7 +695,45 @@ async def send_message(
         )
     if linked_attachments and isinstance(response, ChatResponse):
         response.user_message_attachments = linked_attachments
+        await _fanout_customer_images(db, response.session_id, linked_attachments)
     return response
+
+
+async def _fanout_customer_images(
+    db: Session, session_id: UUID, attachments: list[AttachmentOut]
+) -> None:
+    """Push the customer's image message to watching agents (text goes via the WS path).
+
+    Best-effort: the message is already persisted, so a fanout failure must not fail the send.
+    """
+    try:
+        message = db.execute(
+            select(Message)
+            .join(MessageAttachment, MessageAttachment.message_id == Message.id)
+            .where(MessageAttachment.id == attachments[0].id)
+            .options(selectinload(Message.attachments))
+        ).scalar_one_or_none()
+        session = db.get(ConversationSession, session_id)
+        if message is None or session is None:
+            return
+        await connection_manager.fanout_event(
+            session_id=session_id,
+            message={
+                "type": "customer_message",
+                "message_id": str(message.id),
+                "content": message.content,
+                "user_identifier": session.user_identifier,
+                "timestamp": message.created_at.isoformat(),
+                "attachments": [
+                    {"id": str(a.id), "url": a.url, "content_type": a.content_type}
+                    for a in message.attachments
+                ],
+            },
+            to_customer=False,
+            to_agents=True,
+        )
+    except Exception:
+        logger.exception("Failed to fan out customer image message to agents")
 
 
 def _fallback_link_attachments(
@@ -876,7 +914,7 @@ async def _send_message_impl(
             logger.info("Session reactivated from abandoned to active")
         elif session.status == SessionStatus.RESOLVED:
             welcome_triggers = {"start", "hello", "hi", "hey", "welcome", "__init__", "__welcome__"}
-            if message_data.message.lower().strip() not in welcome_triggers:
+            if (message_data.message or "").lower().strip() not in welcome_triggers:
                 logger.info("Reopening resolved session after customer reply")
                 session = conversation_service.update_session(
                     session_id, ConversationSessionUpdate(status=SessionStatus.ACTIVE)
@@ -1039,6 +1077,32 @@ async def _send_message_impl(
     effective_message_lower = effective_message.lower().strip()
     session_meta = dict(session_model.meta or {})
     rag_only_mode = bool(session_meta.get("rag_only_mode", False))
+
+    # Escalated session: a human agent owns this conversation, so the bot must not auto-reply.
+    # Customers still send images (and text) over REST after escalation because images cannot go
+    # over the agent WebSocket; none of that should trigger an AI reply, a flow, or a welcome
+    # message that intrudes on the human<->customer thread. The sole exception is the explicit
+    # "talk to human" control token, which must still reach the escalation branch below so an
+    # again-requested or previously-missed escalation re-rings the agent (see the re-escalation
+    # regressions in test_chat_flow_router). For every other input we persist the customer's
+    # message (linking any attachments via the add_message wrapper installed above, so the
+    # wrapper's commit + agent-fanout path still fires) and return with no generation. The
+    # ChatResponse echoes the persisted USER message because the schema requires a MessageResponse
+    # and there is deliberately no assistant reply this turn.
+    if session.status == SessionStatus.ESCALATED and effective_message_lower != TALK_TO_HUMAN_TOKEN:
+        logger.info("Skipping AI generation: session is escalated to a human agent")
+        user_message = conversation_service.add_message(
+            session_id=session_id,
+            role=MessageRole.USER,
+            content=(message_data.message or "").strip() or IMAGE_ONLY_PLACEHOLDER,
+        )
+        return ChatResponse(
+            session_id=session_id,
+            message=user_message,
+            should_escalate=False,
+            escalation_reason=None,
+            ticket_id=None,
+        )
 
     # Global start router: if no active execution and at least one active flow,
     # present flow choices instead of relying on overlapping keywords.

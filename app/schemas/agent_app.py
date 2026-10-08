@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.models.agent_device import DevicePlatform
 from app.db.models.user import AvailabilityStatus, UserRole
+from app.schemas.conversation import AttachmentOut
 
 
 class DeviceRegisterRequest(BaseModel):
@@ -65,6 +66,7 @@ class TranscriptMessage(BaseModel):
     role: str
     content: str
     created_at: datetime
+    attachments: list[AttachmentOut] = Field(default_factory=list)
 
 
 class EscalationDetail(EscalationSummary):
