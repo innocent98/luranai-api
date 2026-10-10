@@ -3036,7 +3036,7 @@ async def agent_takeover(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=AcknowledgeLost(
                     handled_by=handler.full_name if handler else "another agent",
-                    reason="resolved" if final and handler is None else "claimed",
+                    reason="resolved" if final else "claimed",
                 ).model_dump(),
             )
         logger.info("Assigned ticket to agent after takeover")
