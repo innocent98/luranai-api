@@ -93,6 +93,7 @@ from app.services.notification_enqueue import (
 from app.services.quote_service import QuoteService
 from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
+from app.services.voice import turn_signal
 from app.services.ticket_service import TicketService
 from app.services.visitor_service import VisitorService
 from app.utils.datetime import ensure_utc_aware, utcnow_aware, utcnow_naive
@@ -2521,6 +2522,7 @@ async def _send_message_impl(
                 f"action={policy_action}, reason={policy_reason}, mode={grounding_mode}"
             )
 
+            turn_signal.generation_started()
             logger.info("Generating AI response...")
             prompt_components = rag_service.assemble_prompt(
                 ai_config=tenant_ai_config,

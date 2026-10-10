@@ -37,7 +37,7 @@ from app.services.voice.auth import verify_elevenlabs_request
 from app.services.voice.elevenlabs_client import ElevenLabsClient, ElevenLabsMintError
 from app.services.voice.gating import VoiceDenialReason, VoiceGate
 from app.services.voice.session_tokens import VoiceSessionContext, VoiceSessionTokenStore
-from app.services.voice import turn_dedupe
+from app.services.voice import turn_dedupe, turn_signal
 from app.services.voice.sse import SSEFramer, stream_reply
 from app.utils.http_rate_limiter import voice_llm_turn_rate_limiter, voice_rate_limit
 
@@ -571,15 +571,23 @@ async def _turn_allowed(token: str) -> bool:
 # `no-cache` stops any intermediary caching/reshaping the stream.
 _SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
-# How long the pipeline gets to answer before the buffer word is sent. The role
-# frame always goes out immediately (first byte in ~0 ms); the buffer word is
-# what covers latency for TTS, but it is spoken CONTENT, and a tool-call turn
-# must not be preceded by speech. Whether ElevenLabs tolerates content followed
-# by tool_calls in one stream is not documented, so we only commit to content
-# once the pipeline has clearly been slow. EL abandons requests after roughly
-# a second without audio-bearing content (observed live), so this stays well
-# under that. A fast turn (<grace) therefore keeps the exact old wire shape.
-_BUFFER_GRACE_SECONDS = 0.35
+# The buffer word is spoken CONTENT, and a tool-call turn must not be preceded
+# by speech (ElevenLabs does not invoke the client tool after content; seen
+# live). The pipeline decides escalations at many points, some slower than any
+# fixed grace period, so instead of a timer the buffer waits for
+# `turn_signal.generation_started()`, which chat.py fires right before the LLM
+# call: only turns that really generate get filler. A turn that finishes
+# without the signal (escalation / early-return branch) gets no buffer at all.
+#
+# Safety cap for the rare path where the signal never arrives while the
+# pipeline is still running (e.g. a slow flow/automation step that ends in a
+# long reply, or a duplicate turn replaying a slow original). 2.5 s: well above
+# the normal retrieval time before generation (~0.5-1 s), so ordinary turns are
+# signalled first and a late escalation is not preceded by filler; yet short
+# enough that the caller is not left in silence for much longer than the live
+# EL patience (~a few seconds) on a turn that is just slow. On this path a
+# late escalation CAN still get the buffer word ahead of its tool call.
+_BUFFER_MAX_WAIT_SECONDS = 2.5
 # How long a duplicate (re-issued) request waits for the original's outcome.
 _DUPLICATE_WAIT_SECONDS = 10.0
 
@@ -658,6 +666,13 @@ async def _run_turn(
     return outcome
 
 
+async def _run_turn_signalled(started: asyncio.Event, **kwargs: Any) -> _TurnOutcome:
+    """`_run_turn` with the generation signal bound inside the task's own
+    context, so concurrent turns never share an event."""
+    turn_signal.bind(started)
+    return await _run_turn(**kwargs)
+
+
 async def _run_pipeline(
     *,
     db: Session,
@@ -697,7 +712,7 @@ async def _run_pipeline(
             # Emit ONLY the tool call, not spoken text: EL speaks whatever the
             # client tool returns, so adding content here would talk over it.
             # (A slow turn may already have sent the buffer word "... " -- see
-            # `_BUFFER_GRACE_SECONDS`; nothing else is spoken.)
+            # `_BUFFER_MAX_WAIT_SECONDS`; nothing else is spoken.)
             # The follow-up tool-RESULT turn is caught by
             # `_is_tool_result_turn` and answered with `_ESCALATION_ACK_REPLY`,
             # which is why this does not re-run the pipeline or re-escalate.
@@ -753,8 +768,10 @@ async def _stream_pipeline_turn(
     # The pipeline runs as its own task so an abandoned request (generator
     # cancelled on client disconnect) does not tear a half-persisted turn
     # apart; its outcome lands in the dedupe cache for EL's re-request.
+    started = asyncio.Event()
     task = asyncio.ensure_future(
-        _run_turn(
+        _run_turn_signalled(
+            started,
             token=token,
             context=context,
             user_text=user_text,
@@ -772,14 +789,21 @@ async def _stream_pipeline_turn(
     # Same cheap predicate `should_escalate` uses -- no second keyword list.
     silent_turn = tool_already_invoked or RAGService.is_explicit_human_request(user_text)
 
-    buffered = False
     if silent_turn:
         await asyncio.wait({task})
     else:
-        done, _ = await asyncio.wait({task}, timeout=_BUFFER_GRACE_SECONDS)
-        if not done:
+        # Buffer only once generation is about to start (or at the safety cap).
+        signal_waiter = asyncio.ensure_future(started.wait())
+        try:
+            await asyncio.wait(
+                {task, signal_waiter},
+                timeout=_BUFFER_MAX_WAIT_SECONDS,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            signal_waiter.cancel()
+        if not task.done():
             yield framer.buffer()
-            buffered = True
             await asyncio.wait({task})
     outcome = task.result()
 
@@ -791,8 +815,6 @@ async def _stream_pipeline_turn(
             yield frame
         return
 
-    if not buffered:
-        yield framer.buffer()
     for frame in framer.words(outcome.text):
         yield frame
     for frame in framer.finish():

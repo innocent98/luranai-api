@@ -123,6 +123,13 @@ def _isolated_dedupe():
         yield store
 
 
+@pytest.fixture(autouse=True)
+def _short_buffer_cap(monkeypatch):
+    # These tests block the pipeline without ever firing the generation signal,
+    # so the buffer word arrives at the safety cap; keep it short.
+    monkeypatch.setattr(voice, "_BUFFER_MAX_WAIT_SECONDS", 0.05)
+
+
 async def test_first_frames_emitted_before_pipeline_finishes():
     release_pipeline = asyncio.Event()
     started = asyncio.Event()
@@ -152,14 +159,14 @@ async def test_first_frames_emitted_before_pipeline_finishes():
     assert rest[-1].strip() == "data: [DONE]"
 
 
-async def test_fast_text_reply_keeps_old_wire_shape():
+async def test_fast_unsignalled_text_reply_has_no_buffer():
     resp = await _call(_payload(), _ctx(), send=AsyncMock(return_value=_reply("two words")))
     d = _deltas(await _drain(resp))
     assert d[0] == ({"role": "assistant"}, None)
-    assert d[1] == ({"content": BUFFER_WORD}, None)
-    assert d[2:4] == [({"content": "two "}, None), ({"content": "words "}, None)]
-    assert d[4] == ({}, "stop")
-    assert d[5] == "DONE"
+    # No generation signal (early-return reply): no filler, just the words.
+    assert d[1:3] == [({"content": "two "}, None), ({"content": "words "}, None)]
+    assert d[3] == ({}, "stop")
+    assert d[4] == "DONE"
 
 
 async def test_tool_call_turn_has_no_content_when_pipeline_is_fast():
@@ -174,7 +181,7 @@ async def test_tool_call_turn_has_no_content_when_pipeline_is_fast():
 
 
 async def test_tool_call_turn_after_slow_pipeline_still_ends_in_tool_calls(monkeypatch):
-    monkeypatch.setattr(voice, "_BUFFER_GRACE_SECONDS", 0.01)
+    monkeypatch.setattr(voice, "_BUFFER_MAX_WAIT_SECONDS", 0.01)
 
     async def slow(*_a, **_k):
         await asyncio.sleep(0.05)
