@@ -13,6 +13,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
+
+from app.db.models.conversation import MessageRole
 from fastapi import HTTPException
 
 from app.api.v1.endpoints import voice
@@ -43,7 +45,7 @@ def _request(disconnected=False):
 
 def _reply(text, *, escalate=False):
     return SimpleNamespace(
-        message=SimpleNamespace(content=text),
+        message=SimpleNamespace(content=text, role=MessageRole.ASSISTANT),
         should_escalate=escalate,
         escalation_reason="asked" if escalate else None,
     )

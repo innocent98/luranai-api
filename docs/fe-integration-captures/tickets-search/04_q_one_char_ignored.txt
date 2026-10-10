@@ -1,0 +1,102 @@
+GET /api/v1/tickets?q=a
+Authorization: Bearer <tenant-admin access token>
+HTTP 200
+
+{
+    "tickets": [
+        {
+            "summary": "Refund for double charge",
+            "priority": "medium",
+            "id": "d47df0d0-847f-4aa6-8153-955209864b19",
+            "tenant_id": "0286fdc6-7a44-4174-8b3f-c08c547d2bef",
+            "session_id": "b12a24b5-34dd-4125-804f-e39c152f8a6e",
+            "ticket_number": "TKT-2026-0001",
+            "status": "open",
+            "assigned_to": null,
+            "assigned_agent": null,
+            "visitor": {
+                "id": "ea38010d-bff0-4904-9fb9-7c4d5ae769db",
+                "name": "Ada Example",
+                "email": "ada@example.com",
+                "phone": "+0000000001",
+                "public_token": "<public-token-placeholder>",
+                "first_seen_at": "2026-10-10T17:20:31.014390Z",
+                "last_seen_at": "2026-10-10T17:20:31.014390Z",
+                "is_blocked": false
+            },
+            "resolution_notes": null,
+            "resolved_at": null,
+            "created_at": "2026-10-10T17:20:30.999880Z",
+            "updated_at": "2026-10-10T17:20:30.999880Z"
+        },
+        {
+            "summary": "Cannot log in",
+            "priority": "medium",
+            "id": "45e93fa7-9961-4dde-8e75-7cca68f65bbe",
+            "tenant_id": "0286fdc6-7a44-4174-8b3f-c08c547d2bef",
+            "session_id": "d04f39a7-5e09-447a-87fe-26b01321c3b2",
+            "ticket_number": "TKT-2026-0003",
+            "status": "open",
+            "assigned_to": null,
+            "assigned_agent": null,
+            "visitor": null,
+            "resolution_notes": null,
+            "resolved_at": null,
+            "created_at": "2026-10-10T17:20:30.999880Z",
+            "updated_at": "2026-10-10T17:20:30.999880Z"
+        },
+        {
+            "summary": "Discount of 50% not applied",
+            "priority": "medium",
+            "id": "e6fccee6-0991-4e23-aecc-90d39f07c467",
+            "tenant_id": "0286fdc6-7a44-4174-8b3f-c08c547d2bef",
+            "session_id": "af7292e7-0291-4e22-9b47-079ed359a282",
+            "ticket_number": "TKT-2026-0002",
+            "status": "resolved",
+            "assigned_to": null,
+            "assigned_agent": null,
+            "visitor": {
+                "id": "893fde96-a133-4761-8795-42f7deaf42b8",
+                "name": "Bob Example",
+                "email": "bob@example.com",
+                "phone": null,
+                "public_token": "<public-token-placeholder>",
+                "first_seen_at": "2026-10-10T17:20:31.020939Z",
+                "last_seen_at": "2026-10-10T17:20:31.020939Z",
+                "is_blocked": false
+            },
+            "resolution_notes": null,
+            "resolved_at": null,
+            "created_at": "2026-10-10T17:20:30.999880Z",
+            "updated_at": "2026-10-10T17:20:30.999880Z"
+        },
+        {
+            "summary": "Refund still pending",
+            "priority": "medium",
+            "id": "03d29368-7d87-4238-a278-03b956f0d490",
+            "tenant_id": "0286fdc6-7a44-4174-8b3f-c08c547d2bef",
+            "session_id": "bf8d7fb8-b5ef-4cd4-b285-1405d3425613",
+            "ticket_number": "TKT-2026-0004",
+            "status": "resolved",
+            "assigned_to": null,
+            "assigned_agent": null,
+            "visitor": {
+                "id": "fc85d5b8-196c-411e-b490-af3386cd34c7",
+                "name": "Ada Example",
+                "email": "ada@example.com",
+                "phone": "+0000000001",
+                "public_token": "<public-token-placeholder>",
+                "first_seen_at": "2026-10-10T17:20:31.024480Z",
+                "last_seen_at": "2026-10-10T17:20:31.024480Z",
+                "is_blocked": false
+            },
+            "resolution_notes": null,
+            "resolved_at": null,
+            "created_at": "2026-10-10T17:20:30.999880Z",
+            "updated_at": "2026-10-10T17:20:30.999880Z"
+        }
+    ],
+    "total": 4,
+    "page": 1,
+    "page_size": 100
+}

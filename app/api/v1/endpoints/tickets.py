@@ -81,6 +81,14 @@ def list_tickets(
     status_filter: TicketStatus | None = Query(None, description="Filter by status"),
     assigned_to_me: bool = Query(False, description="Show only tickets assigned to me"),
     session_id: UUID | None = Query(None, description="Filter by conversation session"),
+    q: str | None = Query(
+        None,
+        max_length=100,
+        description=(
+            "Case-insensitive substring search over ticket number, summary, session "
+            "user identifier and visitor name/email/phone. Ignored if < 2 chars after trim."
+        ),
+    ),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -93,6 +101,8 @@ def list_tickets(
         tenant_id: Optional tenant filter
         status_filter: Optional status filter
         assigned_to_me: Show only tickets assigned to current user
+        session_id: Optional conversation session filter
+        q: Optional free-text search, ANDed with the other filters
         limit: Maximum tickets to return
         offset: Number of tickets to skip
         db: Database session
@@ -119,6 +129,7 @@ def list_tickets(
         status=status_filter,
         assigned_to=assigned_to,
         session_id=session_id,
+        q=q,
         limit=limit,
         offset=offset,
     )

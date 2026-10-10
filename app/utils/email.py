@@ -1,5 +1,7 @@
 """Email utility for sending notifications."""
 
+import asyncio
+
 from loguru import logger
 
 from app.core.config import settings
@@ -69,7 +71,7 @@ async def send_email(
                 smtp_config["tls"] = True
 
         # Send email
-        response = message.send(to=email_to, smtp=smtp_config)
+        response = await asyncio.to_thread(message.send, to=email_to, smtp=smtp_config)
 
         # Check response status
         status_code = getattr(response, "status_code", None)
