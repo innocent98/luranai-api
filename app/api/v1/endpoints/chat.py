@@ -1,5 +1,6 @@
 """Chat and conversation endpoints."""
 
+import asyncio
 import io
 import re
 from datetime import timedelta
@@ -594,6 +595,99 @@ async def _ring_agents(ticket: TicketResponse | None) -> None:
         )
     except Exception:  # noqa: BLE001 — never break the chat reply over a push
         logger.exception("Failed to enqueue agent alert for ticket %s", ticket.id)
+
+
+# Strong refs so fire-and-forget notification tasks are not garbage-collected mid-send.
+_background_notifications: set[asyncio.Task] = set()
+
+
+async def _send_escalation_emails(
+    *,
+    recipients: list[tuple[str, str]],
+    tenant_name: str,
+    ticket_number: str,
+    ticket_id: str,
+    escalation_reason: str,
+    customer_query: str,
+    priority_label: str,
+    contact_email: str | None,
+) -> None:
+    """Deliver the escalation email to each recipient. Never raises: one bad
+    address must not stop the rest, and nobody is waiting on this to answer."""
+    for email_to, user_name in recipients:
+        try:
+            sent = await send_ticket_escalation_email(
+                email_to=email_to,
+                user_name=user_name,
+                tenant_name=tenant_name,
+                ticket_number=ticket_number,
+                escalation_reason=escalation_reason,
+                customer_query=customer_query,
+                ticket_priority=priority_label,
+                ticket_id=ticket_id,
+                customer_contact_email=contact_email,
+            )
+            if not sent:
+                logger.error(f"Escalation email to {_mask_email(email_to)} was not sent")
+        except Exception as email_error:  # noqa: BLE001 -- log, keep going
+            logger.exception(f"Escalation email to {_mask_email(email_to)} failed: {email_error}")
+
+
+def _mask_email(email: str) -> str:
+    local, _, domain = email.partition("@")
+    return f"{local[:1]}***@{domain}"
+
+
+def _schedule_escalation_emails(**kwargs: Any) -> None:
+    """Run `_send_escalation_emails` off the request path (each mail is ~2-3 s
+    of SMTP; three of them used to stall the escalating turn for ~8 s, which
+    on voice made the tool call arrive after the buffer word). Never raises."""
+    try:
+        task = asyncio.create_task(_send_escalation_emails(**kwargs))
+    except Exception as exc:  # noqa: BLE001 -- notification must never fail the turn
+        logger.exception(f"Could not schedule escalation emails: {exc}")
+        return
+    _background_notifications.add(task)
+    task.add_done_callback(_background_notifications.discard)
+
+
+def _queue_escalation_emails(
+    db: Session,
+    tenant_service: TenantService,
+    *,
+    tenant_id: UUID,
+    ticket: Any,
+    escalation_reason: str,
+    customer_query: str,
+    priority_label: str,
+    contact_email: str | None,
+) -> None:
+    """Resolve the recipients (two cheap reads) and hand delivery to a background
+    task. Same recipients and content as the former inline loop."""
+    try:
+        tenant = tenant_service.get_tenant_by_id(tenant_id, include_relations=False)
+        recipients = [
+            (u.email, u.full_name)
+            for u in db.query(User)
+            .filter(
+                User.tenant_id == tenant_id,
+                User.is_active.is_(True),
+                User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]),
+            )
+            .all()
+        ]
+        _schedule_escalation_emails(
+            recipients=recipients,
+            tenant_name=tenant.display_name if tenant else "Unknown",
+            ticket_number=ticket.ticket_number,
+            ticket_id=str(ticket.id),
+            escalation_reason=escalation_reason,
+            customer_query=customer_query,
+            priority_label=priority_label,
+            contact_email=contact_email,
+        )
+    except Exception as exc:  # noqa: BLE001 -- the ticket already exists; do not fail the turn
+        logger.exception(f"Failed to queue escalation emails: {exc}")
 
 
 def _get_or_create_escalation_ticket(
@@ -1242,36 +1336,16 @@ async def _send_message_impl(
                     await _ring_agents(ticket)
 
                     # Notify support/admin team via email
-                    tenant_for_email = tenant_service.get_tenant_by_id(
-                        session.tenant_id, include_relations=False
+                    _queue_escalation_emails(
+                        db,
+                        tenant_service,
+                        tenant_id=session.tenant_id,
+                        ticket=ticket,
+                        escalation_reason=router_escalation_reason,
+                        customer_query=message_data.message,
+                        priority_label=TicketPriority.HIGH.value.upper(),
+                        contact_email=contact_email,
                     )
-                    tenant_name = tenant_for_email.display_name if tenant_for_email else "Unknown"
-                    recipients = (
-                        db.query(User)
-                        .filter(
-                            User.tenant_id == session.tenant_id,
-                            User.is_active.is_(True),
-                            User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]),
-                        )
-                        .all()
-                    )
-                    for recipient in recipients:
-                        try:
-                            await send_ticket_escalation_email(
-                                email_to=recipient.email,
-                                user_name=recipient.full_name,
-                                tenant_name=tenant_name,
-                                ticket_number=ticket.ticket_number,
-                                escalation_reason=router_escalation_reason,
-                                customer_query=message_data.message,
-                                ticket_priority=TicketPriority.HIGH.value.upper(),
-                                ticket_id=str(ticket.id),
-                                customer_contact_email=contact_email,
-                            )
-                        except Exception as email_error:
-                            logger.error(
-                                f"Router escalation email error for {recipient.email}: {email_error}"
-                            )
             except Exception as ticket_error:
                 logger.error(f"Failed to create router escalation ticket: {ticket_error}")
             assistant_message = conversation_service.add_message(
@@ -1439,40 +1513,16 @@ async def _send_message_impl(
                         logger.info(f"Ticket created from flow: {ticket.ticket_number}")
 
                         # Send email notifications
-                        tenant_for_email = tenant_service.get_tenant_by_id(
-                            session.tenant_id, include_relations=False
+                        _queue_escalation_emails(
+                            db,
+                            tenant_service,
+                            tenant_id=session.tenant_id,
+                            ticket=ticket,
+                            escalation_reason=flow_escalation_reason,
+                            customer_query=message_data.message,
+                            priority_label=priority.value.upper(),
+                            contact_email=contact_email,
                         )
-                        tenant_name = (
-                            tenant_for_email.display_name if tenant_for_email else "Unknown"
-                        )
-
-                        notification_recipients = (
-                            db.query(User)
-                            .filter(
-                                User.tenant_id == session.tenant_id,
-                                User.is_active.is_(True),
-                                User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]),
-                            )
-                            .all()
-                        )
-
-                        for recipient in notification_recipients:
-                            try:
-                                email_sent = await send_ticket_escalation_email(
-                                    email_to=recipient.email,
-                                    user_name=recipient.full_name,
-                                    tenant_name=tenant_name,
-                                    ticket_number=ticket.ticket_number,
-                                    escalation_reason=flow_escalation_reason,
-                                    customer_query=message_data.message,
-                                    ticket_priority=priority.value.upper(),
-                                    ticket_id=str(ticket.id),
-                                    customer_contact_email=contact_email,
-                                )
-                                if email_sent:
-                                    logger.info("Flow escalation email sent")
-                            except Exception:
-                                logger.error("Flow escalation email delivery failed")
 
                 except Exception as ticket_error:
                     logger.error(f"Failed to create ticket from flow: {ticket_error}")
@@ -1678,40 +1728,16 @@ async def _send_message_impl(
                             logger.info(f"Ticket created from flow: {ticket.ticket_number}")
 
                             # Send email notifications
-                            tenant_for_email = tenant_service.get_tenant_by_id(
-                                session.tenant_id, include_relations=False
+                            _queue_escalation_emails(
+                                db,
+                                tenant_service,
+                                tenant_id=session.tenant_id,
+                                ticket=ticket,
+                                escalation_reason=continued_escalation_reason,
+                                customer_query=message_data.message,
+                                priority_label=priority.value.upper(),
+                                contact_email=contact_email,
                             )
-                            tenant_name = (
-                                tenant_for_email.display_name if tenant_for_email else "Unknown"
-                            )
-
-                            notification_recipients = (
-                                db.query(User)
-                                .filter(
-                                    User.tenant_id == session.tenant_id,
-                                    User.is_active.is_(True),
-                                    User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]),
-                                )
-                                .all()
-                            )
-
-                            for recipient in notification_recipients:
-                                try:
-                                    email_sent = await send_ticket_escalation_email(
-                                        email_to=recipient.email,
-                                        user_name=recipient.full_name,
-                                        tenant_name=tenant_name,
-                                        ticket_number=ticket.ticket_number,
-                                        escalation_reason=continued_escalation_reason,
-                                        customer_query=message_data.message,
-                                        ticket_priority=priority.value.upper(),
-                                        ticket_id=str(ticket.id),
-                                        customer_contact_email=contact_email,
-                                    )
-                                    if email_sent:
-                                        logger.info("Flow escalation email sent")
-                                except Exception:
-                                    logger.error("Flow escalation email delivery failed")
 
                     except Exception as ticket_error:
                         logger.error(f"Failed to create ticket from flow: {ticket_error}")
@@ -1902,36 +1928,16 @@ async def _send_message_impl(
             if ticket_created:
                 await _ring_agents(ticket)
 
-                tenant_for_email = tenant_service.get_tenant_by_id(
-                    session.tenant_id, include_relations=False
+                _queue_escalation_emails(
+                    db,
+                    tenant_service,
+                    tenant_id=session.tenant_id,
+                    ticket=ticket,
+                    escalation_reason=capture_escalation_reason,
+                    customer_query=customer_query,
+                    priority_label=priority.value.upper(),
+                    contact_email=final_contact_email,
                 )
-                tenant_name = tenant_for_email.display_name if tenant_for_email else "Unknown"
-
-                notification_recipients = (
-                    db.query(User)
-                    .filter(
-                        User.tenant_id == session.tenant_id,
-                        User.is_active.is_(True),
-                        User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]),
-                    )
-                    .all()
-                )
-
-                for recipient in notification_recipients:
-                    try:
-                        await send_ticket_escalation_email(
-                            email_to=recipient.email,
-                            user_name=recipient.full_name,
-                            tenant_name=tenant_name,
-                            ticket_number=ticket.ticket_number,
-                            escalation_reason=capture_escalation_reason,
-                            customer_query=customer_query,
-                            ticket_priority=priority.value.upper(),
-                            ticket_id=str(ticket.id),
-                            customer_contact_email=final_contact_email,
-                        )
-                    except Exception:
-                        logger.error("Contact-capture escalation email delivery failed")
         except Exception as ticket_error:
             logger.error(f"Failed to create ticket after contact capture: {ticket_error}")
 
@@ -2070,38 +2076,16 @@ async def _send_message_impl(
                     logger.info(f"Ticket created: {ticket.ticket_number}")
 
                     # Send email notifications
-                    tenant_for_email = tenant_service.get_tenant_by_id(
-                        session.tenant_id, include_relations=False
+                    _queue_escalation_emails(
+                        db,
+                        tenant_service,
+                        tenant_id=session.tenant_id,
+                        ticket=ticket,
+                        escalation_reason=consent_escalation_reason,
+                        customer_query=consent_original_query,
+                        priority_label=priority.value.upper(),
+                        contact_email=contact_email,
                     )
-                    tenant_name = tenant_for_email.display_name if tenant_for_email else "Unknown"
-
-                    notification_recipients = (
-                        db.query(User)
-                        .filter(
-                            User.tenant_id == session.tenant_id,
-                            User.is_active.is_(True),
-                            User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]),
-                        )
-                        .all()
-                    )
-
-                    for recipient in notification_recipients:
-                        try:
-                            email_sent = await send_ticket_escalation_email(
-                                email_to=recipient.email,
-                                user_name=recipient.full_name,
-                                tenant_name=tenant_name,
-                                ticket_number=ticket.ticket_number,
-                                escalation_reason=consent_escalation_reason,
-                                customer_query=consent_original_query,
-                                ticket_priority=priority.value.upper(),
-                                ticket_id=str(ticket.id),
-                                customer_contact_email=contact_email,
-                            )
-                            if email_sent:
-                                logger.info("Escalation email sent")
-                        except Exception:
-                            logger.error("Escalation email delivery failed")
 
             except Exception as ticket_error:
                 logger.error(f"Failed to create ticket: {ticket_error}")
@@ -2783,52 +2767,16 @@ async def _send_message_impl(
                     logger.info(f"Ticket created: {ticket.ticket_number} with {priority} priority")
 
                     # Send email notifications to tenant admins and support agents
-                    tenant_for_email = tenant_service.get_tenant_by_id(
-                        session.tenant_id, include_relations=False
+                    _queue_escalation_emails(
+                        db,
+                        tenant_service,
+                        tenant_id=session.tenant_id,
+                        ticket=ticket,
+                        escalation_reason=escalation_reason,
+                        customer_query=message_data.message,
+                        priority_label=priority.value.upper(),
+                        contact_email=contact_email,
                     )
-                    tenant_name = tenant_for_email.display_name if tenant_for_email else "Unknown"
-
-                    # Get all tenant admins and support agents
-
-                    notification_recipients = (
-                        db.query(User)
-                        .filter(
-                            User.tenant_id == session.tenant_id,
-                            User.is_active.is_(True),
-                            User.role.in_([UserRole.TENANT_ADMIN, UserRole.SUPPORT_AGENT]),
-                        )
-                        .all()
-                    )
-
-                    # Send email to each recipient
-                    for recipient in notification_recipients:
-                        try:
-                            email_sent = await send_ticket_escalation_email(
-                                email_to=recipient.email,
-                                user_name=recipient.full_name,
-                                tenant_name=tenant_name,
-                                ticket_number=ticket.ticket_number,
-                                escalation_reason=escalation_reason,
-                                customer_query=message_data.message,
-                                ticket_priority=priority.value.upper(),
-                                ticket_id=str(ticket.id),
-                                customer_contact_email=contact_email,
-                            )
-                            if email_sent:
-                                logger.info(
-                                    f"✓ Escalation email sent successfully to {recipient.email}"
-                                )
-                            else:
-                                logger.error(
-                                    f"✗ Failed to send escalation email to {recipient.email} "
-                                    "(check email configuration and logs above)"
-                                )
-                        except Exception as email_error:
-                            # Log but don't fail ticket creation if email fails
-                            logger.error(
-                                f"✗ Exception sending escalation email to "
-                                f"{recipient.email}: {email_error}"
-                            )
 
             except Exception as ticket_error:
                 logger.error(f"Failed to create ticket or send notifications: {ticket_error}")

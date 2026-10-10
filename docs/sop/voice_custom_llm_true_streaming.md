@@ -49,3 +49,5 @@ Redis 7. Live check still needed on staging.
 `reason: "resolved"` whenever the ticket is RESOLVED/CLOSED, even when it is assigned to the caller
 (previously `"claimed"` with the caller's own name; acknowledge also treated it as an idempotent
 win). Tests in `tests/agent_caller/test_missed_ticket_lifecycle.py`.
+
+> Updated 2026-10-10: tool-call turns that are known in advance now suppress the buffer word; see `voice_escalation_ux.md`.
