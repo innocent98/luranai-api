@@ -263,7 +263,7 @@ class Message(Base, UUIDMixin):
         # message_attachments migration runs. Read paths that render attachments
         # eager-load explicitly via selectinload(Message.attachments).
         lazy="select",
-        order_by="MessageAttachment.created_at",
+        order_by="(MessageAttachment.position, MessageAttachment.created_at)",
         passive_deletes=True,
     )
 
@@ -328,6 +328,13 @@ class MessageAttachment(Base, UUIDMixin):
     status: Mapped[AttachmentStatus] = mapped_column(
         SQLEnum(AttachmentStatus, name="attachment_status"),
         nullable=False,
+    )
+    position: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+        comment="Send order within the message (index in the request's attachment_ids)",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

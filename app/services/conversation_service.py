@@ -411,8 +411,9 @@ class ConversationService:
             ValueError: If any attachment is unknown, foreign, used or not UPLOADED.
         """
         rows = self.get_linkable_attachments(session_id, attachment_ids)
-        for row in rows:
+        for position, row in enumerate(rows):
             row.message_id = message_id
+            row.position = position
             row.status = AttachmentStatus.LINKED
         self.db.flush()
         return rows

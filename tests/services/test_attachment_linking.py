@@ -134,3 +134,30 @@ def test_too_many_attachments_rejected(db):
     with pytest.raises(ValueError, match="Too many attachments"):
         svc.link_attachments(s.id, msg.id, ids)
     assert len(svc.get_linkable_attachments(s.id, ids[:3])) == 3
+
+
+def test_attachments_keep_send_order_not_upload_order(db):
+    """Linked in [b, a] where b was uploaded after a -> reload returns [b, a]."""
+    from datetime import datetime, timedelta
+
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+
+    from app.db.models.conversation import Message
+
+    s = _session(db)
+    t0 = datetime.utcnow()
+    a = _att(db, s, created_at=t0)
+    b = _att(db, s, created_at=t0 + timedelta(seconds=5))
+    svc = ConversationService(db)
+    msg = svc.add_message(s.id, MessageRole.USER, "hi")
+    msg_id = msg.id
+    rows = svc.link_attachments(s.id, msg_id, [b.id, a.id])
+    db.commit()
+    assert [r.id for r in rows] == [b.id, a.id]
+
+    db.expire_all()
+    reloaded = db.execute(
+        select(Message).where(Message.id == msg_id).options(selectinload(Message.attachments))
+    ).scalar_one()
+    assert [x.id for x in reloaded.attachments] == [b.id, a.id]
