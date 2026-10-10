@@ -225,3 +225,27 @@ async def test_ungranted_tenant_never_consults_the_preference(db_session, voice_
     assert result.allowed is False
     assert result.reason == VoiceDenialReason.FLAG_DISABLED
     preference_lookup.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("first_responder", "allowed"), [("human", False), ("ai", True), ("ai_with_handoff", True)]
+)
+async def test_human_only_tenant_is_refused_voice(
+    db_session, voice_tenant_factory, first_responder, allowed
+):
+    """N3: a human-only tenant must never reach the voice AI, even when granted
+    and voice_enabled. Reuses FLAG_DISABLED so the widget shows its text-fallback copy."""
+    from app.db.models.tenant import TenantAIConfig
+
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    db_session.add(
+        TenantAIConfig(tenant_id=tenant.id, voice_enabled=True, first_responder=first_responder)
+    )
+    db_session.commit()
+
+    result = await VoiceGate(db_session).check(tenant.id)
+
+    assert result.allowed is allowed
+    if not allowed:
+        assert result.reason == VoiceDenialReason.FLAG_DISABLED

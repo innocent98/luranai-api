@@ -79,6 +79,7 @@ class PublicWidgetConfigResponse(BaseModel):
     allow_file_upload: bool = Field(..., description="Allow file uploads")
     collect_name_before_chat: bool = Field(..., description="Collect customer name before chat")
     collect_email_before_chat: bool = Field(..., description="Collect customer email before chat")
+    first_responder: str = Field("ai", description="Who answers first: ai, ai_with_handoff, human")
 
 
 # Widget installation code response

@@ -11,6 +11,8 @@ from fastapi import (
     UploadFile,
     status,
 )
+from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -398,7 +400,14 @@ def get_public_widget_config(
         )
 
     # Get tenant
-    stmt = select(Tenant).where(Tenant.id == tenant_id)
+    try:
+        tenant_uuid = UUID(tenant_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Tenant not found",
+        ) from None
+    stmt = select(Tenant).where(Tenant.id == tenant_uuid)
     tenant = db.execute(stmt).scalar_one_or_none()
 
     if not tenant:
@@ -439,4 +448,5 @@ def get_public_widget_config(
         collect_email_before_chat=bool(
             getattr(tenant.ai_config, "collect_email_before_chat", False)
         ),
+        first_responder=getattr(tenant.ai_config, "first_responder", "ai") or "ai",
     )
