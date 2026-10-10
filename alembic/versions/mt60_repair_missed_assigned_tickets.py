@@ -17,6 +17,9 @@ no longer matches once rows are repaired.
 ac30agentcaller adds the MISSED enum value in the same transaction, and
 Postgres forbids *using* a just-added enum value before commit.
 
+`updated_at` is bumped so the stale-ticket auto-resolver does not sweep the
+repaired rows immediately.
+
 Downgrade is a deliberate no-op: the original MISSED+assigned state was a bug,
 and the affected rows cannot be told apart from legitimately in-progress ones.
 """
@@ -31,7 +34,7 @@ depends_on = None
 
 def upgrade() -> None:
     op.execute(
-        "UPDATE tickets SET status = 'IN_PROGRESS' "
+        "UPDATE tickets SET status = 'IN_PROGRESS', updated_at = now() "
         "WHERE status::text = 'MISSED' AND assigned_to IS NOT NULL"
     )
 

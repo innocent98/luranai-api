@@ -1,6 +1,7 @@
 """Request/response models for the Agent Caller mobile app (`/api/v1/agent`)."""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -87,3 +88,5 @@ class AcknowledgeWon(BaseModel):
 class AcknowledgeLost(BaseModel):
     won: bool = False
     handled_by: str
+    # "claimed" = another agent holds it; "resolved" = ticket is already resolved/closed.
+    reason: Literal["claimed", "resolved"] = "claimed"

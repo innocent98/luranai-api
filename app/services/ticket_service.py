@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import desc, func, select, update
+from sqlalchemy import case, desc, func, literal, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models.conversation import ConversationSession, Ticket, TicketStatus
@@ -19,6 +19,10 @@ from app.schemas.ticket import (
 )
 from app.schemas.visitor import VisitorIdentitySummary
 from app.utils.datetime import utcnow_naive
+
+
+class TicketAlreadyFinalError(ValueError):
+    """Raised when resolving a ticket that is already RESOLVED or CLOSED."""
 
 
 class TicketService:
@@ -320,6 +324,43 @@ class TicketService:
 
         return self._to_ticket_response(ticket)
 
+    def claim_ticket(self, ticket_id: UUID, agent_id: UUID) -> Ticket | None:
+        """Atomically claim a ticket for ``agent_id`` (dashboard takeover).
+
+        Conditional UPDATE, same primitive as the mobile acknowledge: it wins only
+        if the ticket is not RESOLVED/CLOSED and is unassigned or already ours
+        (idempotent re-claim). OPEN/MISSED become IN_PROGRESS; IN_PROGRESS stays.
+
+        Returns:
+            The ticket row after a win, or ``None`` if the claim was lost (the
+            caller reloads the ticket to see why).
+        """
+        result = self.db.execute(
+            update(Ticket)
+            .where(
+                Ticket.id == ticket_id,
+                Ticket.status.notin_([TicketStatus.RESOLVED, TicketStatus.CLOSED]),
+                or_(Ticket.assigned_to.is_(None), Ticket.assigned_to == agent_id),
+            )
+            .values(
+                assigned_to=agent_id,
+                status=case(
+                    (
+                        Ticket.status.in_([TicketStatus.OPEN, TicketStatus.MISSED]),
+                        literal(TicketStatus.IN_PROGRESS, type_=Ticket.status.type),
+                    ),
+                    else_=Ticket.status,
+                ),
+            )
+            .execution_options(synchronize_session=False)
+        )
+        self.db.commit()
+        if result.rowcount == 0:
+            return None
+        ticket = self.db.get(Ticket, ticket_id)
+        self.db.refresh(ticket)
+        return ticket
+
     def resolve_ticket(self, ticket_id: UUID, resolve_data: TicketResolve) -> TicketResponse:
         """
         Resolve a ticket and update the associated conversation session status.
@@ -339,6 +380,9 @@ class TicketService:
 
         if not ticket:
             raise ValueError("Ticket not found")
+
+        if ticket.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED):
+            raise TicketAlreadyFinalError("Ticket is already resolved or closed")
 
         # Resolve the ticket
         ticket.status = TicketStatus.RESOLVED

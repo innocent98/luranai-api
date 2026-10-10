@@ -17,6 +17,12 @@
 
 Resolve/close endpoints have no status guard; a test now pins resolving a MISSED ticket.
 
+## Claim and resolve rules (review round)
+- **Dashboard takeover** (`POST /chat/sessions/{id}/takeover`) now claims the ticket atomically (`TicketService.claim_ticket`: conditional UPDATE, not RESOLVED/CLOSED, unassigned or already mine) BEFORE touching `session.agent_id`. Loss returns 409 and changes nothing. Same-agent re-takeover is idempotent 200. Success enqueues `enqueue_clear_alert_async` (stops supervisor ring), best-effort.
+- **409 body** (takeover and `/agent/escalations/{id}/acknowledge`, `AcknowledgeLost`): `{"detail": {"won": false, "handled_by": "<name>", "reason": "claimed"}}` when held by another agent; `{"detail": {"won": false, "handled_by": "another agent", "reason": "resolved"}}` when the unassigned ticket is RESOLVED/CLOSED.
+- **Resolve** (`POST /tickets/{id}/resolve`): tenant admin always; an agent only if `assigned_to == self` (else 403, so unassigned MISSED needs a takeover first). Already RESOLVED/CLOSED -> 409. `/close` unchanged (admin only).
+- `mt60missedrepair` also bumps `updated_at` on repaired rows.
+
 ## Migrations
 | Revision | Purpose |
 |---|---|

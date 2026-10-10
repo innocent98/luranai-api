@@ -337,10 +337,12 @@ async def acknowledge_escalation(
             # response ever reached the mobile app.
             return await _finish_claim(db, ticket, current_agent)
         handler = db.get(User, ticket.assigned_to) if ticket.assigned_to else None
+        final = ticket.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=AcknowledgeLost(
-                handled_by=handler.full_name if handler else "another agent"
+                handled_by=handler.full_name if handler else "another agent",
+                reason="resolved" if final and handler is None else "claimed",
             ).model_dump(),
         )
 

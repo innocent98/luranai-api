@@ -25,7 +25,7 @@ from app.schemas.ticket import (
     TicketUpdate,
 )
 from app.schemas.user import UserResponse
-from app.services.ticket_service import TicketService
+from app.services.ticket_service import TicketAlreadyFinalError, TicketService
 
 router = APIRouter()
 
@@ -265,6 +265,14 @@ async def resolve_ticket(
             detail="Only support agents or admins can resolve tickets",
         )
 
+    # Admins may resolve anything (incl. unassigned MISSED); an agent only the
+    # ticket they currently hold, so they must take it over first.
+    if current_user.role != UserRole.TENANT_ADMIN and ticket.assigned_to != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the assigned agent or an admin can resolve this ticket",
+        )
+
     try:
         resolved_ticket = ticket_service.resolve_ticket(ticket_id, resolve_data)
 
@@ -289,6 +297,8 @@ async def resolve_ticket(
             )
 
         return resolved_ticket
+    except TicketAlreadyFinalError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
