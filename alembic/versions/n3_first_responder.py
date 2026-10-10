@@ -32,6 +32,8 @@ N3_DATA_STEP_SQL = (
 
 
 def upgrade() -> None:
+    # ADD COLUMN takes ACCESS EXCLUSIVE on a table read every chat turn: fail fast, not queue.
+    op.execute("SET LOCAL lock_timeout = '5s'")
     op.add_column(
         "tenant_ai_configs",
         sa.Column(

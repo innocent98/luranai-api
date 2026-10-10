@@ -88,3 +88,40 @@ def test_ai_mode_unchanged(client, db):
     r = img._send(client, sid, "hello there question", [])
     assert r.status_code == 200
     assert r.json()["message"]["content"] != HUMAN_FIRST_REPLY
+
+
+def test_human_first_talk_to_human_token_stored_as_readable_text(client, db):
+    from app.db.models.conversation import Message, Ticket
+
+    sid, _ = _human_session(db)
+    with patch.object(chat_module, "_ring_agents", new=AsyncMock()):
+        r = img._send(client, sid, chat_module.TALK_TO_HUMAN_TOKEN, [])
+    assert r.status_code == 200, r.text
+    assert r.json()["should_escalate"] is True
+    db.expire_all()
+    texts = [
+        m.content for m in db.execute(select(Message).where(Message.session_id == sid)).scalars()
+    ]
+    assert chat_module.TALK_TO_HUMAN_TEXT in texts
+    assert chat_module.TALK_TO_HUMAN_TOKEN not in texts
+    tickets = db.execute(select(Ticket).where(Ticket.session_id == sid)).scalars().all()
+    assert tickets
+    assert all(chat_module.TALK_TO_HUMAN_TOKEN not in (t.summary or "") for t in tickets)
+
+
+def test_human_first_contact_capture_keeps_name_from_request_metadata(client, db):
+    sid, _ = _human_session(db, require_email_before_escalation=True)
+    with patch.object(chat_module, "_ring_agents", new=AsyncMock()):
+        r = client.post(
+            "/api/v1/chat/message",
+            json={
+                "session_id": str(sid),
+                "message": "help",
+                "metadata": {"contact_name": "Ada Lovelace"},
+            },
+        )
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    meta = db.get(ConversationSession, sid).meta or {}
+    assert meta.get("contact_name") == "Ada Lovelace"
+    assert meta.get("pending_contact_capture") is True

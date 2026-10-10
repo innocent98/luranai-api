@@ -164,7 +164,7 @@ def get_ai_config(
     verify_tenant_access(tenant_id, current_user)
 
     tenant_service = TenantService(db)
-    config = tenant_service.get_ai_config(tenant_id)
+    config = tenant_service.get_ai_config(tenant_id, with_counts=True)
 
     if not config:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI config not found")

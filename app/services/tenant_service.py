@@ -342,12 +342,16 @@ class TenantService:
 
     # AI Config methods
 
-    def get_ai_config(self, tenant_id: UUID) -> TenantAIConfigResponse | None:
+    def get_ai_config(
+        self, tenant_id: UUID, with_counts: bool = False
+    ) -> TenantAIConfigResponse | None:
         """
         Get AI configuration for a tenant.
 
         Args:
             tenant_id: Tenant UUID
+            with_counts: Also compute active_knowledge_sources (one extra COUNT;
+                only the admin config endpoints need it, not the per-message chat path)
 
         Returns:
             AI config response if found, None otherwise
@@ -358,11 +362,16 @@ class TenantService:
         if not config:
             return None
 
-        return self._ai_config_response(config)
+        return self._ai_config_response(config, with_counts=with_counts)
 
-    def _ai_config_response(self, config: TenantAIConfig) -> TenantAIConfigResponse:
+    def _ai_config_response(
+        self, config: TenantAIConfig, with_counts: bool = False
+    ) -> TenantAIConfigResponse:
         resp = TenantAIConfigResponse.model_validate(config)
-        resp.active_knowledge_sources = count_active_knowledge_sources(self.db, config.tenant_id)
+        if with_counts:
+            resp.active_knowledge_sources = count_active_knowledge_sources(
+                self.db, config.tenant_id
+            )
         return resp
 
     def update_ai_config(
@@ -389,6 +398,9 @@ class TenantService:
 
         # Update fields
         update_data = config_data.model_dump(exclude_unset=True)
+        # first_responder is NOT NULL: an explicit null means "unchanged", never "clear".
+        if "first_responder" in update_data and update_data["first_responder"] is None:
+            update_data.pop("first_responder")
         update_data = apply_first_responder_preset(update_data)
         # A stored handoff preset cannot be unlocked by a knob-only PUT (old tab).
         if update_data.get("first_responder", config.first_responder) == FIRST_RESPONDER_HANDOFF:
@@ -431,7 +443,7 @@ class TenantService:
         self.db.commit()
         self.db.refresh(config)
 
-        return self._ai_config_response(config)
+        return self._ai_config_response(config, with_counts=True)
 
     # Capabilities methods
 

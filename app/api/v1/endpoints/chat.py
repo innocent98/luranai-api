@@ -223,6 +223,8 @@ IMAGE_ONLY_PLACEHOLDER = "[image]"
 SYSTEM_START_TRIGGER = "start"
 FLOW_START_PREFIX = "__flow_start__:"
 TALK_TO_HUMAN_TOKEN = "__talk_to_human__"
+# Readable text stored/used in place of the control token when the router is skipped (human-only mode).
+TALK_TO_HUMAN_TEXT = "I'd like to talk to a person"
 RAG_CHAT_TOKEN = "__rag_chat__"
 CONTACT_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 
@@ -2238,9 +2240,15 @@ async def _send_message_impl(
             session_meta["escalation_context"] = {}
             conversation_service.update_session_meta(session_id, session_meta)
 
-    # Step 4: Add user message to database
+    # Step 4: Add user message to database. In human-only mode the router (which normally
+    # consumes the talk-to-human control token) is skipped, so store readable text instead.
+    stored_user_text = (
+        TALK_TO_HUMAN_TEXT
+        if human_first and effective_message_lower == TALK_TO_HUMAN_TOKEN
+        else message_data.message
+    )
     user_message = conversation_service.add_message(
-        session_id=session_id, role=MessageRole.USER, content=message_data.message
+        session_id=session_id, role=MessageRole.USER, content=stored_user_text
     )
     logger.info(f"Added user message: {user_message.id}")
 
@@ -2248,7 +2256,7 @@ async def _send_message_impl(
     # first when the tenant requires them (completion path escalates with the stored reason),
     # otherwise escalate immediately with a fixed reply.
     if human_first:
-        human_first_meta = dict(session.meta or {})
+        human_first_meta = dict(session_model.meta or {})
         human_missing_fields = _get_missing_contact_fields(
             require_name_before_escalation=require_name_before_escalation,
             require_email_before_escalation=require_email_before_escalation,
@@ -2269,7 +2277,7 @@ async def _send_message_impl(
                 session_id=session_id,
                 session_meta=human_first_meta,
                 escalation_reason=HUMAN_FIRST_REASON,
-                customer_query=message_data.message,
+                customer_query=stored_user_text,
                 required_fields=human_missing_fields,
             )
             capture_prompt = conversation_service.add_message(
@@ -2295,7 +2303,7 @@ async def _send_message_impl(
             session=session,
             session_id=session_id,
             escalation_reason=HUMAN_FIRST_REASON,
-            customer_query=message_data.message,
+            customer_query=stored_user_text,
             conversation_history=conversation_service.get_session_messages(
                 session_id=session_id, limit=20
             ),

@@ -37,6 +37,7 @@ class PublicBusinessProfileResponse(BaseModel):
     allow_file_upload: bool = True
     collect_name_before_chat: bool = False
     collect_email_before_chat: bool = False
+    first_responder: str = "ai"
 
 
 class PublicBusinessDirectoryItem(BaseModel):
