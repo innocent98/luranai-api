@@ -192,7 +192,7 @@ def test_streams_pipeline_reply_behind_buffer_word(
     assert resp.headers["content-type"].startswith("text/event-stream")
 
     spoken = _spoken_text(resp)
-    assert spoken.startswith("... ")
+    assert spoken.startswith("We open")
     assert "We open at nine." in spoken
 
 
@@ -271,7 +271,7 @@ def test_pipeline_error_still_returns_speakable_audio(
     assert resp.status_code == 200
     assert "data: [DONE]" in resp.text
     spoken = _spoken_text(resp)
-    assert spoken == "... I am sorry, I ran into a problem just then. Could you say that again? "
+    assert spoken == "I am sorry, I ran into a problem just then. Could you say that again? "
 
 
 def test_empty_pipeline_reply_still_returns_speakable_audio(
@@ -459,7 +459,7 @@ def test_pipeline_policy_denial_speaks_terminal_reply_and_ends_ability_to_answer
     assert resp.status_code == 200
     spoken = _spoken_text(resp)
     assert spoken == (
-        "... I'm sorry, but I'm not able to continue this call right now. "
+        "I'm sorry, but I'm not able to continue this call right now. "
         "Please check your account or contact support. Goodbye. "
     )
 
