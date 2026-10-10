@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.api.v1.endpoints.chat import send_message
 from app.core.config import settings
-from app.db.models.conversation import ConversationSession
+from app.db.models.conversation import ConversationSession, MessageRole
 from app.db.session import SessionLocal
 from app.schemas.conversation import MessageRequest
 from app.schemas.ticket import TicketCreate
@@ -31,6 +31,7 @@ from app.schemas.voice import (
     VoiceTokenResponse,
 )
 from app.services.conversation_service import ConversationService
+from app.services.rag_service import RAGService
 from app.services.ticket_service import TicketService
 from app.services.voice.auth import verify_elevenlabs_request
 from app.services.voice.elevenlabs_client import ElevenLabsClient, ElevenLabsMintError
@@ -97,6 +98,11 @@ _ESCALATE_TOOL_NAME = "escalate_to_human"
 # this isn't a failed-ASR turn, it's EL reporting a tool result back to us,
 # and telling the caller we didn't catch something they never said would be
 # confusing right after they asked for a human.
+# Spoken ONLY when the escalate client tool already ran earlier in this call
+# (a `tool` message is in EL's history) and the caller keeps talking: a short,
+# non-echoing pointer to the text chat. Never used for the first handoff, which
+# must stay silent (see `_stream_pipeline_turn`).
+_ESCALATED_CHAT_REPLY = "A teammate will continue with you in the chat."
 _ESCALATION_ACK_REPLY = "Thanks for waiting. I'm connecting you with a member of our team now."
 
 # Budget for RedisRateLimiter.acquire() inside `_turn_allowed`. Its own
@@ -496,6 +502,15 @@ def _is_tool_result_turn(payload: dict[str, Any]) -> bool:
     return isinstance(last, dict) and last.get("role") == "tool"
 
 
+def _tool_already_invoked(payload: dict[str, Any]) -> bool:
+    """True when EL's history already holds a tool RESULT, i.e. the escalate
+    client tool ran earlier in this call (stateless: no server-side flag)."""
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return False
+    return any(isinstance(m, dict) and m.get("role") == "tool" for m in messages)
+
+
 async def _revoke_voice_token_best_effort(token: str, tenant_id: UUID) -> None:
     """Best-effort revoke after a terminal pipeline rejection.
 
@@ -586,6 +601,7 @@ class _TurnOutcome:
 
     __slots__ = ("text", "tool_name")
 
+    # `text` together with `tool_name` = speak the line, then emit the tool call.
     def __init__(self, *, text: str = "", tool_name: str | None = None) -> None:
         self.text = text
         self.tool_name = tool_name
@@ -607,6 +623,7 @@ async def _run_turn(
     context: VoiceSessionContext,
     user_text: str,
     dedupe_key: str,
+    tool_already_invoked: bool = False,
 ) -> _TurnOutcome:
     """Run one caller turn through the pipeline. Never raises: every failure
     mode becomes speakable text (or the escalation tool call)."""
@@ -624,7 +641,13 @@ async def _run_turn(
 
     db = _open_stream_session()
     try:
-        outcome = await _run_pipeline(db=db, token=token, context=context, user_text=user_text)
+        outcome = await _run_pipeline(
+            db=db,
+            token=token,
+            context=context,
+            user_text=user_text,
+            tool_already_invoked=tool_already_invoked,
+        )
     finally:
         db.close()
     if outcome.text == _FALLBACK_REPLY and outcome.tool_name is None:
@@ -636,7 +659,12 @@ async def _run_turn(
 
 
 async def _run_pipeline(
-    *, db: Session, token: str, context: VoiceSessionContext, user_text: str
+    *,
+    db: Session,
+    token: str,
+    context: VoiceSessionContext,
+    user_text: str,
+    tool_already_invoked: bool = False,
 ) -> _TurnOutcome:
     try:
         chat_response = await send_message(
@@ -648,6 +676,16 @@ async def _run_pipeline(
             db,
         )
         reply_text = chat_response.message.content
+        if chat_response.message.role == MessageRole.USER:
+            # ALREADY-ESCALATED session: `send_message` skips generation and
+            # echoes the persisted USER message (chat.py "Skipping AI
+            # generation"). Speaking that back plays the caller's own words to
+            # them. A human owns the thread, so hand the widget back to text.
+            logger.info(f"Voice turn on escalated session {context.luran_session_id}; switching")
+            return _TurnOutcome(
+                text=_ESCALATED_CHAT_REPLY if tool_already_invoked else "",
+                tool_name=_ESCALATE_TOOL_NAME,
+            )
         if chat_response.should_escalate:
             # The ESCALATION DECISION STAYS IN OUR PIPELINE. ElevenLabs hands
             # `escalate_to_human` to us in `tools` and only invokes the browser
@@ -699,6 +737,7 @@ async def _stream_pipeline_turn(
     context: VoiceSessionContext,
     user_text: str,
     dedupe_key: str,
+    tool_already_invoked: bool = False,
 ) -> AsyncIterator[str]:
     """True streaming: role frame first (immediately), then the pipeline runs
     while the buffer word covers its latency, then the reply frames."""
@@ -715,20 +754,39 @@ async def _stream_pipeline_turn(
     # cancelled on client disconnect) does not tear a half-persisted turn
     # apart; its outcome lands in the dedupe cache for EL's re-request.
     task = asyncio.ensure_future(
-        _run_turn(token=token, context=context, user_text=user_text, dedupe_key=dedupe_key)
+        _run_turn(
+            token=token,
+            context=context,
+            user_text=user_text,
+            dedupe_key=dedupe_key,
+            tool_already_invoked=tool_already_invoked,
+        )
     )
     _background_turns.add(task)
     task.add_done_callback(_background_turns.discard)
 
+    # A turn we already know will tool-call (the caller asked for a human, or
+    # the handoff tool already ran) must not speak ahead of the tool call: EL's
+    # behaviour for content followed by tool_calls is undocumented, and the
+    # live failure was exactly that (buffer word, then the tool never fired).
+    # Same cheap predicate `should_escalate` uses -- no second keyword list.
+    silent_turn = tool_already_invoked or RAGService.is_explicit_human_request(user_text)
+
     buffered = False
-    done, _ = await asyncio.wait({task}, timeout=_BUFFER_GRACE_SECONDS)
-    if not done:
-        yield framer.buffer()
-        buffered = True
+    if silent_turn:
         await asyncio.wait({task})
+    else:
+        done, _ = await asyncio.wait({task}, timeout=_BUFFER_GRACE_SECONDS)
+        if not done:
+            yield framer.buffer()
+            buffered = True
+            await asyncio.wait({task})
     outcome = task.result()
 
     if outcome.tool_name is not None:
+        # `text` (only the "already handed off" case) is spoken first.
+        for frame in framer.words(outcome.text):
+            yield frame
         for frame in framer.tool_call(outcome.tool_name):
             yield frame
         return
@@ -825,6 +883,7 @@ async def voice_custom_llm(
             context=context,
             user_text=user_text,
             dedupe_key=dedupe_key,
+            tool_already_invoked=_tool_already_invoked(payload),
         )
     )
 

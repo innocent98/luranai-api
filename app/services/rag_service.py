@@ -664,6 +664,78 @@ Instructions:
             prompt_tokens=total_prompt_tokens,
         )
 
+    # Cheap, non-LLM intent lists shared by `should_escalate` and callers that need
+    # the same decision before the pipeline runs (voice, see `is_explicit_human_request`).
+    _SATISFACTION_PATTERNS = (
+        "thank",
+        "thanks",
+        "appreciate",
+        "grateful",
+        "that's all",
+        "all set",
+        "all good",
+        "perfect",
+        "great",
+        "got it",
+        "understood",
+        "makes sense",
+        "okay",
+        "ok",
+        "alright",
+        "cool",
+        "awesome",
+        "nice",
+        "bye",
+        "goodbye",
+        "see you",
+        "talk later",
+        "have a good",
+    )
+    _HUMAN_REQUEST_PATTERNS = (
+        "speak to agent",
+        "speak to an agent",
+        "speak to a agent",
+        "speak with agent",
+        "speak with an agent",
+        "speak with a agent",
+        "talk to agent",
+        "talk to an agent",
+        "talk to a agent",
+        "talk with agent",
+        "talk with an agent",
+        "talk with a agent",
+        "human agent",
+        "real person",
+        "actual person",
+        "speak to someone",
+        "talk to someone",
+        "escalate",
+        "transfer me",
+        "get me someone",
+        "customer service",
+        "support team",
+    )
+
+    @classmethod
+    def _is_satisfaction_closing(cls, query_lower: str) -> bool:
+        return (
+            any(p in query_lower for p in cls._SATISFACTION_PATTERNS)
+            and len(query_lower.split()) <= 10
+        )
+
+    @classmethod
+    def _matches_human_request(cls, query_lower: str) -> bool:
+        return any(p in query_lower for p in cls._HUMAN_REQUEST_PATTERNS)
+
+    @classmethod
+    def is_explicit_human_request(cls, user_query: str) -> bool:
+        """True when `should_escalate` would AUTO_ESCALATE on the explicit "talk to a
+        human" patterns alone (same satisfaction short-circuit, no tenant keywords)."""
+        query_lower = user_query.lower().strip()
+        if cls._is_satisfaction_closing(query_lower):
+            return False
+        return cls._matches_human_request(query_lower)
+
     def should_escalate(
         self,
         user_query: str,
@@ -691,33 +763,7 @@ Instructions:
         query_lower = user_query.lower().strip()
 
         # Scenario 1: User satisfaction/closing (NO ESCALATION)
-        satisfaction_patterns = [
-            "thank",
-            "thanks",
-            "appreciate",
-            "grateful",
-            "that's all",
-            "all set",
-            "all good",
-            "perfect",
-            "great",
-            "got it",
-            "understood",
-            "makes sense",
-            "okay",
-            "ok",
-            "alright",
-            "cool",
-            "awesome",
-            "nice",
-            "bye",
-            "goodbye",
-            "see you",
-            "talk later",
-            "have a good",
-        ]
-        is_satisfaction = any(pattern in query_lower for pattern in satisfaction_patterns)
-        if is_satisfaction and len(query_lower.split()) <= 10:
+        if self._is_satisfaction_closing(query_lower):
             logger.info("Detected satisfaction/closing statement, no escalation")
             return EscalationDecision(
                 action=EscalationAction.NO_ESCALATION,
@@ -726,31 +772,7 @@ Instructions:
             )
 
         # Scenario 2: User explicitly requests human agent (AUTO ESCALATE)
-        human_request_patterns = [
-            "speak to agent",
-            "speak to an agent",
-            "speak to a agent",
-            "speak with agent",
-            "speak with an agent",
-            "speak with a agent",
-            "talk to agent",
-            "talk to an agent",
-            "talk to a agent",
-            "talk with agent",
-            "talk with an agent",
-            "talk with a agent",
-            "human agent",
-            "real person",
-            "actual person",
-            "speak to someone",
-            "talk to someone",
-            "escalate",
-            "transfer me",
-            "get me someone",
-            "customer service",
-            "support team",
-        ]
-        if any(pattern in query_lower for pattern in human_request_patterns):
+        if self._matches_human_request(query_lower):
             logger.info("User explicitly requested human agent")
             return EscalationDecision(
                 action=EscalationAction.AUTO_ESCALATE,

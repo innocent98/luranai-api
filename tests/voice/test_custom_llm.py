@@ -4,6 +4,8 @@ import time
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+from app.db.models.conversation import MessageRole
 from fastapi import HTTPException
 from redis.exceptions import RedisError
 
@@ -65,7 +67,7 @@ def _fake_chat_response(session_id, text, *, should_escalate=False):
 
     return SimpleNamespace(
         session_id=session_id,
-        message=SimpleNamespace(content=text),
+        message=SimpleNamespace(content=text, role=MessageRole.ASSISTANT),
         should_escalate=should_escalate,
         escalation_reason="customer asked for a person" if should_escalate else None,
         ticket_id=None,
