@@ -41,3 +41,19 @@ Revert the PR; no data changes. To watch it live: logs `Escalation email to x***
 - Widget: show the handoff notice and switch to text on the tool call (fix-list item 4, other repo).
 - Tenant escalation keywords on voice are still decided inside the pipeline (see residual risk).
 - Text chat: other work in the escalation path (`_ring_agents` enqueue) is still awaited inline; it is a Redis enqueue with fail-fast retries.
+
+## Late escalation: signal-gated buffer (2026-10-10, branch `fix/voice-late-escalation`)
+Closes the "residual risk" above. The fixed 0.35 s `_BUFFER_GRACE_SECONDS` is gone.
+
+| Piece | Behaviour |
+|---|---|
+| `app/services/voice/turn_signal.py` | `ContextVar[asyncio.Event | None]`. `bind(event)` is called inside the pipeline task (so concurrent turns have separate contexts); `generation_started()` sets the event, and is a no-op when nothing is bound (text chat, jobs). |
+| `chat.py` (2 lines) | `turn_signal.generation_started()` immediately before `logger.info("Generating AI response...")` in `_send_message_impl`, plus the import. Every escalation / flow / contact-capture / router branch returns before this point, so only turns that will call the LLM fire the signal. |
+| `voice.py::_stream_pipeline_turn` | Role frame, then wait for (pipeline done) or (signal) or `_BUFFER_MAX_WAIT_SECONDS`. Signal or cap first -> buffer word, then the reply. Pipeline done first without a signal (escalation, early-return reply, replayed duplicate) -> NO buffer: tool_calls, or the reply words directly. The explicit-human predicate stays as a fast path (never buffers). |
+| Cap = 2.5 s | Normal turns signal after retrieval (~0.5-1 s), so 2.5 s leaves headroom and a late escalation is not buffered. Longer would leave the caller in silence on a genuinely slow non-generating step. On the cap path (rare: slow flow/automation step, slow duplicate replay) a late escalation can still get the buffer word before its tool call. |
+
+Wire-shape change: a reply that did not go through generation (flow reply, fallback/terminal text, empty-reply fallback) is no longer prefixed by "... ". Tests updated accordingly.
+
+Tests: `tests/voice/test_late_escalation.py` (late escalation has no content; signal releases buffer ahead of the reply; cap path; no-op without binding; two concurrent turns do not share a signal). Existing voice tests that blocked the pipeline without a signal now shorten the cap.
+
+Rollback: revert the PR (no data or config).

@@ -124,7 +124,7 @@ def test_explicit_human_request_predicate(text, expected):
 
 
 async def test_explicit_human_request_never_emits_content_even_when_slow(monkeypatch):
-    monkeypatch.setattr(voice, "_BUFFER_GRACE_SECONDS", 0.01)
+    monkeypatch.setattr(voice, "_BUFFER_MAX_WAIT_SECONDS", 0.01)
 
     async def slow(*_a, **_k):
         await asyncio.sleep(0.1)
@@ -140,7 +140,7 @@ async def test_explicit_human_request_never_emits_content_even_when_slow(monkeyp
 
 
 async def test_non_human_slow_turn_still_gets_buffer_word(monkeypatch):
-    monkeypatch.setattr(voice, "_BUFFER_GRACE_SECONDS", 0.01)
+    monkeypatch.setattr(voice, "_BUFFER_MAX_WAIT_SECONDS", 0.01)
 
     async def slow(*_a, **_k):
         await asyncio.sleep(0.1)
