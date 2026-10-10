@@ -18,12 +18,20 @@ import uuid
 from sqlalchemy import select, update
 
 from app.core.config import settings
-from app.db.models.conversation import ConversationSession, Ticket, TicketStatus
+from app.core.websocket import connection_manager
+from app.db.models.conversation import (
+    ConversationSession,
+    Message,
+    MessageRole,
+    Ticket,
+    TicketStatus,
+)
 from app.db.models.notification_log import NotifEvent
 from app.db.models.user import User
 from app.db.session import SessionLocal
 from app.services import fcm_client
 from app.services.agent_alert_service import AgentAlertService
+from app.services.first_responder import MISSED_NOTICE
 from app.services.notification_enqueue import enqueue_clear_alert_async
 
 logger = logging.getLogger(__name__)
@@ -186,6 +194,9 @@ async def alert_escalation_fallback(ctx, ticket_id: str) -> None:
         )
         db.commit()
 
+        if result.rowcount == 1:
+            await _post_missed_notice(db, ticket.session_id)
+
         if result.rowcount == 0 and supervisors:
             # The ticket was claimed mid-push (after the re-read above, before
             # this UPDATE) — the supervisors we just paged may still be
@@ -206,6 +217,33 @@ async def alert_escalation_fallback(ctx, ticket_id: str) -> None:
         logger.info("Escalation %s fell back to %s supervisor(s)", ticket_id, len(supervisors))
     finally:
         db.close()
+
+
+async def _post_missed_notice(db, session_id: uuid.UUID) -> None:
+    """Tell the customer the team will reply (spec section 4.6). Never raises."""
+    try:
+        msg = Message(
+            session_id=session_id,
+            role=MessageRole.ASSISTANT,
+            content=MISSED_NOTICE,
+            meta={"system_notice": "ticket_missed"},
+        )
+        db.add(msg)
+        db.commit()
+        db.refresh(msg)
+        await connection_manager.fanout_event(
+            session_id=session_id,
+            message={
+                "type": "ticket_missed",
+                "message_id": str(msg.id),
+                "content": MISSED_NOTICE,
+                "timestamp": msg.created_at.isoformat(),
+            },
+            to_customer=True,
+            to_agents=False,
+        )
+    except Exception:  # noqa: BLE001 — a notice failure must not break the fallback
+        logger.exception("Failed to post missed notice for session %s", session_id)
 
 
 async def clear_agent_alert(ctx, ticket_id: str, winner_user_id: str) -> None:

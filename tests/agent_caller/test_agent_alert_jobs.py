@@ -373,3 +373,52 @@ async def test_failed_send_marks_the_log_failed(patched_session):
     log = db.query(NotificationLog).one()
     assert log.status == NotifStatus.FAILED
     assert "503" in (log.error or "")
+
+
+@pytest.mark.asyncio
+async def test_fallback_posts_missed_notice_once(patched_session):
+    from app.db.models.conversation import Message, MessageRole
+    from app.services.first_responder import MISSED_NOTICE
+
+    db = patched_session
+    tenant_id = uuid.uuid4()
+    _user(db, tenant_id, "up@x.com", UserRole.SUPPORT_AGENT, token="tok-up")
+    ticket, session = _escalation(db, tenant_id)
+
+    fan = AsyncMock()
+    sent = AsyncMock(side_effect=lambda tok, data, **kw: FCMResult(token=tok, ok=True))
+    with (
+        patch.object(agent_alerts.fcm_client, "send", sent),
+        patch.object(agent_alerts.connection_manager, "fanout_event", fan),
+    ):
+        await agent_alerts.alert_escalation_fallback({}, str(ticket.id))
+        await agent_alerts.alert_escalation_fallback({}, str(ticket.id))  # retry
+
+    # content is encrypted at rest (non-deterministic), so compare in Python.
+    notices = [
+        m
+        for m in db.query(Message).filter(Message.session_id == session.id).all()
+        if m.content == MISSED_NOTICE
+    ]
+    assert len(notices) == 1
+    assert notices[0].role == MessageRole.ASSISTANT
+    frames = [c.kwargs["message"] for c in fan.await_args_list]
+    assert [f["type"] for f in frames] == ["ticket_missed"]
+    assert fan.await_args_list[0].kwargs["to_customer"] is True
+
+
+@pytest.mark.asyncio
+async def test_fallback_no_notice_when_claimed(patched_session):
+    from app.db.models.conversation import Message
+    from app.services.first_responder import MISSED_NOTICE
+
+    db = patched_session
+    tenant_id = uuid.uuid4()
+    admin = _user(db, tenant_id, "boss@x.com", UserRole.TENANT_ADMIN, token="tok-boss")
+    ticket, session = _escalation(db, tenant_id)
+    ticket.assigned_to = admin.id
+    ticket.status = TicketStatus.IN_PROGRESS
+    db.commit()
+    await agent_alerts.alert_escalation_fallback({}, str(ticket.id))
+    msgs = db.query(Message).filter(Message.session_id == session.id).all()
+    assert [m for m in msgs if m.content == MISSED_NOTICE] == []
