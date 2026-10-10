@@ -1,0 +1,10 @@
+GET /api/v1/tickets?q=zzzz
+Authorization: Bearer <tenant-admin access token>
+HTTP 200
+
+{
+    "tickets": [],
+    "total": 0,
+    "page": 1,
+    "page_size": 100
+}
