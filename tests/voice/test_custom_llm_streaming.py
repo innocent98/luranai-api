@@ -74,9 +74,7 @@ async def _call(payload, ctx, *, request=None, send=None, allowed=True):
     ):
         p.start()
         _patches.append(p)
-    return await voice.voice_custom_llm(
-        request=request or _request(), payload=payload, db=MagicMock()
-    )
+    return await voice.voice_custom_llm(request=request or _request(), payload=payload)
 
 
 @pytest.fixture(autouse=True)
@@ -284,7 +282,8 @@ async def test_abandoned_request_still_finishes_and_retry_replays():
     send = AsyncMock(side_effect=slow)
     resp = await _call(_payload(), ctx, send=send)
     it = resp.body_iterator.__aiter__()
-    await it.__anext__()
+    await it.__anext__()  # role
+    await it.__anext__()  # buffer word: pipeline task is running
     await it.aclose()  # client went away
     gate.set()
     await asyncio.gather(*voice._background_turns)
@@ -292,3 +291,61 @@ async def test_abandoned_request_still_finishes_and_retry_replays():
     retry = await _call(_payload(), ctx, send=send)
     assert "late answer" in _spoken(await _drain(retry))
     assert send.await_count == 1
+
+
+@pytest.fixture
+def session_spy():
+    sessions: list = []
+
+    def factory():
+        sess = MagicMock(name="stream_session")
+        sessions.append(sess)
+        return sess
+
+    with patch.object(voice, "_open_stream_session", factory):
+        yield sessions
+
+
+async def test_stream_session_is_closed_after_normal_stream(session_spy):
+    await _drain(await _call(_payload(), _ctx()))
+    assert len(session_spy) == 1
+    session_spy[0].close.assert_called_once()
+
+
+async def test_stream_session_is_closed_after_pipeline_exception(session_spy):
+    send = AsyncMock(side_effect=RuntimeError("boom"))
+    await _drain(await _call(_payload(), _ctx(), send=send))
+    assert len(session_spy) == 1
+    session_spy[0].close.assert_called_once()
+
+
+async def test_stream_session_is_closed_after_abandoned_request(session_spy):
+    gate = asyncio.Event()
+
+    async def slow(*_a, **_k):
+        await gate.wait()
+        return _reply("late")
+
+    resp = await _call(_payload(), _ctx(), send=AsyncMock(side_effect=slow))
+    it = resp.body_iterator.__aiter__()
+    await it.__anext__()  # role
+    await it.__anext__()  # buffer word: pipeline task is running
+    await it.aclose()  # client disconnects mid-pipeline
+    gate.set()
+    await asyncio.gather(*voice._background_turns)
+    assert len(session_spy) == 1
+    session_spy[0].close.assert_called_once()
+
+
+async def test_no_session_opened_when_disconnected_or_replayed(session_spy):
+    await _drain(await _call(_payload(), _ctx(), request=_request(disconnected=True)))
+    ctx = _ctx()
+    await _drain(await _call(_payload(), ctx))
+    await _drain(await _call(_payload(), ctx))  # replayed from dedupe, no pipeline
+    assert len(session_spy) == 1
+
+
+async def test_request_db_is_not_used_by_the_pipeline(session_spy):
+    send = AsyncMock(return_value=_reply("ok"))
+    await _drain(await _call(_payload(), _ctx(), send=send))
+    assert send.await_args.args[1] is session_spy[0]

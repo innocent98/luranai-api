@@ -1,5 +1,13 @@
 # SOP — Voice chat: custom-LLM SSE endpoint (Slice 2)
 
+> **Superseded in part (2026-10-10):** the endpoint no longer awaits the pipeline and then
+> materialises the frames. It streams the response (role frame immediately, buffer word after a
+> short grace, then reply frames), runs the pipeline on its own DB session, and dedupes re-issued
+> turns. Where this document says the frames are "pre-materialized" or built by `_speak()` for
+> pipeline replies, read `docs/sop/voice_custom_llm_true_streaming.md` instead. `_speak()` is now
+> used only for no-pipeline replies (setup failure, rate limit, no input, escalation ack).
+
+
 **Status:** Shipped on branch `feat/voice-chat-backend` (not yet merged) · code commits `9f66322`
 through `247babf` (`git log be59687..247babf` for the full range — `be59687` is the last commit of
 Slice 1, excluded) · 2026-08-17
@@ -76,15 +84,14 @@ voice-specific prompt, no voice-specific pipeline, nothing that can silently dri
 text user experiences. The tradeoff is that voice inherits every latency and behavior
 characteristic of the text pipeline too — including that it doesn't stream.
 
-### Why it re-emits rather than streams — and why the buffer word is load-bearing
+### Why the pipeline is not streamed — and why the buffer word is load-bearing (response streaming: see the new SOP)
 
 Nothing in this codebase streams. `send_message` returns a complete `ChatResponse` after the full
 pipeline run (RAG, LLM call, action engine), not a token stream. Refactoring the product's most
 critical endpoint to grow a streaming seam, just to enable voice, was judged the larger risk and
 explicitly rejected — see the plan's "Spec Corrections" #1. So `voice_custom_llm` **awaits the
 finished reply** and `_speak()` (`voice.py:325-334`) re-frames it as OpenAI SSE via
-`stream_reply()` afterward — nothing is progressive; the frames are pre-materialized into a list
-before the `StreamingResponse` is even constructed.
+`stream_reply()` afterward — the PIPELINE is not progressive (superseded: the RESPONSE now streams, see the note at the top).
 
 That means the caller hears **dead air** for the entire pipeline latency unless something fills
 it. `stream_reply()`'s `buffer_word` parameter (default `True`) yields `BUFFER_WORD = "... "` as

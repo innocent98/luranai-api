@@ -21,6 +21,7 @@ from app.api.deps import get_db
 from app.api.v1.endpoints.chat import send_message
 from app.core.config import settings
 from app.db.models.conversation import ConversationSession
+from app.db.session import SessionLocal
 from app.schemas.conversation import MessageRequest
 from app.schemas.ticket import TicketCreate
 from app.schemas.voice import (
@@ -590,9 +591,18 @@ class _TurnOutcome:
         self.tool_name = tool_name
 
 
+def _open_stream_session() -> Session:
+    """A session owned by the streaming task, not the request.
+
+    FastAPI (0.115, pinned) exits yield-dependencies -- closing the request's
+    `db` -- BEFORE a StreamingResponse body runs. Touching that closed Session
+    would silently check out a fresh pooled connection nobody ever closes (one
+    leak per voice turn). The task opens and closes its own instead."""
+    return SessionLocal()
+
+
 async def _run_turn(
     *,
-    db: Session,
     token: str,
     context: VoiceSessionContext,
     user_text: str,
@@ -612,7 +622,11 @@ async def _run_turn(
             )
         return _TurnOutcome(text=_FALLBACK_REPLY)
 
-    outcome = await _run_pipeline(db=db, token=token, context=context, user_text=user_text)
+    db = _open_stream_session()
+    try:
+        outcome = await _run_pipeline(db=db, token=token, context=context, user_text=user_text)
+    finally:
+        db.close()
     if outcome.text == _FALLBACK_REPLY and outcome.tool_name is None:
         # Pipeline errored: let a retry genuinely re-run instead of replaying it.
         await turn_dedupe.release(dedupe_key)
@@ -681,7 +695,6 @@ async def _stream_pipeline_turn(
     *,
     request: Request,
     model: str,
-    db: Session,
     token: str,
     context: VoiceSessionContext,
     user_text: str,
@@ -702,7 +715,7 @@ async def _stream_pipeline_turn(
     # cancelled on client disconnect) does not tear a half-persisted turn
     # apart; its outcome lands in the dedupe cache for EL's re-request.
     task = asyncio.ensure_future(
-        _run_turn(db=db, token=token, context=context, user_text=user_text, dedupe_key=dedupe_key)
+        _run_turn(token=token, context=context, user_text=user_text, dedupe_key=dedupe_key)
     )
     _background_turns.add(task)
     task.add_done_callback(_background_turns.discard)
@@ -732,7 +745,6 @@ async def _stream_pipeline_turn(
 async def voice_custom_llm(
     request: Request,
     payload: dict[str, Any] = Body(...),
-    db: Session = Depends(get_db),
 ):
     """OpenAI-compatible custom-LLM endpoint backed by the real Luran pipeline.
 
@@ -809,7 +821,6 @@ async def voice_custom_llm(
         _stream_pipeline_turn(
             request=request,
             model=model,
-            db=db,
             token=token,
             context=context,
             user_text=user_text,
