@@ -14,7 +14,7 @@ from app.db.models.customer_user import CustomerUser
 from app.db.models.tenant import Tenant
 from app.db.models.user import UserRole
 from app.db.session import SessionLocal
-from app.services.conversation_service import ConversationService
+from app.services.conversation_service import ConversationService, attachment_frames
 from app.utils.datetime import ensure_utc_aware
 
 router = APIRouter()
@@ -123,6 +123,7 @@ async def customer_websocket(
                     "agent_name": meta.get("agent_name"),
                     "agent_id": meta.get("agent_id"),
                     "timestamp": msg.created_at.isoformat(),
+                    "attachments": attachment_frames(msg.attachments),
                 }
             )
     except Exception as replay_error:
@@ -269,6 +270,7 @@ async def authenticated_customer_websocket(
                     "agent_name": meta.get("agent_name"),
                     "agent_id": meta.get("agent_id"),
                     "timestamp": msg.created_at.isoformat(),
+                    "attachments": attachment_frames(msg.attachments),
                 }
             )
     except Exception as replay_error:
@@ -484,10 +486,7 @@ async def agent_websocket(
                         "content": msg.content,
                         "user_identifier": session.user_identifier,
                         "timestamp": msg.created_at.isoformat(),
-                        "attachments": [
-                            {"id": str(a.id), "url": a.url, "content_type": a.content_type}
-                            for a in msg.attachments
-                        ],
+                        "attachments": attachment_frames(msg.attachments),
                     }
                 )
             elif msg.role == MessageRole.HUMAN_AGENT:
@@ -500,6 +499,7 @@ async def agent_websocket(
                         "agent_name": meta.get("agent_name"),
                         "agent_id": meta.get("agent_id"),
                         "timestamp": msg.created_at.isoformat(),
+                        "attachments": attachment_frames(msg.attachments),
                     }
                 )
     except Exception as replay_error:
@@ -565,6 +565,9 @@ async def agent_websocket(
                         "content": content,
                         "agent_name": agent_full_name,
                         "timestamp": message_timestamp,
+                        # Text-only over this socket; always present so id-merging
+                        # clients never see a frame that drops images.
+                        "attachments": [],
                     },
                     to_customer=True,
                     to_agents=True,
