@@ -310,8 +310,9 @@ class TicketService:
 
         ticket.assigned_to = assign_data.assigned_to
 
-        # Update status to in_progress if it's open
-        if ticket.status == TicketStatus.OPEN:
+        # Taking over an unhandled ticket (OPEN, or MISSED after the fallback
+        # window lapsed) makes it in-progress; RESOLVED/CLOSED stay terminal.
+        if ticket.status in (TicketStatus.OPEN, TicketStatus.MISSED):
             ticket.status = TicketStatus.IN_PROGRESS
 
         self.db.commit()
