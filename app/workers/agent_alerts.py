@@ -21,7 +21,6 @@ from app.core.config import settings
 from app.core.websocket import connection_manager
 from app.db.models.conversation import (
     ConversationSession,
-    Message,
     MessageRole,
     Ticket,
     TicketStatus,
@@ -31,6 +30,7 @@ from app.db.models.user import User
 from app.db.session import SessionLocal
 from app.services import fcm_client
 from app.services.agent_alert_service import AgentAlertService
+from app.services.conversation_service import ConversationService
 from app.services.first_responder import MISSED_NOTICE
 from app.services.notification_enqueue import enqueue_clear_alert_async
 
@@ -222,15 +222,13 @@ async def alert_escalation_fallback(ctx, ticket_id: str) -> None:
 async def _post_missed_notice(db, session_id: uuid.UUID) -> None:
     """Tell the customer the team will reply (spec section 4.6). Never raises."""
     try:
-        msg = Message(
+        # add_message also bumps session.last_message_at (unread + auto-resolve).
+        msg = ConversationService(db).add_message(
             session_id=session_id,
             role=MessageRole.ASSISTANT,
             content=MISSED_NOTICE,
             meta={"system_notice": "ticket_missed"},
         )
-        db.add(msg)
-        db.commit()
-        db.refresh(msg)
         await connection_manager.fanout_event(
             session_id=session_id,
             message={
@@ -243,6 +241,7 @@ async def _post_missed_notice(db, session_id: uuid.UUID) -> None:
             to_agents=False,
         )
     except Exception:  # noqa: BLE001 — a notice failure must not break the fallback
+        db.rollback()
         logger.exception("Failed to post missed notice for session %s", session_id)
 
 

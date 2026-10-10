@@ -384,6 +384,9 @@ async def test_fallback_posts_missed_notice_once(patched_session):
     tenant_id = uuid.uuid4()
     _user(db, tenant_id, "up@x.com", UserRole.SUPPORT_AGENT, token="tok-up")
     ticket, session = _escalation(db, tenant_id)
+    before = utcnow_naive() - timedelta(hours=1)
+    session.last_message_at = before
+    db.commit()
 
     fan = AsyncMock()
     sent = AsyncMock(side_effect=lambda tok, data, **kw: FCMResult(token=tok, ok=True))
@@ -401,6 +404,8 @@ async def test_fallback_posts_missed_notice_once(patched_session):
         if m.content == MISSED_NOTICE
     ]
     assert len(notices) == 1
+    db.refresh(session)
+    assert session.last_message_at > before
     assert notices[0].role == MessageRole.ASSISTANT
     frames = [c.kwargs["message"] for c in fan.await_args_list]
     assert [f["type"] for f in frames] == ["ticket_missed"]
@@ -419,6 +424,9 @@ async def test_fallback_no_notice_when_claimed(patched_session):
     ticket.assigned_to = admin.id
     ticket.status = TicketStatus.IN_PROGRESS
     db.commit()
-    await agent_alerts.alert_escalation_fallback({}, str(ticket.id))
+    fan = AsyncMock()
+    with patch.object(agent_alerts.connection_manager, "fanout_event", fan):
+        await agent_alerts.alert_escalation_fallback({}, str(ticket.id))
+    fan.assert_not_awaited()
     msgs = db.query(Message).filter(Message.session_id == session.id).all()
     assert [m for m in msgs if m.content == MISSED_NOTICE] == []

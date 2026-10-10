@@ -87,9 +87,7 @@ async def test_send_unregistered_token_is_flagged(monkeypatch):
 @pytest.mark.asyncio
 async def test_send_transport_error_is_swallowed(monkeypatch):
     monkeypatch.setattr(fcm_client.settings, "FIREBASE_CREDENTIALS_JSON", _FAKE_CREDS)
-    with (
-        patch.object(fcm_client, "_access_token", AsyncMock(side_effect=RuntimeError("boom"))),
-    ):
+    with (patch.object(fcm_client, "_access_token", AsyncMock(side_effect=RuntimeError("boom"))),):
         result = await fcm_client.send(
             "tok-1", {"type": "escalation_alert"}, platform=DevicePlatform.ANDROID
         )
