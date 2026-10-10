@@ -23,8 +23,11 @@ EL docs (custom LLM, client tools; re-checked 2026-10-10) say only that a custom
 
 Residual risk (documented, not fixed): escalations decided late by the pipeline (tenant escalation keywords, flows, contact-capture) on a turn slower than 0.35 s can still emit the buffer word before the tool call. With emails off the request path these turns are no longer multi-second, but they are not impossible. If live testing shows it, set `_BUFFER_GRACE_SECONDS` higher or move the keyword check ahead of the pipeline.
 
+## Blocking SMTP (review fix)
+`app/utils/email.py::send_email` is `async def` but called the synchronous `emails` `message.send(...)` on the event loop, so a background task alone still froze the whole worker (and the voice SSE stream) for ~2.6 s per mail. It now runs `await asyncio.to_thread(message.send, ...)`; return value, logging and error handling are unchanged. This benefits every caller of `send_email`. Tests fake `emails.Message.send` with a BLOCKING `time.sleep` (a mocked async mail would hide the problem): the heartbeat test requires >= 10 ticks of a 50 ms loop during a 1 s send.
+
 ## Files
-`app/api/v1/endpoints/chat.py` (email helpers; six call sites), `app/api/v1/endpoints/voice.py`, `app/services/rag_service.py` (predicate extraction). No migrations, no config.
+`app/api/v1/endpoints/chat.py` (email helpers; six call sites), `app/api/v1/endpoints/voice.py`, `app/services/rag_service.py` (predicate extraction), `app/utils/email.py` (one line). No migrations, no config.
 
 ## Verification
 - `tests/voice/test_escalation_ux.py`: predicate table; slow explicit-human turn has zero content frames; ordinary slow turn keeps the buffer word; explicit request the pipeline does not escalate still speaks; escalated-session echo -> tool call only, no echo text; after a tool result -> spoken line then tool call; echo outcome cached without the user's words.

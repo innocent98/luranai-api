@@ -5,6 +5,7 @@ import time
 from unittest.mock import AsyncMock, patch
 
 from app.api.v1.endpoints import chat as chat_module
+from app.core.config import settings
 
 _KW = dict(
     recipients=[("a@example.test", "A"), ("b@example.test", "B"), ("c@example.test", "C")],
@@ -52,7 +53,7 @@ async def test_schedule_never_raises_into_the_turn():
         chat_module._schedule_escalation_emails(**_KW)  # must not raise
 
 
-def test_escalating_turn_does_not_wait_for_slow_email(client, db):
+def test_escalating_turn_does_not_wait_for_slow_email(client, db, monkeypatch):
     """End to end through /chat/message: three recipients x 2 s of SMTP must not
     be on the escalating turn's critical path."""
     from uuid import uuid4
@@ -74,12 +75,17 @@ def test_escalating_turn_does_not_wait_for_slow_email(client, db):
         )
     db.commit()
 
-    async def slow_send(**_k):
-        await asyncio.sleep(2)
-        return True
+    # REAL send_ticket_escalation_email -> send_email, with the blocking SMTP
+    # call (`emails.Message.send`) faked by a blocking sleep.
+    monkeypatch.setattr(settings, "SMTP_HOST", "smtp.invalid")
+    monkeypatch.setattr(settings, "EMAILS_FROM_EMAIL", "noreply@example.test")
+
+    def blocking_send(self, **_k):
+        time.sleep(2)
+        return type("R", (), {"status_code": 250})()
 
     with (
-        patch.object(chat_module, "send_ticket_escalation_email", AsyncMock(side_effect=slow_send)),
+        patch("emails.Message.send", blocking_send),
         patch.object(chat_module, "enqueue_agent_alerts_async", AsyncMock()),
     ):
         t0 = time.monotonic()
@@ -99,3 +105,36 @@ def test_escalating_turn_does_not_wait_for_slow_email(client, db):
     assert resp.json()["should_escalate"] is True
     assert resp.json()["ticket_id"] is not None
     assert elapsed < 2.0, f"escalating turn took {elapsed:.1f}s; emails are still inline"
+
+
+async def test_event_loop_stays_responsive_during_real_blocking_send(monkeypatch):
+    """A blocking SMTP send must run off the loop: a heartbeat keeps ticking and
+    scheduling returns immediately (this is what the voice SSE stream needs)."""
+    monkeypatch.setattr(settings, "SMTP_HOST", "smtp.invalid")
+    monkeypatch.setattr(settings, "EMAILS_FROM_EMAIL", "noreply@example.test")
+    calls = []
+
+    def blocking_send(self, **_k):
+        calls.append(1)
+        time.sleep(1.0)
+        return type("R", (), {"status_code": 250})()
+
+    ticks = 0
+    stop = asyncio.Event()
+
+    async def heartbeat():
+        nonlocal ticks
+        while not stop.is_set():
+            await asyncio.sleep(0.05)
+            ticks += 1
+
+    with patch("emails.Message.send", blocking_send):
+        hb = asyncio.create_task(heartbeat())
+        t0 = time.monotonic()
+        chat_module._schedule_escalation_emails(**{**_KW, "recipients": [("a@example.test", "A")]})
+        assert time.monotonic() - t0 < 0.5
+        await asyncio.gather(*chat_module._background_notifications)
+        stop.set()
+        await hb
+    assert calls == [1]
+    assert ticks >= 10, f"event loop was blocked: only {ticks} heartbeat ticks during the send"
