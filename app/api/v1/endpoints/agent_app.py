@@ -330,19 +330,21 @@ async def acknowledge_escalation(
 
     if not won:
         db.refresh(ticket)
-        if ticket.assigned_to == current_agent.id:
+        final = ticket.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED)
+        # Terminal status wins over holder: a RESOLVED/CLOSED ticket is never
+        # claimable again, not even idempotently by its own last assignee.
+        if ticket.assigned_to == current_agent.id and not final:
             # Already ours — a retry of our own successful claim. Idempotent win,
             # not a 409: repeat the session handoff and clear fanout too, since
             # either could have failed on the winning attempt before the
             # response ever reached the mobile app.
             return await _finish_claim(db, ticket, current_agent)
         handler = db.get(User, ticket.assigned_to) if ticket.assigned_to else None
-        final = ticket.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=AcknowledgeLost(
                 handled_by=handler.full_name if handler else "another agent",
-                reason="resolved" if final and handler is None else "claimed",
+                reason="resolved" if final else "claimed",
             ).model_dump(),
         )
 

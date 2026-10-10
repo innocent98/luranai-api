@@ -254,6 +254,48 @@ def test_takeover_of_resolved_ticket_is_409_resolved(client, db, agent_tenant, a
     }
 
 
+@pytest.mark.parametrize("final", [TicketStatus.RESOLVED, TicketStatus.CLOSED])
+def test_takeover_of_own_final_ticket_is_409_resolved(
+    client, db, agent_tenant, auth_headers, agent_user, final
+):
+    """Terminal status wins over holder: a RESOLVED/CLOSED ticket assigned to
+    the caller must say "resolved", not "claimed" by the caller's own name."""
+    ticket = _make(db, agent_tenant, status=final, assigned_to=agent_user.id)
+    session_id = ticket.session_id
+    own_name = agent_user.full_name
+
+    resp = client.post(f"/api/v1/chat/sessions/{session_id}/takeover", headers=auth_headers)
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == {"won": False, "handled_by": own_name, "reason": "resolved"}
+
+
+def test_acknowledge_own_final_ticket_is_409_resolved(
+    client, db, agent_tenant, auth_headers, agent_user
+):
+    ticket = _make(db, agent_tenant, status=TicketStatus.RESOLVED, assigned_to=agent_user.id)
+    ticket_id = ticket.id
+    own_name = agent_user.full_name
+
+    resp = client.post(f"/api/v1/agent/escalations/{ticket_id}/acknowledge", headers=auth_headers)
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == {"won": False, "handled_by": own_name, "reason": "resolved"}
+
+
+def test_acknowledge_resolved_ticket_held_by_other_is_409_resolved(
+    client, db, agent_tenant, auth_headers, admin_user
+):
+    ticket = _make(db, agent_tenant, status=TicketStatus.RESOLVED, assigned_to=admin_user.id)
+    ticket_id = ticket.id
+    other_name = admin_user.full_name
+
+    resp = client.post(f"/api/v1/agent/escalations/{ticket_id}/acknowledge", headers=auth_headers)
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == {"won": False, "handled_by": other_name, "reason": "resolved"}
+
+
 def test_takeover_enqueues_ring_clear(client, db, agent_tenant, auth_headers, agent_user):
     ticket = _make(db, agent_tenant, status=TicketStatus.MISSED)
     ticket_id, session_id, agent_id = ticket.id, ticket.session_id, agent_user.id

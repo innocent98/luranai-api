@@ -8,7 +8,9 @@ import re
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from collections.abc import AsyncIterator
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from loguru import logger
 from redis.exceptions import RedisError
@@ -19,6 +21,7 @@ from app.api.deps import get_db
 from app.api.v1.endpoints.chat import send_message
 from app.core.config import settings
 from app.db.models.conversation import ConversationSession
+from app.db.session import SessionLocal
 from app.schemas.conversation import MessageRequest
 from app.schemas.ticket import TicketCreate
 from app.schemas.voice import (
@@ -33,7 +36,8 @@ from app.services.voice.auth import verify_elevenlabs_request
 from app.services.voice.elevenlabs_client import ElevenLabsClient, ElevenLabsMintError
 from app.services.voice.gating import VoiceDenialReason, VoiceGate
 from app.services.voice.session_tokens import VoiceSessionContext, VoiceSessionTokenStore
-from app.services.voice.sse import stream_reply, stream_tool_call
+from app.services.voice import turn_dedupe
+from app.services.voice.sse import SSEFramer, stream_reply
 from app.utils.http_rate_limiter import voice_llm_turn_rate_limiter, voice_rate_limit
 
 router = APIRouter()
@@ -547,33 +551,200 @@ async def _turn_allowed(token: str) -> bool:
         return True
 
 
+# `X-Accel-Buffering: no` stops nginx holding SSE frames in its proxy buffer
+# (the buffer word is worthless if it sits in nginx for the whole pipeline);
+# `no-cache` stops any intermediary caching/reshaping the stream.
+_SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+# How long the pipeline gets to answer before the buffer word is sent. The role
+# frame always goes out immediately (first byte in ~0 ms); the buffer word is
+# what covers latency for TTS, but it is spoken CONTENT, and a tool-call turn
+# must not be preceded by speech. Whether ElevenLabs tolerates content followed
+# by tool_calls in one stream is not documented, so we only commit to content
+# once the pipeline has clearly been slow. EL abandons requests after roughly
+# a second without audio-bearing content (observed live), so this stays well
+# under that. A fast turn (<grace) therefore keeps the exact old wire shape.
+_BUFFER_GRACE_SECONDS = 0.35
+# How long a duplicate (re-issued) request waits for the original's outcome.
+_DUPLICATE_WAIT_SECONDS = 10.0
+
+# Strong refs so a pipeline task that outlives an abandoned request is not GC'd.
+_background_turns: set[asyncio.Task] = set()
+
+
+def _sse_response(frames) -> StreamingResponse:
+    return StreamingResponse(frames, media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
 def _speak(reply_text: str, *, model: str) -> StreamingResponse:
-    """Materialise the SSE frames before responding: the reply is already
-    complete by this point, so there is nothing left to stream progressively,
-    and this keeps `db` from being touched after the request scope closes.
-    Becomes a true async generator if/when the pipeline itself grows a
-    streaming seam."""
-    return StreamingResponse(
-        iter(list(stream_reply(reply_text, model=model))),
-        media_type="text/event-stream",
-    )
+    """Stream a ready-made reply (no pipeline involved) as SSE frames."""
+    return _sse_response(iter(list(stream_reply(reply_text, model=model))))
 
 
-def _speak_tool_call(tool_name: str, *, model: str) -> StreamingResponse:
-    """Like `_speak`, but for an OpenAI tool_calls turn instead of text --
-    see `stream_tool_call`'s docstring for why this can't reuse `_speak`
-    (no buffer word, no content frames, `finish_reason: "tool_calls"` not
-    `"stop"`)."""
-    return StreamingResponse(
-        iter(list(stream_tool_call(tool_name, model=model))),
-        media_type="text/event-stream",
+class _TurnOutcome:
+    """What the pipeline decided: spoken text, or the escalate tool call."""
+
+    __slots__ = ("text", "tool_name")
+
+    def __init__(self, *, text: str = "", tool_name: str | None = None) -> None:
+        self.text = text
+        self.tool_name = tool_name
+
+
+def _open_stream_session() -> Session:
+    """A session owned by the streaming task, not the request.
+
+    FastAPI (0.115, pinned) exits yield-dependencies -- closing the request's
+    `db` -- BEFORE a StreamingResponse body runs. Touching that closed Session
+    would silently check out a fresh pooled connection nobody ever closes (one
+    leak per voice turn). The task opens and closes its own instead."""
+    return SessionLocal()
+
+
+async def _run_turn(
+    *,
+    token: str,
+    context: VoiceSessionContext,
+    user_text: str,
+    dedupe_key: str,
+) -> _TurnOutcome:
+    """Run one caller turn through the pipeline. Never raises: every failure
+    mode becomes speakable text (or the escalation tool call)."""
+    if not await turn_dedupe.claim(dedupe_key):
+        # EL re-issued a turn we are already (or have already finished)
+        # handling. Replay the original outcome rather than persisting a second
+        # user message + AI reply.
+        logger.info(f"Voice duplicate turn for session {context.luran_session_id}; replaying")
+        replay = await turn_dedupe.wait_for_outcome(dedupe_key, timeout=_DUPLICATE_WAIT_SECONDS)
+        if replay is not None:
+            return _TurnOutcome(
+                text=str(replay.get("text") or ""), tool_name=replay.get("tool_name")
+            )
+        return _TurnOutcome(text=_FALLBACK_REPLY)
+
+    db = _open_stream_session()
+    try:
+        outcome = await _run_pipeline(db=db, token=token, context=context, user_text=user_text)
+    finally:
+        db.close()
+    if outcome.text == _FALLBACK_REPLY and outcome.tool_name is None:
+        # Pipeline errored: let a retry genuinely re-run instead of replaying it.
+        await turn_dedupe.release(dedupe_key)
+    else:
+        await turn_dedupe.store(dedupe_key, {"text": outcome.text, "tool_name": outcome.tool_name})
+    return outcome
+
+
+async def _run_pipeline(
+    *, db: Session, token: str, context: VoiceSessionContext, user_text: str
+) -> _TurnOutcome:
+    try:
+        chat_response = await send_message(
+            MessageRequest(
+                message=user_text,
+                session_id=context.luran_session_id,
+                tenant_id=context.tenant_id,
+            ),
+            db,
+        )
+        reply_text = chat_response.message.content
+        if chat_response.should_escalate:
+            # The ESCALATION DECISION STAYS IN OUR PIPELINE. ElevenLabs hands
+            # `escalate_to_human` to us in `tools` and only invokes the browser
+            # client tool once we emit a tool_calls delta -- so before this
+            # branch existed the tool could never fire, no matter what the
+            # caller said (confirmed live in Spike 1: a caller asked for a
+            # human twice and nothing happened).
+            #
+            # Emit ONLY the tool call, not spoken text: EL speaks whatever the
+            # client tool returns, so adding content here would talk over it.
+            # (A slow turn may already have sent the buffer word "... " -- see
+            # `_BUFFER_GRACE_SECONDS`; nothing else is spoken.)
+            # The follow-up tool-RESULT turn is caught by
+            # `_is_tool_result_turn` and answered with `_ESCALATION_ACK_REPLY`,
+            # which is why this does not re-run the pipeline or re-escalate.
+            logger.info(
+                f"Voice escalating session {context.luran_session_id}: "
+                f"{chat_response.escalation_reason or 'no reason given'}"
+            )
+            return _TurnOutcome(tool_name=_ESCALATE_TOOL_NAME)
+    except HTTPException as exc:
+        # send_message's own HTTPExceptions are policy/entitlement or
+        # existence errors (e.g. 402 conversation-limit-reached, 404 session
+        # not found) — not transient. Retrying with the same words can never
+        # succeed, so falling back to `_FALLBACK_REPLY`'s "could you say that
+        # again?" would trap the caller in an infinite loop burning
+        # ElevenLabs minutes. Revoke so the next turn 401s cleanly instead —
+        # that ends our ability to answer, not the WebRTC call itself.
+        logger.warning(f"Voice pipeline rejected session {context.luran_session_id}: {exc.detail}")
+        await _revoke_voice_token_best_effort(token, context.tenant_id)
+        return _TurnOutcome(text=_TERMINAL_REPLY)
+    except Exception as exc:  # noqa: BLE001 — never leave a caller in silence
+        logger.exception(f"Voice pipeline failed for session {context.luran_session_id}: {exc}")
+        return _TurnOutcome(text=_FALLBACK_REPLY)
+
+    # The pipeline can succeed and still return nothing speakable (e.g. an
+    # empty completion). That is not an error, so it gets its own fallback
+    # rather than reusing `_FALLBACK_REPLY`'s "I ran into a problem" framing.
+    if not reply_text or not reply_text.strip():
+        reply_text = _EMPTY_REPLY
+    return _TurnOutcome(text=reply_text)
+
+
+async def _stream_pipeline_turn(
+    *,
+    request: Request,
+    model: str,
+    token: str,
+    context: VoiceSessionContext,
+    user_text: str,
+    dedupe_key: str,
+) -> AsyncIterator[str]:
+    """True streaming: role frame first (immediately), then the pipeline runs
+    while the buffer word covers its latency, then the reply frames."""
+    framer = SSEFramer(model=model)
+    yield framer.role()
+
+    # EL already gave up on this request (it re-requests when it thinks we are
+    # slow): do not start a pipeline run nobody will hear.
+    if await request.is_disconnected():
+        logger.info(f"Voice request abandoned before pipeline start ({context.luran_session_id})")
+        return
+
+    # The pipeline runs as its own task so an abandoned request (generator
+    # cancelled on client disconnect) does not tear a half-persisted turn
+    # apart; its outcome lands in the dedupe cache for EL's re-request.
+    task = asyncio.ensure_future(
+        _run_turn(token=token, context=context, user_text=user_text, dedupe_key=dedupe_key)
     )
+    _background_turns.add(task)
+    task.add_done_callback(_background_turns.discard)
+
+    buffered = False
+    done, _ = await asyncio.wait({task}, timeout=_BUFFER_GRACE_SECONDS)
+    if not done:
+        yield framer.buffer()
+        buffered = True
+        await asyncio.wait({task})
+    outcome = task.result()
+
+    if outcome.tool_name is not None:
+        for frame in framer.tool_call(outcome.tool_name):
+            yield frame
+        return
+
+    if not buffered:
+        yield framer.buffer()
+    for frame in framer.words(outcome.text):
+        yield frame
+    for frame in framer.finish():
+        yield frame
 
 
 @router.post("/llm/chat/completions", dependencies=[Depends(verify_elevenlabs_request)])
 async def voice_custom_llm(
+    request: Request,
     payload: dict[str, Any] = Body(...),
-    db: Session = Depends(get_db),
 ):
     """OpenAI-compatible custom-LLM endpoint backed by the real Luran pipeline.
 
@@ -582,11 +753,12 @@ async def voice_custom_llm(
     `send_message` that `POST /chat/message` calls, so there is no second
     brain to keep in sync — there is only one pipeline.
 
-    Nothing in this codebase streams (see spec's "Spec Corrections" #1), so
-    this awaits the finished reply and re-frames it as OpenAI SSE via
-    `stream_reply` rather than streaming the pipeline itself. Every failure
-    mode on this endpoint — token-resolution errors, a throttled turn, a
-    pipeline exception, a terminal policy rejection, an empty completion —
+    The pipeline itself does not stream (see spec's "Spec Corrections" #1), but
+    the RESPONSE does: the role frame is flushed immediately and the buffer
+    word follows if the pipeline is slow, so ElevenLabs sees bytes within
+    milliseconds instead of abandoning and re-requesting a slow turn. Every
+    failure mode on this endpoint — token-resolution errors, a throttled turn,
+    a pipeline exception, a terminal policy rejection, an empty completion —
     still ends in a 200 carrying something speakable. A non-200 or an empty
     stream leaves the caller in silence, which ElevenLabs has no way to
     render as audio. The one exception is authn/authz (missing shared secret,
@@ -641,56 +813,20 @@ async def voice_custom_llm(
     if not user_text:
         return _speak(_NO_INPUT_REPLY, model=model)
 
-    try:
-        chat_response = await send_message(
-            MessageRequest(
-                message=user_text,
-                session_id=context.luran_session_id,
-                tenant_id=context.tenant_id,
-            ),
-            db,
+    messages = payload.get("messages")
+    dedupe_key = turn_dedupe.turn_key(
+        context.luran_session_id, len(messages) if isinstance(messages, list) else 0, user_text
+    )
+    return _sse_response(
+        _stream_pipeline_turn(
+            request=request,
+            model=model,
+            token=token,
+            context=context,
+            user_text=user_text,
+            dedupe_key=dedupe_key,
         )
-        reply_text = chat_response.message.content
-        if chat_response.should_escalate:
-            # The ESCALATION DECISION STAYS IN OUR PIPELINE. ElevenLabs hands
-            # `escalate_to_human` to us in `tools` and only invokes the browser
-            # client tool once we emit a tool_calls delta -- so before this
-            # branch existed the tool could never fire, no matter what the
-            # caller said (confirmed live in Spike 1: a caller asked for a
-            # human twice and nothing happened).
-            #
-            # Emit ONLY the tool call, not spoken text: EL speaks whatever the
-            # client tool returns, so adding content here would talk over it.
-            # The follow-up tool-RESULT turn is caught above by
-            # `_is_tool_result_turn` and answered with `_ESCALATION_ACK_REPLY`,
-            # which is why this does not re-run the pipeline or re-escalate.
-            logger.info(
-                f"Voice escalating session {context.luran_session_id}: "
-                f"{chat_response.escalation_reason or 'no reason given'}"
-            )
-            return _speak_tool_call(_ESCALATE_TOOL_NAME, model=model)
-    except HTTPException as exc:
-        # send_message's own HTTPExceptions are policy/entitlement or
-        # existence errors (e.g. 402 conversation-limit-reached, 404 session
-        # not found) — not transient. Retrying with the same words can never
-        # succeed, so falling back to `_FALLBACK_REPLY`'s "could you say that
-        # again?" would trap the caller in an infinite loop burning
-        # ElevenLabs minutes. Revoke so the next turn 401s cleanly instead —
-        # that ends our ability to answer, not the WebRTC call itself.
-        logger.warning(f"Voice pipeline rejected session {context.luran_session_id}: {exc.detail}")
-        await _revoke_voice_token_best_effort(token, context.tenant_id)
-        return _speak(_TERMINAL_REPLY, model=model)
-    except Exception as exc:  # noqa: BLE001 — never leave a caller in silence
-        logger.exception(f"Voice pipeline failed for session {context.luran_session_id}: {exc}")
-        reply_text = _FALLBACK_REPLY
-
-    # The pipeline can succeed and still return nothing speakable (e.g. an
-    # empty completion). That is not an error, so it gets its own fallback
-    # rather than reusing `_FALLBACK_REPLY`'s "I ran into a problem" framing.
-    if not reply_text or not reply_text.strip():
-        reply_text = _EMPTY_REPLY
-
-    return _speak(reply_text, model=model)
+    )
 
 
 @router.post("/tools/escalate_to_human", dependencies=[Depends(verify_elevenlabs_request)])

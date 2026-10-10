@@ -120,3 +120,61 @@ def stream_tool_call(
     )
     yield chunk({}, finish_reason="tool_calls")
     yield "data: [DONE]\n\n"
+
+
+DONE_FRAME = "data: [DONE]\n\n"
+
+
+class SSEFramer:
+    """Incremental framing for one completion, so a caller can emit the role
+    frame and buffer word BEFORE the reply exists (true streaming).
+
+    All frames share one completion id/created timestamp, as OpenAI's do.
+    `stream_reply` / `stream_tool_call` above remain the all-at-once forms.
+    """
+
+    def __init__(self, *, model: str) -> None:
+        self._model = model
+        self._completion_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+        self._created = int(time.time())
+
+    def _chunk(self, delta: dict, finish_reason: str | None = None) -> str:
+        return openai_chunk(
+            completion_id=self._completion_id,
+            model=self._model,
+            created=self._created,
+            delta=delta,
+            finish_reason=finish_reason,
+        )
+
+    def role(self) -> str:
+        return self._chunk({"role": "assistant"})
+
+    def buffer(self) -> str:
+        return self._chunk({"content": BUFFER_WORD})
+
+    def words(self, reply_text: str) -> Iterator[str]:
+        if reply_text.strip():
+            for word in reply_text.split(" "):
+                yield self._chunk({"content": word + " "})
+
+    def finish(self) -> Iterator[str]:
+        yield self._chunk({}, finish_reason="stop")
+        yield DONE_FRAME
+
+    def tool_call(self, tool_name: str, *, arguments: str = "{}") -> Iterator[str]:
+        call_id = f"call_{uuid.uuid4().hex[:24]}"
+        yield self._chunk(
+            {
+                "tool_calls": [
+                    {
+                        "index": 0,
+                        "id": call_id,
+                        "type": "function",
+                        "function": {"name": tool_name, "arguments": arguments},
+                    }
+                ]
+            }
+        )
+        yield self._chunk({}, finish_reason="tool_calls")
+        yield DONE_FRAME
