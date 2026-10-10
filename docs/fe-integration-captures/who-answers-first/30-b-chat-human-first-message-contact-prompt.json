@@ -1,0 +1,38 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/chat/message",
+    "body": {
+      "message": "I want to cancel my subscription",
+      "session_id": "c4842ed5-8c93-495c-a38e-ea06170eee45",
+      "tenant_id": "719107e8-a348-446e-af1e-9b1c06a1192e",
+      "user_identifier": "customer3@example.test"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "c4842ed5-8c93-495c-a38e-ea06170eee45",
+      "message": {
+        "role": "assistant",
+        "content": "Before I connect you with a support agent, please share the best email address for follow-up.",
+        "id": "6fcf85aa-f9f9-4955-a92a-2d02f224b8f9",
+        "session_id": "c4842ed5-8c93-495c-a38e-ea06170eee45",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [],
+        "meta": {
+          "contact_capture_required": true,
+          "contact_capture_fields": [
+            "email"
+          ]
+        },
+        "created_at": "2026-10-10T22:18:33.730301Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}

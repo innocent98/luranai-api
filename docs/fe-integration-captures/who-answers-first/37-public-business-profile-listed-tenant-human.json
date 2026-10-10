@@ -1,0 +1,31 @@
+{
+  "note": "Same tenant after it is made publicly listed (is_publicly_listed=true): full profile",
+  "request": {
+    "method": "GET",
+    "path": "/public/business/n3-live-tenant-a"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "tenant_id": "93c27b29-d555-4314-93de-444abb5ef265",
+      "public_slug": "n3-live-tenant-a",
+      "display_name": "Acme Test Co",
+      "is_private": false,
+      "description": null,
+      "long_description": null,
+      "support_headline": null,
+      "support_subheadline": null,
+      "support_hours": null,
+      "support_response_time": null,
+      "support_footer_note": null,
+      "widget_primary_color": "#2563eb",
+      "widget_accent_color": "#10b981",
+      "widget_logo_url": null,
+      "widget_greeting_message": "Hi! How can we help you today?",
+      "allow_file_upload": true,
+      "collect_name_before_chat": false,
+      "collect_email_before_chat": false,
+      "first_responder": "human"
+    }
+  }
+}

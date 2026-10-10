@@ -1,0 +1,33 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/chat/message",
+    "body": {
+      "message": "Hello? Anyone there?",
+      "session_id": "d70651a5-4665-4550-89bc-51ad7ae51043",
+      "tenant_id": "93c27b29-d555-4314-93de-444abb5ef265",
+      "user_identifier": "customer@example.test"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "d70651a5-4665-4550-89bc-51ad7ae51043",
+      "message": {
+        "role": "user",
+        "content": "Hello? Anyone there?",
+        "id": "98fb8568-d1f0-45b6-ba3f-b48a9a8eab5a",
+        "session_id": "d70651a5-4665-4550-89bc-51ad7ae51043",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [],
+        "meta": {},
+        "created_at": "2026-10-10T22:18:27.647943Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}

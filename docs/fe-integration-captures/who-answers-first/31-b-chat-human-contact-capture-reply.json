@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/chat/message",
+    "body": {
+      "message": "customer@example.com",
+      "session_id": "c4842ed5-8c93-495c-a38e-ea06170eee45",
+      "tenant_id": "719107e8-a348-446e-af1e-9b1c06a1192e",
+      "user_identifier": "customer3@example.test"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "c4842ed5-8c93-495c-a38e-ea06170eee45",
+      "message": {
+        "role": "assistant",
+        "content": "Thanks. Connecting you with our support team now.",
+        "id": "4a4d823e-bab0-411c-a2ed-c18fb490ed2a",
+        "session_id": "c4842ed5-8c93-495c-a38e-ea06170eee45",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [],
+        "meta": {
+          "contact_captured": true
+        },
+        "created_at": "2026-10-10T22:18:33.850231Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": true,
+      "escalation_reason": "Human-only mode",
+      "ticket_id": "d3a5fa06-2216-4e37-af0c-2d3b7772e03f"
+    }
+  }
+}

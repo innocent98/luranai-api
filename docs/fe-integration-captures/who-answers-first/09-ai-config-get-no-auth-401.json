@@ -1,0 +1,12 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/tenant/ai-config"
+  },
+  "response": {
+    "status": 401,
+    "body": {
+      "detail": "Could not validate credentials"
+    }
+  }
+}
