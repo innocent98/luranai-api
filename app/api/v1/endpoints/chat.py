@@ -70,7 +70,11 @@ from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.sales.intent import is_trigger_intent
 from app.services.agent_alert_service import AgentAlertService
 from app.schemas.agent_app import AcknowledgeLost
-from app.services.conversation_service import ConversationService, emit_agent_joined
+from app.services.conversation_service import (
+    ConversationService,
+    attachment_frames,
+    emit_agent_joined,
+)
 from app.services.chat_automation_orchestrator import ChatAutomationOrchestrator
 from app.services.flow_engine import FlowEngine
 from app.sales.pricing import compute_quote
@@ -728,10 +732,7 @@ async def _fanout_customer_images(
                 "content": message.content,
                 "user_identifier": session.user_identifier,
                 "timestamp": message.created_at.isoformat(),
-                "attachments": [
-                    {"id": str(a.id), "url": a.url, "content_type": a.content_type}
-                    for a in message.attachments
-                ],
+                "attachments": attachment_frames(message.attachments),
             },
             to_customer=False,
             to_agents=True,
@@ -3187,9 +3188,7 @@ async def send_agent_message(
             "content": message.content,
             "agent_name": current_user.full_name,
             "timestamp": message.created_at.isoformat(),
-            "attachments": [
-                {"id": str(a.id), "url": a.url, "content_type": a.content_type} for a in attachments
-            ],
+            "attachments": attachment_frames(attachments),
         },
         to_customer=True,
         to_agents=True,

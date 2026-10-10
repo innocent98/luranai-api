@@ -80,6 +80,7 @@ def list_tickets(
     tenant_id: UUID | None = Query(None, description="Filter by tenant"),
     status_filter: TicketStatus | None = Query(None, description="Filter by status"),
     assigned_to_me: bool = Query(False, description="Show only tickets assigned to me"),
+    session_id: UUID | None = Query(None, description="Filter by conversation session"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -117,6 +118,7 @@ def list_tickets(
         tenant_id=tenant_id,
         status=status_filter,
         assigned_to=assigned_to,
+        session_id=session_id,
         limit=limit,
         offset=offset,
     )

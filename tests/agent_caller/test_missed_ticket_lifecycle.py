@@ -337,3 +337,124 @@ def test_resolve_already_final_ticket_is_409(client, db, agent_tenant, admin_use
     )
 
     assert resp.status_code == 409
+
+
+# --- round 3: optional resolution note, ticket_id exposure, session_id filter --
+
+
+def test_resolve_without_notes_is_200_with_null_notes(client, db, agent_tenant, admin_user):
+    ticket = _make(db, agent_tenant, status=TicketStatus.IN_PROGRESS, assigned_to=admin_user.id)
+
+    resp = client.post(
+        f"/api/v1/tickets/{ticket.id}/resolve", json={}, headers=_headers(admin_user)
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "resolved"
+    assert resp.json()["resolution_notes"] is None
+
+
+def test_resolve_blank_notes_stored_as_null_and_note_is_stripped(
+    client, db, agent_tenant, admin_user
+):
+    blank = _make(db, agent_tenant, status=TicketStatus.IN_PROGRESS)
+    noted = _make(db, agent_tenant, status=TicketStatus.IN_PROGRESS)
+    h = _headers(admin_user)
+    blank_id, noted_id = blank.id, noted.id
+
+    r1 = client.post(
+        f"/api/v1/tickets/{blank_id}/resolve", json={"resolution_notes": "   "}, headers=h
+    )
+    r2 = client.post(
+        f"/api/v1/tickets/{noted_id}/resolve", json={"resolution_notes": "  Fixed it  "}, headers=h
+    )
+
+    assert r1.status_code == 200 and r1.json()["resolution_notes"] is None
+    assert r2.status_code == 200 and r2.json()["resolution_notes"] == "Fixed it"
+
+
+def test_resolve_overlong_notes_is_422(client, db, agent_tenant, admin_user):
+    ticket = _make(db, agent_tenant, status=TicketStatus.IN_PROGRESS)
+
+    resp = client.post(
+        f"/api/v1/tickets/{ticket.id}/resolve",
+        json={"resolution_notes": "x" * 5001},
+        headers=_headers(admin_user),
+    )
+
+    assert resp.status_code == 422
+
+
+def test_session_detail_exposes_latest_ticket_id(client, db, agent_tenant, admin_user):
+    old = _make(db, agent_tenant, status=TicketStatus.RESOLVED)
+    session_id = old.session_id
+    newer = Ticket(
+        tenant_id=agent_tenant.id,
+        session_id=session_id,
+        ticket_number=f"TKT-{uuid.uuid4().hex[:8]}",
+        summary="Again",
+        priority=TicketPriority.HIGH,
+        status=TicketStatus.OPEN,
+        created_at=utcnow_naive() + timedelta(minutes=1),
+    )
+    db.add(newer)
+    db.commit()
+    newer_id = str(newer.id)
+
+    resp = client.get(f"/api/v1/chat/sessions/{session_id}", headers=_headers(admin_user))
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["ticket_id"] == newer_id
+
+
+def test_session_detail_ticket_id_null_without_ticket(client, db, agent_tenant, admin_user):
+    session = ConversationSession(
+        tenant_id=agent_tenant.id,
+        user_identifier="visitor:none",
+        status=SessionStatus.ACTIVE,
+    )
+    db.add(session)
+    db.commit()
+    sid = session.id
+
+    resp = client.get(f"/api/v1/chat/sessions/{sid}", headers=_headers(admin_user))
+
+    assert resp.status_code == 200
+    assert resp.json()["ticket_id"] is None
+
+
+def test_tickets_list_filters_by_session_id(client, db, agent_tenant, admin_user):
+    t1 = _make(db, agent_tenant, status=TicketStatus.OPEN)
+    _make(db, agent_tenant, status=TicketStatus.OPEN)
+    t1_id, t1_session = str(t1.id), t1.session_id
+
+    resp = client.get(f"/api/v1/tickets?session_id={t1_session}", headers=_headers(admin_user))
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert [t["id"] for t in body["tickets"]] == [t1_id]
+    assert body["total"] == 1
+
+
+def test_tickets_session_id_filter_is_tenant_scoped(client, db, agent_tenant, admin_user):
+    from app.db.models.tenant import Tenant, TenantStatus
+
+    other = Tenant(
+        name=f"other-{uuid.uuid4().hex[:6]}",
+        display_name="Other",
+        status=TenantStatus.ACTIVE,
+        api_key_hash=f"hash-{uuid.uuid4().hex}",
+        is_publicly_listed=False,
+        subscription_status="active",
+        subscription_tier="growth",
+    )
+    db.add(other)
+    db.commit()
+    foreign = _make(db, other, status=TicketStatus.OPEN)
+    foreign_session = foreign.session_id
+
+    resp = client.get(f"/api/v1/tickets?session_id={foreign_session}", headers=_headers(admin_user))
+
+    assert resp.status_code == 200
+    assert resp.json()["tickets"] == []
+    assert resp.json()["total"] == 0

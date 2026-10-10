@@ -159,6 +159,7 @@ class SessionDetailResponse(SessionResponse):
     """Schema for session with messages."""
 
     messages: list[MessageResponse] = Field(default_factory=list)
+    ticket_id: UUID | None = None  # latest ticket for this session
 
 
 class ChatResponse(BaseModel):

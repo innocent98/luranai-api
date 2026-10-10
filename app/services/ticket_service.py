@@ -440,6 +440,7 @@ class TicketService:
         assigned_to: UUID | None = None,
         limit: int = 100,
         offset: int = 0,
+        session_id: UUID | None = None,
     ) -> tuple[list[TicketResponse], int]:
         """
         Get tickets for a tenant with filtering.
@@ -462,6 +463,9 @@ class TicketService:
 
         if assigned_to:
             stmt = stmt.where(Ticket.assigned_to == assigned_to)
+
+        if session_id:
+            stmt = stmt.where(Ticket.session_id == session_id)
 
         # Get total count
         count_stmt = select(func.count()).select_from(stmt.subquery())

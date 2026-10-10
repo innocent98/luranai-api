@@ -23,6 +23,11 @@ Resolve/close endpoints have no status guard; a test now pins resolving a MISSED
 - **Resolve** (`POST /tickets/{id}/resolve`): tenant admin always; an agent only if `assigned_to == self` (else 403, so unassigned MISSED needs a takeover first). Already RESOLVED/CLOSED -> 409. `/close` unchanged (admin only).
 - `mt60missedrepair` also bumps `updated_at` on repaired rows.
 
+## Round 3 (dashboard integration)
+- `POST /tickets/{id}/resolve`: `resolution_notes` is optional (absent/blank -> stored null; trimmed; max 5000). Downstream (WS `ticket_resolved`, auto-resolver, DB column) already tolerate null. The dashboard enforces its own minimum client-side.
+- `GET /chat/sessions/{id}` returns `ticket_id` (latest ticket of the session, nullable). `GET /tickets?session_id=<uuid>` filters (still tenant-scoped). Replaces the dashboard's last-200 scan.
+- Every `agent_message` / `customer_message` frame carrying a `message_id` now includes `attachments` (id, url, content_type, width, height; send order) via `attachment_frames()` in `conversation_service.py`: replays on customer and agent sockets, live agent text frames (`[]`), `send_agent_message` and customer fanout. Root cause of dashboard "images vanish": id-merging clients overwrote the message with a frame lacking `attachments`.
+
 ## Migrations
 | Revision | Purpose |
 |---|---|
