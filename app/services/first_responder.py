@@ -40,3 +40,12 @@ def default_first_responder(db: Session, tenant_id: UUID) -> str:
     if count_active_knowledge_sources(db, tenant_id) == 0:
         return FIRST_RESPONDER_HUMAN
     return FIRST_RESPONDER_AI
+
+
+def apply_first_responder_preset(update_data: dict) -> dict:
+    """ai_with_handoff writes escalate into both grounding actions (spec §4.4)."""
+    out = dict(update_data)
+    if out.get("first_responder") == FIRST_RESPONDER_HANDOFF:
+        out["no_retrieval_action"] = "escalate"
+        out["low_confidence_action"] = "escalate"
+    return out

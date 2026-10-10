@@ -19,7 +19,11 @@ from app.schemas.tenant import (
     TenantResponse,
     TenantUpdate,
 )
-from app.services.first_responder import count_active_knowledge_sources
+from app.services.first_responder import (
+    FIRST_RESPONDER_HANDOFF,
+    apply_first_responder_preset,
+    count_active_knowledge_sources,
+)
 from app.services.plan_service import PlanService
 from app.utils.slugs import (
     PUBLIC_SLUG_MAX_LENGTH,
@@ -385,6 +389,11 @@ class TenantService:
 
         # Update fields
         update_data = config_data.model_dump(exclude_unset=True)
+        update_data = apply_first_responder_preset(update_data)
+        # A stored handoff preset cannot be unlocked by a knob-only PUT (old tab).
+        if update_data.get("first_responder", config.first_responder) == FIRST_RESPONDER_HANDOFF:
+            update_data["no_retrieval_action"] = "escalate"
+            update_data["low_confidence_action"] = "escalate"
 
         collect_name_before_chat = bool(
             update_data.get("collect_name_before_chat", config.collect_name_before_chat)
