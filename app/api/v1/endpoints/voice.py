@@ -396,6 +396,53 @@ def _extract_voice_token(payload: dict[str, Any]) -> str:
     return matches[0]
 
 
+# What follows "Session:" on the same line, up to whitespace -- used only to
+# report its LENGTH, never its value.
+_SESSION_MARKER_VALUE_RE = re.compile(r"Session:[ \t]*(\S*)")
+
+
+def _describe_voice_token_shape(payload: dict[str, Any]) -> dict[str, Any]:
+    """Shape-only diagnostics for an unresolvable voice token.
+
+    Separates the failure modes that all end in the same 401 -- no marker,
+    EL left `{{voice_token}}` unsubstituted, a wrong-length value, two
+    candidates (ambiguous), or a token that parsed fine but isn't in Redis
+    (`extracted=True`) -- without ever returning the token, any fragment of
+    it, or any prompt text. Safe to log.
+    """
+    messages = payload.get("messages") or []
+    shape: dict[str, Any] = {
+        "messages": len(messages) if isinstance(messages, list) else None,
+        "first_message_type": None,
+        "first_role": None,
+        "content_len": None,
+        "has_session_marker": False,
+        "has_unsubstituted_template": False,
+        "marker_value_len": None,
+        "token_candidates": 0,
+        "extracted": False,
+    }
+    if not messages or not isinstance(messages, list):
+        return shape
+    first = messages[0]
+    shape["first_message_type"] = type(first).__name__
+    if not isinstance(first, dict):
+        return shape
+    shape["first_role"] = first.get("role")
+    content = first.get("content")
+    if not isinstance(content, str):
+        return shape
+    shape["content_len"] = len(content)
+    shape["has_session_marker"] = "Session:" in content
+    shape["has_unsubstituted_template"] = "{{voice_token}}" in content
+    marker = _SESSION_MARKER_VALUE_RE.search(content)
+    if marker:
+        shape["marker_value_len"] = len(marker.group(1))
+    shape["token_candidates"] = len(_SESSION_TOKEN_RE.findall(content))
+    shape["extracted"] = bool(_extract_voice_token(payload))
+    return shape
+
+
 def _last_user_message(payload: dict[str, Any]) -> str:
     """Extract the caller's current turn — and only the current turn.
 
@@ -560,7 +607,10 @@ async def voice_custom_llm(
         token = _extract_voice_token(payload)
         context: VoiceSessionContext | None = await VoiceSessionTokenStore().resolve(token)
         if context is None:
-            logger.warning("Voice custom-LLM call carried an unresolvable voice token")
+            logger.warning(
+                "Voice custom-LLM call carried an unresolvable voice token "
+                f"(shape={_describe_voice_token_shape(payload)})"
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="unknown voice session",
