@@ -94,6 +94,7 @@ def agent_ws_env(tmp_path, monkeypatch):
         tenant_id = tenant.id
         agent_id = agent.id
         session_id = session.id
+        user_identifier = session.user_identifier
     finally:
         seed.close()
 
@@ -120,6 +121,9 @@ def agent_ws_env(tmp_path, monkeypatch):
 
     env = Env()
     env.session_id = session_id
+    env.tenant_id = tenant_id
+    env.user_identifier = user_identifier
+    env.session_factory = session_factory
     env.url = f"/api/v1/ws/agent/{session_id}"
     env.allowed_origin = ALLOWED_ORIGIN
     env.valid_token = valid_token
@@ -230,3 +234,100 @@ def test_agent_ws_expired_query_token_rejected_4003(agent_ws_env):
     url = f"{agent_ws_env.url}?token={agent_ws_env.expired_token()}"
     code = _expect_close(agent_ws_env, url)
     assert code == 4003
+
+
+# --- attachments ride on every agent_message / customer_message frame --------
+
+
+def _seed_agent_message_with_images(env):
+    """HUMAN_AGENT message whose images were uploaded a then b but sent [b, a]."""
+    from datetime import datetime
+
+    from app.db.models.conversation import (
+        AttachmentDirection,
+        AttachmentModeration,
+        AttachmentStatus,
+        Message,
+        MessageAttachment,
+        MessageRole,
+    )
+
+    db = env.session_factory()
+    try:
+        msg = Message(
+            session_id=env.session_id,
+            role=MessageRole.HUMAN_AGENT,
+            content="see photos",
+            meta={"agent_name": "A", "agent_id": str(uuid4())},
+        )
+        db.add(msg)
+        db.flush()
+        ids = []
+        for pos, (name, created) in enumerate([("b", 2), ("a", 1)]):
+            att = MessageAttachment(
+                message_id=msg.id,
+                session_id=env.session_id,
+                tenant_id=env.tenant_id,
+                direction=AttachmentDirection.OUTBOUND,
+                cloudinary_public_id=f"chat/{name}",
+                url=f"https://c/{name}.jpg",
+                content_type="image/png",
+                width=4,
+                height=3,
+                bytes=10,
+                moderation_status=AttachmentModeration.PASSED,
+                status=AttachmentStatus.LINKED,
+                position=pos,
+                created_at=datetime(2026, 1, 1, 0, 0, created),
+            )
+            db.add(att)
+            db.flush()
+            ids.append(str(att.id))
+        db.commit()
+        return str(msg.id), ids
+    finally:
+        db.close()
+
+
+EXPECTED_KEYS = {"id", "url", "content_type", "width", "height"}
+
+
+def test_agent_socket_replay_agent_message_carries_attachments_in_send_order(agent_ws_env):
+    env = agent_ws_env
+    msg_id, att_ids = _seed_agent_message_with_images(env)
+    token = env.valid_token()
+    with env.client.websocket_connect(f"{env.url}?token={token}") as websocket:
+        frame = websocket.receive_json()
+    assert frame["type"] == "agent_message"
+    assert frame["message_id"] == msg_id
+    assert [a["id"] for a in frame["attachments"]] == att_ids
+    assert set(frame["attachments"][0]) == EXPECTED_KEYS
+    assert frame["attachments"][0]["width"] == 4
+
+
+def test_customer_socket_replay_agent_message_carries_attachments(agent_ws_env):
+    env = agent_ws_env
+    msg_id, att_ids = _seed_agent_message_with_images(env)
+    url = f"/api/v1/ws/chat/{env.session_id}?user_identifier={env.user_identifier}"
+    with env.client.websocket_connect(url) as websocket:
+        frame = websocket.receive_json()
+    assert frame["type"] == "agent_message"
+    assert frame["message_id"] == msg_id
+    assert [a["id"] for a in frame["attachments"]] == att_ids
+    assert set(frame["attachments"][0]) == EXPECTED_KEYS
+
+
+def test_live_agent_text_frame_has_empty_attachments_array(agent_ws_env):
+    from unittest.mock import AsyncMock, patch
+
+    from app.core.websocket import connection_manager
+
+    env = agent_ws_env
+    token = env.valid_token()
+    with patch.object(connection_manager, "fanout_event", AsyncMock()) as fan:
+        with env.client.websocket_connect(f"{env.url}?token={token}") as websocket:
+            websocket.send_json({"type": "message", "content": "hello"})
+            _assert_ping_pong(websocket)
+    sent = fan.await_args.kwargs["message"]
+    assert sent["type"] == "agent_message"
+    assert sent["attachments"] == []

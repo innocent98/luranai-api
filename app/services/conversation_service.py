@@ -14,6 +14,7 @@ from app.db.models.conversation import (
     MessageAttachment,
     MessageRole,
     SessionStatus,
+    Ticket,
 )
 from app.db.models.visitor import Visitor
 from app.schemas.conversation import (
@@ -67,6 +68,12 @@ class ConversationService:
         response: SessionResponse | SessionDetailResponse
         if include_messages:
             response = SessionDetailResponse.model_validate(session)
+            response.ticket_id = self.db.execute(
+                select(Ticket.id)
+                .where(Ticket.session_id == session.id)
+                .order_by(Ticket.created_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
         else:
             response = SessionResponse.model_validate(session)
         response.visitor = self._build_visitor_summary(session.visitor_id)
@@ -411,8 +418,9 @@ class ConversationService:
             ValueError: If any attachment is unknown, foreign, used or not UPLOADED.
         """
         rows = self.get_linkable_attachments(session_id, attachment_ids)
-        for row in rows:
+        for position, row in enumerate(rows):
             row.message_id = message_id
+            row.position = position
             row.status = AttachmentStatus.LINKED
         self.db.flush()
         return rows
@@ -643,3 +651,19 @@ async def emit_agent_joined(db: Session, session: ConversationSession, agent) ->
         to_customer=True,
         to_agents=False,
     )
+
+
+def attachment_frames(attachments) -> list[dict]:
+    """WS payload shape for a message's attachments (same fields as REST
+    `AttachmentOut`), in send order. Every frame carrying a `message_id` must
+    include this so clients that merge by id never drop images."""
+    return [
+        {
+            "id": str(a.id),
+            "url": a.url,
+            "content_type": a.content_type,
+            "width": a.width,
+            "height": a.height,
+        }
+        for a in attachments
+    ]

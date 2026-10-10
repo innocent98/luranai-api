@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.db.models.conversation import TicketPriority, TicketStatus
 from app.schemas.visitor import VisitorIdentitySummary
@@ -64,7 +64,15 @@ class TicketAssign(BaseModel):
 class TicketResolve(BaseModel):
     """Schema for resolving a ticket."""
 
-    resolution_notes: str = Field(..., min_length=1, description="Resolution notes")
+    resolution_notes: str | None = Field(
+        None, max_length=5000, description="Optional resolution notes"
+    )
+
+    @field_validator("resolution_notes")
+    @classmethod
+    def _blank_notes_to_none(cls, v: str | None) -> str | None:
+        v = v.strip() if v is not None else None
+        return v or None
 
 
 # Response schemas

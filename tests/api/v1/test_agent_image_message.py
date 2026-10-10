@@ -142,7 +142,13 @@ def test_agent_message_links_attachments_and_fans_out(client, db):
 
     sent = ws.fanout_event.await_args.kwargs["message"]
     assert sent["attachments"] == [
-        {"id": att_id, "url": "https://c/a.jpg", "content_type": "image/png"}
+        {
+            "id": att_id,
+            "url": "https://c/a.jpg",
+            "content_type": "image/png",
+            "width": 4,
+            "height": 3,
+        }
     ]
 
 

@@ -210,17 +210,20 @@ def get_escalation(
     ticket = _owned_ticket(db, ticket_id, current_agent.tenant_id)
     session = db.get(ConversationSession, ticket.session_id)
 
-    messages = (
+    # Newest 50, then flipped to chronological order: the oldest-50 window hid
+    # everything said after the first 50 messages of a long conversation.
+    newest = (
         db.execute(
             select(Message)
             .where(Message.session_id == ticket.session_id)
             .options(selectinload(Message.attachments))
-            .order_by(Message.created_at.asc())
+            .order_by(Message.created_at.desc(), Message.id.desc())
             .limit(50)
         )
         .scalars()
         .all()
     )
+    messages = list(reversed(newest))
     handler = db.get(User, ticket.assigned_to) if ticket.assigned_to else None
 
     base = _summary(db, ticket, session)
@@ -327,7 +330,10 @@ async def acknowledge_escalation(
 
     if not won:
         db.refresh(ticket)
-        if ticket.assigned_to == current_agent.id:
+        final = ticket.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED)
+        # Terminal status wins over holder: a RESOLVED/CLOSED ticket is never
+        # claimable again, not even idempotently by its own last assignee.
+        if ticket.assigned_to == current_agent.id and not final:
             # Already ours — a retry of our own successful claim. Idempotent win,
             # not a 409: repeat the session handoff and clear fanout too, since
             # either could have failed on the winning attempt before the
@@ -337,7 +343,8 @@ async def acknowledge_escalation(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=AcknowledgeLost(
-                handled_by=handler.full_name if handler else "another agent"
+                handled_by=handler.full_name if handler else "another agent",
+                reason="resolved" if final else "claimed",
             ).model_dump(),
         )
 

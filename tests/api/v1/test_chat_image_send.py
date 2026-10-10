@@ -237,7 +237,13 @@ def test_image_send_fans_out_customer_message_to_agents(client, db):
     assert msg["user_identifier"].startswith("v-")
     assert msg["timestamp"]
     assert msg["attachments"] == [
-        {"id": str(aid), "url": "https://c/x.jpg", "content_type": "image/png"}
+        {
+            "id": str(aid),
+            "url": "https://c/x.jpg",
+            "content_type": "image/png",
+            "width": 4,
+            "height": 3,
+        }
     ]
 
 

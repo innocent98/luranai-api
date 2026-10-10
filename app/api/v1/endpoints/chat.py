@@ -61,7 +61,7 @@ from app.schemas.conversation import (
     SessionResponse,
 )
 from app.schemas.rag import EscalationDecision, ResponseQuality
-from app.schemas.ticket import TicketAssign, TicketCreate, TicketResponse
+from app.schemas.ticket import TicketCreate, TicketResponse
 from app.schemas.tenant import TenantResponse
 from app.schemas.user import UserResponse
 from app.schemas.visitor import VisitorEnrichmentUpdate
@@ -69,12 +69,20 @@ from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.sales.intent import is_trigger_intent
 from app.services.agent_alert_service import AgentAlertService
-from app.services.conversation_service import ConversationService, emit_agent_joined
+from app.schemas.agent_app import AcknowledgeLost
+from app.services.conversation_service import (
+    ConversationService,
+    attachment_frames,
+    emit_agent_joined,
+)
 from app.services.chat_automation_orchestrator import ChatAutomationOrchestrator
 from app.services.flow_engine import FlowEngine
 from app.sales.pricing import compute_quote
 from app.services.lead_service import LeadService
-from app.services.notification_enqueue import enqueue_agent_alerts_async
+from app.services.notification_enqueue import (
+    enqueue_agent_alerts_async,
+    enqueue_clear_alert_async,
+)
 from app.services.quote_service import QuoteService
 from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
@@ -724,10 +732,7 @@ async def _fanout_customer_images(
                 "content": message.content,
                 "user_identifier": session.user_identifier,
                 "timestamp": message.created_at.isoformat(),
-                "attachments": [
-                    {"id": str(a.id), "url": a.url, "content_type": a.content_type}
-                    for a in message.attachments
-                ],
+                "attachments": attachment_frames(message.attachments),
             },
             to_customer=False,
             to_agents=True,
@@ -3010,31 +3015,44 @@ async def agent_takeover(
             detail="Only support agents or admins can take over conversations",
         )
 
-    # Assign agent to session
-    updated_session = conversation_service.assign_agent_to_session(
-        session_id=session_id,
-        agent_id=current_user.id,
-    )
-
-    # If there's an associated ticket, assign it to the agent too
-
+    # Claim the ticket FIRST and atomically (conditional UPDATE, same primitive as
+    # the mobile acknowledge): if another agent already holds it, or it is already
+    # resolved/closed, answer 409 and leave the session's agent untouched.
     ticket = (
         db.query(Ticket)
         .filter(Ticket.session_id == session_id)
         .order_by(Ticket.created_at.desc())
         .first()
     )
-
     if ticket:
-
-        ticket_service = TicketService(db)
-        try:
-            ticket_service.assign_ticket(
-                ticket_id=ticket.id, assign_data=TicketAssign(assigned_to=current_user.id)
+        ticket_id = ticket.id
+        claimed = TicketService(db).claim_ticket(ticket_id, current_user.id)
+        if claimed is None:
+            db.expire_all()
+            ticket = db.get(Ticket, ticket_id)
+            handler = db.get(User, ticket.assigned_to) if ticket.assigned_to else None
+            final = ticket.status in (TicketStatus.RESOLVED, TicketStatus.CLOSED)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=AcknowledgeLost(
+                    handled_by=handler.full_name if handler else "another agent",
+                    reason="resolved" if final else "claimed",
+                ).model_dump(),
             )
-            logger.info("Assigned ticket to agent after takeover")
-        except ValueError as e:
-            logger.warning(f"Could not assign ticket: {e}")
+        logger.info("Assigned ticket to agent after takeover")
+
+    updated_session = conversation_service.assign_agent_to_session(
+        session_id=session_id,
+        agent_id=current_user.id,
+    )
+
+    # Stop the supervisor/fallback ring for this ticket, as the mobile claim does.
+    # A failed enqueue must never fail a takeover that has already succeeded.
+    if ticket:
+        try:
+            await enqueue_clear_alert_async(ticket_id, current_user.id)
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to enqueue clear_alert after takeover")
 
     # Persist the SYSTEM "joined" notice and fan it out to the customer widget.
     # Shared with the mobile Agent Caller path (`_finish_claim`) so both clients
@@ -3170,9 +3188,7 @@ async def send_agent_message(
             "content": message.content,
             "agent_name": current_user.full_name,
             "timestamp": message.created_at.isoformat(),
-            "attachments": [
-                {"id": str(a.id), "url": a.url, "content_type": a.content_type} for a in attachments
-            ],
+            "attachments": attachment_frames(attachments),
         },
         to_customer=True,
         to_agents=True,

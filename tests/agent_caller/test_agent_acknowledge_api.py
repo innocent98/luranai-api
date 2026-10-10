@@ -94,7 +94,11 @@ def test_second_claim_loses_with_409(client, db, auth_headers, escalation, admin
 
     resp = client.post(f"/api/v1/agent/escalations/{ticket_id}/acknowledge", headers=auth_headers)
     assert resp.status_code == 409
-    assert resp.json()["detail"] == {"won": False, "handled_by": admin_full_name}
+    assert resp.json()["detail"] == {
+        "won": False,
+        "handled_by": admin_full_name,
+        "reason": "claimed",
+    }
 
 
 def test_claiming_a_resolved_ticket_is_409_and_stays_resolved(client, db, auth_headers, escalation):
