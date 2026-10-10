@@ -19,6 +19,7 @@ from app.schemas.tenant import (
     TenantResponse,
     TenantUpdate,
 )
+from app.services.first_responder import count_active_knowledge_sources
 from app.services.plan_service import PlanService
 from app.utils.slugs import (
     PUBLIC_SLUG_MAX_LENGTH,
@@ -128,6 +129,7 @@ class TenantService:
             grounding_mode="balanced",
             low_confidence_action="clarify",
             no_retrieval_action="clarify",
+            first_responder="human",
             require_email_before_escalation=False,
             require_name_before_escalation=False,
             collect_name_before_chat=False,
@@ -352,7 +354,12 @@ class TenantService:
         if not config:
             return None
 
-        return TenantAIConfigResponse.model_validate(config)
+        return self._ai_config_response(config)
+
+    def _ai_config_response(self, config: TenantAIConfig) -> TenantAIConfigResponse:
+        resp = TenantAIConfigResponse.model_validate(config)
+        resp.active_knowledge_sources = count_active_knowledge_sources(self.db, config.tenant_id)
+        return resp
 
     def update_ai_config(
         self, tenant_id: UUID, config_data: TenantAIConfigUpdate
@@ -415,7 +422,7 @@ class TenantService:
         self.db.commit()
         self.db.refresh(config)
 
-        return TenantAIConfigResponse.model_validate(config)
+        return self._ai_config_response(config)
 
     # Capabilities methods
 

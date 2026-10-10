@@ -19,6 +19,7 @@ from app.schemas.tenant import (
     VoiceSettingsUpdate,
 )
 from app.schemas.user import UserResponse
+from app.services.first_responder import default_first_responder
 from app.services.tenant_service import TenantService
 from app.services.voice.metering import VoiceMeter
 from app.services.voice.voices import CURATED_VOICES, is_curated_voice_id
@@ -272,7 +273,10 @@ async def update_my_voice_settings(
         db.query(TenantAIConfig).filter(TenantAIConfig.tenant_id == current_user.tenant_id).first()
     )
     if config is None:
-        config = TenantAIConfig(tenant_id=current_user.tenant_id)
+        config = TenantAIConfig(
+            tenant_id=current_user.tenant_id,
+            first_responder=default_first_responder(db, current_user.tenant_id),
+        )
         db.add(config)
 
     config.voice_enabled = payload.enabled

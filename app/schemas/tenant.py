@@ -9,6 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.db.models.tenant import TenantStatus
 from app.schemas.explore import TenantCategory
 
+# Mirrors app.services.first_responder.FirstResponder (not imported: app.services
+# imports app.schemas, which would be circular).
+FirstResponder = Literal["ai", "ai_with_handoff", "human"]
+
 CUSTOM_INSTRUCTIONS_MAX_CHARS = 500
 
 
@@ -96,6 +100,7 @@ class TenantAIConfigBase(BaseModel):
         default="clarify",
         description="Action when no knowledge is retrieved",
     )
+    first_responder: FirstResponder = Field(default="ai", description="Who answers first")
     require_email_before_escalation: bool = Field(
         default=False,
         description="Require collecting customer email before escalating to human support",
@@ -230,6 +235,7 @@ class TenantAIConfigUpdate(BaseModel):
     grounding_mode: Literal["strict", "balanced", "flexible"] | None = None
     low_confidence_action: Literal["answer", "clarify", "escalate", "refuse"] | None = None
     no_retrieval_action: Literal["answer", "clarify", "escalate", "refuse"] | None = None
+    first_responder: FirstResponder | None = None
     require_email_before_escalation: bool | None = None
     require_name_before_escalation: bool | None = None
     collect_name_before_chat: bool | None = None
@@ -269,6 +275,7 @@ class TenantAIConfigResponse(TenantAIConfigBase):
 
     id: UUID
     tenant_id: UUID
+    active_knowledge_sources: int = 0
     created_at: datetime
     updated_at: datetime
 

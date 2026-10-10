@@ -124,6 +124,7 @@ class CompanyRegistrationService:
                 grounding_mode="balanced",
                 low_confidence_action="clarify",
                 no_retrieval_action="clarify",
+                first_responder="human",
                 require_name_before_escalation=False,
                 require_email_before_escalation=False,
                 collect_name_before_chat=False,
