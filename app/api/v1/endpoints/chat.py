@@ -77,6 +77,12 @@ from app.services.conversation_service import (
     emit_agent_joined,
 )
 from app.services.chat_automation_orchestrator import ChatAutomationOrchestrator
+from app.services.first_responder import (
+    FIRST_RESPONDER_HUMAN,
+    HUMAN_FIRST_REASON,
+    HUMAN_FIRST_REPLY,
+    HUMAN_FIRST_WELCOME,
+)
 from app.services.flow_engine import FlowEngine
 from app.sales.pricing import compute_quote
 from app.services.lead_service import LeadService
@@ -1159,6 +1165,7 @@ async def _send_message_impl(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Tenant AI configuration not found",
         )
+    human_first = getattr(tenant_ai_config, "first_responder", "ai") == FIRST_RESPONDER_HUMAN
     require_email_before_escalation = bool(
         getattr(tenant_ai_config, "require_email_before_escalation", False)
     )
@@ -1281,7 +1288,7 @@ async def _send_message_impl(
     # present flow choices instead of relying on overlapping keywords.
     forced_flow: Flow | None = None
     active_exec = flow_engine._get_active_execution(session_model.id)
-    if not active_exec:
+    if not active_exec and not human_first:
         if effective_message_lower == SYSTEM_START_TRIGGER:
             router_flows = flow_engine.list_router_flows(session_model.tenant_id)
             if len(router_flows) >= 1:
@@ -1437,7 +1444,7 @@ async def _send_message_impl(
                 ticket_id=ticket_id,
             )
 
-    if rag_only_mode and not forced_flow:
+    if (rag_only_mode or human_first) and not forced_flow:
         matched_flow = None
     else:
         matched_flow = forced_flow or flow_engine.match_flow(effective_message, session_model)
@@ -1863,7 +1870,11 @@ async def _send_message_impl(
             default_welcome = conversation_service.add_message(
                 session_id=session_id,
                 role=MessageRole.ASSISTANT,
-                content=f"Hi! Welcome to {company_name}. I'm here to help! What can I assist you with today?",
+                content=(
+                    HUMAN_FIRST_WELCOME.format(company_name=company_name)
+                    if human_first
+                    else f"Hi! Welcome to {company_name}. I'm here to help! What can I assist you with today?"
+                ),
                 meta={"auto_welcome": True, "no_flow_available": True},
             )
 
@@ -2232,6 +2243,81 @@ async def _send_message_impl(
         session_id=session_id, role=MessageRole.USER, content=message_data.message
     )
     logger.info(f"Added user message: {user_message.id}")
+
+    # N3 human-only mode: the AI and tenant automations never answer. Capture contact details
+    # first when the tenant requires them (completion path escalates with the stored reason),
+    # otherwise escalate immediately with a fixed reply.
+    if human_first:
+        human_first_meta = dict(session.meta or {})
+        human_missing_fields = _get_missing_contact_fields(
+            require_name_before_escalation=require_name_before_escalation,
+            require_email_before_escalation=require_email_before_escalation,
+            customer_name=_resolve_customer_name(
+                human_first_meta,
+                message_data.metadata,
+                linked_visitor.name if linked_visitor else None,
+            ),
+            customer_contact_email=_resolve_customer_contact_email(
+                human_first_meta,
+                message_data.metadata,
+                linked_visitor.email if linked_visitor else None,
+            ),
+        )
+        if human_missing_fields:
+            _store_pending_contact_capture(
+                conversation_service=conversation_service,
+                session_id=session_id,
+                session_meta=human_first_meta,
+                escalation_reason=HUMAN_FIRST_REASON,
+                customer_query=message_data.message,
+                required_fields=human_missing_fields,
+            )
+            capture_prompt = conversation_service.add_message(
+                session_id=session_id,
+                role=MessageRole.ASSISTANT,
+                content=_build_contact_capture_prompt(human_missing_fields),
+                meta={
+                    "contact_capture_required": True,
+                    "contact_capture_fields": human_missing_fields,
+                },
+            )
+            return ChatResponse(
+                session_id=session_id,
+                message=capture_prompt,
+                should_escalate=False,
+                escalation_reason=None,
+                ticket_id=None,
+            )
+        human_ticket_id = await _escalate_to_human(
+            db,
+            conversation_service=conversation_service,
+            tenant_service=tenant_service,
+            session=session,
+            session_id=session_id,
+            escalation_reason=HUMAN_FIRST_REASON,
+            customer_query=message_data.message,
+            conversation_history=conversation_service.get_session_messages(
+                session_id=session_id, limit=20
+            ),
+            contact_email=_resolve_customer_contact_email(
+                human_first_meta,
+                message_data.metadata,
+                linked_visitor.email if linked_visitor else None,
+            ),
+        )
+        human_reply = conversation_service.add_message(
+            session_id=session_id,
+            role=MessageRole.ASSISTANT,
+            content=HUMAN_FIRST_REPLY,
+            meta={"human_first": True},
+        )
+        return ChatResponse(
+            session_id=session_id,
+            message=human_reply,
+            should_escalate=True,
+            escalation_reason=HUMAN_FIRST_REASON,
+            ticket_id=human_ticket_id,
+        )
 
     try:
         conversation_history = conversation_service.get_session_messages(
