@@ -1,0 +1,20 @@
+{
+  "note": "Tenant has can_use_voice granted; denial is solely due to first_responder=human",
+  "request": {
+    "method": "POST",
+    "path": "/voice/session/token",
+    "body": {
+      "tenant_id": "93c27b29-d555-4314-93de-444abb5ef265",
+      "luran_session_id": "d70651a5-4665-4550-89bc-51ad7ae51043",
+      "text_out": false
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "detail": {
+        "reason": "voice_disabled"
+      }
+    }
+  }
+}

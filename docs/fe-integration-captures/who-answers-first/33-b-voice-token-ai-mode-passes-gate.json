@@ -1,0 +1,20 @@
+{
+  "note": "CONTROL: same flow with first_responder=ai. Gate passes; local env has no real ElevenLabs credentials so the provider call fails (503 voice_provider_unavailable). Not a feature failure.",
+  "request": {
+    "method": "POST",
+    "path": "/voice/session/token",
+    "body": {
+      "tenant_id": "719107e8-a348-446e-af1e-9b1c06a1192e",
+      "luran_session_id": "c4842ed5-8c93-495c-a38e-ea06170eee45",
+      "text_out": false
+    }
+  },
+  "response": {
+    "status": 503,
+    "body": {
+      "detail": {
+        "reason": "voice_provider_unavailable"
+      }
+    }
+  }
+}

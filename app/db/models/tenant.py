@@ -322,6 +322,13 @@ class TenantAIConfig(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Action when no knowledge is retrieved: answer, clarify, escalate, refuse",
     )
+    first_responder: Mapped[str] = mapped_column(
+        String(20),
+        default="ai",
+        server_default="ai",
+        nullable=False,
+        comment="Who answers first: ai, ai_with_handoff, human (N3)",
+    )
     require_email_before_escalation: Mapped[bool] = mapped_column(
         Boolean,
         default=False,

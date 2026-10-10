@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/chat/message",
+    "body": {
+      "message": "I need a refund please",
+      "session_id": "98b076c9-78b9-40ea-b461-26878837765c",
+      "tenant_id": "93c27b29-d555-4314-93de-444abb5ef265",
+      "user_identifier": "customer2@example.test"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "98b076c9-78b9-40ea-b461-26878837765c",
+      "message": {
+        "role": "assistant",
+        "content": "Thanks for reaching out — connecting you with someone from our team now.",
+        "id": "abdee220-fbef-406e-8061-d81068f1168f",
+        "session_id": "98b076c9-78b9-40ea-b461-26878837765c",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [],
+        "meta": {
+          "human_first": true
+        },
+        "created_at": "2026-10-10T22:18:27.844229Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": true,
+      "escalation_reason": "Human-only mode",
+      "ticket_id": "0178fc64-0921-421a-897a-0bbea6c602d0"
+    }
+  }
+}

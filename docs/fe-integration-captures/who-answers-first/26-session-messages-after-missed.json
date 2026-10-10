@@ -1,0 +1,65 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/chat/sessions/98b076c9-78b9-40ea-b461-26878837765c/messages",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "role": "assistant",
+        "content": "Hi! Welcome to Acme Test Co. Send us a message and someone from our team will reply.",
+        "id": "a24b01ce-afea-4e1c-9763-b47b7a7815aa",
+        "session_id": "98b076c9-78b9-40ea-b461-26878837765c",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [],
+        "meta": {
+          "auto_welcome": true,
+          "no_flow_available": true
+        },
+        "created_at": "2026-10-10T22:18:27.726859Z"
+      },
+      {
+        "role": "user",
+        "content": "I need a refund please",
+        "id": "1d8ca997-7f32-469c-b865-4796b338c7ba",
+        "session_id": "98b076c9-78b9-40ea-b461-26878837765c",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [],
+        "meta": {},
+        "created_at": "2026-10-10T22:18:27.801304Z"
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks for reaching out — connecting you with someone from our team now.",
+        "id": "abdee220-fbef-406e-8061-d81068f1168f",
+        "session_id": "98b076c9-78b9-40ea-b461-26878837765c",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [],
+        "meta": {
+          "human_first": true
+        },
+        "created_at": "2026-10-10T22:18:27.844229Z"
+      },
+      {
+        "role": "assistant",
+        "content": "Our team couldn't get to you right now. We'll reply right here as soon as we can.",
+        "id": "7136482c-d991-4b6a-8f20-234d3836a4dc",
+        "session_id": "98b076c9-78b9-40ea-b461-26878837765c",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [],
+        "meta": {
+          "system_notice": "ticket_missed"
+        },
+        "created_at": "2026-10-10T22:18:33.227476Z"
+      }
+    ]
+  }
+}

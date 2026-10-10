@@ -102,6 +102,7 @@ class VisitorService:
             collect_email_before_chat=bool(
                 getattr(tenant.ai_config, "collect_email_before_chat", False)
             ),
+            first_responder=getattr(tenant.ai_config, "first_responder", "ai") or "ai",
         )
 
     def list_public_businesses(
@@ -441,6 +442,7 @@ class VisitorService:
                 collect_email_before_chat=bool(
                     getattr(tenant.ai_config, "collect_email_before_chat", False)
                 ),
+                first_responder=getattr(tenant.ai_config, "first_responder", "ai") or "ai",
             ),
             visitor_token=visitor.public_token,
             session_token=visitor_session.session_token,

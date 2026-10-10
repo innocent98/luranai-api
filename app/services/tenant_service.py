@@ -19,6 +19,11 @@ from app.schemas.tenant import (
     TenantResponse,
     TenantUpdate,
 )
+from app.services.first_responder import (
+    FIRST_RESPONDER_HANDOFF,
+    apply_first_responder_preset,
+    count_active_knowledge_sources,
+)
 from app.services.plan_service import PlanService
 from app.utils.slugs import (
     PUBLIC_SLUG_MAX_LENGTH,
@@ -128,6 +133,7 @@ class TenantService:
             grounding_mode="balanced",
             low_confidence_action="clarify",
             no_retrieval_action="clarify",
+            first_responder="human",
             require_email_before_escalation=False,
             require_name_before_escalation=False,
             collect_name_before_chat=False,
@@ -336,12 +342,16 @@ class TenantService:
 
     # AI Config methods
 
-    def get_ai_config(self, tenant_id: UUID) -> TenantAIConfigResponse | None:
+    def get_ai_config(
+        self, tenant_id: UUID, with_counts: bool = False
+    ) -> TenantAIConfigResponse | None:
         """
         Get AI configuration for a tenant.
 
         Args:
             tenant_id: Tenant UUID
+            with_counts: Also compute active_knowledge_sources (one extra COUNT;
+                only the admin config endpoints need it, not the per-message chat path)
 
         Returns:
             AI config response if found, None otherwise
@@ -352,7 +362,17 @@ class TenantService:
         if not config:
             return None
 
-        return TenantAIConfigResponse.model_validate(config)
+        return self._ai_config_response(config, with_counts=with_counts)
+
+    def _ai_config_response(
+        self, config: TenantAIConfig, with_counts: bool = False
+    ) -> TenantAIConfigResponse:
+        resp = TenantAIConfigResponse.model_validate(config)
+        if with_counts:
+            resp.active_knowledge_sources = count_active_knowledge_sources(
+                self.db, config.tenant_id
+            )
+        return resp
 
     def update_ai_config(
         self, tenant_id: UUID, config_data: TenantAIConfigUpdate
@@ -378,6 +398,14 @@ class TenantService:
 
         # Update fields
         update_data = config_data.model_dump(exclude_unset=True)
+        # first_responder is NOT NULL: an explicit null means "unchanged", never "clear".
+        if "first_responder" in update_data and update_data["first_responder"] is None:
+            update_data.pop("first_responder")
+        update_data = apply_first_responder_preset(update_data)
+        # A stored handoff preset cannot be unlocked by a knob-only PUT (old tab).
+        if update_data.get("first_responder", config.first_responder) == FIRST_RESPONDER_HANDOFF:
+            update_data["no_retrieval_action"] = "escalate"
+            update_data["low_confidence_action"] = "escalate"
 
         collect_name_before_chat = bool(
             update_data.get("collect_name_before_chat", config.collect_name_before_chat)
@@ -415,7 +443,7 @@ class TenantService:
         self.db.commit()
         self.db.refresh(config)
 
-        return TenantAIConfigResponse.model_validate(config)
+        return self._ai_config_response(config, with_counts=True)
 
     # Capabilities methods
 

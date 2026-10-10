@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models.tenant import TenantAIConfig, TenantCapabilities
+from app.services.first_responder import FIRST_RESPONDER_HUMAN
 from app.services.voice.metering import VoiceMeter
 
 _CONCURRENCY_KEY = "voice:concurrent:{tenant_id}"
@@ -105,11 +106,16 @@ class VoiceGate:
         column defaults to enabled so that granting voice makes it work
         immediately. Returning False here would silently kill voice for every
         tenant without a TenantAIConfig row.
+
+        A human-only tenant (first_responder == "human", N3) is never offered
+        voice: the voice agent is an AI, and those tenants opted out of AI.
         """
         config = self.db.execute(
             select(TenantAIConfig).where(TenantAIConfig.tenant_id == tenant_id)
         ).scalar_one_or_none()
-        return True if config is None else config.voice_enabled
+        if config is None:
+            return True
+        return config.voice_enabled and config.first_responder != FIRST_RESPONDER_HUMAN
 
     async def check(self, tenant_id: UUID) -> VoiceGateResult:
         caps = self._capabilities(tenant_id)
