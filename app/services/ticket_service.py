@@ -21,6 +21,27 @@ from app.schemas.visitor import VisitorIdentitySummary
 from app.utils.datetime import utcnow_naive
 
 
+MIN_SEARCH_LEN = 2
+_LIKE_ESCAPE = "\\"
+
+
+def normalize_ticket_search(q: str | None) -> str | None:
+    """Strip a free-text ticket search; None when absent or shorter than 2 chars."""
+    if q is None:
+        return None
+    needle = q.strip()
+    return needle if len(needle) >= MIN_SEARCH_LEN else None
+
+
+def _escape_like(value: str) -> str:
+    """Escape LIKE metacharacters so user input matches literally (ESCAPE '\\')."""
+    return (
+        value.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2)
+        .replace("%", _LIKE_ESCAPE + "%")
+        .replace("_", _LIKE_ESCAPE + "_")
+    )
+
+
 class TicketAlreadyFinalError(ValueError):
     """Raised when resolving a ticket that is already RESOLVED or CLOSED."""
 
@@ -441,6 +462,7 @@ class TicketService:
         limit: int = 100,
         offset: int = 0,
         session_id: UUID | None = None,
+        q: str | None = None,
     ) -> tuple[list[TicketResponse], int]:
         """
         Get tickets for a tenant with filtering.
@@ -451,21 +473,30 @@ class TicketService:
             assigned_to: Optional assigned user filter
             limit: Maximum number of tickets to return
             offset: Number of tickets to skip
+            session_id: Optional conversation session filter
+            q: Optional free-text search (see ``_ticket_search_condition``); ANDed
+                with the other filters. Ignored when shorter than 2 chars after strip.
 
         Returns:
             Tuple of (list of ticket responses, total count)
         """
         # Build query
-        stmt = select(Ticket).where(Ticket.tenant_id == tenant_id)
+        filters = [Ticket.tenant_id == tenant_id]
 
         if status:
-            stmt = stmt.where(Ticket.status == status)
+            filters.append(Ticket.status == status)
 
         if assigned_to:
-            stmt = stmt.where(Ticket.assigned_to == assigned_to)
+            filters.append(Ticket.assigned_to == assigned_to)
 
         if session_id:
-            stmt = stmt.where(Ticket.session_id == session_id)
+            filters.append(Ticket.session_id == session_id)
+
+        needle = normalize_ticket_search(q)
+        if needle:
+            filters.append(self._ticket_search_condition(tenant_id, needle, filters))
+
+        stmt = select(Ticket).where(*filters)
 
         # Get total count
         count_stmt = select(func.count()).select_from(stmt.subquery())
@@ -477,6 +508,57 @@ class TicketService:
         tickets = self.db.execute(stmt).scalars().all()
 
         return [self._to_ticket_response(t) for t in tickets], total
+
+    def _ticket_search_condition(self, tenant_id: UUID, needle: str, base_filters: list):
+        """
+        OR-condition matching ``needle`` as a case-insensitive literal substring of the
+        ticket number, summary, session user_identifier, or the linked visitor's
+        name / email / phone.
+
+        Every sub-match is an IN-subquery on the ticket's own session_id, so no joins
+        are added to the main statement: no duplicate rows, and count/page stay correct.
+        Tickets without a session-linked visitor still match on their own fields.
+
+        Visitor name/email/phone are Fernet-encrypted at rest (non-deterministic
+        ciphertext), so SQL ILIKE cannot see them. They are matched after decryption,
+        limited to visitors of this tenant who have a ticket passing the other filters.
+        """
+        pattern = f"%{_escape_like(needle)}%"
+        conditions = [
+            Ticket.ticket_number.ilike(pattern, escape=_LIKE_ESCAPE),
+            Ticket.summary.ilike(pattern, escape=_LIKE_ESCAPE),
+            Ticket.session_id.in_(
+                select(ConversationSession.id).where(
+                    ConversationSession.tenant_id == tenant_id,
+                    ConversationSession.user_identifier.ilike(pattern, escape=_LIKE_ESCAPE),
+                )
+            ),
+        ]
+
+        candidates = self.db.execute(
+            select(Visitor.id, Visitor.name, Visitor.email, Visitor.phone)
+            .join(ConversationSession, ConversationSession.visitor_id == Visitor.id)
+            .join(Ticket, Ticket.session_id == ConversationSession.id)
+            .where(Visitor.tenant_id == tenant_id, *base_filters)
+            .distinct()
+        ).all()
+        folded = needle.casefold()
+        visitor_ids = [
+            row.id
+            for row in candidates
+            if any(v and folded in v.casefold() for v in (row.name, row.email, row.phone))
+        ]
+        if visitor_ids:
+            conditions.append(
+                Ticket.session_id.in_(
+                    select(ConversationSession.id).where(
+                        ConversationSession.tenant_id == tenant_id,
+                        ConversationSession.visitor_id.in_(visitor_ids),
+                    )
+                )
+            )
+
+        return or_(*conditions)
 
     def get_user_assigned_tickets(
         self, user_id: UUID, status: TicketStatus | None = None

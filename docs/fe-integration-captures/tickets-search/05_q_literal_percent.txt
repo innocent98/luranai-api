@@ -1,0 +1,36 @@
+GET /api/v1/tickets?q=50%25
+Authorization: Bearer <tenant-admin access token>
+HTTP 200
+
+{
+    "tickets": [
+        {
+            "summary": "Discount of 50% not applied",
+            "priority": "medium",
+            "id": "e6fccee6-0991-4e23-aecc-90d39f07c467",
+            "tenant_id": "0286fdc6-7a44-4174-8b3f-c08c547d2bef",
+            "session_id": "af7292e7-0291-4e22-9b47-079ed359a282",
+            "ticket_number": "TKT-2026-0002",
+            "status": "resolved",
+            "assigned_to": null,
+            "assigned_agent": null,
+            "visitor": {
+                "id": "893fde96-a133-4761-8795-42f7deaf42b8",
+                "name": "Bob Example",
+                "email": "bob@example.com",
+                "phone": null,
+                "public_token": "<public-token-placeholder>",
+                "first_seen_at": "2026-10-10T17:20:31.020939Z",
+                "last_seen_at": "2026-10-10T17:20:31.020939Z",
+                "is_blocked": false
+            },
+            "resolution_notes": null,
+            "resolved_at": null,
+            "created_at": "2026-10-10T17:20:30.999880Z",
+            "updated_at": "2026-10-10T17:20:30.999880Z"
+        }
+    ],
+    "total": 1,
+    "page": 1,
+    "page_size": 100
+}

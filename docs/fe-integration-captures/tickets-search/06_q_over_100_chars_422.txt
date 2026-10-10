@@ -1,0 +1,20 @@
+GET /api/v1/tickets?q=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+Authorization: Bearer <tenant-admin access token>
+HTTP 422
+
+{
+    "detail": [
+        {
+            "type": "string_too_long",
+            "loc": [
+                "query",
+                "q"
+            ],
+            "msg": "String should have at most 100 characters",
+            "input": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "ctx": {
+                "max_length": 100
+            }
+        }
+    ]
+}
