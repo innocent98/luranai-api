@@ -235,3 +235,16 @@ Sonnet implements; one Opus review per package, plus an Opus review of `register
 - iPhone HEVC `.mov` files: Cloudinary transcodes to H.264 MP4; verified live in §7 item 2.
 - The image-retention change is visible to tenants (older tickets show placeholders); covered by the settings note + release note.
 - Rotate the **dev** Cloudinary API secret before the build (the spike echoed part of it; owed by Adebayo).
+
+## 12. Amendments from implementation planning (2026-10-12)
+
+Recorded when the P1 backend plan (`docs/superpowers/plans/2026-10-12-screen-recording-backend.md`) was written against `origin/develop`:
+
+- §4.4 escalation: no extraction is needed. `_escalate_to_human` (`chat.py` ~:740) already exists as a shared helper and already re-rings a MISSED, unassigned ticket (via `_get_or_create_escalation_ticket`). The video branch reuses it, mirroring the N3 human-first block. It runs **before** the escalated early return, flows and the router.
+- §4.4 agent alert copy: no worker change. The ring payload already carries `reason = session.escalation_reason`, so agents see "Customer sent a screen recording".
+- §4.1 capability: `can_use_screen_recording` is a platform grant defaulting to true (like `can_use_voice`), **not** a plan-config key. Plan sync only writes keys present in plan configs, so it is never reset; revoke per tenant via the platform `TenantCapabilitiesUpdate` endpoint.
+- §4.1 unique index on `cloudinary_public_id` is **partial (`kind = 'VIDEO'`)**: idempotent register only needs it for video, and existing image data/tests reuse ids.
+- §4.3 register gets its own limiter (`http_video_register`, 20/h per IP) because each call costs a Cloudinary Admin API request. Register checks folder ownership **before** any Cloudinary call and never destroys an asset outside the caller's session folder.
+- §4.2 delivery URL is the eager `c_limit,q_auto,vc_h264,w_1280` transformation with an `.mp4` extension (equivalent to `f_mp4`).
+- Error codes added: 429 `video_session_limit` (sign), 503 `video_unavailable` (Cloudinary not configured).
+- Retention enable procedure: if prod retention is switched on more than ~3 days after `sr10` runs, re-stamp the image grace first (SQL in `docs/sop/attachment_retention.md`).
