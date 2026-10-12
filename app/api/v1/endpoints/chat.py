@@ -33,6 +33,7 @@ from app.core.config import settings
 from app.core.websocket import connection_manager
 from app.db.models.conversation import (
     AttachmentDirection,
+    AttachmentKind,
     AttachmentModeration,
     AttachmentStatus,
     ConversationSession,
@@ -82,6 +83,8 @@ from app.services.first_responder import (
     HUMAN_FIRST_REASON,
     HUMAN_FIRST_REPLY,
     HUMAN_FIRST_WELCOME,
+    SCREEN_RECORDING_ACK,
+    SCREEN_RECORDING_REASON,
 )
 from app.services.flow_engine import FlowEngine
 from app.sales.pricing import compute_quote
@@ -224,6 +227,7 @@ async def upload_chat_image(
 
 
 IMAGE_ONLY_PLACEHOLDER = "[image]"
+VIDEO_ONLY_PLACEHOLDER = "[screen recording]"
 SYSTEM_START_TRIGGER = "start"
 FLOW_START_PREFIX = "__flow_start__:"
 TALK_TO_HUMAN_TOKEN = "__talk_to_human__"
@@ -1217,14 +1221,24 @@ async def _send_message_impl(
     # Attachments: validate up-front (nothing persisted on failure), then link them to
     # the USER message at whichever branch persists it. The send endpoint has many
     # branches that each call add_message(role=USER), so wrap add_message once here.
+    turn_has_video = False
     if message_data.attachment_ids:
         try:
-            conversation_service.get_linkable_attachments(session_id, message_data.attachment_ids)
+            _linkable = conversation_service.get_linkable_attachments(
+                session_id, message_data.attachment_ids
+            )
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid or already-used attachment",
             ) from None
+        _video_count = sum(1 for a in _linkable if a.kind == AttachmentKind.VIDEO)
+        if _video_count > 1:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "too_many_videos", "message": "One recording per message"},
+            )
+        turn_has_video = _video_count == 1
         _attachment_ids = message_data.attachment_ids
         _plain_add_message = conversation_service.add_message
         _linked = False
@@ -1263,6 +1277,86 @@ async def _send_message_impl(
     effective_message_lower = effective_message.lower().strip()
     session_meta = dict(session_model.meta or {})
     rag_only_mode = bool(session_meta.get("rag_only_mode", False))
+
+    # Screen recording (spec SR-D4): a video is a request for a human. It never reaches the
+    # AI, flows or automations. Same contact gate + _escalate_to_human as talk-to-human;
+    # an already-escalated session only re-rings when its ticket is MISSED (inside the helper).
+    if turn_has_video:
+        video_text = (
+            VIDEO_ONLY_PLACEHOLDER
+            if message_data.message == IMAGE_ONLY_PLACEHOLDER
+            else message_data.message
+        )
+        video_user_message = conversation_service.add_message(
+            session_id=session_id, role=MessageRole.USER, content=video_text
+        )
+        already_escalated = session.status == SessionStatus.ESCALATED
+        if not already_escalated:
+            video_missing = _get_missing_contact_fields(
+                require_name_before_escalation=require_name_before_escalation,
+                require_email_before_escalation=require_email_before_escalation,
+                customer_name=customer_name,
+                customer_contact_email=customer_contact_email,
+            )
+            if video_missing:
+                _store_pending_contact_capture(
+                    conversation_service=conversation_service,
+                    session_id=session_id,
+                    session_meta=dict(session_model.meta or {}),
+                    escalation_reason=SCREEN_RECORDING_REASON,
+                    customer_query=video_text,
+                    required_fields=video_missing,
+                )
+                video_prompt = conversation_service.add_message(
+                    session_id=session_id,
+                    role=MessageRole.ASSISTANT,
+                    content=_build_contact_capture_prompt(video_missing),
+                    meta={
+                        "contact_capture_required": True,
+                        "contact_capture_fields": video_missing,
+                    },
+                )
+                return ChatResponse(
+                    session_id=session_id,
+                    message=video_prompt,
+                    should_escalate=False,
+                    escalation_reason=None,
+                    ticket_id=None,
+                )
+        video_ticket_id = await _escalate_to_human(
+            db,
+            conversation_service=conversation_service,
+            tenant_service=tenant_service,
+            session=session,
+            session_id=session_id,
+            escalation_reason=SCREEN_RECORDING_REASON,
+            customer_query=video_text,
+            conversation_history=conversation_service.get_session_messages(
+                session_id=session_id, limit=20
+            ),
+            contact_email=customer_contact_email,
+        )
+        if already_escalated:
+            return ChatResponse(
+                session_id=session_id,
+                message=video_user_message,
+                should_escalate=False,
+                escalation_reason=None,
+                ticket_id=None,
+            )
+        video_ack = conversation_service.add_message(
+            session_id=session_id,
+            role=MessageRole.ASSISTANT,
+            content=SCREEN_RECORDING_ACK,
+            meta={"system_notice": "screen_recording_ack"},
+        )
+        return ChatResponse(
+            session_id=session_id,
+            message=video_ack,
+            should_escalate=True,
+            escalation_reason=SCREEN_RECORDING_REASON,
+            ticket_id=video_ticket_id,
+        )
 
     # Escalated session: a human agent owns this conversation, so the bot must not auto-reply.
     # Customers still send images (and text) over REST after escalation because images cannot go
@@ -2555,7 +2649,9 @@ async def _send_message_impl(
 
             # Current turn's linked image URLs (populated when the USER message was
             # persisted); None keeps the text-only path unchanged.
-            _turn_image_urls = [a.url for a in linked_attachments] or None
+            _turn_image_urls = [
+                a.url for a in linked_attachments if a.kind == "image" and a.url
+            ] or None
 
             if _sales_mode:
                 # State-threading: pin facts already captured this conversation so
