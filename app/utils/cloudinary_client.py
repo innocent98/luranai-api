@@ -19,6 +19,11 @@ _VIDEO_TRANSFORM = [{"crop": "limit", "quality": "auto", "video_codec": "h264", 
 _POSTER_TRANSFORM = [{"start_offset": "0", "width": 640, "crop": "limit"}]
 
 
+def video_sweep_tag() -> str:
+    """Environment-scoped tag so the unregistered-video sweep only sees this env's uploads."""
+    return f"screen_recording_{settings.ENVIRONMENT}"
+
+
 class CloudinaryManager:
     """Manager for Cloudinary image operations."""
 
@@ -321,7 +326,7 @@ class CloudinaryManager:
             "eager": VIDEO_EAGER,
             "eager_async": "true",
             "overwrite": "false",  # no re-upload to a public_id after register validated it
-            "tags": f"chat,screen_recording,{tenant_id}",
+            "tags": f"chat,screen_recording,{video_sweep_tag()},{tenant_id}",
         }
         signature = cloudinary.utils.api_sign_request(to_sign, settings.CLOUDINARY_API_SECRET)
         return {

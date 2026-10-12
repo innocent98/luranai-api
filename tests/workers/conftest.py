@@ -19,6 +19,7 @@ This fixture wraps the real resolver and only synthesises a fixed public IP
 - Only genuinely-unresolvable hostnames get the synthetic public IP, keeping
   the suite hermetic without weakening the SSRF guard under test.
 """
+
 import socket
 from unittest.mock import patch
 
@@ -36,7 +37,9 @@ def _offline_tolerant_getaddrinfo(host, *args, **kwargs):
     try:
         return _real_getaddrinfo(host, *args, **kwargs)
     except socket.gaierror:
-        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (_PUBLIC_STANDIN_IP, 0))]
+        return [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (_PUBLIC_STANDIN_IP, 0))
+        ]
 
 
 @pytest.fixture(autouse=True)

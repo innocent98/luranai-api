@@ -223,29 +223,99 @@ async def test_uploaded_rows_ignored(db, monkeypatch):
 LIST = "app.workers.attachment_retention.cloudinary_manager.list_tagged_videos"
 
 
+def _vid(s, hexid=None):
+    from app.core.config import settings
+
+    return f"{settings.CLOUDINARY_CHAT_FOLDER}/{s.tenant_id}/{s.id}/video/{hexid or uuid4().hex}"
+
+
+def _old():
+    return (datetime.now(UTC) - timedelta(hours=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 async def test_sweep_destroys_old_unregistered_only(db, monkeypatch):
     import app.workers.attachment_retention as mod
 
     monkeypatch.setattr(mod, "SessionLocal", lambda: _NoCloseSession(db))
     s = _session(db)
-    _att(db, s, "v/registered", status=AttachmentStatus.UPLOADED, kind=AttachmentKind.VIDEO)
-    old = (datetime.now(UTC) - timedelta(hours=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    registered, orphan, fresh = _vid(s), _vid(s), _vid(s)
+    _att(db, s, registered, status=AttachmentStatus.UPLOADED, kind=AttachmentKind.VIDEO)
     new = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     pages = [
         (
             [
-                {"public_id": "v/registered", "created_at": old},
-                {"public_id": "v/orphan", "created_at": old},
+                {"public_id": registered, "created_at": _old()},
+                {"public_id": orphan, "created_at": _old()},
             ],
             "c2",
         ),
-        ([{"public_id": "v/fresh", "created_at": new}], None),
+        ([{"public_id": fresh, "created_at": new}], None),
     ]
     with patch(LIST, side_effect=pages) as lst, patch(DESTROY, return_value=(True, None)) as d:
         n = await mod.sweep_unregistered_videos({})
     assert n == 1
-    d.assert_called_once_with("v/orphan", resource_type="video")
+    d.assert_called_once_with(orphan, resource_type="video")
     assert lst.call_count == 2
+    assert lst.call_args_list[0].args[0] == "screen_recording_" + mod.settings.ENVIRONMENT
+
+
+async def test_sweep_skips_foreign_unparseable_unknown_and_tenant_mismatch(db, monkeypatch):
+    import app.workers.attachment_retention as mod
+
+    monkeypatch.setattr(mod, "SessionLocal", lambda: _NoCloseSession(db))
+    s = _session(db)
+    good = _vid(s)
+    unknown_session = (
+        f"{mod.settings.CLOUDINARY_CHAT_FOLDER}/{s.tenant_id}/{uuid4()}/video/{uuid4().hex}"
+    )
+    wrong_tenant = f"{mod.settings.CLOUDINARY_CHAT_FOLDER}/{uuid4()}/{s.id}/video/{uuid4().hex}"
+    foreign_folder = f"other/folder/{s.tenant_id}/{s.id}/video/{uuid4().hex}"
+    upper = _vid(s).upper()
+    bad_hex = _vid(s, "abc")
+    pages = [
+        (
+            [
+                {"public_id": pid, "created_at": _old()}
+                for pid in (
+                    good,
+                    unknown_session,
+                    wrong_tenant,
+                    foreign_folder,
+                    upper,
+                    bad_hex,
+                    "v/orphan",
+                )
+            ],
+            None,
+        )
+    ]
+    with patch(LIST, side_effect=pages), patch(DESTROY, return_value=(True, None)) as d:
+        n = await mod.sweep_unregistered_videos({})
+    assert n == 1
+    d.assert_called_once_with(good, resource_type="video")
+
+
+async def test_sweep_tolerates_resource_without_public_id(db, monkeypatch):
+    import app.workers.attachment_retention as mod
+
+    monkeypatch.setattr(mod, "SessionLocal", lambda: _NoCloseSession(db))
+    s = _session(db)
+    good = _vid(s)
+    pages = [
+        (
+            [
+                {"created_at": _old()},
+                {"public_id": None, "created_at": _old()},
+                {"public_id": 5, "created_at": _old()},
+                {"public_id": good, "created_at": _old()},
+            ],
+            None,
+        )
+    ]
+    with patch(LIST, side_effect=pages), patch(DESTROY, return_value=(True, None)) as d:
+        n = await mod.sweep_unregistered_videos({})
+    assert n == 1
+    d.assert_called_once_with(good, resource_type="video")
 
 
 async def test_sweep_stops_at_page_cap(db, monkeypatch):
@@ -261,13 +331,15 @@ async def test_sweep_tolerates_list_exception(db, monkeypatch):
     import app.workers.attachment_retention as mod
 
     monkeypatch.setattr(mod, "SessionLocal", lambda: _NoCloseSession(db))
-    old = (datetime.now(UTC) - timedelta(hours=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    s = _session(db)
+    orphan = _vid(s)
+    old = _old()
     pages = [
-        ([{"public_id": "v/orphan", "created_at": old}], "c2"),
+        ([{"public_id": orphan, "created_at": old}], "c2"),
         RuntimeError("cloudinary down"),
     ]
     with patch(LIST, side_effect=pages) as lst, patch(DESTROY, return_value=(True, None)) as d:
         n = await mod.sweep_unregistered_videos({})
     assert n == 1
-    d.assert_called_once_with("v/orphan", resource_type="video")
+    d.assert_called_once_with(orphan, resource_type="video")
     assert lst.call_count == 2

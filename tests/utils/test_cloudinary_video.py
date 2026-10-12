@@ -38,7 +38,8 @@ def test_sign_video_upload_fields_and_signature(mgr):
     assert out["upload_url"] == "https://api.cloudinary.com/v1_1/demo/video/upload"
     assert f["folder"] == f"luran/chat_images/{t}/{s}/video"
     assert f["eager"] == cc.VIDEO_EAGER and f["eager_async"] == "true"
-    assert f["tags"] == f"chat,screen_recording,{t}"
+    assert f["tags"] == f"chat,screen_recording,{cc.video_sweep_tag()},{t}"
+    assert cc.video_sweep_tag() == f"screen_recording_{cc.settings.ENVIRONMENT}"
     assert out["public_id"] == f"{f['folder']}/{f['public_id']}"
     signed = {
         k: f[k]

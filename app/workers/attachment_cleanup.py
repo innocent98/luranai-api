@@ -7,6 +7,7 @@ This job deletes such rows older than 24 hours and their Cloudinary assets.
 If a Cloudinary delete fails, the row is kept (retried next run) and the batch continues.
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 from loguru import logger
@@ -44,8 +45,10 @@ async def cleanup_orphan_attachments(ctx: dict) -> int:
             # destroy() returns (ok, err) rather than raising; keep the row on
             # failure so the next daily run retries the Cloudinary delete.
             try:
-                ok, err = cloudinary_manager.destroy(
-                    att.cloudinary_public_id, resource_type=att.kind.value
+                ok, err = await asyncio.to_thread(
+                    cloudinary_manager.destroy,
+                    att.cloudinary_public_id,
+                    resource_type=att.kind.value,
                 )
             except Exception as e:  # defensive: future destroy impls may raise
                 ok, err = False, str(e)

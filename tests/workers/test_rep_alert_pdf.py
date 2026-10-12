@@ -107,9 +107,7 @@ async def test_quote_rep_alert_has_pdf_attachment(db_session, monkeypatch):
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch(
-        "app.workers.sales_notifications.render_quote_pdf", return_value=b"%PDF-test"
-    ):
+    with patch("app.workers.sales_notifications.render_quote_pdf", return_value=b"%PDF-test"):
         with patch(
             "app.services.email_service.EmailService.send_templated_email_with_attachments",
             return_value=True,

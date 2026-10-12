@@ -8,6 +8,7 @@ and is not retried within the same run.
 """
 
 import asyncio
+import re
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -17,13 +18,14 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.models.conversation import (
+    ConversationSession,
     AttachmentStatus,
     MessageAttachment,
     Ticket,
     TicketStatus,
 )
 from app.db.session import SessionLocal
-from app.utils.cloudinary_client import cloudinary_manager
+from app.utils.cloudinary_client import cloudinary_manager, video_sweep_tag
 from app.utils.datetime import utcnow_aware
 
 BATCH_SIZE = 200
@@ -143,7 +145,15 @@ async def expire_attachments(ctx: dict) -> int:
         db.close()
 
 
-SWEEP_TAG = "screen_recording"
+_UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+
+
+def _video_id_re() -> re.Pattern:
+    return re.compile(
+        rf"^{re.escape(settings.CLOUDINARY_CHAT_FOLDER)}/({_UUID})/({_UUID})/video/[0-9a-f]{{32}}$"
+    )
+
+
 SWEEP_MIN_AGE = timedelta(hours=24)
 SWEEP_MAX_PAGES = 5
 
@@ -169,27 +179,43 @@ async def sweep_unregistered_videos(ctx: dict) -> int:
             try:
                 # Blocking SDK calls: keep them off the ARQ event loop.
                 resources, cursor = await asyncio.to_thread(
-                    cloudinary_manager.list_tagged_videos, SWEEP_TAG, cursor
+                    cloudinary_manager.list_tagged_videos, video_sweep_tag(), cursor
                 )
             except Exception as e:
                 logger.error("Video sweep list failed: {}", type(e).__name__)
                 break
-            old_ids = [
-                r["public_id"]
-                for r in resources
-                if (created := _parse_created(r.get("created_at", ""))) and created < cutoff
-            ]
-            if old_ids:
+            id_re = _video_id_re()
+            candidates: dict[str, tuple[UUID, UUID]] = {}
+            for r in resources:
+                public_id = r.get("public_id")
+                if not public_id or not isinstance(public_id, str):
+                    continue
+                created = _parse_created(r.get("created_at", ""))
+                if not created or created >= cutoff:
+                    continue
+                m = id_re.match(public_id)
+                if not m:
+                    continue  # not shaped like this environment's upload: never destroy
+                candidates[public_id] = (UUID(m.group(1)), UUID(m.group(2)))
+            if candidates:
                 known = set(
                     db.execute(
                         select(MessageAttachment.cloudinary_public_id).where(
-                            MessageAttachment.cloudinary_public_id.in_(old_ids)
+                            MessageAttachment.cloudinary_public_id.in_(list(candidates))
                         )
                     ).scalars()
                 )
-                for public_id in old_ids:
+                for public_id, (tenant_id, session_id) in candidates.items():
                     if public_id in known:
                         continue
+                    owned = db.execute(
+                        select(ConversationSession.id).where(
+                            ConversationSession.id == session_id,
+                            ConversationSession.tenant_id == tenant_id,
+                        )
+                    ).first()
+                    if owned is None:
+                        continue  # session not in this DB (other environment)
                     try:
                         ok, err = await asyncio.to_thread(
                             cloudinary_manager.destroy, public_id, resource_type="video"

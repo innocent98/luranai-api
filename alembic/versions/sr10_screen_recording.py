@@ -51,7 +51,13 @@ def upgrade() -> None:
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
     )
     op.get_bind().execute(sa.text(BACKFILL_SQL), {"expires_at": backfill_expiry()})
-    op.alter_column("message_attachments", "expires_at", nullable=False)
+    op.alter_column(
+        "message_attachments",
+        "expires_at",
+        existing_type=sa.DateTime(timezone=True),
+        nullable=False,
+        server_default=sa.text("now() + interval '30 days'"),
+    )
     op.alter_column("message_attachments", "url", existing_type=sa.Text(), nullable=True)
     op.create_index("ix_message_attachments_expires_at", "message_attachments", ["expires_at"])
     op.create_index(

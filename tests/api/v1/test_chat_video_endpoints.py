@@ -306,6 +306,32 @@ def test_register_session_cap_destroys_and_429(client, db):
     cm.destroy.assert_called_once_with(pid, resource_type="video")
 
 
+def test_register_session_cap_destroy_failure_still_429_and_logs(client, db):
+    from loguru import logger
+
+    sid, tid = _seed(db)
+    for _ in range(3):
+        aid = img._att(db, sid, tid)
+        db.query(MessageAttachment).filter_by(id=aid).update(
+            {"kind": AttachmentKind.VIDEO, "cloudinary_public_id": f"vid/{aid}"}
+        )
+    db.commit()
+    pid = f"{_folder(tid, sid)}/{_hex()}"
+    msgs: list[str] = []
+    hid = logger.add(lambda m: msgs.append(str(m)), level="WARNING")
+    try:
+        with patch(CM) as cm:
+            _cm(cm, tid, sid, _resource(tid, sid))
+            cm.destroy.return_value = (False, "boom")
+            r = client.post(
+                "/api/v1/chat/video/register", json={"session_id": str(sid), "public_id": pid}
+            )
+    finally:
+        logger.remove(hid)
+    assert r.status_code == 429
+    assert any("Over-cap video destroy failed" in m for m in msgs)
+
+
 def test_register_malformed_metadata_422_and_destroy(client, db):
     sid, tid = _seed(db)
     pid = f"{_folder(tid, sid)}/{_hex()}"

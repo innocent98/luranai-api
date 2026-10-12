@@ -147,7 +147,9 @@ def register_video(body: RegisterVideoRequest, db: Session = Depends(get_db)) ->
     if size <= 0 or size > settings.SCREEN_RECORDING_MAX_BYTES:
         raise _reject("video_too_large", "Videos can be up to 50 MB")
     if _session_video_count(db, session.id) >= MAX_VIDEOS_PER_SESSION:
-        cloudinary_manager.destroy(body.public_id, resource_type="video")
+        ok, _ = cloudinary_manager.destroy(body.public_id, resource_type="video")
+        if not ok:
+            logger.warning("Over-cap video destroy failed; orphan sweep will retry")
         raise _err(429, "video_session_limit", "Recording limit reached for this conversation")
 
     mp4_url, poster_url = cloudinary_manager.video_delivery_urls(body.public_id, res.get("version"))
