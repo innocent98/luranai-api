@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_db
-from app.db.models.tenant import Tenant
+from app.db.models.tenant import Tenant, TenantCapabilities
 from app.schemas.user import UserResponse
 from app.schemas.widget import (
     PublicWidgetConfigResponse,
@@ -26,9 +26,29 @@ from app.schemas.widget import (
     WidgetInstallCodeResponse,
 )
 from app.services.api_key_service import APIKeyService
+from app.services.screen_recording.gating import screen_recording_allowed
 from app.services.visit_analytics_service import VisitAnalyticsService
 
 router = APIRouter()
+
+
+def _widget_config_response(db: Session, tenant: Tenant) -> WidgetConfigResponse:
+    caps = db.execute(
+        select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant.id)
+    ).scalar_one_or_none()
+    return WidgetConfigResponse(
+        tenant_id=tenant.id,
+        company_name=tenant.display_name,
+        widget_primary_color=tenant.widget_primary_color,
+        widget_accent_color=tenant.widget_accent_color,
+        widget_logo_url=tenant.widget_logo_url,
+        widget_greeting_message=tenant.widget_greeting_message,
+        widget_position=tenant.widget_position,
+        widget_show_unread_badge=tenant.widget_show_unread_badge,
+        widget_allow_file_upload=tenant.widget_allow_file_upload,
+        widget_allow_screen_recording=tenant.widget_allow_screen_recording,
+        can_use_screen_recording=bool(caps and caps.can_use_screen_recording),
+    )
 
 
 @router.get(
@@ -63,17 +83,7 @@ def get_widget_config(
             detail="Tenant not found",
         )
 
-    return WidgetConfigResponse(
-        tenant_id=tenant.id,
-        company_name=tenant.display_name,
-        widget_primary_color=tenant.widget_primary_color,
-        widget_accent_color=tenant.widget_accent_color,
-        widget_logo_url=tenant.widget_logo_url,
-        widget_greeting_message=tenant.widget_greeting_message,
-        widget_position=tenant.widget_position,
-        widget_show_unread_badge=tenant.widget_show_unread_badge,
-        widget_allow_file_upload=tenant.widget_allow_file_upload,
-    )
+    return _widget_config_response(db, tenant)
 
 
 @router.patch(
@@ -132,20 +142,13 @@ def update_widget_config(
     if config_data.widget_allow_file_upload is not None:
         tenant.widget_allow_file_upload = config_data.widget_allow_file_upload
 
+    if config_data.widget_allow_screen_recording is not None:
+        tenant.widget_allow_screen_recording = config_data.widget_allow_screen_recording
+
     db.commit()
     db.refresh(tenant)
 
-    return WidgetConfigResponse(
-        tenant_id=tenant.id,
-        company_name=tenant.display_name,
-        widget_primary_color=tenant.widget_primary_color,
-        widget_accent_color=tenant.widget_accent_color,
-        widget_logo_url=tenant.widget_logo_url,
-        widget_greeting_message=tenant.widget_greeting_message,
-        widget_position=tenant.widget_position,
-        widget_show_unread_badge=tenant.widget_show_unread_badge,
-        widget_allow_file_upload=tenant.widget_allow_file_upload,
-    )
+    return _widget_config_response(db, tenant)
 
 
 @router.post(
@@ -444,6 +447,7 @@ def get_public_widget_config(
         position=tenant.widget_position or "bottom-right",
         show_unread_badge=tenant.widget_show_unread_badge,
         allow_file_upload=tenant.widget_allow_file_upload,
+        allow_screen_recording=screen_recording_allowed(db, tenant),
         collect_name_before_chat=bool(getattr(tenant.ai_config, "collect_name_before_chat", False)),
         collect_email_before_chat=bool(
             getattr(tenant.ai_config, "collect_email_before_chat", False)
