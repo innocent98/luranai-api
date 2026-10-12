@@ -2,16 +2,18 @@
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import JSON, DateTime
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy import ForeignKey, Index, Integer, String, Text
+from sqlalchemy import ForeignKey, Index, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from app.core.config import settings
 from app.core.encryption import EncryptedJSON, EncryptedString
 from app.db.base import Base, TimestampMixin, UUIDMixin
+from app.utils.datetime import utcnow_aware
 
 
 class SessionStatus(str, enum.Enum):
@@ -188,17 +190,30 @@ class AttachmentDirection(str, enum.Enum):
     OUTBOUND = "outbound"
 
 
+class AttachmentKind(str, enum.Enum):
+    """What the attachment is; drives rendering and AI exclusion."""
+
+    IMAGE = "image"
+    VIDEO = "video"
+
+
 class AttachmentStatus(str, enum.Enum):
-    """Attachment lifecycle: uploaded (orphan) -> linked to a message."""
+    """Attachment lifecycle: uploaded (orphan) -> linked to a message -> expired (asset deleted)."""
 
     UPLOADED = "uploaded"
     LINKED = "linked"
+    EXPIRED = "expired"
 
 
 class AttachmentModeration(str, enum.Enum):
-    """Moderation outcome (only passing images are stored)."""
+    """Moderation outcome (only passing images are stored; video is human-reviewed)."""
 
     PASSED = "passed"
+    NOT_APPLICABLE = "not_applicable"
+
+
+def _default_attachment_expiry() -> datetime:
+    return utcnow_aware() + timedelta(days=settings.ATTACHMENT_RETENTION_DAYS)
 
 
 class Message(Base, UUIDMixin):
@@ -272,9 +287,18 @@ class Message(Base, UUIDMixin):
 
 
 class MessageAttachment(Base, UUIDMixin):
-    """Image attachment on a chat message (stored on Cloudinary, URL encrypted)."""
+    """Chat attachment (image or video) stored on Cloudinary; URLs encrypted."""
 
     __tablename__ = "message_attachments"
+    __table_args__ = (
+        Index(
+            "uq_message_attachments_video_public_id",
+            "cloudinary_public_id",
+            unique=True,
+            postgresql_where=text("kind = 'VIDEO'"),
+            sqlite_where=text("kind = 'VIDEO'"),
+        ),
+    )
 
     message_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("messages.id", ondelete="CASCADE"),
@@ -304,15 +328,33 @@ class MessageAttachment(Base, UUIDMixin):
         nullable=False,
         comment="Cloudinary public id",
     )
-    url: Mapped[str] = mapped_column(
+    url: Mapped[str | None] = mapped_column(
         EncryptedString,
-        nullable=False,
-        comment="Delivery URL — encrypted at rest",
+        nullable=True,
+        comment="Delivery URL — encrypted at rest; NULL once expired",
     )
     content_type: Mapped[str] = mapped_column(
         String(100),
         nullable=False,
         comment="MIME type",
+    )
+    kind: Mapped[AttachmentKind] = mapped_column(
+        SQLEnum(AttachmentKind, name="attachment_kind"),
+        nullable=False,
+        default=AttachmentKind.IMAGE,
+        server_default="IMAGE",
+    )
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    poster_url: Mapped[str | None] = mapped_column(
+        EncryptedString, nullable=True, comment="Video poster URL — encrypted at rest"
+    )
+    source_format: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=_default_attachment_expiry,
+        index=True,
+        comment="Asset is destroyed after this (retention, SR-D5)",
     )
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
