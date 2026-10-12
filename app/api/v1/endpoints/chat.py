@@ -77,6 +77,12 @@ from app.services.conversation_service import (
     emit_agent_joined,
 )
 from app.services.chat_automation_orchestrator import ChatAutomationOrchestrator
+from app.services.first_responder import (
+    FIRST_RESPONDER_HUMAN,
+    HUMAN_FIRST_REASON,
+    HUMAN_FIRST_REPLY,
+    HUMAN_FIRST_WELCOME,
+)
 from app.services.flow_engine import FlowEngine
 from app.sales.pricing import compute_quote
 from app.services.lead_service import LeadService
@@ -87,6 +93,7 @@ from app.services.notification_enqueue import (
 from app.services.quote_service import QuoteService
 from app.services.rag_service import RAGService
 from app.services.tenant_service import TenantService
+from app.services.voice import turn_signal
 from app.services.ticket_service import TicketService
 from app.services.visitor_service import VisitorService
 from app.utils.datetime import ensure_utc_aware, utcnow_aware, utcnow_naive
@@ -217,6 +224,8 @@ IMAGE_ONLY_PLACEHOLDER = "[image]"
 SYSTEM_START_TRIGGER = "start"
 FLOW_START_PREFIX = "__flow_start__:"
 TALK_TO_HUMAN_TOKEN = "__talk_to_human__"
+# Readable text stored/used in place of the control token when the router is skipped (human-only mode).
+TALK_TO_HUMAN_TEXT = "I'd like to talk to a person"
 RAG_CHAT_TOKEN = "__rag_chat__"
 CONTACT_EMAIL_PATTERN = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
 
@@ -728,6 +737,80 @@ def _get_or_create_escalation_ticket(
     return ticket_service.create_ticket(ticket_data), True
 
 
+async def _escalate_to_human(
+    db: Session,
+    *,
+    conversation_service,
+    tenant_service,
+    session,
+    session_id: UUID,
+    escalation_reason: str,
+    customer_query: str,
+    conversation_history: list,
+    contact_email: str | None,
+) -> UUID | None:
+    """escalate_session -> get-or-create ticket -> ring (new/reopened) -> queue emails.
+
+    Returns the ticket id, or None if ticket creation failed (logged, never raised).
+    """
+    conversation_service.escalate_session(
+        session_id=session_id,
+        reason=escalation_reason,
+    )
+
+    ticket_id = None
+    # Create support ticket
+    try:
+
+        ticket_service = TicketService(db)
+
+        # Generate smart summary from conversation
+        summary = _generate_ticket_summary(
+            conversation_history=conversation_history,
+            escalation_reason=escalation_reason,
+            user_query=customer_query,
+        )
+
+        # Determine priority based on keywords and escalation reason
+        priority = _determine_ticket_priority(
+            user_query=customer_query,
+            escalation_reason=escalation_reason,
+        )
+
+        # Create ticket
+        ticket_data = TicketCreate(
+            tenant_id=session.tenant_id,
+            session_id=session_id,
+            priority=priority,
+            summary=summary,
+        )
+        ticket, ticket_created = _get_or_create_escalation_ticket(
+            ticket_service, session_id, ticket_data
+        )
+        ticket_id = ticket.id
+        if ticket_created:
+            await _ring_agents(ticket)
+
+            logger.info(f"Ticket created: {ticket.ticket_number} with {priority} priority")
+
+            # Send email notifications to tenant admins and support agents
+            _queue_escalation_emails(
+                db,
+                tenant_service,
+                tenant_id=session.tenant_id,
+                ticket=ticket,
+                escalation_reason=escalation_reason,
+                customer_query=customer_query,
+                priority_label=priority.value.upper(),
+                contact_email=contact_email,
+            )
+
+    except Exception as ticket_error:
+        logger.error(f"Failed to create ticket or send notifications: {ticket_error}")
+        # Don't fail the request if ticket creation fails
+    return ticket_id
+
+
 @router.post("/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_session(
     session_data: SessionCreateRequest,
@@ -1085,6 +1168,7 @@ async def _send_message_impl(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Tenant AI configuration not found",
         )
+    human_first = getattr(tenant_ai_config, "first_responder", "ai") == FIRST_RESPONDER_HUMAN
     require_email_before_escalation = bool(
         getattr(tenant_ai_config, "require_email_before_escalation", False)
     )
@@ -1207,7 +1291,7 @@ async def _send_message_impl(
     # present flow choices instead of relying on overlapping keywords.
     forced_flow: Flow | None = None
     active_exec = flow_engine._get_active_execution(session_model.id)
-    if not active_exec:
+    if not active_exec and not human_first:
         if effective_message_lower == SYSTEM_START_TRIGGER:
             router_flows = flow_engine.list_router_flows(session_model.tenant_id)
             if len(router_flows) >= 1:
@@ -1314,6 +1398,7 @@ async def _send_message_impl(
                     escalation_reason=None,
                     ticket_id=None,
                 )
+            # not using _escalate_to_human: fixed summary/HIGH priority, no history fetch
             conversation_service.escalate_session(
                 session_id=session_id, reason=router_escalation_reason
             )
@@ -1362,7 +1447,7 @@ async def _send_message_impl(
                 ticket_id=ticket_id,
             )
 
-    if rag_only_mode and not forced_flow:
+    if (rag_only_mode or human_first) and not forced_flow:
         matched_flow = None
     else:
         matched_flow = forced_flow or flow_engine.match_flow(effective_message, session_model)
@@ -1465,6 +1550,7 @@ async def _send_message_impl(
                         escalation_reason=None,
                         ticket_id=None,
                     )
+                # not using _escalate_to_human: escalate_session runs before the assistant message is added and the history (incl. that message) is fetched after it; also flow-specific logs
                 conversation_service.escalate_session(
                     session_id=session_id, reason=flow_escalation_reason
                 )
@@ -1679,6 +1765,7 @@ async def _send_message_impl(
                             escalation_reason=None,
                             ticket_id=None,
                         )
+                    # not using _escalate_to_human: escalate_session runs before the assistant message is added and the history (incl. that message) is fetched after it; also flow-specific logs
                     conversation_service.escalate_session(
                         session_id=session_id, reason=continued_escalation_reason
                     )
@@ -1786,7 +1873,11 @@ async def _send_message_impl(
             default_welcome = conversation_service.add_message(
                 session_id=session_id,
                 role=MessageRole.ASSISTANT,
-                content=f"Hi! Welcome to {company_name}. I'm here to help! What can I assist you with today?",
+                content=(
+                    HUMAN_FIRST_WELCOME.format(company_name=company_name)
+                    if human_first
+                    else f"Hi! Welcome to {company_name}. I'm here to help! What can I assist you with today?"
+                ),
                 meta={"auto_welcome": True, "no_flow_available": True},
             )
 
@@ -1884,6 +1975,7 @@ async def _send_message_impl(
             else None
         ) or message_data.message
 
+        # not using _escalate_to_human: escalate_session runs before the assistant message and the history is fetched after it; separate summary query vs email contact
         conversation_service.escalate_session(
             session_id=session_id, reason=capture_escalation_reason
         )
@@ -2027,6 +2119,7 @@ async def _send_message_impl(
             _persist_contact_email_to_visitor(visitor_service, session_id, contact_email)
 
             # Escalate session
+            # not using _escalate_to_human: escalate_session runs before the assistant message is added and the history (incl. that message) is fetched after it
             conversation_service.escalate_session(
                 session_id=session_id, reason=consent_escalation_reason
             )
@@ -2148,11 +2241,92 @@ async def _send_message_impl(
             session_meta["escalation_context"] = {}
             conversation_service.update_session_meta(session_id, session_meta)
 
-    # Step 4: Add user message to database
+    # Step 4: Add user message to database. In human-only mode the router (which normally
+    # consumes the talk-to-human control token) is skipped, so store readable text instead.
+    stored_user_text = (
+        TALK_TO_HUMAN_TEXT
+        if human_first and effective_message_lower == TALK_TO_HUMAN_TOKEN
+        else message_data.message
+    )
     user_message = conversation_service.add_message(
-        session_id=session_id, role=MessageRole.USER, content=message_data.message
+        session_id=session_id, role=MessageRole.USER, content=stored_user_text
     )
     logger.info(f"Added user message: {user_message.id}")
+
+    # N3 human-only mode: the AI and tenant automations never answer. Capture contact details
+    # first when the tenant requires them (completion path escalates with the stored reason),
+    # otherwise escalate immediately with a fixed reply.
+    if human_first:
+        human_first_meta = dict(session_model.meta or {})
+        human_missing_fields = _get_missing_contact_fields(
+            require_name_before_escalation=require_name_before_escalation,
+            require_email_before_escalation=require_email_before_escalation,
+            customer_name=_resolve_customer_name(
+                human_first_meta,
+                message_data.metadata,
+                linked_visitor.name if linked_visitor else None,
+            ),
+            customer_contact_email=_resolve_customer_contact_email(
+                human_first_meta,
+                message_data.metadata,
+                linked_visitor.email if linked_visitor else None,
+            ),
+        )
+        if human_missing_fields:
+            _store_pending_contact_capture(
+                conversation_service=conversation_service,
+                session_id=session_id,
+                session_meta=human_first_meta,
+                escalation_reason=HUMAN_FIRST_REASON,
+                customer_query=stored_user_text,
+                required_fields=human_missing_fields,
+            )
+            capture_prompt = conversation_service.add_message(
+                session_id=session_id,
+                role=MessageRole.ASSISTANT,
+                content=_build_contact_capture_prompt(human_missing_fields),
+                meta={
+                    "contact_capture_required": True,
+                    "contact_capture_fields": human_missing_fields,
+                },
+            )
+            return ChatResponse(
+                session_id=session_id,
+                message=capture_prompt,
+                should_escalate=False,
+                escalation_reason=None,
+                ticket_id=None,
+            )
+        human_ticket_id = await _escalate_to_human(
+            db,
+            conversation_service=conversation_service,
+            tenant_service=tenant_service,
+            session=session,
+            session_id=session_id,
+            escalation_reason=HUMAN_FIRST_REASON,
+            customer_query=stored_user_text,
+            conversation_history=conversation_service.get_session_messages(
+                session_id=session_id, limit=20
+            ),
+            contact_email=_resolve_customer_contact_email(
+                human_first_meta,
+                message_data.metadata,
+                linked_visitor.email if linked_visitor else None,
+            ),
+        )
+        human_reply = conversation_service.add_message(
+            session_id=session_id,
+            role=MessageRole.ASSISTANT,
+            content=HUMAN_FIRST_REPLY,
+            meta={"human_first": True},
+        )
+        return ChatResponse(
+            session_id=session_id,
+            message=human_reply,
+            should_escalate=True,
+            escalation_reason=HUMAN_FIRST_REASON,
+            ticket_id=human_ticket_id,
+        )
 
     try:
         conversation_history = conversation_service.get_session_messages(
@@ -2348,6 +2522,7 @@ async def _send_message_impl(
                 f"action={policy_action}, reason={policy_reason}, mode={grounding_mode}"
             )
 
+            turn_signal.generation_started()
             logger.info("Generating AI response...")
             prompt_components = rag_service.assemble_prompt(
                 ai_config=tenant_ai_config,
@@ -2727,60 +2902,17 @@ async def _send_message_impl(
             should_escalate = True
             logger.info("Auto-escalating: Creating ticket...")
             escalation_reason = escalation_decision.reason or "Escalation requested"
-            conversation_service.escalate_session(
+            ticket_id = await _escalate_to_human(
+                db,
+                conversation_service=conversation_service,
+                tenant_service=tenant_service,
+                session=session,
                 session_id=session_id,
-                reason=escalation_reason,
+                escalation_reason=escalation_reason,
+                customer_query=message_data.message,
+                conversation_history=conversation_history,
+                contact_email=contact_email,
             )
-
-            # Create support ticket
-            try:
-
-                ticket_service = TicketService(db)
-
-                # Generate smart summary from conversation
-                summary = _generate_ticket_summary(
-                    conversation_history=conversation_history,
-                    escalation_reason=escalation_reason,
-                    user_query=message_data.message,
-                )
-
-                # Determine priority based on keywords and escalation reason
-                priority = _determine_ticket_priority(
-                    user_query=message_data.message,
-                    escalation_reason=escalation_reason,
-                )
-
-                # Create ticket
-                ticket_data = TicketCreate(
-                    tenant_id=session.tenant_id,
-                    session_id=session_id,
-                    priority=priority,
-                    summary=summary,
-                )
-                ticket, ticket_created = _get_or_create_escalation_ticket(
-                    ticket_service, session_id, ticket_data
-                )
-                ticket_id = ticket.id
-                if ticket_created:
-                    await _ring_agents(ticket)
-
-                    logger.info(f"Ticket created: {ticket.ticket_number} with {priority} priority")
-
-                    # Send email notifications to tenant admins and support agents
-                    _queue_escalation_emails(
-                        db,
-                        tenant_service,
-                        tenant_id=session.tenant_id,
-                        ticket=ticket,
-                        escalation_reason=escalation_reason,
-                        customer_query=message_data.message,
-                        priority_label=priority.value.upper(),
-                        contact_email=contact_email,
-                    )
-
-            except Exception as ticket_error:
-                logger.error(f"Failed to create ticket or send notifications: {ticket_error}")
-                # Don't fail the request if ticket creation fails
 
         # Step 10: Return response
         return ChatResponse(

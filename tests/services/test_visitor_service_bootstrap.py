@@ -80,3 +80,43 @@ class TestBootstrapPrivacyGate:
         svc = VisitorService(db)
         response = svc.bootstrap_visitor(VisitorBootstrapRequest(workspace_slug=tenant.public_slug))
         assert response.visitor_token
+
+
+class TestBootstrapFirstResponder:
+    def _set(self, db, tenant, value):
+        from app.db.models.tenant import TenantAIConfig
+
+        db.add(
+            TenantAIConfig(
+                id=uuid.uuid4(),
+                tenant_id=tenant.id,
+                brand_voice={},
+                escalation_keywords=[],
+                max_response_tokens=250,
+                grounding_requirement=True,
+                first_responder=value,
+            )
+        )
+        db.commit()
+        db.refresh(tenant)
+
+    def test_bootstrap_exposes_human_first_responder(self, db):
+        tenant = _make_tenant(db, is_publicly_listed=True)
+        self._set(db, tenant, "human")
+        resp = VisitorService(db).bootstrap_visitor(
+            VisitorBootstrapRequest(workspace_slug=tenant.public_slug)
+        )
+        assert resp.tenant.first_responder == "human"
+
+    def test_bootstrap_defaults_first_responder_to_ai(self, db):
+        tenant = _make_tenant(db, is_publicly_listed=True)
+        resp = VisitorService(db).bootstrap_visitor(
+            VisitorBootstrapRequest(workspace_slug=tenant.public_slug)
+        )
+        assert resp.tenant.first_responder == "ai"
+
+    def test_public_profile_exposes_first_responder(self, db):
+        tenant = _make_tenant(db, is_publicly_listed=True)
+        self._set(db, tenant, "ai_with_handoff")
+        profile = VisitorService(db).get_public_business_profile(tenant.public_slug)
+        assert profile.first_responder == "ai_with_handoff"

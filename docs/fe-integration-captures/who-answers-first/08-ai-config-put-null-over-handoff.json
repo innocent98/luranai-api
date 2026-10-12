@@ -1,0 +1,38 @@
+{
+  "note": "Explicit null = unchanged (stays ai_with_handoff)",
+  "request": {
+    "method": "PUT",
+    "path": "/tenant/ai-config",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "first_responder": null
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "brand_voice": {},
+      "allowed_topics": null,
+      "blocked_topics": null,
+      "escalation_keywords": [],
+      "max_response_tokens": 450,
+      "grounding_requirement": true,
+      "grounding_mode": "balanced",
+      "low_confidence_action": "escalate",
+      "no_retrieval_action": "escalate",
+      "first_responder": "ai_with_handoff",
+      "require_email_before_escalation": false,
+      "require_name_before_escalation": false,
+      "collect_name_before_chat": false,
+      "collect_email_before_chat": false,
+      "custom_instructions": null,
+      "id": "dc63b968-657b-49f2-be0b-1915609f5762",
+      "tenant_id": "93c27b29-d555-4314-93de-444abb5ef265",
+      "active_knowledge_sources": 0,
+      "created_at": "2026-10-10T22:18:02.055116Z",
+      "updated_at": "2026-10-10T22:18:26.683074Z"
+    }
+  }
+}

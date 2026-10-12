@@ -17,7 +17,7 @@ overlapped, and every abandoned one still ran the pipeline and persisted a user 
 | Concern | Decision |
 |---|---|
 | First bytes | `_stream_pipeline_turn` async generator yields the `{"role":"assistant"}` frame immediately. |
-| Buffer word | Sent only if the pipeline has not answered within `_BUFFER_GRACE_SECONDS` (0.35 s); otherwise sent just before the reply words, so fast turns keep the exact old wire shape. |
+| Buffer word | Sent when chat.py signals that LLM generation is about to start (`turn_signal.generation_started()`), or at the `_BUFFER_MAX_WAIT_SECONDS` (2.5 s) safety cap; never sent for turns that finish without generating. See `voice_escalation_ux.md` (late-escalation section). |
 | Tool call (escalate) | The escalate decision comes from the pipeline (`should_escalate`), so it cannot be known up front. EL docs do not say whether content followed by `tool_calls` in one stream is supported (not addressed; checked 2026-10-10). Chosen: never speak before the decision for fast turns; for slow turns the only content ahead of the tool call is the near-silent "... " buffer word (valid OpenAI stream). Tool-call wire shape (`tool_calls` delta, `finish_reason: "tool_calls"`) is unchanged. If live testing shows EL mishandles content+tool_calls, raise the grace or make it 0 to drop the buffer word on slow tool turns. |
 | Headers | `Cache-Control: no-cache`, `X-Accel-Buffering: no` on every response from this endpoint (nginx otherwise buffers SSE). |
 | Disconnect | `request.is_disconnected()` is checked before the pipeline starts; if EL already left, the pipeline is not run. Once started, the pipeline runs as its own task and is NOT cancelled on disconnect (no half-persisted turn); its outcome is cached. |

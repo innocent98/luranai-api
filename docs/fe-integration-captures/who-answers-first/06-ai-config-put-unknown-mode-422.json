@@ -1,0 +1,31 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/tenant/ai-config",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "first_responder": "robot"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "detail": [
+        {
+          "type": "literal_error",
+          "loc": [
+            "body",
+            "first_responder"
+          ],
+          "msg": "Input should be 'ai', 'ai_with_handoff' or 'human'",
+          "input": "robot",
+          "ctx": {
+            "expected": "'ai', 'ai_with_handoff' or 'human'"
+          }
+        }
+      ]
+    }
+  }
+}

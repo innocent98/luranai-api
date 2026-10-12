@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/public/visitor/bootstrap",
+    "body": {
+      "workspace_slug": "n3-live-tenant-a"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "detail": "Anonymous chat is not available for this business"
+    }
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "note": "Private tenant, widget-style bootstrap by workspace_id; tenant A is human here",
+  "request": {
+    "method": "POST",
+    "path": "/public/visitor/bootstrap",
+    "body": {
+      "workspace_id": "93c27b29-d555-4314-93de-444abb5ef265"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "tenant": {
+        "tenant_id": "93c27b29-d555-4314-93de-444abb5ef265",
+        "public_slug": "n3-live-tenant-a",
+        "display_name": "Acme Test Co",
+        "is_private": false,
+        "description": null,
+        "long_description": null,
+        "support_headline": null,
+        "support_subheadline": null,
+        "support_hours": null,
+        "support_response_time": null,
+        "support_footer_note": null,
+        "widget_primary_color": "#2563eb",
+        "widget_accent_color": "#10b981",
+        "widget_logo_url": null,
+        "widget_greeting_message": "Hi! How can we help you today?",
+        "allow_file_upload": true,
+        "collect_name_before_chat": false,
+        "collect_email_before_chat": false,
+        "first_responder": "human"
+      },
+      "visitor_token": "<visitor_token-placeholder>",
+      "session_token": "<session_token-placeholder>",
+      "visitor": {
+        "name": null,
+        "email": null,
+        "phone": null,
+        "is_blocked": false,
+        "first_seen_at": "2026-10-10T22:19:23.009501Z",
+        "last_seen_at": "2026-10-10T22:19:23.022326Z"
+      },
+      "last_conversation": null
+    }
+  }
+}

@@ -149,6 +149,16 @@ jobs:
               sleep 10
             done
             docker compose -f docker-compose.prod.yml ps
+            # Bound disk use: staging and prod share this host and every deploy
+            # loads a ~1.7 GB luran-api:<sha> image. Keep images used by any
+            # container plus the 4 newest (rollback); remove the rest.
+            in_use="$(docker ps -a --format '{{.Image}}' | sort -u)"
+            docker images luran-api --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' \
+              | sort -r | awk -F'\t' 'NR>4 {print $2}' \
+              | while read -r img; do
+                  echo "$in_use" | grep -qxF "$img" || docker rmi "$img" >/dev/null 2>&1 || true
+                done
+            docker image prune -f >/dev/null
             rm -f api-image.tar.gz
             # Ensure backup cron is installed (idempotent)
             chmod +x scripts/backup_cron.sh 2>/dev/null || true
@@ -448,7 +458,16 @@ jobs:
               sleep 10
             done
             docker compose -f docker-compose.prod.yml ps
-            docker image prune -f
+            # Bound disk use: staging and prod share this host and every deploy
+            # loads a ~1.7 GB luran-api:<sha> image. Keep images used by any
+            # container plus the 4 newest (rollback); remove the rest.
+            in_use="$(docker ps -a --format '{{.Image}}' | sort -u)"
+            docker images luran-api --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' \
+              | sort -r | awk -F'\t' 'NR>4 {print $2}' \
+              | while read -r img; do
+                  echo "$in_use" | grep -qxF "$img" || docker rmi "$img" >/dev/null 2>&1 || true
+                done
+            docker image prune -f >/dev/null
             rm -f api-image.tar.gz
             # Ensure backup cron is installed (idempotent)
             chmod +x scripts/backup_cron.sh 2>/dev/null || true

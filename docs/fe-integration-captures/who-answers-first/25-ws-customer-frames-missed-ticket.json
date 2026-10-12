@@ -1,0 +1,18 @@
+{
+  "note": "Every frame received on the customer WebSocket, in order, from connect until ticket_missed",
+  "request": {
+    "method": "WS",
+    "path": "/ws/chat/98b076c9-78b9-40ea-b461-26878837765c?user_identifier=customer2@example.test"
+  },
+  "response": {
+    "status": 101,
+    "body": [
+      {
+        "type": "ticket_missed",
+        "message_id": "7136482c-d991-4b6a-8f20-234d3836a4dc",
+        "content": "Our team couldn't get to you right now. We'll reply right here as soon as we can.",
+        "timestamp": "2026-10-10T22:18:33.227476+00:00"
+      }
+    ]
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/tickets",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "tickets": [
+        {
+          "summary": "I need a refund please | Reason: Human-only mode",
+          "priority": "low",
+          "id": "0178fc64-0921-421a-897a-0bbea6c602d0",
+          "tenant_id": "93c27b29-d555-4314-93de-444abb5ef265",
+          "session_id": "98b076c9-78b9-40ea-b461-26878837765c",
+          "ticket_number": "TKT-2026-0002",
+          "status": "missed",
+          "assigned_to": null,
+          "assigned_agent": null,
+          "visitor": null,
+          "resolution_notes": null,
+          "resolved_at": null,
+          "created_at": "2026-10-10T22:18:27.819386Z",
+          "updated_at": "2026-10-10T22:18:33.191963Z"
+        },
+        {
+          "summary": "My order has not arrived | Reason: Human-only mode",
+          "priority": "low",
+          "id": "990eb61e-2704-4940-905c-96830c45567a",
+          "tenant_id": "93c27b29-d555-4314-93de-444abb5ef265",
+          "session_id": "d70651a5-4665-4550-89bc-51ad7ae51043",
+          "ticket_number": "TKT-2026-0001",
+          "status": "missed",
+          "assigned_to": null,
+          "assigned_agent": null,
+          "visitor": null,
+          "resolution_notes": null,
+          "resolved_at": null,
+          "created_at": "2026-10-10T22:18:27.579227Z",
+          "updated_at": "2026-10-10T22:18:32.706630Z"
+        }
+      ],
+      "total": 2,
+      "page": 1,
+      "page_size": 100
+    }
+  }
+}
