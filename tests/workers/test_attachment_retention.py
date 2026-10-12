@@ -1,6 +1,7 @@
 """Daily attachment-retention job."""
 
 from datetime import UTC, datetime, timedelta
+import pytest
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -69,9 +70,12 @@ async def test_expires_due_rows_keeps_row_nulls_urls(db, monkeypatch):
     assert db.get(MessageAttachment, future_id).status == AttachmentStatus.LINKED
 
 
-async def test_active_ticket_defers_until_ceiling(db, monkeypatch):
+@pytest.mark.parametrize(
+    "status", [TicketStatus.OPEN, TicketStatus.IN_PROGRESS, TicketStatus.MISSED]
+)
+async def test_active_ticket_defers_until_ceiling(db, monkeypatch, status):
     s = _session(db)
-    _ticket(db, s, TicketStatus.IN_PROGRESS)
+    _ticket(db, s, status)
     now = datetime.now(UTC)
     recent = _linked(db, s, "a/recent", expires_at=now - timedelta(days=1))
     stale = _linked(db, s, "a/stale", expires_at=now - timedelta(days=8))
@@ -82,6 +86,88 @@ async def test_active_ticket_defers_until_ceiling(db, monkeypatch):
     db.expire_all()
     assert db.get(MessageAttachment, recent_id).status == AttachmentStatus.LINKED
     assert db.get(MessageAttachment, stale_id).status == AttachmentStatus.EXPIRED
+
+
+async def test_ticket_on_other_session_does_not_defer(db, monkeypatch):
+    s1, s2 = _session(db), _session(db)
+    _ticket(db, s2, TicketStatus.OPEN)
+    _linked(db, s1, "a/x", expires_at=datetime.now(UTC) - timedelta(days=1))
+    n, _ = await _run(db, monkeypatch, return_value=(True, None))
+    assert n == 1
+
+
+async def test_already_expired_not_destroyed_again(db, monkeypatch):
+    s = _session(db)
+    _att(
+        db,
+        s,
+        "a/old",
+        status=AttachmentStatus.EXPIRED,
+        expires_at=datetime.now(UTC) - timedelta(days=3),
+    )
+    n, d = await _run(db, monkeypatch, return_value=(True, None))
+    assert n == 0
+    d.assert_not_called()
+
+
+async def test_commit_error_is_isolated(db, monkeypatch):
+    s = _session(db)
+    now = datetime.now(UTC)
+    _linked(db, s, "a/first", expires_at=now - timedelta(hours=3))
+    second = _linked(db, s, "a/second", expires_at=now - timedelta(hours=2))
+    second_id = second.id
+    real_commit = db.commit
+    calls = {"n": 0}
+
+    def flaky():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("commit boom")
+        return real_commit()
+
+    rollbacks = []
+    # The test fixture wraps one outer transaction, so a real rollback() would wipe the
+    # seeded rows; record the call instead.
+    monkeypatch.setattr(db, "commit", flaky)
+    monkeypatch.setattr(db, "rollback", lambda: rollbacks.append(1))
+    n, d = await _run(db, monkeypatch, return_value=(True, None))
+    assert n == 1
+    assert d.call_count == 2
+    assert rollbacks == [1]
+    db.expire_all()
+    assert db.get(MessageAttachment, second_id).status == AttachmentStatus.EXPIRED
+
+
+async def test_row_deleted_mid_run_does_not_abort(db, monkeypatch):
+    s = _session(db)
+    now = datetime.now(UTC)
+    _linked(db, s, "a/first", expires_at=now - timedelta(hours=3))
+    second = _linked(db, s, "a/second", expires_at=now - timedelta(hours=2))
+    third = _linked(db, s, "a/third", expires_at=now - timedelta(hours=1))
+    second_id, third_id = second.id, third.id
+
+    def fake(public_id, *, resource_type):
+        if public_id == "a/first":  # purge removes the next row mid-run
+            db.query(MessageAttachment).filter_by(id=second_id).delete()
+            db.commit()
+        return (True, None)
+
+    n, _ = await _run(db, monkeypatch, side_effect=fake)
+    assert n == 2  # first + third; vanished second is skipped, not fatal
+    db.expire_all()
+    assert db.get(MessageAttachment, third_id).status == AttachmentStatus.EXPIRED
+
+
+async def test_breaker_stops_run_after_consecutive_failures(db, monkeypatch):
+    import app.workers.attachment_retention as mod
+
+    s = _session(db)
+    base = datetime.now(UTC) - timedelta(days=1)
+    for i in range(25):
+        _linked(db, s, f"a/{i}", expires_at=base + timedelta(seconds=i))
+    n, d = await _run(db, monkeypatch, return_value=(False, "boom"))
+    assert n == 0
+    assert d.call_count == mod.MAX_CONSECUTIVE_FAILURES == 20
 
 
 async def test_resolved_ticket_does_not_defer(db, monkeypatch):
