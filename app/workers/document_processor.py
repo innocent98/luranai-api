@@ -1218,6 +1218,7 @@ class WorkerSettings:
     )
     from app.workers.attachment_retention import (  # type: ignore[misc]
         expire_attachments,
+        sweep_unregistered_videos,
     )
 
     from app.auditor.pipeline import run_website_audit  # type: ignore[misc]
@@ -1250,6 +1251,7 @@ class WorkerSettings:
         purge_due_deletion_requests,
         cleanup_orphan_attachments,
         expire_attachments,
+        sweep_unregistered_videos,
         check_trial_expiration_3days,
         expire_lapsed_trials,
         check_subscription_renewal_reminders,
@@ -1316,6 +1318,13 @@ class WorkerSettings:
             expire_attachments,
             hour={3},
             minute=15,
+            run_at_startup=False,
+        ),
+        # Destroy screen-recording uploads never registered (>24h) - daily at 3:30 AM UTC
+        cron(
+            sweep_unregistered_videos,
+            hour={3},
+            minute=30,
             run_at_startup=False,
         ),
         # Check trial expiration reminders (14/7/3/1/0 days) - daily at 9 AM UTC

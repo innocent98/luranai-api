@@ -218,3 +218,56 @@ async def test_uploaded_rows_ignored(db, monkeypatch):
     )
     n, d = await _run(db, monkeypatch, return_value=(True, None))
     assert n == 0  # unsent uploads belong to cleanup_orphan_attachments
+
+
+LIST = "app.workers.attachment_retention.cloudinary_manager.list_tagged_videos"
+
+
+async def test_sweep_destroys_old_unregistered_only(db, monkeypatch):
+    import app.workers.attachment_retention as mod
+
+    monkeypatch.setattr(mod, "SessionLocal", lambda: _NoCloseSession(db))
+    s = _session(db)
+    _att(db, s, "v/registered", status=AttachmentStatus.UPLOADED, kind=AttachmentKind.VIDEO)
+    old = (datetime.now(UTC) - timedelta(hours=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    new = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    pages = [
+        (
+            [
+                {"public_id": "v/registered", "created_at": old},
+                {"public_id": "v/orphan", "created_at": old},
+            ],
+            "c2",
+        ),
+        ([{"public_id": "v/fresh", "created_at": new}], None),
+    ]
+    with patch(LIST, side_effect=pages) as lst, patch(DESTROY, return_value=(True, None)) as d:
+        n = await mod.sweep_unregistered_videos({})
+    assert n == 1
+    d.assert_called_once_with("v/orphan", resource_type="video")
+    assert lst.call_count == 2
+
+
+async def test_sweep_stops_at_page_cap(db, monkeypatch):
+    import app.workers.attachment_retention as mod
+
+    monkeypatch.setattr(mod, "SessionLocal", lambda: _NoCloseSession(db))
+    with patch(LIST, return_value=([], "again")) as lst, patch(DESTROY):
+        await mod.sweep_unregistered_videos({})
+    assert lst.call_count == mod.SWEEP_MAX_PAGES
+
+
+async def test_sweep_tolerates_list_exception(db, monkeypatch):
+    import app.workers.attachment_retention as mod
+
+    monkeypatch.setattr(mod, "SessionLocal", lambda: _NoCloseSession(db))
+    old = (datetime.now(UTC) - timedelta(hours=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    pages = [
+        ([{"public_id": "v/orphan", "created_at": old}], "c2"),
+        RuntimeError("cloudinary down"),
+    ]
+    with patch(LIST, side_effect=pages) as lst, patch(DESTROY, return_value=(True, None)) as d:
+        n = await mod.sweep_unregistered_videos({})
+    assert n == 1
+    d.assert_called_once_with("v/orphan", resource_type="video")
+    assert lst.call_count == 2

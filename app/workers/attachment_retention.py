@@ -8,7 +8,7 @@ and is not retried within the same run.
 """
 
 import asyncio
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from loguru import logger
@@ -139,5 +139,73 @@ async def expire_attachments(ctx: dict) -> int:
         logger.error("Error in expire_attachments: {}", type(e).__name__)
         db.rollback()
         return expired
+    finally:
+        db.close()
+
+
+SWEEP_TAG = "screen_recording"
+SWEEP_MIN_AGE = timedelta(hours=24)
+SWEEP_MAX_PAGES = 5
+
+
+def _parse_created(value: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return None
+    # Naive timestamps are treated as UTC so the cutoff comparison cannot raise.
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+async def sweep_unregistered_videos(ctx: dict) -> int:
+    """Destroy screen-recording uploads older than 24 h that never got a DB row
+    (customer closed the tab between upload and register)."""
+    db: Session = SessionLocal()
+    destroyed = 0
+    try:
+        cutoff = utcnow_aware() - SWEEP_MIN_AGE
+        cursor: str | None = None
+        for _ in range(SWEEP_MAX_PAGES):
+            try:
+                # Blocking SDK calls: keep them off the ARQ event loop.
+                resources, cursor = await asyncio.to_thread(
+                    cloudinary_manager.list_tagged_videos, SWEEP_TAG, cursor
+                )
+            except Exception as e:
+                logger.error("Video sweep list failed: {}", type(e).__name__)
+                break
+            old_ids = [
+                r["public_id"]
+                for r in resources
+                if (created := _parse_created(r.get("created_at", ""))) and created < cutoff
+            ]
+            if old_ids:
+                known = set(
+                    db.execute(
+                        select(MessageAttachment.cloudinary_public_id).where(
+                            MessageAttachment.cloudinary_public_id.in_(old_ids)
+                        )
+                    ).scalars()
+                )
+                for public_id in old_ids:
+                    if public_id in known:
+                        continue
+                    try:
+                        ok, err = await asyncio.to_thread(
+                            cloudinary_manager.destroy, public_id, resource_type="video"
+                        )
+                    except Exception as e:  # defensive: destroy returns (ok, err) today
+                        ok, err = False, type(e).__name__
+                    if ok:
+                        destroyed += 1
+                    else:
+                        logger.warning("Sweep destroy failed for public_id={}: {}", public_id, err)
+            if not cursor:
+                break
+        logger.info("Unregistered video sweep: {} destroyed", destroyed)
+        return destroyed
+    except Exception as e:
+        logger.error("Error in sweep_unregistered_videos: {}", type(e).__name__)
+        return destroyed
     finally:
         db.close()
