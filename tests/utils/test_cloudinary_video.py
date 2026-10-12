@@ -59,6 +59,13 @@ def test_get_video_resource_not_found_returns_none(mgr):
         assert mgr.get_video_resource("a/b") is None
 
 
+def test_get_video_resource_requests_media_metadata(mgr):
+    with patch.object(cc.cloudinary.api, "resource", return_value={"duration": 3.0}) as res:
+        assert mgr.get_video_resource("a/b") == {"duration": 3.0}
+    assert res.call_args.kwargs["media_metadata"] is True
+    assert res.call_args.kwargs["resource_type"] == "video"
+
+
 def test_delivery_urls(mgr):
     mp4, poster = mgr.video_delivery_urls("luran/chat_images/t/s/video/abc", 123)
     assert mp4.startswith("https://res.cloudinary.com/demo/video/upload/")
