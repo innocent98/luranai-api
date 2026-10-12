@@ -18,6 +18,7 @@ from app.db.models.conversation import (
 )
 from app.db.models.visitor import Visitor
 from app.schemas.conversation import (
+    AttachmentOut,
     MAX_ATTACHMENTS_PER_MESSAGE,
     ConversationSessionCreate,
     ConversationSessionUpdate,
@@ -656,14 +657,5 @@ async def emit_agent_joined(db: Session, session: ConversationSession, agent) ->
 def attachment_frames(attachments) -> list[dict]:
     """WS payload shape for a message's attachments (same fields as REST
     `AttachmentOut`), in send order. Every frame carrying a `message_id` must
-    include this so clients that merge by id never drop images."""
-    return [
-        {
-            "id": str(a.id),
-            "url": a.url,
-            "content_type": a.content_type,
-            "width": a.width,
-            "height": a.height,
-        }
-        for a in attachments
-    ]
+    include this so clients that merge by id never drop attachments."""
+    return [AttachmentOut.model_validate(a).model_dump(mode="json") for a in attachments]

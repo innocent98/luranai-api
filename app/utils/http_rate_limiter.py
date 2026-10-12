@@ -65,6 +65,13 @@ upload_rate_limiter = RedisRateLimiter(
     window_seconds=3600,
 )
 
+video_sign_rate_limiter = RedisRateLimiter(
+    key_prefix="http_video", max_calls=5, window_seconds=3600
+)
+video_register_rate_limiter = RedisRateLimiter(
+    key_prefix="http_video_register", max_calls=20, window_seconds=3600
+)
+
 # Public registration endpoints (IP-based, separate limits)
 registration_rate_limiter = RedisRateLimiter(
     key_prefix="http_registration",
@@ -235,6 +242,9 @@ resend_verification_rate_limit = create_rate_limit_dependency(
 webhook_rate_limit = create_rate_limit_dependency(webhook_rate_limiter, "ip")
 # Public (unauthenticated) chat image upload: key by IP, not user.
 chat_upload_rate_limit = create_rate_limit_dependency(upload_rate_limiter, "ip")
+# Public screen-recording endpoints (separate buckets so videos never consume image uploads).
+chat_video_sign_rate_limit = create_rate_limit_dependency(video_sign_rate_limiter, "ip")
+chat_video_register_rate_limit = create_rate_limit_dependency(video_register_rate_limiter, "ip")
 # No `create_rate_limit_dependency` wrapper for account_deletion_public: the
 # deletion-request endpoint is dual-mode (authed vs public) and must only
 # rate-limit the public branch, so it calls `check_rate_limit` directly

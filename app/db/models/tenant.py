@@ -160,6 +160,13 @@ class Tenant(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         comment="Allow file uploads in widget chat",
     )
+    widget_allow_screen_recording: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        server_default="true",
+        comment="Tenant's own on/off for customer screen recordings (grant: TenantCapabilities)",
+    )
 
     # Subscription & Trial Tracking
     subscription_tier: Mapped[str] = mapped_column(
@@ -451,6 +458,13 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         server_default="false",
         comment="Can use in-widget voice chat",
+    )
+    can_use_screen_recording: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False,
+        server_default="true",
+        comment="Platform grant for customer screen recordings (on for every plan today)",
     )
     max_voice_minutes_per_month: Mapped[int | None] = mapped_column(
         Integer,

@@ -289,7 +289,17 @@ def _seed_agent_message_with_images(env):
         db.close()
 
 
-EXPECTED_KEYS = {"id", "url", "content_type", "width", "height"}
+EXPECTED_KEYS = {
+    "id",
+    "url",
+    "content_type",
+    "width",
+    "height",
+    "kind",
+    "duration_ms",
+    "poster_url",
+    "expired",
+}
 
 
 def test_agent_socket_replay_agent_message_carries_attachments_in_send_order(agent_ws_env):

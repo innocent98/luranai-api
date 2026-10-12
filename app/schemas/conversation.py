@@ -99,15 +99,39 @@ class ConversationSessionUpdate(BaseModel):
 
 # Response schemas
 class AttachmentOut(BaseModel):
-    """Image attachment surfaced on a message."""
+    """Chat attachment surfaced on a message (image or video; url is null once expired)."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    url: str
+    url: str | None = None
     content_type: str
     width: int | None = None
     height: int | None = None
+    kind: str = "image"
+    duration_ms: int | None = None
+    poster_url: str | None = None
+    expired: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_row(cls, data):  # type: ignore[no-untyped-def]
+        # ORM rows: derive the wire kind/expired from the enums.
+        if hasattr(data, "status") and hasattr(data, "kind"):
+            status = getattr(data.status, "value", data.status)
+            kind = getattr(data.kind, "value", data.kind)
+            return {
+                "id": data.id,
+                "url": data.url,
+                "content_type": data.content_type,
+                "width": data.width,
+                "height": data.height,
+                "kind": kind,
+                "duration_ms": data.duration_ms,
+                "poster_url": data.poster_url,
+                "expired": status == "expired",
+            }
+        return data
 
 
 class MessageResponse(MessageBase):

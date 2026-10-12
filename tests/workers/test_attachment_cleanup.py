@@ -100,10 +100,36 @@ async def test_cleanup_removes_old_unlinked_only(db, monkeypatch):
         n = await cleanup_orphan_attachments({})
 
     assert n == 1
-    d.assert_called_once_with("chat/old")
+    d.assert_called_once_with("chat/old", resource_type="image")
     assert db.query(MessageAttachment).filter_by(id=old_id).count() == 0
     assert db.query(MessageAttachment).filter_by(id=recent_id).count() == 1
     assert db.query(MessageAttachment).filter_by(id=linked_id).count() == 1
+
+
+async def test_cleanup_destroys_video_orphan_with_video_resource_type(db, monkeypatch):
+    import app.workers.attachment_cleanup as mod
+    from app.db.models.conversation import AttachmentKind
+    from app.workers.attachment_cleanup import cleanup_orphan_attachments
+
+    monkeypatch.setattr(mod, "SessionLocal", lambda: _NoCloseSession(db))
+    s = _session(db)
+    vid = _att(
+        db,
+        s,
+        "chat/vid",
+        status=AttachmentStatus.UPLOADED,
+        kind=AttachmentKind.VIDEO,
+        created_at=datetime.now(UTC) - timedelta(hours=25),
+    )
+    vid_id = vid.id
+
+    with patch("app.workers.attachment_cleanup.cloudinary_manager.destroy") as d:
+        d.return_value = (True, None)
+        n = await cleanup_orphan_attachments({})
+
+    assert n == 1
+    d.assert_called_once_with("chat/vid", resource_type="video")
+    assert db.query(MessageAttachment).filter_by(id=vid_id).count() == 0
 
 
 async def test_destroy_failure_keeps_row_and_not_counted(db, monkeypatch):
@@ -117,7 +143,7 @@ async def test_destroy_failure_keeps_row_and_not_counted(db, monkeypatch):
     good = _att(db, s, "chat/good", status=AttachmentStatus.UPLOADED, created_at=old_at)
     bad_id, good_id = bad.id, good.id
 
-    def fake_destroy(public_id):
+    def fake_destroy(public_id, *, resource_type):
         return (False, "x") if public_id == "chat/bad" else (True, None)
 
     warnings = []

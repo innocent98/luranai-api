@@ -10,6 +10,7 @@ from app.api.v1.endpoints import (
     automation,
     automation_sandbox,
     chat,
+    chat_video,
     company_registration,
     customer_auth,
     customer_conversations,
@@ -266,6 +267,7 @@ api_router.include_router(knowledge.router, prefix="/knowledge", tags=["knowledg
 
 # Chat/conversation endpoints
 api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
+api_router.include_router(chat_video.router, prefix="/chat", tags=["chat"])
 
 # Voice chat endpoints (ElevenLabs Agents integration)
 api_router.include_router(voice.router, prefix="/voice", tags=["voice"])

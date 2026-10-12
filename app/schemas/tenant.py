@@ -170,6 +170,9 @@ class TenantCapabilitiesBase(BaseModel):
     max_voice_minutes_per_month: int | None = Field(
         None, ge=0, description="Monthly voice-minute cap; None = unlimited"
     )
+    can_use_screen_recording: bool = Field(
+        default=True, description="Platform grant for customer screen recordings"
+    )
 
 
 # Create schemas
@@ -265,6 +268,7 @@ class TenantCapabilitiesUpdate(BaseModel):
     max_webhooks_per_flow: int | None = Field(None, ge=0)
     can_use_voice: bool | None = None
     max_voice_minutes_per_month: int | None = Field(None, ge=0)
+    can_use_screen_recording: bool | None = None
 
 
 # Response schemas

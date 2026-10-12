@@ -20,7 +20,7 @@ def test_destroy_treats_not_found_as_success():
     m = CloudinaryManager()
     m.enabled = True
     with patch("cloudinary.uploader.destroy", return_value={"result": "not found"}):
-        ok, err = m.destroy("luran/chat/t/s/missing")
+        ok, err = m.destroy("luran/chat/t/s/missing", resource_type="image")
     assert ok is True and err is None
 
 

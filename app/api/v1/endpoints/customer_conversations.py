@@ -18,6 +18,7 @@ from app.schemas.customer_conversation import (
     CustomerConversationSummary,
 )
 from app.services.conversation_service import ConversationService
+from app.services.screen_recording.gating import screen_recording_allowed
 
 router = APIRouter()
 
@@ -177,6 +178,7 @@ def get_customer_conversation(
         business_widget_accent_color=tenant.widget_accent_color if tenant else None,
         business_widget_greeting_message=tenant.widget_greeting_message if tenant else None,
         allow_file_upload=tenant.widget_allow_file_upload if tenant else True,
+        allow_screen_recording=screen_recording_allowed(db, tenant),
         conversation=detail,
         has_more_messages=has_more,
     )

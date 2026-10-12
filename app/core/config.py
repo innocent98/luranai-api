@@ -186,6 +186,12 @@ class Settings(BaseSettings):
     CLOUDINARY_PLATFORM_EMAIL_FOLDER: str = "luran/platform_email_images"
     CLOUDINARY_CHAT_FOLDER: str = "luran/chat_images"
 
+    # Chat attachment retention (screen recording spec SR-D5) + video limits (SR-D10)
+    ATTACHMENT_RETENTION_DAYS: int = 30
+    ATTACHMENT_RETENTION_ENABLED: bool = True
+    SCREEN_RECORDING_MAX_SECONDS: int = 60
+    SCREEN_RECORDING_MAX_BYTES: int = 52_428_800
+
     # Paystack Payment Gateway
     PAYSTACK_SECRET_KEY: str
     PAYSTACK_PUBLIC_KEY: str | None = None

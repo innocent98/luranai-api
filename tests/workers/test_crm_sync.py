@@ -1,4 +1,5 @@
 """Tests for the CRM webhook ARQ job (Stage 3 Slice 5e Task 3)."""
+
 import pytest
 import httpx
 from uuid import uuid4
@@ -25,21 +26,45 @@ class _NoCloseSession:
 
 
 def _seed(db, *, url="https://hooks.zapier.com/hooks/catch/1/x"):
-    t = Tenant(name=f"t_{uuid4().hex[:8]}", display_name="Acme", api_key_hash=uuid4().hex,
-               subscription_tier="trial", subscription_status="trialing")
-    db.add(t); db.flush()
+    t = Tenant(
+        name=f"t_{uuid4().hex[:8]}",
+        display_name="Acme",
+        api_key_hash=uuid4().hex,
+        subscription_tier="trial",
+        subscription_status="trialing",
+    )
+    db.add(t)
+    db.flush()
     cfg = TenantSalesAgentConfig.default_for(t.id)
     cfg.crm_webhook_url = url
     db.add(cfg)
-    lead = Lead(tenant_id=t.id, conversation_id=uuid4(), name="Dana", email="d@co.com",
-                company="Acme", team_size="11-50", industry="SaaS", intent="DEMO_REQUEST",
-                lead_score=90, source="chat")
-    db.add(lead); db.flush()
-    log = NotificationLog(tenant_id=t.id, event=NotifEvent.SALES_READY_LEAD,
-                          channel=NotifChannel.CRM, entity_type="lead", entity_id=lead.id,
-                          recipient="crm", status=NotifStatus.PENDING,
-                          title="New sales-ready lead", body="Dana · Acme · score 90")
-    db.add(log); db.commit()
+    lead = Lead(
+        tenant_id=t.id,
+        conversation_id=uuid4(),
+        name="Dana",
+        email="d@co.com",
+        company="Acme",
+        team_size="11-50",
+        industry="SaaS",
+        intent="DEMO_REQUEST",
+        lead_score=90,
+        source="chat",
+    )
+    db.add(lead)
+    db.flush()
+    log = NotificationLog(
+        tenant_id=t.id,
+        event=NotifEvent.SALES_READY_LEAD,
+        channel=NotifChannel.CRM,
+        entity_type="lead",
+        entity_id=lead.id,
+        recipient="crm",
+        status=NotifStatus.PENDING,
+        title="New sales-ready lead",
+        body="Dana · Acme · score 90",
+    )
+    db.add(log)
+    db.commit()
     return log.id, lead.id
 
 
@@ -56,6 +81,7 @@ def _resp(code, json_body=None):
 async def test_crm_2xx_marks_sent_and_posts_lead_payload(db_session, monkeypatch):
     log_id, lead_id = _seed(db_session)
     import app.workers.sales_notifications as notif_mod
+
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
     with patch("httpx.Client.post", return_value=_resp(200)) as post:
@@ -76,6 +102,7 @@ async def test_crm_2xx_marks_sent_and_posts_lead_payload(db_session, monkeypatch
 async def test_crm_2xx_with_id_writes_back_crm_id(db_session, monkeypatch):
     log_id, lead_id = _seed(db_session)
     import app.workers.sales_notifications as notif_mod
+
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
     with patch("httpx.Client.post", return_value=_resp(200, {"id": "crm-789"})):
@@ -88,6 +115,7 @@ async def test_crm_2xx_with_id_writes_back_crm_id(db_session, monkeypatch):
 async def test_crm_2xx_without_id_leaves_crm_id_none(db_session, monkeypatch):
     log_id, lead_id = _seed(db_session)
     import app.workers.sales_notifications as notif_mod
+
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
     with patch("httpx.Client.post", return_value=_resp(200, {"ok": True})):
@@ -100,6 +128,7 @@ async def test_crm_2xx_without_id_leaves_crm_id_none(db_session, monkeypatch):
 async def test_crm_5xx_raises_for_retry(db_session, monkeypatch):
     log_id, _ = _seed(db_session)
     import app.workers.sales_notifications as notif_mod
+
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
     with patch("httpx.Client.post", return_value=_resp(503)):
@@ -112,6 +141,7 @@ async def test_crm_5xx_raises_for_retry(db_session, monkeypatch):
 async def test_crm_4xx_no_retry(db_session, monkeypatch):
     log_id, _ = _seed(db_session)
     import app.workers.sales_notifications as notif_mod
+
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
     with patch("httpx.Client.post", return_value=_resp(404)):
@@ -123,6 +153,7 @@ async def test_crm_4xx_no_retry(db_session, monkeypatch):
 async def test_crm_missing_url_marks_failed(db_session, monkeypatch):
     log_id, _ = _seed(db_session, url=None)
     import app.workers.sales_notifications as notif_mod
+
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
     with patch("httpx.Client.post") as post:
@@ -137,6 +168,7 @@ async def test_crm_already_sent_is_noop(db_session, monkeypatch):
     db_session.get(NotificationLog, log_id).status = NotifStatus.SENT
     db_session.commit()
     import app.workers.sales_notifications as notif_mod
+
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
     with patch("httpx.Client.post") as post:
@@ -149,6 +181,7 @@ async def test_crm_already_sent_is_noop(db_session, monkeypatch):
 async def test_crm_blocked_host_marks_failed_no_post(db_session, monkeypatch):
     log_id, _ = _seed(db_session, url="http://169.254.169.254/latest/meta-data/")
     import app.workers.sales_notifications as notif_mod
+
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
     with patch("httpx.Client.post") as post:
         await sync_lead_to_crm({}, str(log_id))  # must NOT raise
@@ -162,6 +195,7 @@ async def test_crm_network_timeout_raises_and_marks_failed(db_session, monkeypat
     """Network/timeout branch: raises for ARQ retry and marks FAILED."""
     log_id, _ = _seed(db_session)
     import app.workers.sales_notifications as notif_mod
+
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
     with patch("httpx.Client.post", side_effect=httpx.TimeoutException("timeout")):
@@ -175,6 +209,7 @@ async def test_crm_2xx_contact_id_key_writes_back(db_session, monkeypatch):
     """Non-`id` key: `contactId` in the 2xx body is written back to lead.crm_id."""
     log_id, lead_id = _seed(db_session)
     import app.workers.sales_notifications as notif_mod
+
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
     with patch("httpx.Client.post", return_value=_resp(200, {"contactId": "hub-42"})):
@@ -187,6 +222,7 @@ async def test_crm_2xx_contact_id_key_writes_back(db_session, monkeypatch):
 async def test_crm_missing_log_is_noop(db_session, monkeypatch):
     """log is None early-return: no HTTP call and no exception."""
     import app.workers.sales_notifications as notif_mod
+
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
     with patch("httpx.Client.post") as post:
@@ -199,6 +235,7 @@ async def test_crm_2xx_zero_integer_id_writes_back(db_session, monkeypatch):
     """Regression for id=0: truthy check would skip 0; is-not-None must write '0'."""
     log_id, lead_id = _seed(db_session)
     import app.workers.sales_notifications as notif_mod
+
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
     with patch("httpx.Client.post", return_value=_resp(200, {"id": 0})):
@@ -221,6 +258,7 @@ async def test_crm_never_logs_url_or_pii(db_session, monkeypatch, caplog):
     # with the secret embedded in the path so we can assert it never reaches a log.
     secret_url = "https://hooks.zapier.com/hooks/catch/1/SECRET-TOKEN-zzz999"
     import app.workers.sales_notifications as notif_mod
+
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
     # Error path: network failure sets log.error + raises (worker may log).
@@ -237,6 +275,6 @@ async def test_crm_never_logs_url_or_pii(db_session, monkeypatch, caplog):
 
     assert "SECRET-TOKEN-zzz999" not in caplog.text
     assert "d@co.com" not in caplog.text  # lead email PII
-    assert "Dana" not in caplog.text       # lead name PII
+    assert "Dana" not in caplog.text  # lead name PII
     # DB error field stays a generic, URL-free string.
     assert db_session.get(NotificationLog, log_id).error == "crm network error: ConnectError"

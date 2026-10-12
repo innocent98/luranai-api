@@ -1,14 +1,27 @@
 """Cloudinary client utility for image upload and management."""
 
 import io
+import time
 from uuid import UUID, uuid4
 
 import cloudinary
+import cloudinary.api
+import cloudinary.exceptions
 import cloudinary.uploader
+import cloudinary.utils
 from loguru import logger
 from PIL import Image
 
 from app.core.config import settings
+
+VIDEO_EAGER = "c_limit,q_auto,vc_h264,w_1280/mp4"
+_VIDEO_TRANSFORM = [{"crop": "limit", "quality": "auto", "video_codec": "h264", "width": 1280}]
+_POSTER_TRANSFORM = [{"start_offset": "0", "width": 640, "crop": "limit"}]
+
+
+def video_sweep_tag() -> str:
+    """Environment-scoped tag so the unregistered-video sweep only sees this env's uploads."""
+    return f"screen_recording_{settings.ENVIRONMENT}"
 
 
 class CloudinaryManager:
@@ -280,19 +293,87 @@ class CloudinaryManager:
             logger.error(f"Chat image upload failed: {e}")
             return None, None, "Failed to upload image"
 
-    def destroy(self, public_id: str) -> tuple[bool, str | None]:
-        """Delete an image by public_id; 'not found' counts as success."""
+    def destroy(self, public_id: str, *, resource_type: str) -> tuple[bool, str | None]:
+        """Delete an asset; resource_type ("image"|"video") is required. 'not found' = success."""
         if not self.enabled:
             return False, "Cloudinary not configured"
-
         try:
-            res = cloudinary.uploader.destroy(public_id, resource_type="image")
+            res = cloudinary.uploader.destroy(
+                public_id, resource_type=resource_type, invalidate=True
+            )
             if res.get("result") in ("ok", "not found"):
                 return True, None
-            return False, "Failed to delete image"
+            return False, f"Failed to delete {resource_type}"
         except Exception as e:
-            logger.error(f"Cloudinary destroy failed for {public_id}: {e}")
-            return False, "Failed to delete image"
+            logger.error(f"Cloudinary destroy failed for {public_id}: {type(e).__name__}")
+            return False, f"Failed to delete {resource_type}"
+
+    def video_folder(self, tenant_id: UUID, session_id: UUID) -> str:
+        return f"{settings.CLOUDINARY_CHAT_FOLDER}/{tenant_id}/{session_id}/video"
+
+    def sign_video_upload(self, tenant_id: UUID, session_id: UUID) -> dict | None:
+        """Signed direct-upload payload for a screen recording (secret never leaves the server).
+
+        Every signed field is tamper-proof: folder scopes the asset to this
+        tenant/session; tags let the unregistered-upload sweep find it.
+        """
+        if not self.enabled:
+            return None
+        to_sign = {
+            "timestamp": int(time.time()),
+            "folder": self.video_folder(tenant_id, session_id),
+            "public_id": uuid4().hex,
+            "eager": VIDEO_EAGER,
+            "eager_async": "true",
+            "overwrite": "false",  # no re-upload to a public_id after register validated it
+            "tags": f"chat,screen_recording,{video_sweep_tag()},{tenant_id}",
+        }
+        signature = cloudinary.utils.api_sign_request(to_sign, settings.CLOUDINARY_API_SECRET)
+        return {
+            "upload_url": (
+                f"https://api.cloudinary.com/v1_1/{settings.CLOUDINARY_CLOUD_NAME}/video/upload"
+            ),
+            "fields": {**to_sign, "api_key": settings.CLOUDINARY_API_KEY, "signature": signature},
+            "public_id": f"{to_sign['folder']}/{to_sign['public_id']}",
+        }
+
+    def get_video_resource(self, public_id: str) -> dict | None:
+        """Admin API lookup of an uploaded video; None if it does not exist."""
+        try:
+            return cloudinary.api.resource(public_id, resource_type="video")
+        except cloudinary.exceptions.NotFound:
+            return None
+
+    def video_delivery_urls(self, public_id: str, version: int | str | None) -> tuple[str, str]:
+        """(progressive mp4 matching the signed eager, jpg poster at 0 s)."""
+        mp4, _ = cloudinary.utils.cloudinary_url(
+            public_id,
+            resource_type="video",
+            cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+            format="mp4",
+            secure=True,
+            version=version,
+            transformation=_VIDEO_TRANSFORM,
+        )
+        poster, _ = cloudinary.utils.cloudinary_url(
+            public_id,
+            resource_type="video",
+            cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+            format="jpg",
+            secure=True,
+            version=version,
+            transformation=_POSTER_TRANSFORM,
+        )
+        return mp4, poster
+
+    def list_tagged_videos(
+        self, tag: str, next_cursor: str | None
+    ) -> tuple[list[dict], str | None]:
+        kwargs: dict = {"resource_type": "video", "max_results": 100}
+        if next_cursor:
+            kwargs["next_cursor"] = next_cursor
+        page = cloudinary.api.resources_by_tag(tag, **kwargs)
+        return page.get("resources", []), page.get("next_cursor")
 
 
 # Global instance
