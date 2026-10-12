@@ -31,7 +31,7 @@ def _folder(tid, sid):
 
 def _resource(tid, sid, **kw):
     base = {
-        "public_id": f"{_folder(tid, sid)}/abc",
+        "public_id": f"{_folder(tid, sid)}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "resource_type": "video",
         "format": "webm",
         "duration": 42.5,
@@ -109,7 +109,10 @@ def test_register_ok_creates_unlinked_video(client, db):
         _cm(cm, tid, sid, _resource(tid, sid))
         r = client.post(
             "/api/v1/chat/video/register",
-            json={"session_id": str(sid), "public_id": f"{_folder(tid, sid)}/abc"},
+            json={
+                "session_id": str(sid),
+                "public_id": f"{_folder(tid, sid)}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            },
         )
     assert r.status_code == 200, r.text
     body = r.json()
@@ -131,7 +134,10 @@ def test_register_foreign_folder_422_without_destroy(client, db):
         _cm(cm, tid, sid, None)
         r = client.post(
             "/api/v1/chat/video/register",
-            json={"session_id": str(sid), "public_id": f"{_folder(tid, other_sid)}/abc"},
+            json={
+                "session_id": str(sid),
+                "public_id": f"{_folder(tid, other_sid)}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            },
         )
     assert r.status_code == 422 and r.json()["detail"]["code"] == "video_invalid"
     cm.destroy.assert_not_called()
@@ -144,15 +150,20 @@ def test_register_too_long_destroys(client, db):
         _cm(cm, tid, sid, _resource(tid, sid, duration=75.0))
         r = client.post(
             "/api/v1/chat/video/register",
-            json={"session_id": str(sid), "public_id": f"{_folder(tid, sid)}/abc"},
+            json={
+                "session_id": str(sid),
+                "public_id": f"{_folder(tid, sid)}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            },
         )
     assert r.status_code == 422 and r.json()["detail"]["code"] == "video_too_long"
-    cm.destroy.assert_called_once_with(f"{_folder(tid, sid)}/abc", resource_type="video")
+    cm.destroy.assert_called_once_with(
+        f"{_folder(tid, sid)}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", resource_type="video"
+    )
 
 
 def test_register_too_large_and_bad_format(client, db):
     sid, tid = _seed(db)
-    pid = f"{_folder(tid, sid)}/abc"
+    pid = f"{_folder(tid, sid)}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     with patch(CM) as cm:
         _cm(cm, tid, sid, _resource(tid, sid, bytes=60_000_000))
         r1 = client.post(
@@ -168,7 +179,7 @@ def test_register_too_large_and_bad_format(client, db):
 
 def test_register_twice_409_with_same_id(client, db):
     sid, tid = _seed(db)
-    pid = f"{_folder(tid, sid)}/abc"
+    pid = f"{_folder(tid, sid)}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     with patch(CM) as cm:
         _cm(cm, tid, sid, _resource(tid, sid))
         first = client.post(
@@ -188,7 +199,10 @@ def test_register_missing_asset_422(client, db):
         _cm(cm, tid, sid, None)
         r = client.post(
             "/api/v1/chat/video/register",
-            json={"session_id": str(sid), "public_id": f"{_folder(tid, sid)}/abc"},
+            json={
+                "session_id": str(sid),
+                "public_id": f"{_folder(tid, sid)}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            },
         )
     assert r.status_code == 422 and r.json()["detail"]["code"] == "video_invalid"
 
@@ -200,7 +214,10 @@ def test_register_lookup_error_503_without_destroy(client, db):
         cm.get_video_resource.side_effect = RuntimeError("cloudinary down")
         r = client.post(
             "/api/v1/chat/video/register",
-            json={"session_id": str(sid), "public_id": f"{_folder(tid, sid)}/abc"},
+            json={
+                "session_id": str(sid),
+                "public_id": f"{_folder(tid, sid)}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            },
         )
     assert r.status_code == 503
     assert r.json()["detail"] == {
@@ -220,7 +237,7 @@ def test_register_concurrent_race_409_with_existing_id(client, db):
     (in production the winner is committed by a separate session and survives).
     """
     sid, tid = _seed(db)
-    pid = f"{_folder(tid, sid)}/abc"
+    pid = f"{_folder(tid, sid)}/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     aid = img._att(db, sid, tid)
     db.query(MessageAttachment).filter_by(id=aid).update(
         {"kind": AttachmentKind.VIDEO, "cloudinary_public_id": pid}
@@ -240,3 +257,84 @@ def test_register_concurrent_race_409_with_existing_id(client, db):
     assert r.status_code == 409, r.text
     assert r.json()["detail"]["code"] == "already_registered"
     assert r.json()["detail"]["attachment_id"] == str(aid)
+
+
+def _hex(n=1):
+    return "a" * 32
+
+
+def test_register_rejects_non_exact_public_ids(client, db):
+    sid, tid = _seed(db)
+    f = _folder(tid, sid)
+    bad = [
+        f"{f}/%2e%2e/%2e%2e/other/video/{_hex()}",
+        f"{f}/..%2fx/{_hex()}",
+        f"{f}%2Fabc",
+        f"{f}/{_hex()}/",
+        f + "/",
+        f"{f}/sub/{_hex()}",
+        f"{f}/{_hex()}?x=1",
+        f"{f}/{_hex()}#frag",
+        f"{f}/{'A' * 32}",
+    ]
+    for pid in bad:
+        with patch(CM) as cm:
+            _cm(cm, tid, sid, _resource(tid, sid))
+            r = client.post(
+                "/api/v1/chat/video/register", json={"session_id": str(sid), "public_id": pid}
+            )
+        assert r.status_code == 422 and r.json()["detail"]["code"] == "video_invalid", pid
+        cm.get_video_resource.assert_not_called()
+        cm.destroy.assert_not_called()
+
+
+def test_register_session_cap_destroys_and_429(client, db):
+    sid, tid = _seed(db)
+    for _ in range(3):
+        aid = img._att(db, sid, tid)
+        db.query(MessageAttachment).filter_by(id=aid).update(
+            {"kind": AttachmentKind.VIDEO, "cloudinary_public_id": f"vid/{aid}"}
+        )
+    db.commit()
+    pid = f"{_folder(tid, sid)}/{_hex()}"
+    with patch(CM) as cm:
+        _cm(cm, tid, sid, _resource(tid, sid))
+        r = client.post(
+            "/api/v1/chat/video/register", json={"session_id": str(sid), "public_id": pid}
+        )
+    assert r.status_code == 429 and r.json()["detail"]["code"] == "video_session_limit"
+    cm.destroy.assert_called_once_with(pid, resource_type="video")
+
+
+def test_register_malformed_metadata_422_and_destroy(client, db):
+    sid, tid = _seed(db)
+    pid = f"{_folder(tid, sid)}/{_hex()}"
+    cases = [
+        ({"duration": None}, None),
+        ({"duration": "abc"}, "video_invalid"),
+        ({"duration": float("nan")}, "video_invalid"),
+        ({"duration": float("inf")}, "video_invalid"),
+        ({"bytes": "abc"}, "video_invalid"),
+        ({"bytes": -5}, None),
+    ]
+    for override, code in cases:
+        with patch(CM) as cm:
+            _cm(cm, tid, sid, _resource(tid, sid, **override))
+            r = client.post(
+                "/api/v1/chat/video/register", json={"session_id": str(sid), "public_id": pid}
+            )
+        assert r.status_code == 422, override
+        if code:
+            assert r.json()["detail"]["code"] == code, override
+        cm.destroy.assert_called_once_with(pid, resource_type="video")
+
+
+def test_register_non_int_dimensions_become_null(client, db):
+    sid, tid = _seed(db)
+    pid = f"{_folder(tid, sid)}/{_hex()}"
+    with patch(CM) as cm:
+        _cm(cm, tid, sid, _resource(tid, sid, width="x", height=None))
+        r = client.post(
+            "/api/v1/chat/video/register", json={"session_id": str(sid), "public_id": pid}
+        )
+    assert r.status_code == 200, r.text

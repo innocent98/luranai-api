@@ -40,7 +40,11 @@ def test_sign_video_upload_fields_and_signature(mgr):
     assert f["eager"] == cc.VIDEO_EAGER and f["eager_async"] == "true"
     assert f["tags"] == f"chat,screen_recording,{t}"
     assert out["public_id"] == f"{f['folder']}/{f['public_id']}"
-    signed = {k: f[k] for k in ("timestamp", "folder", "public_id", "eager", "eager_async", "tags")}
+    signed = {
+        k: f[k]
+        for k in ("timestamp", "folder", "public_id", "eager", "eager_async", "overwrite", "tags")
+    }
+    assert f["overwrite"] == "false"
     assert f["signature"] == cloudinary.utils.api_sign_request(signed, "test-secret-not-real")
     tampered = {**signed, "folder": "luran/chat_images/other/video"}
     assert f["signature"] != cloudinary.utils.api_sign_request(tampered, "test-secret-not-real")

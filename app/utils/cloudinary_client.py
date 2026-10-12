@@ -320,6 +320,7 @@ class CloudinaryManager:
             "public_id": uuid4().hex,
             "eager": VIDEO_EAGER,
             "eager_async": "true",
+            "overwrite": "false",  # no re-upload to a public_id after register validated it
             "tags": f"chat,screen_recording,{tenant_id}",
         }
         signature = cloudinary.utils.api_sign_request(to_sign, settings.CLOUDINARY_API_SECRET)
