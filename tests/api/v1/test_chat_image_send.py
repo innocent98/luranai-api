@@ -243,6 +243,10 @@ def test_image_send_fans_out_customer_message_to_agents(client, db):
             "content_type": "image/png",
             "width": 4,
             "height": 3,
+            "kind": "image",
+            "duration_ms": None,
+            "poster_url": None,
+            "expired": False,
         }
     ]
 

@@ -190,6 +190,9 @@ def _upload_response(attachment: MessageAttachment) -> dict:
         "content_type": attachment.content_type,
         "width": attachment.width,
         "height": attachment.height,
+        "kind": getattr(attachment.kind, "value", attachment.kind),
+        "duration_ms": attachment.duration_ms,
+        "poster_url": attachment.poster_url,
         "bytes": attachment.bytes,
     }
 
