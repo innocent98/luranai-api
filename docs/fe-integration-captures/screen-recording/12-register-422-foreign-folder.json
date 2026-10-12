@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/chat/video/register",
+    "headers": {},
+    "body": {
+      "session_id": "623ec9f9-73ac-4e77-87d2-dc74b4e3fedb",
+      "public_id": "luran/chat_images/2d72a014-6d10-4612-b8d4-ce2a242c07a1/2eed9b25-be24-473a-9593-c1a2057bddfb/video/6d2f2a9474dd43bea8109317a7d7642b"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "detail": {
+        "code": "video_invalid",
+        "message": "We couldn't process that video"
+      }
+    }
+  }
+}

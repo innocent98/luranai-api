@@ -1,0 +1,37 @@
+{
+  "request": {
+    "method": "PUT",
+    "path": "/tenant/ai-config",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "require_email_before_escalation": true
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "brand_voice": {},
+      "allowed_topics": null,
+      "blocked_topics": null,
+      "escalation_keywords": [],
+      "max_response_tokens": 450,
+      "grounding_requirement": true,
+      "grounding_mode": "balanced",
+      "low_confidence_action": "clarify",
+      "no_retrieval_action": "clarify",
+      "first_responder": "ai",
+      "require_email_before_escalation": true,
+      "require_name_before_escalation": false,
+      "collect_name_before_chat": false,
+      "collect_email_before_chat": false,
+      "custom_instructions": null,
+      "id": "d46bc285-5363-4312-bac0-ac3f6a7ed506",
+      "tenant_id": "86730f5c-e040-46f7-864b-2f9c8e7fd2bd",
+      "active_knowledge_sources": 0,
+      "created_at": "2026-10-12T21:09:27.472800Z",
+      "updated_at": "2026-10-12T21:10:40.939209Z"
+    }
+  }
+}

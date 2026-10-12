@@ -1,0 +1,55 @@
+{
+  "request": {
+    "method": "WS",
+    "path": "/ws/agent/{session_id}?token=<agent-jwt-placeholder>",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 101,
+    "body": {
+      "frames_received": [
+        {
+          "type": "customer_message",
+          "message_id": "398e7f60-cf45-4398-a93d-834198410c55",
+          "content": "Here is a recording of the problem",
+          "user_identifier": "customer@example.test",
+          "timestamp": "2026-10-12T21:10:02.926725+00:00",
+          "attachments": [
+            {
+              "id": "6dfcb19f-a79a-4155-ad01-104009d5868d",
+              "url": "https://res.cloudinary.com/<cloud-name-placeholder>/video/upload/c_limit,q_auto,vc_h264,w_1280/v1791839383/luran/chat_images/86730f5c-e040-46f7-864b-2f9c8e7fd2bd/623ec9f9-73ac-4e77-87d2-dc74b4e3fedb/video/540a7bce2a0746ac9ee5384a1b19bfe7.mp4",
+              "content_type": "video/mp4",
+              "width": 854,
+              "height": 480,
+              "kind": "video",
+              "duration_ms": 13413,
+              "poster_url": "https://res.cloudinary.com/<cloud-name-placeholder>/video/upload/c_limit,so_0,w_640/v1791839383/luran/chat_images/86730f5c-e040-46f7-864b-2f9c8e7fd2bd/623ec9f9-73ac-4e77-87d2-dc74b4e3fedb/video/540a7bce2a0746ac9ee5384a1b19bfe7.jpg",
+              "expired": false
+            }
+          ]
+        },
+        {
+          "type": "customer_message",
+          "message_id": "fc5c8bcb-e87b-4082-9e50-a3613cdf4e9a",
+          "content": "Another recording",
+          "user_identifier": "customer@example.test",
+          "timestamp": "2026-10-12T21:10:26.723005+00:00",
+          "attachments": [
+            {
+              "id": "7e52795c-a344-4c9c-a153-7fef6d01e76f",
+              "url": "https://res.cloudinary.com/<cloud-name-placeholder>/video/upload/c_limit,q_auto,vc_h264,w_1280/v1791839422/luran/chat_images/86730f5c-e040-46f7-864b-2f9c8e7fd2bd/623ec9f9-73ac-4e77-87d2-dc74b4e3fedb/video/1d9e101f0bd241318589dd7f292fd0d9.mp4",
+              "content_type": "video/mp4",
+              "width": 854,
+              "height": 480,
+              "kind": "video",
+              "duration_ms": 13413,
+              "poster_url": "https://res.cloudinary.com/<cloud-name-placeholder>/video/upload/c_limit,so_0,w_640/v1791839422/luran/chat_images/86730f5c-e040-46f7-864b-2f9c8e7fd2bd/623ec9f9-73ac-4e77-87d2-dc74b4e3fedb/video/1d9e101f0bd241318589dd7f292fd0d9.jpg",
+              "expired": false
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

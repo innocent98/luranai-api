@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/widget/public/config/86730f5c-e040-46f7-864b-2f9c8e7fd2bd",
+    "headers": {
+      "X-API-Key": "<widget-api-key-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "tenant_id": "86730f5c-e040-46f7-864b-2f9c8e7fd2bd",
+      "company_name": "Acme Test Co",
+      "company_description": null,
+      "primary_color": "#2563eb",
+      "accent_color": "#10b981",
+      "logo_url": null,
+      "greeting_message": "Hi! How can we help you today?",
+      "position": "bottom-right",
+      "show_unread_badge": true,
+      "allow_file_upload": true,
+      "allow_screen_recording": false,
+      "collect_name_before_chat": false,
+      "collect_email_before_chat": false,
+      "first_responder": "ai"
+    }
+  }
+}

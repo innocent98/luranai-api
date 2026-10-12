@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/chat/video/register",
+    "headers": {},
+    "body": {
+      "session_id": "623ec9f9-73ac-4e77-87d2-dc74b4e3fedb",
+      "public_id": "luran/chat_images/86730f5c-e040-46f7-864b-2f9c8e7fd2bd/623ec9f9-73ac-4e77-87d2-dc74b4e3fedb/video/1ef8bc151bca4bd4aa794bd7d46f202f"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "detail": {
+        "code": "video_too_long",
+        "message": "Videos can be up to 60 seconds"
+      }
+    }
+  }
+}

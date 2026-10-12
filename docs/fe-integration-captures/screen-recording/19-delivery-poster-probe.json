@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "<attachment.poster_url from register>",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 0,
+    "body": {
+      "attempts": [
+        {
+          "attempt": 1,
+          "status": 200,
+          "content_type": "image/jpeg",
+          "content_length": "16737",
+          "x_cld_error": null
+        },
+        {
+          "attempt": 2,
+          "status": 200,
+          "content_type": "image/jpeg",
+          "content_length": "16737",
+          "x_cld_error": null
+        }
+      ]
+    }
+  }
+}

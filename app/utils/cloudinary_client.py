@@ -340,7 +340,9 @@ class CloudinaryManager:
     def get_video_resource(self, public_id: str) -> dict | None:
         """Admin API lookup of an uploaded video; None if it does not exist."""
         try:
-            return cloudinary.api.resource(public_id, resource_type="video")
+            # media_metadata=True is required: the plain Admin API resource omits `duration`,
+            # which made every real registration fail the duration check.
+            return cloudinary.api.resource(public_id, resource_type="video", media_metadata=True)
         except cloudinary.exceptions.NotFound:
             return None
 
