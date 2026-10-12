@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/chat/video/sign",
+    "headers": {},
+    "body": {
+      "session_id": "21ca215e-7ca5-4898-9fbc-8a5f672b7387"
+    }
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "detail": "Session not found"
+    }
+  }
+}

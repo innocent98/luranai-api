@@ -1,0 +1,74 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/chat/sessions/623ec9f9-73ac-4e77-87d2-dc74b4e3fedb/messages",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "role": "user",
+        "content": "Here is a recording of the problem",
+        "id": "398e7f60-cf45-4398-a93d-834198410c55",
+        "session_id": "623ec9f9-73ac-4e77-87d2-dc74b4e3fedb",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [
+          {
+            "id": "6dfcb19f-a79a-4155-ad01-104009d5868d",
+            "url": null,
+            "content_type": "video/mp4",
+            "width": 854,
+            "height": 480,
+            "kind": "video",
+            "duration_ms": 13413,
+            "poster_url": null,
+            "expired": true
+          }
+        ],
+        "meta": {},
+        "created_at": "2026-10-12T21:10:02.926725Z"
+      },
+      {
+        "role": "assistant",
+        "content": "Thanks — a member of our team will watch your recording and reply here.",
+        "id": "85201418-85fa-4e6b-be06-9ff4351ed165",
+        "session_id": "623ec9f9-73ac-4e77-87d2-dc74b4e3fedb",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [],
+        "meta": {
+          "system_notice": "screen_recording_ack"
+        },
+        "created_at": "2026-10-12T21:10:02.982747Z"
+      },
+      {
+        "role": "user",
+        "content": "Another recording",
+        "id": "fc5c8bcb-e87b-4082-9e50-a3613cdf4e9a",
+        "session_id": "623ec9f9-73ac-4e77-87d2-dc74b4e3fedb",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [
+          {
+            "id": "7e52795c-a344-4c9c-a153-7fef6d01e76f",
+            "url": "https://res.cloudinary.com/<cloud-name-placeholder>/video/upload/c_limit,q_auto,vc_h264,w_1280/v1791839422/luran/chat_images/86730f5c-e040-46f7-864b-2f9c8e7fd2bd/623ec9f9-73ac-4e77-87d2-dc74b4e3fedb/video/1d9e101f0bd241318589dd7f292fd0d9.mp4",
+            "content_type": "video/mp4",
+            "width": 854,
+            "height": 480,
+            "kind": "video",
+            "duration_ms": 13413,
+            "poster_url": "https://res.cloudinary.com/<cloud-name-placeholder>/video/upload/c_limit,so_0,w_640/v1791839422/luran/chat_images/86730f5c-e040-46f7-864b-2f9c8e7fd2bd/623ec9f9-73ac-4e77-87d2-dc74b4e3fedb/video/1d9e101f0bd241318589dd7f292fd0d9.jpg",
+            "expired": false
+          }
+        ],
+        "meta": {},
+        "created_at": "2026-10-12T21:10:26.723005Z"
+      }
+    ]
+  }
+}

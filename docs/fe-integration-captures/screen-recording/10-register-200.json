@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/chat/video/register",
+    "headers": {},
+    "body": {
+      "session_id": "623ec9f9-73ac-4e77-87d2-dc74b4e3fedb",
+      "public_id": "luran/chat_images/86730f5c-e040-46f7-864b-2f9c8e7fd2bd/623ec9f9-73ac-4e77-87d2-dc74b4e3fedb/video/540a7bce2a0746ac9ee5384a1b19bfe7"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "attachment_id": "6dfcb19f-a79a-4155-ad01-104009d5868d",
+      "url": "https://res.cloudinary.com/<cloud-name-placeholder>/video/upload/c_limit,q_auto,vc_h264,w_1280/v1791839383/luran/chat_images/86730f5c-e040-46f7-864b-2f9c8e7fd2bd/623ec9f9-73ac-4e77-87d2-dc74b4e3fedb/video/540a7bce2a0746ac9ee5384a1b19bfe7.mp4",
+      "content_type": "video/mp4",
+      "width": 854,
+      "height": 480,
+      "kind": "video",
+      "duration_ms": 13413,
+      "poster_url": "https://res.cloudinary.com/<cloud-name-placeholder>/video/upload/c_limit,so_0,w_640/v1791839383/luran/chat_images/86730f5c-e040-46f7-864b-2f9c8e7fd2bd/623ec9f9-73ac-4e77-87d2-dc74b4e3fedb/video/540a7bce2a0746ac9ee5384a1b19bfe7.jpg",
+      "bytes": 9094354
+    }
+  }
+}

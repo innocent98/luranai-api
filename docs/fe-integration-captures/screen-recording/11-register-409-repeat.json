@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/chat/video/register",
+    "headers": {},
+    "body": {
+      "session_id": "623ec9f9-73ac-4e77-87d2-dc74b4e3fedb",
+      "public_id": "luran/chat_images/86730f5c-e040-46f7-864b-2f9c8e7fd2bd/623ec9f9-73ac-4e77-87d2-dc74b4e3fedb/video/540a7bce2a0746ac9ee5384a1b19bfe7"
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "detail": {
+        "code": "already_registered",
+        "message": "Already registered",
+        "attachment_id": "6dfcb19f-a79a-4155-ad01-104009d5868d"
+      }
+    }
+  }
+}
