@@ -361,18 +361,14 @@ class AccountPurgeService:
         # rows. A Cloudinary failure must NEVER abort the purge (a half-purged
         # tenant is worse than an orphaned CDN asset), so each destroy is
         # best-effort; `destroy` already treats "not found" as success.
-        attachment_public_ids = (
-            self.db.execute(
-                select(MessageAttachment.cloudinary_public_id).where(
-                    MessageAttachment.tenant_id == tenant_id
-                )
+        attachment_assets = self.db.execute(
+            select(MessageAttachment.cloudinary_public_id, MessageAttachment.kind).where(
+                MessageAttachment.tenant_id == tenant_id
             )
-            .scalars()
-            .all()
-        )
-        for public_id in attachment_public_ids:
+        ).all()
+        for public_id, kind in attachment_assets:
             try:
-                ok, err = cloudinary_manager.destroy(public_id)
+                ok, err = cloudinary_manager.destroy(public_id, resource_type=kind.value)
                 if not ok:
                     logger.warning(
                         "Cloudinary destroy failed during tenant purge (continuing): %s", err

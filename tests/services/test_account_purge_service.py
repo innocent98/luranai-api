@@ -791,6 +791,7 @@ def test_purge_tenant_deletes_attachments_and_cloudinary_assets(db_session):
 
     assert destroy.call_count == 2
     assert {c.args[0] for c in destroy.call_args_list} == set(pids)
+    assert all(c.kwargs == {"resource_type": "image"} for c in destroy.call_args_list)
     assert _attachment_count(db_session, tenant.id) == 0
 
 
@@ -799,7 +800,7 @@ def test_purge_tenant_survives_cloudinary_destroy_failure(db_session, failure):
     pids = [f"luran/chat/{uuid4().hex}", f"luran/chat/{uuid4().hex}"]
     tenant = _seed_tenant_with_attachments(db_session, pids)
 
-    def flaky(public_id):
+    def flaky(public_id, *, resource_type):
         if public_id == pids[0]:
             if failure == "raises":
                 raise RuntimeError("cloudinary down")

@@ -44,7 +44,9 @@ async def cleanup_orphan_attachments(ctx: dict) -> int:
             # destroy() returns (ok, err) rather than raising; keep the row on
             # failure so the next daily run retries the Cloudinary delete.
             try:
-                ok, err = cloudinary_manager.destroy(att.cloudinary_public_id)
+                ok, err = cloudinary_manager.destroy(
+                    att.cloudinary_public_id, resource_type=att.kind.value
+                )
             except Exception as e:  # defensive: future destroy impls may raise
                 ok, err = False, str(e)
             if not ok:
