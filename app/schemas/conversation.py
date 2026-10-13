@@ -159,11 +159,12 @@ class MessageResponse(MessageBase):
     created_at: datetime
 
 
-class SessionResponse(ConversationSessionBase):
-    """Schema for conversation session response."""
+class _SessionFields(BaseModel):
+    """Session fields shared by the customer-facing and staff-facing responses."""
 
     model_config = ConfigDict(from_attributes=True)
 
+    meta: dict | None = Field(None, description="Additional context metadata")
     id: UUID
     tenant_id: UUID
     visitor_id: UUID | None = None
@@ -180,15 +181,33 @@ class SessionResponse(ConversationSessionBase):
     updated_at: datetime
 
 
-class SessionDetailResponse(SessionResponse):
-    """Schema for session with messages."""
-
+class _SessionDetailFields(BaseModel):
     messages: list[MessageResponse] = Field(default_factory=list)
     ticket_id: UUID | None = None  # latest ticket for this session
     ratings: list[SessionRatingBrief] = Field(
         default_factory=list,
         description="Every rating for the session (AI and human), oldest first; staff detail only",
     )
+
+
+class SessionResponse(_SessionFields):
+    """Customer-facing session (public create, customer history). Carries user_identifier."""
+
+    user_identifier: str = Field(..., min_length=1, max_length=255)
+
+
+class SessionDetailResponse(SessionResponse, _SessionDetailFields):
+    """Schema for session with messages."""
+
+
+class StaffSessionResponse(_SessionFields):
+    """Staff-facing session: no user_identifier (customer socket credential), meta redacted."""
+
+    customer_label: str = Field(..., description="Non-secret display label for the customer")
+
+
+class StaffSessionDetailResponse(StaffSessionResponse, _SessionDetailFields):
+    """Staff-facing session with messages."""
 
 
 class ChatResponse(BaseModel):

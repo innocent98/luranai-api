@@ -35,6 +35,8 @@ from app.schemas.conversation import (
     MessageRequest,
     MessageResponse,
     SessionDetailResponse,
+    StaffSessionDetailResponse,
+    StaffSessionResponse,
     SessionResponse,
 )
 from app.schemas.flow import (
@@ -164,6 +166,8 @@ __all__ = [
     "ConversationSessionUpdate",
     "SessionResponse",
     "SessionDetailResponse",
+    "StaffSessionDetailResponse",
+    "StaffSessionResponse",
     "MessageCreate",
     "MessageRequest",
     "MessageResponse",

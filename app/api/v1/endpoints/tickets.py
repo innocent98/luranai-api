@@ -86,8 +86,8 @@ def list_tickets(
         None,
         max_length=100,
         description=(
-            "Case-insensitive substring search over ticket number, summary, session "
-            "user identifier and visitor name/email/phone. Ignored if < 2 chars after trim."
+            "Case-insensitive substring search over ticket number, summary and "
+            "visitor name/email/phone. Ignored if < 2 chars after trim."
         ),
     ),
     limit: int = Query(100, ge=1, le=500),

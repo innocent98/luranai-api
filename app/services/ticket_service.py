@@ -92,7 +92,6 @@ class TicketService:
                     name=visitor.name,
                     email=visitor.email,
                     phone=visitor.phone,
-                    public_token=visitor.public_token,
                     first_seen_at=visitor.first_seen_at,
                     last_seen_at=visitor.last_seen_at,
                     is_blocked=visitor.is_blocked,
@@ -528,8 +527,9 @@ class TicketService:
     def _ticket_search_condition(self, tenant_id: UUID, needle: str, base_filters: list):
         """
         OR-condition matching ``needle`` as a case-insensitive literal substring of the
-        ticket number, summary, session user_identifier, or the linked visitor's
-        name / email / phone.
+        ticket number, summary, or the linked visitor's name / email / phone.
+        ``user_identifier`` is deliberately NOT searchable: it is the customer socket
+        credential, and a substring match would let staff recover it character by character.
 
         Every sub-match is an IN-subquery on the ticket's own session_id, so no joins
         are added to the main statement: no duplicate rows, and count/page stay correct.
@@ -543,12 +543,6 @@ class TicketService:
         conditions = [
             Ticket.ticket_number.ilike(pattern, escape=_LIKE_ESCAPE),
             Ticket.summary.ilike(pattern, escape=_LIKE_ESCAPE),
-            Ticket.session_id.in_(
-                select(ConversationSession.id).where(
-                    ConversationSession.tenant_id == tenant_id,
-                    ConversationSession.user_identifier.ilike(pattern, escape=_LIKE_ESCAPE),
-                )
-            ),
         ]
 
         candidates = self.db.execute(

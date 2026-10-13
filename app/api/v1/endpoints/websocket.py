@@ -16,6 +16,7 @@ from app.db.models.user import UserRole
 from app.db.session import SessionLocal
 from app.services.conversation_service import ConversationService, attachment_frames
 from app.utils.datetime import ensure_utc_aware
+from app.utils.staff_redaction import staff_customer_label
 
 router = APIRouter()
 
@@ -95,6 +96,7 @@ async def customer_websocket(
         if _is_subscription_inactive(tenant):
             await websocket.close(code=4003, reason="Subscription inactive")
             return
+        agent_facing_label = staff_customer_label(db, session_id, session.visitor_id)
     finally:
         db.close()  # Release connection immediately after verification
 
@@ -181,7 +183,7 @@ async def customer_websocket(
                         "type": "customer_message",
                         "message_id": message_id,
                         "content": content,
-                        "user_identifier": user_identifier,
+                        "customer_label": agent_facing_label,
                         "timestamp": message_timestamp,
                         "attachments": [],
                     },
@@ -245,6 +247,7 @@ async def authenticated_customer_websocket(
         if _is_subscription_inactive(tenant):
             await websocket.close(code=4003, reason="Subscription inactive")
             return
+        agent_facing_label = staff_customer_label(db, session_id, session.visitor_id)
     finally:
         db.close()
 
@@ -322,7 +325,7 @@ async def authenticated_customer_websocket(
                         "type": "customer_message",
                         "message_id": message_id,
                         "content": content,
-                        "user_identifier": customer.chat_user_key,
+                        "customer_label": agent_facing_label,
                         "timestamp": message_timestamp,
                         "attachments": [],
                     },
@@ -460,6 +463,7 @@ async def agent_websocket(
         if _is_subscription_inactive(tenant):
             await websocket.close(code=4003, reason="Subscription inactive")
             return
+        customer_display_label = staff_customer_label(db, session_id, session.visitor_id)
     finally:
         db.close()  # Release connection immediately after verification
 
@@ -484,7 +488,7 @@ async def agent_websocket(
                         "type": "customer_message",
                         "message_id": str(msg.id),
                         "content": msg.content,
-                        "user_identifier": session.user_identifier,
+                        "customer_label": customer_display_label,
                         "timestamp": msg.created_at.isoformat(),
                         "attachments": attachment_frames(msg.attachments),
                     }
