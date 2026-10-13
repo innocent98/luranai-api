@@ -213,6 +213,22 @@ class TicketService:
 
         return self._to_ticket_response(ticket)
 
+    def lock_session_for_escalation(self, session_id: UUID) -> None:
+        """Serialise escalations of one session on its conversation_sessions row.
+
+        `SELECT ... FOR UPDATE` held until the caller's transaction ends (every
+        TicketService write commits, which releases it). A concurrent escalation
+        of the same session blocks here, then re-runs `get_open_ticket_for_session`
+        and sees the first caller's committed ticket instead of inserting a
+        duplicate. Read Committed re-reads on the next statement, so no refresh
+        is needed. A missing session is a no-op: nothing to serialise on.
+        """
+        self.db.execute(
+            select(ConversationSession.id)
+            .where(ConversationSession.id == session_id)
+            .with_for_update()
+        )
+
     def get_open_ticket_for_session(self, session_id: UUID) -> TicketResponse | None:
         """
         Get the session's live (still-actionable) escalation ticket, if any.

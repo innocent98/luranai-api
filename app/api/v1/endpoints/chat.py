@@ -735,15 +735,24 @@ def _get_or_create_escalation_ticket(
         just-reopened MISSED one; False for any other reuse (already OPEN or
         IN_PROGRESS, and therefore already ringing or already being handled).
     """
-    existing = ticket_service.get_open_ticket_for_session(session_id)
-    if existing is not None:
-        if existing.status == TicketStatus.MISSED and existing.assigned_to is None:
-            reopened = ticket_service.reopen_missed_ticket(existing.id)
-            if reopened is not None:
-                AgentAlertService(ticket_service.db).reset_ring(reopened.id)
-                return reopened, True
-        return existing, False
-    return ticket_service.create_ticket(ticket_data), True
+    # Row lock first, then the check: two concurrent escalations of one session
+    # would otherwise both see "no open ticket" and both create one. The lock is
+    # released by the commit inside create/reopen, or explicitly below.
+    try:
+        ticket_service.lock_session_for_escalation(session_id)
+        existing = ticket_service.get_open_ticket_for_session(session_id)
+        if existing is not None:
+            if existing.status == TicketStatus.MISSED and existing.assigned_to is None:
+                reopened = ticket_service.reopen_missed_ticket(existing.id)
+                if reopened is not None:
+                    AgentAlertService(ticket_service.db).reset_ring(reopened.id)
+                    return reopened, True
+            ticket_service.db.commit()  # nothing to write; just release the row lock
+            return existing, False
+        return ticket_service.create_ticket(ticket_data), True
+    except Exception:
+        ticket_service.db.rollback()  # never leave the session row locked
+        raise
 
 
 async def _escalate_to_human(
