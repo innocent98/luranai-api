@@ -87,11 +87,15 @@ def test_second_escalation_waits_then_reuses_first_ticket(committed_session):
 
     b = threading.Thread(target=caller_b)
     b.start()
-    time.sleep(1.0)
-    assert b.is_alive(), "B must block on A's session row lock instead of racing ahead"
-
-    a_ticket = TicketService(a_db).create_ticket(_ticket_data(tenant_id, session_id))
-    a_db.close()  # commit already released the lock
+    try:
+        time.sleep(1.0)
+        assert b.is_alive(), "B must block on A's session row lock instead of racing ahead"
+        a_ticket = TicketService(a_db).create_ticket(_ticket_data(tenant_id, session_id))
+    finally:
+        # Release A's lock on every path; a failed assertion above must not
+        # leave the row locked and hang the fixture teardown's DELETE.
+        a_db.rollback()
+        a_db.close()
     b.join(timeout=10)
     assert not b.is_alive()
 
@@ -100,9 +104,7 @@ def test_second_escalation_waits_then_reuses_first_ticket(committed_session):
 
     check = factory()
     try:
-        count = len(
-            check.execute(select(Ticket.id).where(Ticket.session_id == session_id)).all()
-        )
+        count = len(check.execute(select(Ticket.id).where(Ticket.session_id == session_id)).all())
     finally:
         check.close()
     assert count == 1
