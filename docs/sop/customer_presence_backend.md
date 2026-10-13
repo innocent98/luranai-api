@@ -38,7 +38,7 @@ Rejected: Postgres-only presence (write per heartbeat); a stored online flag (st
 Config: none. Constants live in `customer_presence.py` (`CONN_TTL_S=45`, `GRACE_S=30`, `KEEPALIVE_S=15`, `HEARTBEAT_S=20` documented for FEs).
 
 ## Verification
-- Local CI reproduction (pinned `ruff 0.8.6`, `black 24.10.0` via `poetry run`; full `pytest tests/` on throwaway Postgres 15 and Redis 7): see PR for final counts. Baseline before the change: 1658 passed, 33 skipped.
+- Local CI reproduction (pinned `ruff 0.8.6`, `black 24.10.0` via `poetry run`; full `pytest tests/` on throwaway Postgres 15 and Redis 7): 1690 passed, 33 skipped (baseline before the change: 1658 passed, 33 skipped; +32 new tests: 15 service, 9 REST, 8 WebSocket). `ruff check app/` and `black --check app/` clean; the CI automation/flow regression step (14 tests) passes.
 - Migration `upgrade head` -> `downgrade -1` -> `upgrade head` on Postgres 15, column is `timestamptz`, nullable.
 - Live run (uvicorn + Postgres + Redis): connect, away, back, heartbeat (0 frames), close -> offline after ~30.5 s, reload within grace (0 frames), tenant isolation, SIGKILL then TTL lapse. Captures in `docs/captures/customer-presence/`.
 - Not verified live: cross-worker aggregation (one uvicorn worker; covered by a two-tracker pytest sharing only Redis), authed customer socket, takeover response field.
