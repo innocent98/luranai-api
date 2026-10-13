@@ -240,7 +240,7 @@ class AnalyticsService:
             start_date, end_date = self._get_default_date_range()
 
         # Get agent info
-        agent = self.db.query(User).filter(User.id == agent_id).first()
+        agent = self.db.query(User).filter(User.id == agent_id, User.tenant_id == tenant_id).first()
         if not agent:
             raise ValueError("Agent not found")
 

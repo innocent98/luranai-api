@@ -402,6 +402,60 @@ class TestAnalyticsEndpoints:
 
         assert response.status_code == 200
 
+    def test_support_agent_cannot_view_colleague_drilldown(
+        self,
+        client: TestClient,
+        db: Session,
+        agent_auth_headers: dict,
+        test_tenant_with_analytics: Tenant,
+        sample_analytics_data,
+    ):
+        """Spec D5: a SUPPORT_AGENT gets 403 on a REAL colleague's id (not a random uuid)."""
+        colleague = User(
+            id=uuid4(),
+            tenant_id=test_tenant_with_analytics.id,
+            email="colleague@test.com",
+            full_name="Colleague Agent",
+            role=UserRole.SUPPORT_AGENT,
+            hashed_password=get_password_hash("password123"),
+            is_active=True,
+        )
+        db.add(colleague)
+        db.commit()
+
+        response = client.get(
+            f"/api/v1/analytics/agents/{colleague.id}", headers=agent_auth_headers
+        )
+
+        assert response.status_code == 403
+
+    def test_admin_drilldown_cross_tenant_agent_is_404(
+        self,
+        client: TestClient,
+        db: Session,
+        admin_auth_headers: dict,
+        test_tenant_without_analytics: Tenant,
+        sample_analytics_data,
+    ):
+        """An agent id from ANOTHER tenant must not leak name/email: 404 (tenant-filtered)."""
+        foreign = User(
+            id=uuid4(),
+            tenant_id=test_tenant_without_analytics.id,
+            email="foreign@other.com",
+            full_name="Foreign Agent",
+            role=UserRole.SUPPORT_AGENT,
+            hashed_password=get_password_hash("password123"),
+            is_active=True,
+        )
+        db.add(foreign)
+        db.commit()
+
+        response = client.get(f"/api/v1/analytics/agents/{foreign.id}", headers=admin_auth_headers)
+
+        assert response.status_code == 404
+        assert "Foreign Agent" not in response.text
+        assert "foreign@other.com" not in response.text
+
     def test_get_agent_performance_not_found(
         self, client: TestClient, admin_auth_headers: dict, sample_analytics_data
     ):
