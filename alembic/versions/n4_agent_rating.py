@@ -36,6 +36,11 @@ DUPLICATE_SESSIONS_SQL = (
     "GROUP BY session_id HAVING count(*) > 1) AS d"
 )
 _BATCH = 500
+_FERNET_PREFIX = "gAAAAA"
+
+
+class _UndecryptableToken(Exception):
+    """A Fernet-looking value that the current key(s) cannot decrypt."""
 
 
 def _require_encryption_key() -> None:
@@ -49,6 +54,7 @@ def _require_encryption_key() -> None:
 def _rewrite_comments(bind, transform) -> int:
     """Keyset-walk non-NULL comments; transform(value) returns the new value or None to skip."""
     changed = 0
+    undecryptable = 0
     last_id = None
     while True:
         if last_id is None:
@@ -68,9 +74,19 @@ def _rewrite_comments(bind, transform) -> int:
                 {"last": last_id, "n": _BATCH},
             ).all()
         if not rows:
+            if undecryptable:
+                raise RuntimeError(
+                    f"n4agentrating: {undecryptable} comment(s) look encrypted but cannot be "
+                    "decrypted with the current key. Check ENCRYPTION_KEY / "
+                    "ENCRYPTION_KEY_PREVIOUS; nothing was committed."
+                )
             return changed
         for row_id, value in rows:
-            new_value = transform(value)
+            try:
+                new_value = transform(value)
+            except _UndecryptableToken:
+                undecryptable += 1
+                continue
             if new_value is not None and new_value != value:
                 bind.execute(
                     sa.text("UPDATE session_ratings SET comment = :c WHERE id = :id"),
@@ -87,6 +103,8 @@ def _encrypt_one(value: str) -> str | None:
         decrypt_field(value)
         return None  # already a valid token under the current/previous key
     except Exception:  # noqa: BLE001 — InvalidToken: plaintext legacy row
+        if value.startswith(_FERNET_PREFIX):
+            raise _UndecryptableToken from None  # token under an unknown key: don't re-wrap
         return encrypt_field(value)
 
 
@@ -95,7 +113,9 @@ def _decrypt_one(value: str) -> str | None:
 
     try:
         return decrypt_field(value)
-    except Exception:  # noqa: BLE001 — already plaintext
+    except Exception:  # noqa: BLE001 — already plaintext, or a token we cannot read
+        if value.startswith(_FERNET_PREFIX):
+            raise _UndecryptableToken from None
         return None
 
 
@@ -123,7 +143,10 @@ def upgrade() -> None:
         sa.Column("token_hash", sa.String(length=64), nullable=False),
         sa.Column("message_id", sa.Uuid(), nullable=True),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("fulfilled_at", sa.DateTime(timezone=True), nullable=True),
@@ -143,7 +166,9 @@ def upgrade() -> None:
         "rating_requests",
         ["session_id", "agent_id", "created_at"],
     )
-    op.create_index("ix_rating_requests_tenant_created", "rating_requests", ["tenant_id", "created_at"])
+    op.create_index(
+        "ix_rating_requests_tenant_created", "rating_requests", ["tenant_id", "created_at"]
+    )
 
     op.add_column("session_ratings", sa.Column("rated_agent_id", sa.Uuid(), nullable=True))
     op.create_foreign_key(
@@ -174,7 +199,9 @@ def upgrade() -> None:
     )
 
     # Uniqueness swap: one rating per session -> one per (session, rated party).
-    op.execute("ALTER TABLE session_ratings DROP CONSTRAINT IF EXISTS uq_session_rating_per_session")
+    op.execute(
+        "ALTER TABLE session_ratings DROP CONSTRAINT IF EXISTS uq_session_rating_per_session"
+    )
     op.execute("DROP INDEX IF EXISTS ix_session_ratings_session_id")
     op.create_index("ix_session_ratings_session_id", "session_ratings", ["session_id"])
     op.create_index(
@@ -197,7 +224,21 @@ def upgrade() -> None:
         ["tenant_id", "rated_agent_id", "created_at"],
     )
 
-    encrypt_existing_comments(op.get_bind())
+    bind = op.get_bind()
+    leftover = bind.execute(
+        sa.text(
+            "SELECT indexname FROM pg_indexes WHERE tablename = 'session_ratings' "
+            "AND indexdef LIKE 'CREATE UNIQUE INDEX%' AND indexdef NOT LIKE '% WHERE %' "
+            "AND indexdef LIKE '%(session_id)'"
+        )
+    ).all()
+    if leftover:
+        raise RuntimeError(
+            "n4agentrating: a non-partial unique index on session_ratings(session_id) "
+            f"remains: {[r[0] for r in leftover]}"
+        )
+
+    encrypt_existing_comments(bind)
 
 
 def downgrade() -> None:

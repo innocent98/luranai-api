@@ -112,3 +112,42 @@ def test_migration_refuses_to_run_without_key(monkeypatch):
 def test_duplicate_guard_sql_counts_sessions_with_several_ratings():
     sql = " ".join(_mod().DUPLICATE_SESSIONS_SQL.split())
     assert "GROUP BY session_id HAVING count(*) > 1" in sql
+
+
+def test_wrong_key_fails_loudly_in_both_directions(db, monkeypatch):
+    from cryptography.fernet import Fernet
+
+    mod = _mod()
+    tenant = make_tenant(db)
+    r = make_rating(
+        db, session_id=make_ticket(db, tenant).session_id, tenant_id=tenant.id, comment="x"
+    )
+    assert decrypt_field(_raw_comment(db, r.id)) == "x"  # stored under key A
+    monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())  # key B
+    monkeypatch.delenv("ENCRYPTION_KEY_PREVIOUS", raising=False)
+    raw_before = _raw_comment(db, r.id)
+    with pytest.raises(RuntimeError, match="ENCRYPTION_KEY"):
+        mod.encrypt_existing_comments(db.connection())
+    with pytest.raises(RuntimeError, match="ENCRYPTION_KEY"):
+        mod.decrypt_existing_comments(db.connection())
+    assert _raw_comment(db, r.id) == raw_before  # untouched, not double-encrypted
+
+
+def test_batch_boundaries(db, monkeypatch):
+    mod = _mod()
+    monkeypatch.setattr(mod, "_BATCH", 1)
+    tenant = make_tenant(db)
+    ids = []
+    for i in range(3):
+        r = make_rating(
+            db,
+            session_id=make_ticket(db, tenant).session_id,
+            tenant_id=tenant.id,
+            comment=f"c{i}",
+        )
+        ids.append(r.id)
+    db.execute(text("UPDATE session_ratings SET comment = 'plain-' || substr(id, 1, 4)"))
+    db.commit()
+    assert mod.encrypt_existing_comments(db.connection()) == 3
+    assert mod.encrypt_existing_comments(db.connection()) == 0
+    assert mod.decrypt_existing_comments(db.connection()) == 3
