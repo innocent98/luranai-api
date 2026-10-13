@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/tickets/3aade2be-e716-4d27-b3cf-e96f406e905b/rating-requests",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "detail": {
+        "code": "ticket_not_ratable",
+        "message": "A rating can only be requested while the ticket is in progress or within 24 hours of resolving it"
+      }
+    }
+  }
+}

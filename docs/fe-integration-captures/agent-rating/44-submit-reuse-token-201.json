@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/reviews/session",
+    "headers": {},
+    "body": {
+      "session_id": "ad17082a-9b95-4302-af3d-9c1314da9b98",
+      "user_identifier": "capture-visitor-d@example.test",
+      "score": 2,
+      "comment": "Took long",
+      "rating_request_token": "<rating-token-3-placeholder>"
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "score": 2,
+      "comment": "Took long",
+      "meta": {},
+      "id": "a609fabe-3e33-4030-8d81-9d6810fb699d",
+      "tenant_id": "8843f825-64d4-4299-b661-a87d55bec122",
+      "session_id": "ad17082a-9b95-4302-af3d-9c1314da9b98",
+      "user_identifier": "capture-visitor-d@example.test",
+      "created_at": "2026-10-13T11:30:30.143645Z",
+      "updated_at": "2026-10-13T11:30:30.143645Z",
+      "rated_agent_id": "4da5516f-1d3c-4eb4-8c45-29ddf75e706e",
+      "source": "manual_request",
+      "rating_request_id": "a7c6472b-e2fa-4230-911a-08b87f6f899e",
+      "rated_party": "human"
+    }
+  }
+}

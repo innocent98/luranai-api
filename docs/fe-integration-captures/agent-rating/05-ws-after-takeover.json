@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "WS",
+    "path": "/ws/chat/2f620b02-5700-4897-870c-3ace295f42dd + /ws/agent/2f620b02-5700-4897-870c-3ace295f42dd (frames after takeover)",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 101,
+    "body": {
+      "customer_frames": [
+        {
+          "type": "agent_joined",
+          "agent_name": "Sam Rivers",
+          "agent_id": "4da5516f-1d3c-4eb4-8c45-29ddf75e706e",
+          "timestamp": "2026-10-13T11:30:14.991331+00:00"
+        }
+      ],
+      "agent_frames": []
+    }
+  }
+}

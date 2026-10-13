@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/reviews/session",
+    "headers": {},
+    "body": {
+      "session_id": "2f620b02-5700-4897-870c-3ace295f42dd",
+      "user_identifier": "<customer-identifier-placeholder>",
+      "score": 5,
+      "rating_request_token": "<rating-token-unknown-placeholder>"
+    }
+  },
+  "response": {
+    "status": 429,
+    "body": {
+      "detail": {
+        "code": "rating_rate_limited",
+        "message": "Too many ratings from this network. Try again later",
+        "retry_after_seconds": 3600
+      }
+    }
+  }
+}

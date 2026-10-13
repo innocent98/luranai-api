@@ -1,0 +1,36 @@
+{
+  "request": {
+    "method": "WS",
+    "path": "/ws/chat/3c5f9770-b6ea-4f48-a5a1-2eefceb926a5?user_identifier=capture-visitor-c@example.test",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 101,
+    "body": {
+      "frames_received": [
+        {
+          "type": "rating_requested",
+          "request_id": "95f5ba81-77c1-47a0-9302-61e2aaffcf11",
+          "token": "<rating-token-2-placeholder>",
+          "agent_name": "Kim",
+          "message_id": "a99c9aab-8915-496f-a6a3-a77073d3c4d3",
+          "content": "How was your chat with Kim?",
+          "source": "auto_resolve",
+          "timestamp": "2026-10-13T11:30:22.453400+00:00",
+          "expires_at": "2026-10-20T11:30:22.450575+00:00"
+        },
+        {
+          "type": "ticket_resolved",
+          "ticket_id": "053f33f7-7cc1-4c8d-95c4-cfe347b5fd25",
+          "ticket_number": "TKT-2026-0003",
+          "resolution_notes": "Replacement shipped",
+          "resolved_by": "Kim Lee",
+          "resolved_at": "2026-10-13T11:30:22.437215+00:00",
+          "rating_request_id": "95f5ba81-77c1-47a0-9302-61e2aaffcf11",
+          "rating_state": "pending"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "WS",
+    "path": "/ws/chat/8d6fb634-76d7-4142-9dbe-e7dbfd3c3271?user_identifier=capture-visitor-e@example.test (new socket after reload)",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 101,
+    "body": {
+      "frames_received": []
+    }
+  }
+}

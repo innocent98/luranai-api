@@ -1,0 +1,33 @@
+{
+  "request": {
+    "method": "WS",
+    "path": "/ws/agent/3c5f9770-b6ea-4f48-a5a1-2eefceb926a5?token=<agent-jwt-placeholder>",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 101,
+    "body": {
+      "frames_received": [
+        {
+          "type": "rating_request_created",
+          "request_id": "95f5ba81-77c1-47a0-9302-61e2aaffcf11",
+          "ticket_id": "053f33f7-7cc1-4c8d-95c4-cfe347b5fd25",
+          "agent_id": "7be9e545-e0f0-4898-9b98-77fe94cdab78",
+          "source": "auto_resolve",
+          "created_at": "2026-10-13T11:30:22.450575+00:00"
+        },
+        {
+          "type": "ticket_resolved",
+          "ticket_id": "053f33f7-7cc1-4c8d-95c4-cfe347b5fd25",
+          "ticket_number": "TKT-2026-0003",
+          "resolution_notes": "Replacement shipped",
+          "resolved_by": "Kim Lee",
+          "resolved_at": "2026-10-13T11:30:22.437215+00:00",
+          "rating_request_id": "95f5ba81-77c1-47a0-9302-61e2aaffcf11",
+          "rating_state": "pending"
+        }
+      ]
+    }
+  }
+}

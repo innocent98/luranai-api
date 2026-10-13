@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/reviews/session",
+    "headers": {},
+    "body": {
+      "session_id": "a7e2c25c-5c72-4cb0-bf82-c8f455642c8b",
+      "user_identifier": "<customer-identifier-placeholder>",
+      "score": 5,
+      "rating_request_token": "<rating-token-1-placeholder>"
+    }
+  },
+  "response": {
+    "status": 400,
+    "body": {
+      "detail": "Session not found"
+    }
+  }
+}

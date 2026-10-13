@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/reviews/session",
+    "headers": {},
+    "body": {
+      "session_id": "2f620b02-5700-4897-870c-3ace295f42dd",
+      "user_identifier": "<customer-identifier-placeholder>",
+      "score": 1,
+      "rating_request_token": "<rating-token-1-placeholder>"
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "detail": {
+        "code": "already_rated",
+        "message": "This conversation has already been rated for this agent"
+      }
+    }
+  }
+}

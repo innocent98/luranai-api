@@ -1,0 +1,37 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/tickets/053f33f7-7cc1-4c8d-95c4-cfe347b5fd25/resolve",
+    "headers": {
+      "Authorization": "Bearer <agent-kim-jwt-placeholder>"
+    },
+    "body": {
+      "resolution_notes": "Replacement shipped"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "summary": "Order arrived damaged",
+      "priority": "medium",
+      "id": "053f33f7-7cc1-4c8d-95c4-cfe347b5fd25",
+      "tenant_id": "8843f825-64d4-4299-b661-a87d55bec122",
+      "session_id": "3c5f9770-b6ea-4f48-a5a1-2eefceb926a5",
+      "ticket_number": "TKT-2026-0003",
+      "status": "resolved",
+      "assigned_to": "7be9e545-e0f0-4898-9b98-77fe94cdab78",
+      "assigned_agent": {
+        "id": "7be9e545-e0f0-4898-9b98-77fe94cdab78",
+        "email": "kim.lee@example.com",
+        "full_name": "Kim Lee",
+        "role": "support_agent"
+      },
+      "visitor": null,
+      "resolution_notes": "Replacement shipped",
+      "resolved_at": "2026-10-13T11:30:22.437215Z",
+      "rating_request_id": "95f5ba81-77c1-47a0-9302-61e2aaffcf11",
+      "created_at": "2026-10-13T11:30:21.386475Z",
+      "updated_at": "2026-10-13T11:30:22.427981Z"
+    }
+  }
+}
