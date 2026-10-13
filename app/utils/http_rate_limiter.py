@@ -72,6 +72,9 @@ video_register_rate_limiter = RedisRateLimiter(
     key_prefix="http_video_register", max_calls=20, window_seconds=3600
 )
 
+# Public rating submit (N4): 20/hour/IP, own bucket so it never eats chat/upload quota.
+rating_rate_limiter = RedisRateLimiter(key_prefix="http_rating", max_calls=20, window_seconds=3600)
+
 # Public registration endpoints (IP-based, separate limits)
 registration_rate_limiter = RedisRateLimiter(
     key_prefix="http_registration",
@@ -245,6 +248,26 @@ chat_upload_rate_limit = create_rate_limit_dependency(upload_rate_limiter, "ip")
 # Public screen-recording endpoints (separate buckets so videos never consume image uploads).
 chat_video_sign_rate_limit = create_rate_limit_dependency(video_sign_rate_limiter, "ip")
 chat_video_register_rate_limit = create_rate_limit_dependency(video_register_rate_limiter, "ip")
+
+
+async def rating_rate_limit(request: Request) -> None:
+    """Public POST /reviews/session limiter; 429 uses the N4 object error shape."""
+    try:
+        await check_rate_limit(request, rating_rate_limiter, "ip")
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_429_TOO_MANY_REQUESTS:
+            raise
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "code": "rating_rate_limited",
+                "message": "Too many ratings from this network. Try again later",
+                "retry_after_seconds": rating_rate_limiter.window_seconds,
+            },
+            headers=exc.headers,
+        ) from exc
+
+
 # No `create_rate_limit_dependency` wrapper for account_deletion_public: the
 # deletion-request endpoint is dual-mode (authed vs public) and must only
 # rate-limit the public branch, so it calls `check_rate_limit` directly

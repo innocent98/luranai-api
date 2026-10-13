@@ -25,10 +25,11 @@ from app.schemas.review import (
     PublicFeedbackResponse,
     SessionRatingCreate,
     SessionRatingListResponse,
-    SessionRatingResponse,
+    SessionRatingSubmitResponse,
 )
 from app.schemas.user import UserResponse
-from app.services.review_service import ReviewService
+from app.services.review_service import RatingSubmitError, ReviewService
+from app.utils.http_rate_limiter import rating_rate_limit
 
 router = APIRouter()
 
@@ -38,8 +39,9 @@ router = APIRouter()
 
 @router.post(
     "/session",
-    response_model=SessionRatingResponse,
+    response_model=SessionRatingSubmitResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rating_rate_limit)],
     summary="Submit session rating",
     description="Public endpoint for customers to rate their chat experience. No authentication required.",
 )
@@ -62,8 +64,10 @@ async def create_session_rating(
 
     **Returns:**
     - 201: Rating created successfully
-    - 400: Invalid data (session not found, user mismatch)
-    - 409: Rating already exists for this session
+    - 400: Invalid data (session not found, user mismatch) or `rating_request_invalid`
+    - 409: Rating already exists for this session, or `already_rated` (token path)
+    - 410: `rating_request_expired`
+    - 429: `rating_rate_limited`
     """
     try:
         review_service = ReviewService(db)
@@ -71,11 +75,13 @@ async def create_session_rating(
 
         logger.info(
             f"Session rating created: session_id={rating_data.session_id}, "
-            f"score={rating_data.score}"
+            f"score={rating_data.score}, tokened={bool(rating_data.rating_request_token)}"
         )
 
         return rating
 
+    except RatingSubmitError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail()) from e
     except ValueError as e:
         error_msg = str(e)
         if "already exists" in error_msg.lower():

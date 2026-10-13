@@ -9,7 +9,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models.conversation import ConversationSession
-from app.db.models.review import FeedbackCategory, PlatformFeedback, PublicFeedback, SessionRating
+from app.db.models.review import (
+    FeedbackCategory,
+    PlatformFeedback,
+    PublicFeedback,
+    RatingRequest,
+    RatingSource,
+    SessionRating,
+)
 from app.schemas.review import (
     PlatformFeedbackCreate,
     PlatformFeedbackListResponse,
@@ -21,7 +28,39 @@ from app.schemas.review import (
     SessionRatingCreate,
     SessionRatingListResponse,
     SessionRatingResponse,
+    SessionRatingSubmitResponse,
 )
+from app.services.rating_request_service import hash_token
+from app.utils.datetime import ensure_utc_aware, utcnow_aware
+
+
+_RESOLUTION_META_SOURCES = ("agent_resolved", "ticket_closed")
+
+
+def legacy_source(meta: dict | None) -> str:
+    """Untokened ratings: same mapping as the n4agentrating backfill."""
+    if (meta or {}).get("source") in _RESOLUTION_META_SOURCES:
+        return RatingSource.RESOLUTION_PROMPT
+    return RatingSource.IDLE_PROMPT
+
+
+class RatingSubmitError(Exception):
+    """Token-path refusal with the spec's object error body."""
+
+    STATUS = {"rating_request_invalid": 400, "already_rated": 409, "rating_request_expired": 410}
+    MESSAGES = {
+        "rating_request_invalid": "This rating link is not valid for this conversation",
+        "already_rated": "This conversation has already been rated for this agent",
+        "rating_request_expired": "This rating request has expired",
+    }
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+        self.status_code = self.STATUS[code]
+
+    def detail(self) -> dict:
+        return {"code": self.code, "message": self.MESSAGES[self.code]}
 
 
 class ReviewService:
@@ -33,32 +72,36 @@ class ReviewService:
 
     # ===== Session Rating Methods =====
 
-    def create_session_rating(self, rating_data: SessionRatingCreate) -> SessionRatingResponse:
-        """
-        Create a new session rating.
-
-        Args:
-            rating_data: Rating creation data
-
-        Returns:
-            Created rating response
+    def create_session_rating(
+        self, rating_data: SessionRatingCreate
+    ) -> SessionRatingSubmitResponse:
+        """Create a rating. Untokened = AI/no-human party (legacy); tokened = that agent.
 
         Raises:
-            ValueError: If session not found or user_identifier doesn't match
-            IntegrityError: If rating already exists for this session
+            ValueError: legacy string errors (session not found, identifier mismatch,
+                duplicate AI rating) - byte-identical to pre-N4.
+            RatingSubmitError: token-path refusals (object errors).
         """
-        # Verify session exists and get tenant_id
         stmt = select(ConversationSession).where(ConversationSession.id == rating_data.session_id)
         session = self.db.execute(stmt).scalar_one_or_none()
 
         if not session:
             raise ValueError("Session not found")
 
-        # Verify user_identifier matches session
         if session.user_identifier != rating_data.user_identifier:
             raise ValueError("User identifier does not match session")
 
-        # Create rating
+        if rating_data.rating_request_token:
+            return self._create_tokened_rating(session, rating_data)
+
+        ai_exists = self.db.execute(
+            select(SessionRating.id).where(
+                SessionRating.session_id == session.id, SessionRating.rated_agent_id.is_(None)
+            )
+        ).first()
+        if ai_exists:
+            raise ValueError("Rating already exists for this session")
+
         db_rating = SessionRating(
             tenant_id=session.tenant_id,
             session_id=rating_data.session_id,
@@ -66,8 +109,9 @@ class ReviewService:
             comment=rating_data.comment,
             user_identifier=rating_data.user_identifier,
             meta=rating_data.meta or {},
+            rated_agent_id=None,
+            source=legacy_source(rating_data.meta),
         )
-
         try:
             self.db.add(db_rating)
             self.db.commit()
@@ -76,7 +120,56 @@ class ReviewService:
             self.db.rollback()
             raise ValueError("Rating already exists for this session") from err
 
-        return SessionRatingResponse.model_validate(db_rating)
+        return SessionRatingSubmitResponse.model_validate(db_rating)
+
+    def _create_tokened_rating(
+        self, session: ConversationSession, rating_data: SessionRatingCreate
+    ) -> SessionRatingSubmitResponse:
+        """Spec 4.3.3 token path. The agent comes from the request row, never the client.
+
+        The request row is locked (FOR UPDATE) so a concurrent double-submit serialises:
+        the loser re-reads fulfilled_at after the winner commits. The unique index on
+        rating_request_id / (session, agent) is the backstop.
+        """
+        now = utcnow_aware()
+        request = self.db.execute(
+            select(RatingRequest)
+            .where(RatingRequest.token_hash == hash_token(rating_data.rating_request_token))
+            .with_for_update()
+        ).scalar_one_or_none()
+        # Unknown token and a token minted for another session are indistinguishable.
+        if request is None or request.session_id != session.id:
+            raise RatingSubmitError("rating_request_invalid")
+        already = self.db.execute(
+            select(SessionRating.id).where(
+                SessionRating.session_id == session.id,
+                SessionRating.rated_agent_id == request.agent_id,
+            )
+        ).first()
+        if request.fulfilled_at is not None or already:
+            raise RatingSubmitError("already_rated")
+        if ensure_utc_aware(request.expires_at) <= now:
+            raise RatingSubmitError("rating_request_expired")
+
+        db_rating = SessionRating(
+            tenant_id=session.tenant_id,
+            session_id=session.id,
+            score=rating_data.score,
+            comment=rating_data.comment,
+            user_identifier=rating_data.user_identifier,
+            meta=rating_data.meta or {},
+            rated_agent_id=request.agent_id,
+            source=request.source,
+            rating_request_id=request.id,
+        )
+        request.fulfilled_at = now
+        try:
+            self.db.add(db_rating)
+            self.db.commit()
+            self.db.refresh(db_rating)
+        except IntegrityError as err:
+            raise RatingSubmitError("already_rated") from err
+        return SessionRatingSubmitResponse.model_validate(db_rating)
 
     def get_session_rating(self, session_id: UUID) -> SessionRatingResponse | None:
         """
