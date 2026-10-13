@@ -1,0 +1,36 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/reviews/session",
+    "headers": {},
+    "body": {
+      "session_id": "2f620b02-5700-4897-870c-3ace295f42dd",
+      "user_identifier": "<customer-identifier-placeholder>",
+      "score": 3,
+      "comment": "The bot part was okay",
+      "meta": {
+        "source": "agent_resolved"
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "score": 3,
+      "comment": "The bot part was okay",
+      "meta": {
+        "source": "agent_resolved"
+      },
+      "id": "b642f8a3-3e0d-4b5d-a56d-0577083197f5",
+      "tenant_id": "8843f825-64d4-4299-b661-a87d55bec122",
+      "session_id": "2f620b02-5700-4897-870c-3ace295f42dd",
+      "user_identifier": "<customer-identifier-placeholder>",
+      "created_at": "2026-10-13T11:30:18.280226Z",
+      "updated_at": "2026-10-13T11:30:18.280226Z",
+      "rated_agent_id": null,
+      "source": "resolution_prompt",
+      "rating_request_id": null,
+      "rated_party": "ai"
+    }
+  }
+}

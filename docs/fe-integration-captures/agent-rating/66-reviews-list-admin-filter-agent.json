@@ -1,0 +1,40 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/reviews/session?rated_agent_id=7be9e545-e0f0-4898-9b98-77fe94cdab78",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "ratings": [
+        {
+          "score": 4,
+          "comment": null,
+          "meta": {},
+          "id": "8574c2c3-a48e-4a1d-9c3b-8f6df1ffde83",
+          "tenant_id": "8843f825-64d4-4299-b661-a87d55bec122",
+          "session_id": "3c5f9770-b6ea-4f48-a5a1-2eefceb926a5",
+          "user_identifier": "capture-visitor-c@example.test",
+          "created_at": "2026-10-13T11:30:24.497369Z",
+          "updated_at": "2026-10-13T11:30:24.497369Z",
+          "rated_agent_id": "7be9e545-e0f0-4898-9b98-77fe94cdab78",
+          "source": "auto_resolve",
+          "rating_request_id": "95f5ba81-77c1-47a0-9302-61e2aaffcf11",
+          "rated_agent_name": "Kim Lee",
+          "ticket_id": "053f33f7-7cc1-4c8d-95c4-cfe347b5fd25",
+          "ticket_number": "TKT-2026-0003",
+          "rated_party": "human"
+        }
+      ],
+      "total": 1,
+      "average_score": 4.0,
+      "csat_percent": 100.0,
+      "page": 1,
+      "page_size": 50
+    }
+  }
+}

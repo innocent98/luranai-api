@@ -1,0 +1,24 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/tickets/8ad779ac-f603-45b8-b60a-c6d691dab780/rating-requests",
+    "headers": {
+      "Authorization": "Bearer <agent-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "request_id": "0b661f09-3120-459a-a40a-5ff1fa298e88",
+      "ticket_id": "8ad779ac-f603-45b8-b60a-c6d691dab780",
+      "session_id": "8d6fb634-76d7-4142-9dbe-e7dbfd3c3271",
+      "agent_id": "4da5516f-1d3c-4eb4-8c45-29ddf75e706e",
+      "agent_name": "Sam Rivers",
+      "source": "manual_request",
+      "message_id": "18c59b52-1891-436c-a02c-001046e08681",
+      "created_at": "2026-10-13T11:30:33.783086Z",
+      "expires_at": "2026-10-20T11:30:33.783086Z"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/tickets/633d7c63-f992-4a99-94d3-d09d827fe8b6/rating-requests",
+    "headers": {
+      "Authorization": "Bearer <agent-kim-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "detail": {
+        "code": "rating_request_forbidden",
+        "message": "Only the assigned agent or an admin can request a rating"
+      }
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/analytics/agents",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "agent_id": "2b67cdc7-9024-4455-a869-14c6f0707c81",
+        "agent_name": "Ada Admin",
+        "email": "ada.admin@example.com",
+        "current_assigned_tickets": 0,
+        "tickets_by_status": {},
+        "total_tickets_resolved": 0,
+        "ratings_count": 0,
+        "average_rating": null,
+        "csat_percent": null
+      },
+      {
+        "agent_id": "4da5516f-1d3c-4eb4-8c45-29ddf75e706e",
+        "agent_name": "Sam Rivers",
+        "email": "sam.rivers@example.com",
+        "current_assigned_tickets": 5,
+        "tickets_by_status": {
+          "in_progress": 2,
+          "resolved": 3
+        },
+        "total_tickets_resolved": 3,
+        "ratings_count": 3,
+        "average_rating": 4.0,
+        "csat_percent": 66.7
+      },
+      {
+        "agent_id": "7be9e545-e0f0-4898-9b98-77fe94cdab78",
+        "agent_name": "Kim Lee",
+        "email": "kim.lee@example.com",
+        "current_assigned_tickets": 2,
+        "tickets_by_status": {
+          "resolved": 1,
+          "closed": 1
+        },
+        "total_tickets_resolved": 1,
+        "ratings_count": 1,
+        "average_rating": 4.0,
+        "csat_percent": 100.0
+      },
+      {
+        "agent_id": "a0f03dc8-dd19-47c0-9b75-ca1955e532a0",
+        "agent_name": "Vic Viewer",
+        "email": "vic.viewer@example.com",
+        "current_assigned_tickets": 0,
+        "tickets_by_status": {},
+        "total_tickets_resolved": 0,
+        "ratings_count": 0,
+        "average_rating": null,
+        "csat_percent": null
+      }
+    ]
+  }
+}

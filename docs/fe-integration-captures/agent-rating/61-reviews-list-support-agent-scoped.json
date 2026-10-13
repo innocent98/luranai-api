@@ -1,0 +1,76 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/reviews/session",
+    "headers": {
+      "Authorization": "Bearer <agent-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "ratings": [
+        {
+          "score": 5,
+          "comment": "Great help",
+          "meta": {},
+          "id": "e5acb17d-ebc1-43ac-9689-4cee8f472b87",
+          "tenant_id": "8843f825-64d4-4299-b661-a87d55bec122",
+          "session_id": "8d6fb634-76d7-4142-9dbe-e7dbfd3c3271",
+          "user_identifier": "capture-visitor-e@example.test",
+          "created_at": "2026-10-13T11:30:37.333369Z",
+          "updated_at": "2026-10-13T11:30:37.333369Z",
+          "rated_agent_id": "4da5516f-1d3c-4eb4-8c45-29ddf75e706e",
+          "source": "manual_request",
+          "rating_request_id": "0b661f09-3120-459a-a40a-5ff1fa298e88",
+          "rated_agent_name": "Sam Rivers",
+          "ticket_id": "8ad779ac-f603-45b8-b60a-c6d691dab780",
+          "ticket_number": "TKT-2026-0005",
+          "rated_party": "human"
+        },
+        {
+          "score": 2,
+          "comment": "Took long",
+          "meta": {},
+          "id": "a609fabe-3e33-4030-8d81-9d6810fb699d",
+          "tenant_id": "8843f825-64d4-4299-b661-a87d55bec122",
+          "session_id": "ad17082a-9b95-4302-af3d-9c1314da9b98",
+          "user_identifier": "capture-visitor-d@example.test",
+          "created_at": "2026-10-13T11:30:30.143645Z",
+          "updated_at": "2026-10-13T11:30:30.143645Z",
+          "rated_agent_id": "4da5516f-1d3c-4eb4-8c45-29ddf75e706e",
+          "source": "manual_request",
+          "rating_request_id": "a7c6472b-e2fa-4230-911a-08b87f6f899e",
+          "rated_agent_name": "Sam Rivers",
+          "ticket_id": "6712e2a8-03cb-479a-9df2-98e329af8265",
+          "ticket_number": "TKT-2026-0004",
+          "rated_party": "human"
+        },
+        {
+          "score": 5,
+          "comment": "Sam sorted it out quickly, thanks!",
+          "meta": {},
+          "id": "59b7ee28-e9ab-4d9d-9e37-be603f648078",
+          "tenant_id": "8843f825-64d4-4299-b661-a87d55bec122",
+          "session_id": "2f620b02-5700-4897-870c-3ace295f42dd",
+          "user_identifier": "<customer-identifier-placeholder>",
+          "created_at": "2026-10-13T11:30:18.231931Z",
+          "updated_at": "2026-10-13T11:30:18.231931Z",
+          "rated_agent_id": "4da5516f-1d3c-4eb4-8c45-29ddf75e706e",
+          "source": "manual_request",
+          "rating_request_id": "45550168-84fe-441c-8cd4-f77a310c2b65",
+          "rated_agent_name": "Sam Rivers",
+          "ticket_id": "633d7c63-f992-4a99-94d3-d09d827fe8b6",
+          "ticket_number": "TKT-2026-0001",
+          "rated_party": "human"
+        }
+      ],
+      "total": 3,
+      "average_score": 4.0,
+      "csat_percent": 66.7,
+      "page": 1,
+      "page_size": 50
+    }
+  }
+}

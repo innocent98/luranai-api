@@ -1,0 +1,37 @@
+{
+  "request": {
+    "method": "WS",
+    "path": "/ws/chat/2f620b02-5700-4897-870c-3ace295f42dd + /ws/agent/2f620b02-5700-4897-870c-3ace295f42dd (frames after resolve)",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 101,
+    "body": {
+      "customer_frames": [
+        {
+          "type": "ticket_resolved",
+          "ticket_id": "633d7c63-f992-4a99-94d3-d09d827fe8b6",
+          "ticket_number": "TKT-2026-0001",
+          "resolution_notes": "Password reset sent",
+          "resolved_by": "Sam Rivers",
+          "resolved_at": "2026-10-13T11:30:18.332712+00:00",
+          "rating_request_id": null,
+          "rating_state": "already_rated"
+        }
+      ],
+      "agent_frames": [
+        {
+          "type": "ticket_resolved",
+          "ticket_id": "633d7c63-f992-4a99-94d3-d09d827fe8b6",
+          "ticket_number": "TKT-2026-0001",
+          "resolution_notes": "Password reset sent",
+          "resolved_by": "Sam Rivers",
+          "resolved_at": "2026-10-13T11:30:18.332712+00:00",
+          "rating_request_id": null,
+          "rating_state": "already_rated"
+        }
+      ]
+    }
+  }
+}

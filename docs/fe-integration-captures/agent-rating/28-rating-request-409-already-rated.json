@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/tickets/633d7c63-f992-4a99-94d3-d09d827fe8b6/rating-requests",
+    "headers": {
+      "Authorization": "Bearer <agent-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "detail": {
+        "code": "already_rated",
+        "message": "The customer has already rated this agent for this conversation"
+      }
+    }
+  }
+}

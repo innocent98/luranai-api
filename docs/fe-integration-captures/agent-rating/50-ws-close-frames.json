@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "WS",
+    "path": "/ws/chat/e640855a-0740-4433-8428-9847bfd68205 + /ws/agent/e640855a-0740-4433-8428-9847bfd68205 (frames after close)",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 101,
+    "body": {
+      "customer_frames": [
+        {
+          "type": "ticket_closed",
+          "ticket_id": "3aade2be-e716-4d27-b3cf-e96f406e905b",
+          "ticket_number": "TKT-2026-0006",
+          "closed_by": "Ada Admin",
+          "closed_at": "2026-10-13T11:30:41.102697",
+          "rating_request_id": "0e7b9b68-5713-4db7-852d-7570ae99ed36",
+          "rating_state": "pending"
+        }
+      ],
+      "agent_frames": [
+        {
+          "type": "ticket_closed",
+          "ticket_id": "3aade2be-e716-4d27-b3cf-e96f406e905b",
+          "ticket_number": "TKT-2026-0006",
+          "closed_by": "Ada Admin",
+          "closed_at": "2026-10-13T11:30:41.102697",
+          "rating_request_id": "0e7b9b68-5713-4db7-852d-7570ae99ed36",
+          "rating_state": "pending"
+        }
+      ]
+    }
+  }
+}

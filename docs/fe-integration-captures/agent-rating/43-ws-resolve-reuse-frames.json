@@ -1,0 +1,37 @@
+{
+  "request": {
+    "method": "WS",
+    "path": "/ws/chat/ad17082a-9b95-4302-af3d-9c1314da9b98 + /ws/agent/ad17082a-9b95-4302-af3d-9c1314da9b98 (frames after resolve with an open manual request)",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 101,
+    "body": {
+      "customer_frames": [
+        {
+          "type": "ticket_resolved",
+          "ticket_id": "6712e2a8-03cb-479a-9df2-98e329af8265",
+          "ticket_number": "TKT-2026-0004",
+          "resolution_notes": "Invoice corrected",
+          "resolved_by": "Sam Rivers",
+          "resolved_at": "2026-10-13T11:30:28.119104+00:00",
+          "rating_request_id": "a7c6472b-e2fa-4230-911a-08b87f6f899e",
+          "rating_state": "pending"
+        }
+      ],
+      "agent_frames": [
+        {
+          "type": "ticket_resolved",
+          "ticket_id": "6712e2a8-03cb-479a-9df2-98e329af8265",
+          "ticket_number": "TKT-2026-0004",
+          "resolution_notes": "Invoice corrected",
+          "resolved_by": "Sam Rivers",
+          "resolved_at": "2026-10-13T11:30:28.119104+00:00",
+          "rating_request_id": "a7c6472b-e2fa-4230-911a-08b87f6f899e",
+          "rating_state": "pending"
+        }
+      ]
+    }
+  }
+}

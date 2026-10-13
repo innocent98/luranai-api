@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/reviews/session",
+    "headers": {},
+    "body": {
+      "session_id": "8d6fb634-76d7-4142-9dbe-e7dbfd3c3271",
+      "user_identifier": "capture-visitor-e@example.test",
+      "score": 5,
+      "comment": "Great help",
+      "rating_request_token": "<rating-token-5-placeholder>"
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "score": 5,
+      "comment": "Great help",
+      "meta": {},
+      "id": "e5acb17d-ebc1-43ac-9689-4cee8f472b87",
+      "tenant_id": "8843f825-64d4-4299-b661-a87d55bec122",
+      "session_id": "8d6fb634-76d7-4142-9dbe-e7dbfd3c3271",
+      "user_identifier": "capture-visitor-e@example.test",
+      "created_at": "2026-10-13T11:30:37.333369Z",
+      "updated_at": "2026-10-13T11:30:37.333369Z",
+      "rated_agent_id": "4da5516f-1d3c-4eb4-8c45-29ddf75e706e",
+      "source": "manual_request",
+      "rating_request_id": "0b661f09-3120-459a-a40a-5ff1fa298e88",
+      "rated_party": "human"
+    }
+  }
+}

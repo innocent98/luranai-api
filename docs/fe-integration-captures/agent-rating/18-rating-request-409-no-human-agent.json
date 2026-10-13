@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/tickets/5e571061-4fe8-47ed-b32a-4fded5e9e7c4/rating-requests",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "detail": {
+        "code": "no_human_agent",
+        "message": "No human agent is assigned to this ticket"
+      }
+    }
+  }
+}

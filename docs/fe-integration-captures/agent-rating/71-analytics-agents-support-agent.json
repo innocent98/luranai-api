@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/analytics/agents",
+    "headers": {
+      "Authorization": "Bearer <agent-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "detail": "Not enough permissions. Tenant admin access required."
+    }
+  }
+}
