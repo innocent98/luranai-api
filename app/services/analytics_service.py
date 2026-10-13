@@ -27,6 +27,11 @@ from app.schemas.analytics import (
     TrendDataPoint,
     TrendResponse,
 )
+from app.services.rating_read_service import (
+    NO_RATINGS,
+    agent_rating_stats,
+    per_agent_rating_stats,
+)
 from app.utils.datetime import utcnow_naive
 
 
@@ -307,6 +312,8 @@ class AnalyticsService:
         # Average response time (simplified - time from agent join to first message)
         avg_response_time = 0.0  # Placeholder - would need more complex calculation
 
+        rating = agent_rating_stats(self.db, tenant_id, agent_id, start_date, end_date)
+
         return AgentPerformanceResponse(
             agent_id=agent_id,
             agent_name=agent.full_name,
@@ -319,6 +326,9 @@ class AnalyticsService:
             avg_resolution_time_hours=avg_resolution,
             conversations_handled=conversations_handled,
             avg_response_time_minutes=avg_response_time,
+            ratings_count=rating.count,
+            average_rating=rating.average,
+            csat_percent=rating.csat_percent,
         )
 
     def get_all_agents_performance(
@@ -340,6 +350,8 @@ class AnalyticsService:
         """
         if not start_date or not end_date:
             start_date, end_date = self._get_default_date_range()
+
+        ratings = per_agent_rating_stats(self.db, tenant_id, start_date, end_date)
 
         # Get all agents for this tenant
         agents = self.db.query(User).filter(User.tenant_id == tenant_id).all()
@@ -383,6 +395,9 @@ class AnalyticsService:
                     current_assigned_tickets=current_assigned,
                     tickets_by_status=tickets_by_status,
                     total_tickets_resolved=total_resolved,
+                    ratings_count=ratings.get(agent.id, NO_RATINGS).count,
+                    average_rating=ratings.get(agent.id, NO_RATINGS).average,
+                    csat_percent=ratings.get(agent.id, NO_RATINGS).csat_percent,
                 )
             )
 
