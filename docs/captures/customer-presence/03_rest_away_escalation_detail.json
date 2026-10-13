@@ -1,0 +1,22 @@
+{
+  "request": "GET /api/v1/agent/escalations/8884c8ef-d6ed-493e-b953-4f1f2489b38c",
+  "status": 200,
+  "response": {
+    "escalation_id": "8884c8ef-d6ed-493e-b953-4f1f2489b38c",
+    "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
+    "ticket_number": "TKT-B46997",
+    "customer_name": "Ada",
+    "reason": "Refund request",
+    "priority": "important",
+    "status": "pending",
+    "created_at": "2026-10-13T23:37:11.458332Z",
+    "customer_presence": {
+      "state": "away",
+      "last_seen_at": null
+    },
+    "handled_by": null,
+    "handled_by_user_id": null,
+    "acknowledged_at": null,
+    "transcript": []
+  }
+}

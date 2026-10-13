@@ -25,10 +25,23 @@ from app.schemas.ticket import (
     TicketUpdate,
 )
 from app.schemas.user import UserResponse
+from app.services.customer_presence import read_presence_many
 from app.services.rating_request_service import auto_request_on_resolve, rating_frame_fields
 from app.services.ticket_service import TicketAlreadyFinalError, TicketService
 
 router = APIRouter()
+
+
+def _with_presence_many(db: Session, tickets: list[TicketResponse]) -> list[TicketResponse]:
+    """Attach `customer_presence` (one batched Redis read). Staff endpoints only."""
+    presence = read_presence_many(db, [t.session_id for t in tickets])
+    for ticket in tickets:
+        ticket.customer_presence = presence.get(ticket.session_id)
+    return tickets
+
+
+def _with_presence(db: Session, ticket: TicketResponse) -> TicketResponse:
+    return _with_presence_many(db, [ticket])[0]
 
 
 @router.post("", response_model=TicketResponse, status_code=status.HTTP_201_CREATED)
@@ -135,6 +148,7 @@ def list_tickets(
         offset=offset,
     )
 
+    _with_presence_many(db, tickets)
     return TicketListResponse(
         tickets=tickets, total=total, page=offset // limit + 1, page_size=limit
     )
@@ -166,7 +180,7 @@ def get_ticket(
     # Verify tenant access
     verify_tenant_access(ticket.tenant_id, current_user)
 
-    return ticket
+    return _with_presence(db, ticket)
 
 
 @router.put("/{ticket_id}", response_model=TicketResponse, status_code=status.HTTP_200_OK)
@@ -200,7 +214,7 @@ def update_ticket(
 
     try:
         updated_ticket = ticket_service.update_ticket(ticket_id, ticket_data)
-        return updated_ticket
+        return _with_presence(db, updated_ticket)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
@@ -236,7 +250,7 @@ def assign_ticket(
 
     try:
         updated_ticket = ticket_service.assign_ticket(ticket_id, assign_data)
-        return updated_ticket
+        return _with_presence(db, updated_ticket)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
@@ -319,7 +333,7 @@ async def resolve_ticket(
                 to_agents=True,
             )
 
-        return resolved_ticket
+        return _with_presence(db, resolved_ticket)
     except TicketAlreadyFinalError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from e
     except ValueError as e:
@@ -374,7 +388,7 @@ async def close_ticket(
                 to_agents=True,
             )
 
-        return closed_ticket
+        return _with_presence(db, closed_ticket)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
 
@@ -407,4 +421,4 @@ def get_unassigned_tickets(
     ticket_service = TicketService(db)
     tickets = ticket_service.get_unassigned_tickets(tenant_id)
 
-    return tickets
+    return _with_presence_many(db, tickets)

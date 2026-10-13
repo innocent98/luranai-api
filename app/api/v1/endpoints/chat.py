@@ -106,6 +106,7 @@ from app.utils.email import send_ticket_escalation_email
 from app.services.image_moderation import moderate_image
 from app.utils.cloudinary_client import cloudinary_manager
 from app.utils.http_rate_limiter import chat_rate_limit, chat_upload_rate_limit
+from app.services.customer_presence import read_presence, read_presence_many
 from app.utils.staff_redaction import redact_staff_messages, staff_customer_label
 
 router = APIRouter()
@@ -3087,7 +3088,7 @@ def get_session(
 
     session.messages = redact_staff_messages(session.messages)
     session.ratings = session_rating_briefs(db, session_id)
-    return ConversationService.to_staff_session(session)
+    return ConversationService.to_staff_session(session, read_presence(db, session_id))
 
 
 @router.get(
@@ -3123,7 +3124,8 @@ def list_tenant_sessions(
         tenant_id, status=status_filter, limit=limit
     )
 
-    return [ConversationService.to_staff_session(s) for s in sessions]
+    presence = read_presence_many(db, [s.id for s in sessions])
+    return [ConversationService.to_staff_session(s, presence.get(s.id)) for s in sessions]
 
 
 @router.get(
@@ -3255,7 +3257,9 @@ async def agent_takeover(
 
     logger.info("Agent took over session")
 
-    return ConversationService.to_staff_session(updated_session)
+    return ConversationService.to_staff_session(
+        updated_session, read_presence(db, updated_session.id)
+    )
 
 
 @router.post(

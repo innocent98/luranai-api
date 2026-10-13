@@ -1,0 +1,75 @@
+[
+  {
+    "t": 1.9,
+    "event": "customer socket opened",
+    "frame": {
+      "type": "customer_presence",
+      "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
+      "state": "active",
+      "last_seen_at": null
+    }
+  },
+  {
+    "t": 4.8,
+    "event": "customer tab hidden -> presence away",
+    "frame": {
+      "type": "customer_presence",
+      "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
+      "state": "away",
+      "last_seen_at": null
+    }
+  },
+  {
+    "t": 13.3,
+    "event": "away heartbeat produced frames",
+    "count": 0
+  },
+  {
+    "t": 13.3,
+    "event": "customer tab visible -> presence active",
+    "frame": {
+      "type": "customer_presence",
+      "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
+      "state": "active",
+      "last_seen_at": null
+    }
+  },
+  {
+    "t": 15.9,
+    "event": "REST read ~1s after socket close (grace)",
+    "customer_presence": {
+      "state": "active",
+      "last_seen_at": null
+    }
+  },
+  {
+    "t": 45.3,
+    "event": "grace elapsed -> offline",
+    "frame": {
+      "type": "customer_presence",
+      "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
+      "state": "offline",
+      "last_seen_at": "2026-10-13T23:51:27.187977+00:00"
+    }
+  },
+  {
+    "t": 52.5,
+    "event": "old client connect after offline -> active",
+    "frame": {
+      "type": "customer_presence",
+      "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
+      "state": "active",
+      "last_seen_at": null
+    }
+  },
+  {
+    "t": 59.0,
+    "event": "reload within grace produced frames",
+    "count": 0
+  },
+  {
+    "event": "other-tenant agent socket on this session",
+    "error": "InvalidStatus",
+    "detail": "server rejected WebSocket connection: HTTP 403"
+  }
+]

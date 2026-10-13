@@ -1,0 +1,33 @@
+{
+  "request": "GET /api/v1/tickets/8884c8ef-d6ed-493e-b953-4f1f2489b38c",
+  "status": 200,
+  "response": {
+    "summary": "Refund request",
+    "priority": "high",
+    "id": "8884c8ef-d6ed-493e-b953-4f1f2489b38c",
+    "tenant_id": "0d6434a1-4235-4677-baa0-87dcfce8cd54",
+    "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
+    "ticket_number": "TKT-B46997",
+    "status": "open",
+    "assigned_to": null,
+    "assigned_agent": null,
+    "visitor": {
+      "id": "853df78b-d986-4e39-ae2c-c33d7df3f915",
+      "name": "Ada",
+      "email": "adace8a@example.com",
+      "phone": null,
+      "first_seen_at": "2026-10-13T23:37:11.253746Z",
+      "last_seen_at": "2026-10-13T23:37:11.253752Z",
+      "is_blocked": false
+    },
+    "resolution_notes": null,
+    "resolved_at": null,
+    "rating_request_id": null,
+    "customer_presence": {
+      "state": "active",
+      "last_seen_at": null
+    },
+    "created_at": "2026-10-13T23:37:11.458332Z",
+    "updated_at": "2026-10-13T23:37:11.458332Z"
+  }
+}

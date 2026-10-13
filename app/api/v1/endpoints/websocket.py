@@ -15,6 +15,7 @@ from app.db.models.tenant import Tenant
 from app.db.models.user import UserRole
 from app.db.session import SessionLocal
 from app.services.conversation_service import ConversationService, attachment_frames
+from app.services.customer_presence import persist_last_seen_factory, presence_tracker
 from app.utils.datetime import ensure_utc_aware
 from app.utils.staff_redaction import staff_customer_label
 
@@ -133,6 +134,8 @@ async def customer_websocket(
     finally:
         replay_db.close()
 
+    presence = presence_tracker.open(session_id, persist_last_seen_factory(SessionLocal))
+    await presence.start()
     try:
         while True:
             # Receive messages from customer
@@ -202,6 +205,8 @@ async def customer_websocket(
                     user_name="Customer",
                     to_customer=False,  # Send to agents
                 )
+            elif message_type == "presence":
+                await presence.handle_frame(data)
             elif message_type == "ping":
                 await websocket.send_json(
                     {"type": "pong", "timestamp": datetime.now(UTC).isoformat()}
@@ -214,6 +219,9 @@ async def customer_websocket(
     except Exception:
         logger.error("Error in customer WebSocket")
         connection_manager.disconnect(websocket)
+
+    finally:
+        await presence.close()
 
 
 @router.websocket("/customer/{session_id}")
@@ -281,6 +289,8 @@ async def authenticated_customer_websocket(
     finally:
         replay_db.close()
 
+    presence = presence_tracker.open(session_id, persist_last_seen_factory(SessionLocal))
+    await presence.start()
     try:
         while True:
             data = await websocket.receive_json()
@@ -341,6 +351,8 @@ async def authenticated_customer_websocket(
                     user_name=customer.full_name or "Customer",
                     to_customer=False,
                 )
+            elif message_type == "presence":
+                await presence.handle_frame(data)
             elif message_type == "ping":
                 await websocket.send_json(
                     {"type": "pong", "timestamp": datetime.now(UTC).isoformat()}
@@ -351,6 +363,9 @@ async def authenticated_customer_websocket(
     except Exception:
         logger.error("Error in authenticated customer WebSocket")
         connection_manager.disconnect(websocket)
+
+    finally:
+        await presence.close()
 
 
 @router.websocket("/agent/{session_id}")
