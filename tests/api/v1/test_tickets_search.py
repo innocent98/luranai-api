@@ -88,7 +88,9 @@ def _ticket(
 ) -> Ticket:
     session = ConversationSession(
         tenant_id=tenant_id,
-        user_identifier=user_identifier or f"anon-{uuid.uuid4().hex[:8]}",
+        # Constant, not random: search also matches user_identifier, so a random hex
+        # suffix collides with digit/hex needles ("N-77" vs "anon-77...", 1 in 256).
+        user_identifier=user_identifier or "anon-session",
         visitor_id=visitor.id if visitor else None,
         status=SessionStatus.ACTIVE,
     )
