@@ -4,12 +4,19 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import and_, desc, func, select
+from sqlalchemy import and_, desc, func, select, true
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models.conversation import ConversationSession
-from app.db.models.review import FeedbackCategory, PlatformFeedback, PublicFeedback, SessionRating
+from app.db.models.review import (
+    FeedbackCategory,
+    PlatformFeedback,
+    PublicFeedback,
+    RatingRequest,
+    RatingSource,
+    SessionRating,
+)
 from app.schemas.review import (
     PlatformFeedbackCreate,
     PlatformFeedbackListResponse,
@@ -20,8 +27,40 @@ from app.schemas.review import (
     PublicFeedbackResponse,
     SessionRatingCreate,
     SessionRatingListResponse,
-    SessionRatingResponse,
+    SessionRatingSubmitResponse,
 )
+from app.services.rating_read_service import csat_percent_expr, enrich_ratings
+from app.services.rating_request_service import hash_token
+from app.utils.datetime import ensure_utc_aware, utcnow_aware
+
+
+_RESOLUTION_META_SOURCES = ("agent_resolved", "ticket_closed")
+
+
+def legacy_source(meta: dict | None) -> str:
+    """Untokened ratings: same mapping as the n4agentrating backfill."""
+    if (meta or {}).get("source") in _RESOLUTION_META_SOURCES:
+        return RatingSource.RESOLUTION_PROMPT
+    return RatingSource.IDLE_PROMPT
+
+
+class RatingSubmitError(Exception):
+    """Token-path refusal with the spec's object error body."""
+
+    STATUS = {"rating_request_invalid": 400, "already_rated": 409, "rating_request_expired": 410}
+    MESSAGES = {
+        "rating_request_invalid": "This rating link is not valid for this conversation",
+        "already_rated": "This conversation has already been rated for this agent",
+        "rating_request_expired": "This rating request has expired",
+    }
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+        self.status_code = self.STATUS[code]
+
+    def detail(self) -> dict:
+        return {"code": self.code, "message": self.MESSAGES[self.code]}
 
 
 class ReviewService:
@@ -33,32 +72,36 @@ class ReviewService:
 
     # ===== Session Rating Methods =====
 
-    def create_session_rating(self, rating_data: SessionRatingCreate) -> SessionRatingResponse:
-        """
-        Create a new session rating.
-
-        Args:
-            rating_data: Rating creation data
-
-        Returns:
-            Created rating response
+    def create_session_rating(
+        self, rating_data: SessionRatingCreate
+    ) -> SessionRatingSubmitResponse:
+        """Create a rating. Untokened = AI/no-human party (legacy); tokened = that agent.
 
         Raises:
-            ValueError: If session not found or user_identifier doesn't match
-            IntegrityError: If rating already exists for this session
+            ValueError: legacy string errors (session not found, identifier mismatch,
+                duplicate AI rating) - byte-identical to pre-N4.
+            RatingSubmitError: token-path refusals (object errors).
         """
-        # Verify session exists and get tenant_id
         stmt = select(ConversationSession).where(ConversationSession.id == rating_data.session_id)
         session = self.db.execute(stmt).scalar_one_or_none()
 
         if not session:
             raise ValueError("Session not found")
 
-        # Verify user_identifier matches session
         if session.user_identifier != rating_data.user_identifier:
             raise ValueError("User identifier does not match session")
 
-        # Create rating
+        if rating_data.rating_request_token:
+            return self._create_tokened_rating(session, rating_data)
+
+        ai_exists = self.db.execute(
+            select(SessionRating.id).where(
+                SessionRating.session_id == session.id, SessionRating.rated_agent_id.is_(None)
+            )
+        ).first()
+        if ai_exists:
+            raise ValueError("Rating already exists for this session")
+
         db_rating = SessionRating(
             tenant_id=session.tenant_id,
             session_id=rating_data.session_id,
@@ -66,8 +109,9 @@ class ReviewService:
             comment=rating_data.comment,
             user_identifier=rating_data.user_identifier,
             meta=rating_data.meta or {},
+            rated_agent_id=None,
+            source=legacy_source(rating_data.meta),
         )
-
         try:
             self.db.add(db_rating)
             self.db.commit()
@@ -76,25 +120,61 @@ class ReviewService:
             self.db.rollback()
             raise ValueError("Rating already exists for this session") from err
 
-        return SessionRatingResponse.model_validate(db_rating)
+        return SessionRatingSubmitResponse.model_validate(db_rating)
 
-    def get_session_rating(self, session_id: UUID) -> SessionRatingResponse | None:
+    def _create_tokened_rating(
+        self, session: ConversationSession, rating_data: SessionRatingCreate
+    ) -> SessionRatingSubmitResponse:
+        """Spec 4.3.3 token path. The agent comes from the request row, never the client.
+
+        The request row is locked (FOR UPDATE) so a concurrent double-submit serialises:
+        the loser re-reads fulfilled_at after the winner commits. The unique index on
+        rating_request_id / (session, agent) is the backstop.
         """
-        Get rating for a specific session.
+        now = utcnow_aware()
+        request = self.db.execute(
+            select(RatingRequest)
+            .where(
+                RatingRequest.token_hash == hash_token(rating_data.rating_request_token),
+                # Scoped to this session so a foreign token never locks another session's row.
+                RatingRequest.session_id == session.id,
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        # Unknown token and a token minted for another session are indistinguishable.
+        if request is None or request.session_id != session.id:
+            raise RatingSubmitError("rating_request_invalid")
+        already = self.db.execute(
+            select(SessionRating.id).where(
+                SessionRating.session_id == session.id,
+                SessionRating.rated_agent_id == request.agent_id,
+            )
+        ).first()
+        if request.fulfilled_at is not None or already:
+            raise RatingSubmitError("already_rated")
+        if ensure_utc_aware(request.expires_at) <= now:
+            raise RatingSubmitError("rating_request_expired")
 
-        Args:
-            session_id: Session UUID
-
-        Returns:
-            Rating response if found, None otherwise
-        """
-        stmt = select(SessionRating).where(SessionRating.session_id == session_id)
-        rating = self.db.execute(stmt).scalar_one_or_none()
-
-        if not rating:
-            return None
-
-        return SessionRatingResponse.model_validate(rating)
+        db_rating = SessionRating(
+            tenant_id=session.tenant_id,
+            session_id=session.id,
+            score=rating_data.score,
+            comment=rating_data.comment,
+            user_identifier=rating_data.user_identifier,
+            meta=rating_data.meta or {},
+            rated_agent_id=request.agent_id,
+            source=request.source,
+            rating_request_id=request.id,
+        )
+        request.fulfilled_at = now
+        try:
+            self.db.add(db_rating)
+            self.db.commit()
+            self.db.refresh(db_rating)
+        except IntegrityError as err:
+            self.db.rollback()
+            raise RatingSubmitError("already_rated") from err
+        return SessionRatingSubmitResponse.model_validate(db_rating)
 
     def list_session_ratings(
         self,
@@ -106,30 +186,14 @@ class ReviewService:
         end_date: datetime | None = None,
         limit: int = 50,
         offset: int = 0,
+        rated_agent_id: UUID | None = None,
+        rated_party: str | None = None,
+        source: str | None = None,
     ) -> SessionRatingListResponse:
-        """
-        List session ratings with optional tenant filtering.
-
-        Args:
-            tenant_id: Filter by tenant (required for tenant users, None for platform admins)
-            session_id: Filter by session ID
-            min_score: Minimum rating score
-            max_score: Maximum rating score
-            start_date: Filter from date
-            end_date: Filter to date
-            limit: Max results (default 50)
-            offset: Results offset (default 0)
-
-        Returns:
-            Paginated list of ratings with average score
-        """
-        # Build filters
+        """List ratings with filters. Scoping (who may pass which filter) is the endpoint's job."""
         filters = []
-
-        # Only add tenant filter if tenant_id is provided
         if tenant_id is not None:
             filters.append(SessionRating.tenant_id == tenant_id)
-
         if session_id:
             filters.append(SessionRating.session_id == session_id)
         if min_score is not None:
@@ -140,43 +204,36 @@ class ReviewService:
             filters.append(SessionRating.created_at >= start_date)
         if end_date:
             filters.append(SessionRating.created_at <= end_date)
+        if rated_agent_id is not None:
+            filters.append(SessionRating.rated_agent_id == rated_agent_id)
+        if rated_party == "ai":
+            filters.append(SessionRating.rated_agent_id.is_(None))
+        elif rated_party == "human":
+            filters.append(SessionRating.rated_agent_id.isnot(None))
+        if source:
+            filters.append(SessionRating.source == source)
+        where = and_(*filters) if filters else true()
 
-        # Get total count
-        if filters:
-            count_stmt = select(func.count(SessionRating.id)).where(and_(*filters))
-        else:
-            count_stmt = select(func.count(SessionRating.id))
-        total = self.db.execute(count_stmt).scalar() or 0
-
-        # Get average score
-        if filters:
-            avg_stmt = select(func.avg(SessionRating.score)).where(and_(*filters))
-        else:
-            avg_stmt = select(func.avg(SessionRating.score))
-        average_score = self.db.execute(avg_stmt).scalar()
-
-        # Get ratings
-        if filters:
-            stmt = (
+        total = self.db.execute(select(func.count(SessionRating.id)).where(where)).scalar() or 0
+        average_score, csat = self.db.execute(
+            select(func.avg(SessionRating.score), csat_percent_expr()).where(where)
+        ).one()
+        ratings = (
+            self.db.execute(
                 select(SessionRating)
-                .where(and_(*filters))
+                .where(where)
                 .order_by(desc(SessionRating.created_at))
                 .limit(limit)
                 .offset(offset)
             )
-        else:
-            stmt = (
-                select(SessionRating)
-                .order_by(desc(SessionRating.created_at))
-                .limit(limit)
-                .offset(offset)
-            )
-        ratings = self.db.execute(stmt).scalars().all()
-
+            .scalars()
+            .all()
+        )
         return SessionRatingListResponse(
-            ratings=[SessionRatingResponse.model_validate(r) for r in ratings],
+            ratings=enrich_ratings(self.db, list(ratings)),
             total=total,
             average_score=float(average_score) if average_score else None,
+            csat_percent=round(float(csat), 1) if total and csat is not None else None,
             page=(offset // limit) + 1 if limit > 0 else 1,
             page_size=limit,
         )
@@ -502,7 +559,7 @@ class ReviewService:
         score_dist = self.db.execute(score_dist_stmt).all()
 
         return {
-            "ratings": [SessionRatingResponse.model_validate(r) for r in ratings],
+            "ratings": enrich_ratings(self.db, list(ratings)),
             "statistics": {
                 "total_ratings": total,
                 "average_score": float(avg_score),

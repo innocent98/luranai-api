@@ -19,7 +19,7 @@ from app.db.models import (
     AuditLog, AnalyticsMetric, DailyVisit,
     Visitor, VisitorSession
 )
-from app.db.models.review import SessionRating, PlatformFeedback, PublicFeedback
+from app.db.models.review import SessionRating, PlatformFeedback, PublicFeedback, RatingRequest
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

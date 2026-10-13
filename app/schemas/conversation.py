@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.db.models.conversation import MessageRole, SessionStatus
 from app.schemas.explore import SourceMeta
+from app.schemas.rating import SessionRatingBrief
 from app.schemas.visitor import VisitorIdentitySummary
 
 MAX_ATTACHMENTS_PER_MESSAGE = 3
@@ -184,6 +185,10 @@ class SessionDetailResponse(SessionResponse):
 
     messages: list[MessageResponse] = Field(default_factory=list)
     ticket_id: UUID | None = None  # latest ticket for this session
+    ratings: list[SessionRatingBrief] = Field(
+        default_factory=list,
+        description="Every rating for the session (AI and human), oldest first; staff detail only",
+    )
 
 
 class ChatResponse(BaseModel):

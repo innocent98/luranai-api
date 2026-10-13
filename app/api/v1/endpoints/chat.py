@@ -95,6 +95,7 @@ from app.services.notification_enqueue import (
 )
 from app.services.quote_service import QuoteService
 from app.services.rag_service import RAGService
+from app.services.rating_read_service import session_rating_briefs
 from app.services.tenant_service import TenantService
 from app.services.voice import turn_signal
 from app.services.ticket_service import TicketService
@@ -104,6 +105,7 @@ from app.utils.email import send_ticket_escalation_email
 from app.services.image_moderation import moderate_image
 from app.utils.cloudinary_client import cloudinary_manager
 from app.utils.http_rate_limiter import chat_rate_limit, chat_upload_rate_limit
+from app.utils.staff_redaction import redact_staff_messages
 
 router = APIRouter()
 
@@ -3072,6 +3074,8 @@ def get_session(
     # Verify tenant access
     verify_tenant_access(session.tenant_id, current_user)
 
+    session.messages = redact_staff_messages(session.messages)
+    session.ratings = session_rating_briefs(db, session_id)
     return session
 
 
@@ -3145,7 +3149,7 @@ def get_session_messages(
     verify_tenant_access(session.tenant_id, current_user)
 
     messages = conversation_service.get_session_messages(session_id, limit=limit)
-    return messages
+    return redact_staff_messages(messages)
 
 
 @router.post(

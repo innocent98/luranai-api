@@ -86,6 +86,7 @@ from app.schemas.review import (
     SessionRatingCreate,
     SessionRatingListResponse,
     SessionRatingResponse,
+    SessionRatingSubmitResponse,
 )
 from app.schemas.tenant import (
     TenantAIConfigCreate,
@@ -240,6 +241,7 @@ __all__ = [
     # Review schemas
     "SessionRatingCreate",
     "SessionRatingResponse",
+    "SessionRatingSubmitResponse",
     "SessionRatingListResponse",
     "PlatformFeedbackCreate",
     "PlatformFeedbackUpdate",
