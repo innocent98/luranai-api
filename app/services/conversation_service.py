@@ -75,6 +75,8 @@ class ConversationService:
                 .order_by(Ticket.created_at.desc())
                 .limit(1)
             ).scalar_one_or_none()
+            # The ORM backref would auto-fill this; the admin endpoint fills it explicitly.
+            response.ratings = []
         else:
             response = SessionResponse.model_validate(session)
         response.visitor = self._build_visitor_summary(session.visitor_id)
