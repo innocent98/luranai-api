@@ -3,6 +3,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
@@ -33,6 +34,19 @@ def _load_ticket(db: Session, ticket_id: UUID, user: UserResponse) -> Ticket:
     return ticket
 
 
+def _create_manual_request(db: Session, ticket_id: UUID, user: UserResponse):
+    """Sync: ticket load, FOR UPDATE create_request and commit. Returns the result."""
+    _load_ticket(db, ticket_id, user)
+    try:
+        result = RatingRequestService(db).create_request(
+            ticket_id, source=RatingSource.MANUAL_REQUEST, requested_by=user
+        )
+    except RatingRequestError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+    db.refresh(result.request)  # load attributes on the worker thread, not the event loop
+    return result
+
+
 @router.post(
     "/{ticket_id}/rating-requests",
     response_model=RatingRequestOut,
@@ -44,13 +58,9 @@ async def request_rating(
     current_user: UserResponse = Depends(get_current_user),
 ):
     """Ask the customer to rate the ticket's assignee. The response never carries the token."""
-    _load_ticket(db, ticket_id, current_user)
-    try:
-        result = RatingRequestService(db).create_request(
-            ticket_id, source=RatingSource.MANUAL_REQUEST, requested_by=current_user
-        )
-    except RatingRequestError as exc:
-        raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
+    # Locking DB work + commit run in the threadpool so a row-lock wait never blocks the
+    # event loop; the (async) WS fanout happens afterwards, once the lock is released.
+    result = await run_in_threadpool(_create_manual_request, db, ticket_id, current_user)
     await fanout_rating_request(result)
     req = result.request
     return RatingRequestOut(

@@ -45,7 +45,7 @@ router = APIRouter()
     summary="Submit session rating",
     description="Public endpoint for customers to rate their chat experience. No authentication required.",
 )
-async def create_session_rating(
+def create_session_rating(
     rating_data: SessionRatingCreate,
     db: Session = Depends(get_db),
 ):

@@ -217,3 +217,33 @@ def test_rate_limited_429_object(client, db, tenant):
         r = client.post(URL, json=_body(db, t))
     assert r.status_code == 429
     assert r.json()["detail"]["code"] == "rating_rate_limited"
+
+
+def test_foreign_token_does_not_lock_or_touch_other_session(client, db, tenant, agent):
+    """The locking query is scoped to the posted session (cross-session token matches no row)."""
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.sql import Select
+
+    captured: list[Select] = []
+    real_execute = db.execute
+
+    def spy(stmt, *a, **kw):
+        captured.append(stmt)
+        return real_execute(stmt, *a, **kw)
+
+    a = make_ticket(db, tenant, assigned_to=agent.id)
+    b = make_ticket(db, tenant, assigned_to=agent.id)
+    res_b = _request(db, b, agent)
+    body = _body(db, a, rating_request_token=res_b.token)
+    db.execute = spy
+    try:
+        r = client.post(URL, json=body)
+    finally:
+        db.execute = real_execute
+    assert r.status_code == 400
+    locking = [
+        s for s in captured if "rating_requests" in str(s.compile(dialect=postgresql.dialect()))
+    ]
+    assert locking, "expected a rating_requests lookup"
+    sql = str(locking[0].compile(dialect=postgresql.dialect()))
+    assert "FOR UPDATE" in sql and "rating_requests.session_id" in sql

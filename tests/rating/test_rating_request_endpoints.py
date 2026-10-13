@@ -206,3 +206,35 @@ def test_token_never_logged(client, db, tenant, agent, fanout, caplog):
     token = msg.meta["rating_token"]
     leaked = token in caplog.text
     assert not leaked, "rating token leaked into logs"
+
+
+def test_manual_request_fans_out_only_after_commit(client, db, tenant, agent, fanout):
+    events: list[str] = []
+    real_commit = db.commit
+
+    def spy_commit():
+        events.append("commit")
+        return real_commit()
+
+    async def spy_fanout(**kwargs):
+        events.append("fanout")
+
+    fanout.side_effect = spy_fanout
+    t = make_ticket(db, tenant, assigned_to=agent.id)
+    db.commit = spy_commit
+    try:
+        r = _post(client, t, agent)
+    finally:
+        db.commit = real_commit
+    assert r.status_code == 201, r.text
+    assert "fanout" in events and "commit" in events
+    assert events.index("fanout") > len(events) - 1 - events[::-1].index("commit")
+
+
+def test_locking_handlers_do_not_run_on_the_event_loop():
+    import inspect
+
+    from app.api.v1.endpoints import reviews, ticket_ratings
+
+    assert not inspect.iscoroutinefunction(reviews.create_session_rating)
+    assert not inspect.iscoroutinefunction(ticket_ratings.rating_status)

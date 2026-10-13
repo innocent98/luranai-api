@@ -134,7 +134,11 @@ class ReviewService:
         now = utcnow_aware()
         request = self.db.execute(
             select(RatingRequest)
-            .where(RatingRequest.token_hash == hash_token(rating_data.rating_request_token))
+            .where(
+                RatingRequest.token_hash == hash_token(rating_data.rating_request_token),
+                # Scoped to this session so a foreign token never locks another session's row.
+                RatingRequest.session_id == session.id,
+            )
             .with_for_update()
         ).scalar_one_or_none()
         # Unknown token and a token minted for another session are indistinguishable.
