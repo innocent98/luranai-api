@@ -43,7 +43,6 @@ def _create_manual_request(db: Session, ticket_id: UUID, user: UserResponse):
         )
     except RatingRequestError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail()) from exc
-    db.refresh(result.request)  # load attributes on the worker thread, not the event loop
     return result
 
 

@@ -238,3 +238,30 @@ def test_locking_handlers_do_not_run_on_the_event_loop():
 
     assert not inspect.iscoroutinefunction(reviews.create_session_rating)
     assert not inspect.iscoroutinefunction(ticket_ratings.rating_status)
+
+
+def test_manual_request_locking_select_runs_off_the_event_loop(client, db, tenant, agent):
+    """_create_manual_request (FOR UPDATE select) must execute on a worker thread."""
+    import asyncio
+
+    seen: list[bool] = []
+    real_execute = db.execute
+
+    def spy_execute(stmt, *args, **kwargs):
+        if getattr(stmt, "_for_update_arg", None) is None:  # only the locking selects
+            return real_execute(stmt, *args, **kwargs)
+        try:
+            asyncio.get_running_loop()
+            seen.append(True)  # on the event loop
+        except RuntimeError:
+            seen.append(False)  # worker thread: no running loop
+        return real_execute(stmt, *args, **kwargs)
+
+    t = make_ticket(db, tenant, assigned_to=agent.id)
+    db.execute = spy_execute
+    try:
+        r = _post(client, t, agent)
+    finally:
+        db.execute = real_execute
+    assert r.status_code == 201, r.text
+    assert seen and not any(seen), "DB execute ran on the event loop"

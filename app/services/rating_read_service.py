@@ -3,13 +3,14 @@
 from collections.abc import Iterable
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.db.models.conversation import Ticket
 from app.db.models.review import RatingRequest, SessionRating
 from app.db.models.user import User
 from app.schemas.rating import SessionRatingBrief
+from app.schemas.review import SessionRatingResponse
 
 
 def rated_party(rated_agent_id: UUID | None) -> str:
@@ -61,3 +62,20 @@ def session_rating_briefs(db: Session, session_id: UUID) -> list[SessionRatingBr
     )
     names = agent_names(db, (r.rated_agent_id for r in rows))
     return [to_brief(r, names) for r in rows]
+
+
+def csat_percent_expr():
+    """AVG of 100/0 per rating = % of ratings scoring >= 4 (N4-D6)."""
+    return func.avg(case((SessionRating.score >= 4, 100.0), else_=0.0))
+
+
+def enrich_ratings(db: Session, ratings: list[SessionRating]) -> list[SessionRatingResponse]:
+    names = agent_names(db, (r.rated_agent_id for r in ratings))
+    refs = ticket_refs(db, (r.rating_request_id for r in ratings))
+    items = []
+    for rating in ratings:
+        item = SessionRatingResponse.model_validate(rating)
+        item.rated_agent_name = names.get(rating.rated_agent_id) if rating.rated_agent_id else None
+        item.ticket_id, item.ticket_number = refs.get(rating.rating_request_id, (None, None))
+        items.append(item)
+    return items
