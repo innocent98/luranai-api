@@ -160,9 +160,12 @@ jobs:
                 done
             docker image prune -f >/dev/null
             rm -f api-image.tar.gz
-            # Ensure backup cron is installed (idempotent)
+            # Ensure backup cron is installed (idempotent). Match this env's full
+            # path only: a bare "backup_cron.sh" match let every staging deploy
+            # delete the prod entry (prod had no backups 2026-09-23..10-13).
+            # Also drop the legacy backup_db.sh entry (script no longer shipped).
             chmod +x scripts/backup_cron.sh 2>/dev/null || true
-            (crontab -l 2>/dev/null | grep -v "backup_cron.sh"; echo "0 2 * * * ${{ secrets.DEPLOY_PATH }}/scripts/backup_cron.sh >> ${{ secrets.DEPLOY_PATH }}/backups/backup.log 2>&1") | crontab -
+            (crontab -l 2>/dev/null | grep -v -F "${{ secrets.DEPLOY_PATH }}/scripts/backup_cron.sh" | grep -v "scripts/backup_db.sh"; echo "0 2 * * * ${{ secrets.DEPLOY_PATH }}/scripts/backup_cron.sh >> ${{ secrets.DEPLOY_PATH }}/backups/backup.log 2>&1") | crontab -
             echo "Backup cron installed: daily at 2 AM"
 
       - name: Capture staging deployment context
@@ -469,9 +472,12 @@ jobs:
                 done
             docker image prune -f >/dev/null
             rm -f api-image.tar.gz
-            # Ensure backup cron is installed (idempotent)
+            # Ensure backup cron is installed (idempotent). Match this env's full
+            # path only: a bare "backup_cron.sh" match let every staging deploy
+            # delete the prod entry (prod had no backups 2026-09-23..10-13).
+            # Also drop the legacy backup_db.sh entry (script no longer shipped).
             chmod +x scripts/backup_cron.sh 2>/dev/null || true
-            (crontab -l 2>/dev/null | grep -v "backup_cron.sh"; echo "0 2 * * * ${{ secrets.DEPLOY_PATH }}/scripts/backup_cron.sh >> ${{ secrets.DEPLOY_PATH }}/backups/backup.log 2>&1") | crontab -
+            (crontab -l 2>/dev/null | grep -v -F "${{ secrets.DEPLOY_PATH }}/scripts/backup_cron.sh" | grep -v "scripts/backup_db.sh"; echo "0 2 * * * ${{ secrets.DEPLOY_PATH }}/scripts/backup_cron.sh >> ${{ secrets.DEPLOY_PATH }}/backups/backup.log 2>&1") | crontab -
             echo "Backup cron installed: daily at 2 AM"
 
       - name: Notify deployment status
