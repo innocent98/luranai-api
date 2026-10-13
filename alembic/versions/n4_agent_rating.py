@@ -7,7 +7,7 @@ Create Date: 2026-10-13
 Adds rating_requests (token-gated, hash-only) and session_ratings.rated_agent_id /
 source / rating_request_id. Swaps "one rating per session" for "one rating per
 (session, rated party)" via two partial unique indexes. Backfills source from the
-legacy meta->>'source'. Encrypts existing comments in place (idempotent), so the
+legacy meta->>'source'. Encrypts every existing comment in place (unconditional: pre-N4 values are always plaintext), so the
 model's EncryptedString and the data can never be out of step (spec N4-D7).
 Requires ENCRYPTION_KEY. Downgrade refuses while any session has >1 rating.
 """
@@ -36,11 +36,6 @@ DUPLICATE_SESSIONS_SQL = (
     "GROUP BY session_id HAVING count(*) > 1) AS d"
 )
 _BATCH = 500
-_FERNET_PREFIX = "gAAAAA"
-
-
-class _UndecryptableToken(Exception):
-    """A Fernet-looking value that the current key(s) cannot decrypt."""
 
 
 def _require_encryption_key() -> None:
@@ -52,7 +47,7 @@ def _require_encryption_key() -> None:
 
 
 def _rewrite_comments(bind, transform) -> int:
-    """Keyset-walk non-NULL comments; transform(value) returns the new value or None to skip."""
+    """Keyset-walk non-NULL comments; transform(value) returns the new value."""
     changed = 0
     undecryptable = 0
     last_id = None
@@ -76,15 +71,15 @@ def _rewrite_comments(bind, transform) -> int:
         if not rows:
             if undecryptable:
                 raise RuntimeError(
-                    f"n4agentrating: {undecryptable} comment(s) look encrypted but cannot be "
-                    "decrypted with the current key. Check ENCRYPTION_KEY / "
+                    f"n4agentrating: {undecryptable} comment(s) could not be "
+                    "transformed with the current key. Check ENCRYPTION_KEY / "
                     "ENCRYPTION_KEY_PREVIOUS; nothing was committed."
                 )
             return changed
         for row_id, value in rows:
             try:
                 new_value = transform(value)
-            except _UndecryptableToken:
+            except Exception:  # noqa: BLE001 — never include the value or key in output
                 undecryptable += 1
                 continue
             if new_value is not None and new_value != value:
@@ -96,27 +91,18 @@ def _rewrite_comments(bind, transform) -> int:
         last_id = rows[-1][0]
 
 
-def _encrypt_one(value: str) -> str | None:
-    from app.core.encryption import decrypt_field, encrypt_field
+def _encrypt_one(value: str) -> str:
+    """Pre-N4 the column is always plaintext, so encrypt unconditionally (no shape sniffing)."""
+    from app.core.encryption import encrypt_field
 
-    try:
-        decrypt_field(value)
-        return None  # already a valid token under the current/previous key
-    except Exception:  # noqa: BLE001 — InvalidToken: plaintext legacy row
-        if value.startswith(_FERNET_PREFIX):
-            raise _UndecryptableToken from None  # token under an unknown key: don't re-wrap
-        return encrypt_field(value)
+    return encrypt_field(value)
 
 
-def _decrypt_one(value: str) -> str | None:
+def _decrypt_one(value: str) -> str:
+    """Post-upgrade the app writes only encrypted comments; failure here means a wrong key."""
     from app.core.encryption import decrypt_field
 
-    try:
-        return decrypt_field(value)
-    except Exception:  # noqa: BLE001 — already plaintext, or a token we cannot read
-        if value.startswith(_FERNET_PREFIX):
-            raise _UndecryptableToken from None
-        return None
+    return decrypt_field(value)
 
 
 def encrypt_existing_comments(bind) -> int:

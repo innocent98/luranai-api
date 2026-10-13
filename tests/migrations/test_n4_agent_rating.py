@@ -72,35 +72,28 @@ def _raw_comment(db, rating_id):
     ).scalar_one()
 
 
-def test_encrypt_existing_comments_is_idempotent_and_reversible(db):
+def test_encrypt_is_unconditional_and_reversible(db):
     mod = _mod()
     tenant = make_tenant(db)
-    plain = make_rating(
-        db, session_id=make_ticket(db, tenant).session_id, tenant_id=tenant.id, comment="x"
-    )
-    already = make_rating(
-        db,
-        session_id=make_ticket(db, tenant).session_id,
-        tenant_id=tenant.id,
-        comment="already encrypted",
-    )
-    # Simulate a pre-N4 row: plaintext straight into the column, bypassing the TypeDecorator.
-    db.execute(
-        text("UPDATE session_ratings SET comment = :c WHERE id = :id"),
-        {"c": "legacy plain comment", "id": plain.id.hex},
-    )
+    ids = []
+    for text_value in ("legacy plain comment", "gAAAAAhello"):
+        r = make_rating(
+            db, session_id=make_ticket(db, tenant).session_id, tenant_id=tenant.id, comment="x"
+        )
+        db.execute(
+            text("UPDATE session_ratings SET comment = :c WHERE id = :id"),
+            {"c": text_value, "id": r.id.hex},
+        )
+        ids.append(r.id)
     db.commit()
-    before_already = _raw_comment(db, already.id)
 
-    assert mod.encrypt_existing_comments(db.connection()) == 1
-    assert decrypt_field(_raw_comment(db, plain.id)) == "legacy plain comment"
-    assert _raw_comment(db, already.id) == before_already
-
-    assert mod.encrypt_existing_comments(db.connection()) == 0  # idempotent
+    assert mod.encrypt_existing_comments(db.connection()) == 2
+    assert decrypt_field(_raw_comment(db, ids[0])) == "legacy plain comment"
+    assert decrypt_field(_raw_comment(db, ids[1])) == "gAAAAAhello"  # no prefix heuristic
 
     assert mod.decrypt_existing_comments(db.connection()) == 2
-    assert _raw_comment(db, plain.id) == "legacy plain comment"
-    assert _raw_comment(db, already.id) == "already encrypted"
+    assert _raw_comment(db, ids[0]) == "legacy plain comment"
+    assert _raw_comment(db, ids[1]) == "gAAAAAhello"
 
 
 def test_migration_refuses_to_run_without_key(monkeypatch):
@@ -114,7 +107,7 @@ def test_duplicate_guard_sql_counts_sessions_with_several_ratings():
     assert "GROUP BY session_id HAVING count(*) > 1" in sql
 
 
-def test_wrong_key_fails_loudly_in_both_directions(db, monkeypatch):
+def test_downgrade_under_wrong_key_fails_loudly(db, monkeypatch):
     from cryptography.fernet import Fernet
 
     mod = _mod()
@@ -122,15 +115,14 @@ def test_wrong_key_fails_loudly_in_both_directions(db, monkeypatch):
     r = make_rating(
         db, session_id=make_ticket(db, tenant).session_id, tenant_id=tenant.id, comment="x"
     )
-    assert decrypt_field(_raw_comment(db, r.id)) == "x"  # stored under key A
+    raw_before = _raw_comment(db, r.id)  # encrypted under key A
+    assert decrypt_field(raw_before) == "x"
     monkeypatch.setenv("ENCRYPTION_KEY", Fernet.generate_key().decode())  # key B
     monkeypatch.delenv("ENCRYPTION_KEY_PREVIOUS", raising=False)
-    raw_before = _raw_comment(db, r.id)
-    with pytest.raises(RuntimeError, match="ENCRYPTION_KEY"):
-        mod.encrypt_existing_comments(db.connection())
-    with pytest.raises(RuntimeError, match="ENCRYPTION_KEY"):
+    with pytest.raises(RuntimeError, match="ENCRYPTION_KEY") as exc:
         mod.decrypt_existing_comments(db.connection())
-    assert _raw_comment(db, r.id) == raw_before  # untouched, not double-encrypted
+    assert "1 comment" in str(exc.value)
+    assert _raw_comment(db, r.id) == raw_before
 
 
 def test_batch_boundaries(db, monkeypatch):
@@ -149,5 +141,4 @@ def test_batch_boundaries(db, monkeypatch):
     db.execute(text("UPDATE session_ratings SET comment = 'plain-' || substr(id, 1, 4)"))
     db.commit()
     assert mod.encrypt_existing_comments(db.connection()) == 3
-    assert mod.encrypt_existing_comments(db.connection()) == 0
     assert mod.decrypt_existing_comments(db.connection()) == 3
