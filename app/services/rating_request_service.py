@@ -330,8 +330,14 @@ async def fanout_rating_request(result: RatingRequestResult) -> None:
     if not result.created or result.token is None or result.message is None:
         return
     req = result.request
-    for message, to_customer in ((customer_frame(result), True), (agent_frame(req), False)):
+    for build, to_customer in (
+        (lambda: customer_frame(result), True),
+        (lambda: agent_frame(req), False),
+    ):
+        frame_type = "unknown"
         try:
+            message = build()
+            frame_type = message["type"]
             await connection_manager.fanout_event(
                 session_id=req.session_id,
                 message=message,
@@ -342,6 +348,54 @@ async def fanout_rating_request(result: RatingRequestResult) -> None:
             logger.error(
                 "rating request fanout failed request_id=%s frame=%s (%s)",
                 req.id,
-                message["type"],
+                frame_type,
                 type(exc).__name__,
             )
+
+
+# --- resolve / close hooks (spec §4.4) -------------------------------------
+
+
+def _state_or_none(db: Session, ticket_id: UUID) -> tuple[UUID | None, str]:
+    try:
+        ticket = db.get(Ticket, ticket_id)
+        if ticket is None:
+            return None, "none"
+        state, request_id = RatingRequestService(db).rating_state(ticket)
+        return request_id, state
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.error("rating state lookup failed ticket_id=%s (%s)", ticket_id, type(exc).__name__)
+        return None, "none"
+
+
+async def auto_request_on_resolve(
+    db: Session, ticket_id: UUID, assigned_to: UUID | None
+) -> tuple[UUID | None, str]:
+    """Create/reuse the auto request and fan it out BEFORE the caller sends ticket_resolved.
+
+    Never raises: a rating failure must never fail the resolve. The caller's resolve is
+    already committed (TicketService.resolve_ticket commits), so create_request's
+    commit/rollback cannot discard it.
+    """
+    if assigned_to is None:
+        return None, "none"
+    try:
+        result = RatingRequestService(db).create_request(
+            ticket_id, source=RatingSource.AUTO_RESOLVE, requested_by=None
+        )
+    except RatingRequestError as exc:
+        if exc.code == "already_rated":
+            return None, "already_rated"
+        return _state_or_none(db, ticket_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.error("auto rating request failed ticket_id=%s (%s)", ticket_id, type(exc).__name__)
+        return _state_or_none(db, ticket_id)
+    await fanout_rating_request(result)  # no-op on reuse (token is not recoverable server-side)
+    return result.request.id, "pending"
+
+
+def rating_frame_fields(db: Session, ticket: Any) -> dict[str, Any]:
+    """`rating_request_id` + `rating_state` for ticket_closed; never raises."""
+    request_id, state = _state_or_none(db, ticket.id)
+    return {"rating_request_id": str(request_id) if request_id else None, "rating_state": state}

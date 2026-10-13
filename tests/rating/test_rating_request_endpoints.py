@@ -203,4 +203,6 @@ def test_token_never_logged(client, db, tenant, agent, fanout, caplog):
     with caplog.at_level("DEBUG"):
         assert _post(client, t, agent).status_code == 201
     msg = db.query(Message).filter_by(session_id=t.session_id).one()
-    assert msg.meta["rating_token"] not in caplog.text
+    token = msg.meta["rating_token"]
+    leaked = token in caplog.text
+    assert not leaked, "rating token leaked into logs"
