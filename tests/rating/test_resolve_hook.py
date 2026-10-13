@@ -1,6 +1,7 @@
 """Resolve hook (spec §4.4): request before ticket_resolved; close carries fields."""
 
 import inspect
+import logging
 from unittest.mock import patch
 
 from sqlalchemy import func, select
@@ -124,9 +125,13 @@ def test_auto_resolver_never_requests_ratings():
 
 
 def test_frame_build_failure_is_logged_token_free_and_resolve_still_fans_out(
-    client, db, tenant, agent, fanout, caplog
+    client, db, tenant, agent, fanout, caplog, monkeypatch
 ):
     """Frame building runs inside the per-frame try (Task 4 follow-up): it cannot fail resolve."""
+    # Alembic's env.py runs logging.config.fileConfig() (disable_existing_loggers=True) whenever a
+    # migration test runs earlier in the suite, which silently disables already-imported loggers
+    # and leaves caplog empty. Re-enable the exact logger so this test is order-independent.
+    monkeypatch.setattr(logging.getLogger("app.services.rating_request_service"), "disabled", False)
     t = make_ticket(db, tenant, assigned_to=agent.id)
     with (
         patch(
