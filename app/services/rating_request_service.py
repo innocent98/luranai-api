@@ -21,6 +21,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.websocket import connection_manager
 from app.db.models.conversation import (
     ConversationSession,
     Message,
@@ -210,8 +211,8 @@ class RatingRequestService:
     ) -> RatingRequestResult:
         """Mint (or, for auto, reuse) a request under a row lock on the ticket.
 
-        A RatingRequestError leaves nothing written; the caller's session end releases
-        the lock. Any other failure rolls back before re-raising.
+        A refusal (RatingRequestError) ends the transaction (nothing was written) and any
+        other failure rolls back, so the ticket row lock is released immediately.
         """
         if source not in RatingSource.REQUESTABLE:
             raise ValueError(f"unsupported rating request source: {source}")
@@ -233,6 +234,10 @@ class RatingRequestService:
                     raise RatingRequestError("already_rated")
             return self._mint(ticket, source=source, requested_by=requested_by)
         except RatingRequestError:
+            # Refusals are raised before any write, so ending the transaction is a no-op
+            # that releases the ticket row lock now (not at session close). Commit, not
+            # rollback: rollback would also discard unrelated pending caller state.
+            self.db.commit()
             raise
         except Exception:
             self.db.rollback()
@@ -289,3 +294,54 @@ class RatingRequestService:
         self.db.refresh(request)
         self.db.refresh(message)
         return RatingRequestResult(request, token, message, first, full, created=True)
+
+
+# --- WS frames (spec §4.5) --------------------------------------------------
+
+
+def customer_frame(result: RatingRequestResult) -> dict[str, Any]:
+    req, msg = result.request, result.message
+    return {
+        "type": "rating_requested",
+        "request_id": str(req.id),
+        "token": result.token,
+        "agent_name": result.agent_first_name,
+        "message_id": str(msg.id),
+        "content": msg.content,
+        "source": req.source,
+        "timestamp": ensure_utc_aware(msg.created_at).isoformat(),
+        "expires_at": ensure_utc_aware(req.expires_at).isoformat(),
+    }
+
+
+def agent_frame(req: RatingRequest) -> dict[str, Any]:
+    return {
+        "type": "rating_request_created",
+        "request_id": str(req.id),
+        "ticket_id": str(req.ticket_id) if req.ticket_id else None,
+        "agent_id": str(req.agent_id),
+        "source": req.source,
+        "created_at": ensure_utc_aware(req.created_at).isoformat(),
+    }
+
+
+async def fanout_rating_request(result: RatingRequestResult) -> None:
+    """Customer-only bound card + token-free agent notice. Best effort: already committed."""
+    if not result.created or result.token is None or result.message is None:
+        return
+    req = result.request
+    for message, to_customer in ((customer_frame(result), True), (agent_frame(req), False)):
+        try:
+            await connection_manager.fanout_event(
+                session_id=req.session_id,
+                message=message,
+                to_customer=to_customer,
+                to_agents=not to_customer,
+            )
+        except Exception as exc:  # noqa: BLE001 — never fail the caller; never log the payload
+            logger.error(
+                "rating request fanout failed request_id=%s frame=%s (%s)",
+                req.id,
+                message["type"],
+                type(exc).__name__,
+            )

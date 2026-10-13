@@ -169,3 +169,12 @@ def fanout():
     mock = AsyncMock()
     with patch.object(connection_manager, "fanout_event", mock):
         yield mock
+
+
+@pytest.fixture(autouse=True)
+def _keep_fixtures_loaded(request):
+    """The test `client` closes the shared session after each request (expunging every
+    object); without expire-on-commit, fixtures stay readable for follow-up requests."""
+    if "db" in request.fixturenames:
+        request.getfixturevalue("db").expire_on_commit = False
+    yield
