@@ -95,6 +95,11 @@ class AgentPerformanceResponse(BaseModel):
     avg_resolution_time_hours: float
     conversations_handled: int
     avg_response_time_minutes: float
+    ratings_count: int = Field(0, description="Ratings received in the window (rating created_at)")
+    average_rating: float | None = Field(None, description="Average score in the window (2 dp)")
+    csat_percent: float | None = Field(
+        None, description="% of window ratings scoring >= 4 (1 dp); null when none"
+    )
 
 
 class AgentSummaryResponse(BaseModel):
@@ -108,6 +113,11 @@ class AgentSummaryResponse(BaseModel):
     current_assigned_tickets: int
     tickets_by_status: dict[str, int]
     total_tickets_resolved: int = Field(..., description="All-time resolved tickets")
+    ratings_count: int = Field(0, description="Ratings received in the window (rating created_at)")
+    average_rating: float | None = Field(None, description="Average score in the window (2 dp)")
+    csat_percent: float | None = Field(
+        None, description="% of window ratings scoring >= 4 (1 dp); null when none"
+    )
 
 
 class TrendDataPoint(BaseModel):

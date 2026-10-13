@@ -91,6 +91,7 @@ class TicketResponse(TicketBase):
     visitor: VisitorIdentitySummary | None = None
     resolution_notes: str | None = None
     resolved_at: datetime | None = None
+    rating_request_id: UUID | None = None  # set only on the resolve response (N4 §4.4)
     created_at: datetime
     updated_at: datetime
 

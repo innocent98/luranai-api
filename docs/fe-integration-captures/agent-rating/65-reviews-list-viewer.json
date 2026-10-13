@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/reviews/session",
+    "headers": {
+      "Authorization": "Bearer <viewer-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "ratings": [],
+      "total": 0,
+      "average_score": null,
+      "csat_percent": null,
+      "page": 1,
+      "page_size": 50
+    }
+  }
+}

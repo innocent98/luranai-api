@@ -1,0 +1,46 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/agent/me/ratings",
+    "headers": {
+      "Authorization": "Bearer <agent-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "period_start": "2026-09-13T11:30:49.109920Z",
+      "period_end": "2026-10-13T11:30:49.109920Z",
+      "count": 3,
+      "average_score": 4.0,
+      "csat_percent": 66.7,
+      "recent": [
+        {
+          "id": "e5acb17d-ebc1-43ac-9689-4cee8f472b87",
+          "score": 5,
+          "comment": "Great help",
+          "created_at": "2026-10-13T11:30:37.333369Z",
+          "ticket_number": "TKT-2026-0005",
+          "source": "manual_request"
+        },
+        {
+          "id": "a609fabe-3e33-4030-8d81-9d6810fb699d",
+          "score": 2,
+          "comment": "Took long",
+          "created_at": "2026-10-13T11:30:30.143645Z",
+          "ticket_number": "TKT-2026-0004",
+          "source": "manual_request"
+        },
+        {
+          "id": "59b7ee28-e9ab-4d9d-9e37-be603f648078",
+          "score": 5,
+          "comment": "Sam sorted it out quickly, thanks!",
+          "created_at": "2026-10-13T11:30:18.231931Z",
+          "ticket_number": "TKT-2026-0001",
+          "source": "manual_request"
+        }
+      ]
+    }
+  }
+}

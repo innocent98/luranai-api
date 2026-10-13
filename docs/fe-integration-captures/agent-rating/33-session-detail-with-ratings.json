@@ -1,0 +1,85 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/chat/sessions/2f620b02-5700-4897-870c-3ace295f42dd",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "user_identifier": "<customer-identifier-placeholder>",
+      "meta": {},
+      "id": "2f620b02-5700-4897-870c-3ace295f42dd",
+      "tenant_id": "8843f825-64d4-4299-b661-a87d55bec122",
+      "visitor_id": null,
+      "visitor_session_id": null,
+      "customer_user_id": null,
+      "visitor": null,
+      "status": "active",
+      "escalation_reason": null,
+      "escalated_at": null,
+      "agent_id": "4da5516f-1d3c-4eb4-8c45-29ddf75e706e",
+      "agent_joined_at": "2026-10-13T11:30:14.991331Z",
+      "last_message_at": "2026-10-13T11:30:16.069934Z",
+      "created_at": "2026-10-13T11:30:12.865499Z",
+      "updated_at": "2026-10-13T11:30:16.057237Z",
+      "messages": [
+        {
+          "role": "system",
+          "content": "Sam Rivers joined the conversation",
+          "id": "6254c4fa-b753-4133-a830-219cfd669dc3",
+          "session_id": "2f620b02-5700-4897-870c-3ace295f42dd",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "meta": {
+            "event": "agent_joined",
+            "agent_id": "4da5516f-1d3c-4eb4-8c45-29ddf75e706e"
+          },
+          "created_at": "2026-10-13T11:30:14.999202Z"
+        },
+        {
+          "role": "assistant",
+          "content": "How was your chat with Sam?",
+          "id": "dd27f498-b5ad-423d-9e21-ebfbec6f48bb",
+          "session_id": "2f620b02-5700-4897-870c-3ace295f42dd",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "meta": {
+            "system_notice": "rating_request",
+            "request_id": "45550168-84fe-441c-8cd4-f77a310c2b65",
+            "agent_first_name": "Sam"
+          },
+          "created_at": "2026-10-13T11:30:16.068611Z"
+        }
+      ],
+      "ticket_id": "633d7c63-f992-4a99-94d3-d09d827fe8b6",
+      "ratings": [
+        {
+          "id": "59b7ee28-e9ab-4d9d-9e37-be603f648078",
+          "score": 5,
+          "comment": "Sam sorted it out quickly, thanks!",
+          "created_at": "2026-10-13T11:30:18.231931Z",
+          "rated_party": "human",
+          "rated_agent_id": "4da5516f-1d3c-4eb4-8c45-29ddf75e706e",
+          "rated_agent_name": "Sam Rivers",
+          "source": "manual_request"
+        },
+        {
+          "id": "b642f8a3-3e0d-4b5d-a56d-0577083197f5",
+          "score": 3,
+          "comment": "The bot part was okay",
+          "created_at": "2026-10-13T11:30:18.280226Z",
+          "rated_party": "ai",
+          "rated_agent_id": null,
+          "rated_agent_name": null,
+          "source": "resolution_prompt"
+        }
+      ]
+    }
+  }
+}

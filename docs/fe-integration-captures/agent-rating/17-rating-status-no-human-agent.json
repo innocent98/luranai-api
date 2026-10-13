@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/tickets/5e571061-4fe8-47ed-b32a-4fded5e9e7c4/rating-status",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "can_request": false,
+      "reason_code": "no_human_agent",
+      "retry_after_seconds": null,
+      "open_request": null,
+      "rating": null
+    }
+  }
+}

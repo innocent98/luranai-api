@@ -300,6 +300,10 @@ def test_detail_transcript_includes_attachments(client, db, auth_headers, escala
             "content_type": "image/png",
             "width": 4,
             "height": 3,
+            "kind": "image",
+            "duration_ms": None,
+            "poster_url": None,
+            "expired": False,
         }
     ]
     assert without_img["attachments"] == []

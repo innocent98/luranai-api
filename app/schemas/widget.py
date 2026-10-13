@@ -45,6 +45,10 @@ class WidgetConfigUpdate(BaseModel):
         None,
         description="Allow file uploads in chat",
     )
+    widget_allow_screen_recording: bool | None = Field(
+        None,
+        description="Allow customer screen recordings",
+    )
 
 
 class WidgetConfigResponse(BaseModel):
@@ -61,6 +65,8 @@ class WidgetConfigResponse(BaseModel):
     widget_position: str | None
     widget_show_unread_badge: bool
     widget_allow_file_upload: bool
+    widget_allow_screen_recording: bool
+    can_use_screen_recording: bool = True
 
 
 # Public widget configuration (for widget to fetch)
@@ -77,6 +83,7 @@ class PublicWidgetConfigResponse(BaseModel):
     position: str = Field(..., description="Widget position")
     show_unread_badge: bool = Field(..., description="Show unread badge")
     allow_file_upload: bool = Field(..., description="Allow file uploads")
+    allow_screen_recording: bool = Field(False, description="Customer screen recording available")
     collect_name_before_chat: bool = Field(..., description="Collect customer name before chat")
     collect_email_before_chat: bool = Field(..., description="Collect customer email before chat")
     first_responder: str = Field("ai", description="Who answers first: ai, ai_with_handoff, human")

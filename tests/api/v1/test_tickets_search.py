@@ -1,7 +1,7 @@
 """Tests for the optional ``q`` search param on GET /api/v1/tickets.
 
 Semantics under test: case-insensitive literal substring match over
-ticket_number, summary, ConversationSession.user_identifier and the linked
+ticket_number, summary and the linked
 visitor's name / email / phone (all three are Fernet-encrypted at rest, so the
 visitor fields are matched after decryption, not with SQL ILIKE). ANDed with the
 other filters; tenant scoping is unchanged.
@@ -88,7 +88,9 @@ def _ticket(
 ) -> Ticket:
     session = ConversationSession(
         tenant_id=tenant_id,
-        user_identifier=user_identifier or f"anon-{uuid.uuid4().hex[:8]}",
+        # Constant, not random: search also matches user_identifier, so a random hex
+        # suffix collides with digit/hex needles ("N-77" vs "anon-77...", 1 in 256).
+        user_identifier=user_identifier or "anon-session",
         visitor_id=visitor.id if visitor else None,
         status=SessionStatus.ACTIVE,
     )
@@ -146,12 +148,12 @@ def test_matches_summary(pg_client, db_session):
     assert _numbers(_search(pg_client, token, "double charge")) == {"TKT-S-1"}
 
 
-def test_matches_user_identifier(pg_client, db_session):
+def test_does_not_match_user_identifier(pg_client, db_session):
+    """user_identifier is the customer socket credential: never searchable by staff."""
     user, token = _make_tenant_user(db_session)
     _ticket(db_session, user.tenant_id, number="TKT-U-1", user_identifier="widget-user-777")
-    _ticket(db_session, user.tenant_id, number="TKT-U-2", user_identifier="widget-user-888")
 
-    assert _numbers(_search(pg_client, token, "user-777")) == {"TKT-U-1"}
+    assert _numbers(_search(pg_client, token, "user-777")) == set()
 
 
 def test_matches_visitor_name_email_phone(pg_client, db_session):

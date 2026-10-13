@@ -65,7 +65,7 @@ from app.db.models.platform_email_campaign import (
     PlatformEmailCampaignRecipient,
 )
 from app.db.models.promotional_grant import AutoSignupGrantConfig, PromotionalGrant
-from app.db.models.review import FeedbackCategory, PlatformFeedback, SessionRating
+from app.db.models.review import FeedbackCategory, PlatformFeedback, RatingRequest, SessionRating
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.subscription_plan import SubscriptionPlan
 from app.db.models.lead import Lead, LeadStatus
@@ -147,6 +147,7 @@ __all__ = [
     "JobStatus",
     "JobType",
     # Review models
+    "RatingRequest",
     "SessionRating",
     "PlatformFeedback",
     "FeedbackCategory",

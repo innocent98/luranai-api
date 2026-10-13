@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/reviews/session",
+    "headers": {},
+    "body": {
+      "session_id": "f15653b4-d4ea-4808-a3bb-f0bb1495d3de",
+      "user_identifier": "capture-visitor-i@example.test",
+      "score": 5,
+      "rating_request_token": "<rating-token-7-placeholder>"
+    }
+  },
+  "response": {
+    "status": 410,
+    "body": {
+      "detail": {
+        "code": "rating_request_expired",
+        "message": "This rating request has expired"
+      }
+    }
+  }
+}

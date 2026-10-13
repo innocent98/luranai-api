@@ -37,8 +37,8 @@ Design choices worth knowing before extending this file
   not deleted.** A support ticket a since-deleted agent handled, or a chat
   session they joined, is the *tenant's* (and its customers') data, not the
   departing agent's. Every inbound FK to ``users.id`` was enumerated via
-  ``grep -rn 'ForeignKey("users.id"' app/db/models/*.py`` (15 occurrences,
-  all handled below — see ``_deidentify_user_references``): the reference
+  ``grep -rn 'ForeignKey("users.id"' app/db/models/*.py`` (18 occurrences --
+  15 + N4's three on ``session_ratings``/``rating_requests`` -- all handled below — see ``_deidentify_user_references``): the reference
   column is set to ``NULL`` (or, for the one place that also denormalizes
   the user's raw email/name as platform marketing data, redacted) while the
   owning row survives untouched.
@@ -104,6 +104,7 @@ entry per inbound FK found by the grep above:
     tenant_channel_posts.created_by_user_id /
         published_by_user_id                          -> NULL
     platform_feedback.submitted_by                    -> NULL
+    rating_requests.requested_by                     -> NULL
     processing_jobs.created_by                        -> NULL
     audit_logs.user_id                                -> NULL, plus
         .ip_address / .user_agent -> NULL in the SAME statement (GDPR
@@ -114,6 +115,10 @@ entry per inbound FK found by the grep above:
         .recipient_email -> redacted placeholder and .recipient_name ->
         NULL (the only inbound-FK table that also denormalizes the user's
         raw email/name as platform marketing data)
+Kept on purpose (N4-D10): session_ratings.rated_agent_id and
+rating_requests.agent_id. NULLing them would turn a human rating into an "AI"
+rating and could collide with uq_session_ratings_session_ai; the purged user row
+is a PII-free shell, so these FKs expose nothing personal.
 Left alone: deletion_requests.user_id — the audit trail (see above); no PII
 lives on that row to begin with (token hashes only).
 
@@ -161,7 +166,7 @@ tenant earlier in that method — kept for defence in depth.
 ``purge_tenant`` — tables hard-deleted (tenant-scoped; no retained subset)
 ============================================================================
 conversation_sessions (cascades messages + tickets via their own
-    ondelete=CASCADE FKs), session_ratings, leads, meetings, quotes,
+    ondelete=CASCADE FKs), session_ratings, rating_requests, leads, meetings, quotes,
     knowledge_sources (cascades knowledge_chunks), tenant_channel_posts,
     customer_business_follows, visitors (cascades visitor_sessions),
     notification_logs, daily_visits, agent_devices, api_keys,
@@ -236,7 +241,7 @@ from app.db.models.platform_email_campaign import PlatformEmailCampaignRecipient
 from app.db.models.promotional_grant import PromotionalGrant
 from app.db.models.quote import Quote
 from app.db.models.refresh_token import RefreshToken
-from app.db.models.review import PlatformFeedback, SessionRating
+from app.db.models.review import PlatformFeedback, RatingRequest, SessionRating
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
@@ -299,6 +304,8 @@ class AccountPurgeService:
         # deleting explicitly keeps this auditable and still correct even
         # if a future migration ever drops that constraint. ---
         self.db.execute(delete(SessionRating).where(SessionRating.tenant_id == tenant_id))
+        # session_ratings.rating_request_id -> rating_requests is SET NULL; ratings go first.
+        self.db.execute(delete(RatingRequest).where(RatingRequest.tenant_id == tenant_id))
 
         self.db.execute(delete(ActionExecution).where(ActionExecution.tenant_id == tenant_id))
         self.db.execute(delete(ActionSecret).where(ActionSecret.tenant_id == tenant_id))
@@ -361,18 +368,14 @@ class AccountPurgeService:
         # rows. A Cloudinary failure must NEVER abort the purge (a half-purged
         # tenant is worse than an orphaned CDN asset), so each destroy is
         # best-effort; `destroy` already treats "not found" as success.
-        attachment_public_ids = (
-            self.db.execute(
-                select(MessageAttachment.cloudinary_public_id).where(
-                    MessageAttachment.tenant_id == tenant_id
-                )
+        attachment_assets = self.db.execute(
+            select(MessageAttachment.cloudinary_public_id, MessageAttachment.kind).where(
+                MessageAttachment.tenant_id == tenant_id
             )
-            .scalars()
-            .all()
-        )
-        for public_id in attachment_public_ids:
+        ).all()
+        for public_id, kind in attachment_assets:
             try:
-                ok, err = cloudinary_manager.destroy(public_id)
+                ok, err = cloudinary_manager.destroy(public_id, resource_type=kind.value)
                 if not ok:
                     logger.warning(
                         "Cloudinary destroy failed during tenant purge (continuing): %s", err
@@ -505,6 +508,15 @@ class AccountPurgeService:
             ProcessingJob.__table__.update()
             .where(ProcessingJob.created_by == user_id)
             .values(created_by=None)
+        )
+        # N4-D10: rating_requests.requested_by is a "who did it" column -> NULL.
+        # session_ratings.rated_agent_id and rating_requests.agent_id are deliberately
+        # KEPT: NULL would re-label a human rating as an AI rating; the user row survives
+        # as a PII-free shell, so nothing personal remains through these FKs.
+        self.db.execute(
+            RatingRequest.__table__.update()
+            .where(RatingRequest.requested_by == user_id)
+            .values(requested_by=None)
         )
         # ip_address/user_agent are personal data too (GDPR) — must go in
         # the SAME statement as nulling user_id: a second UPDATE keyed on

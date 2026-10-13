@@ -36,5 +36,6 @@ class CustomerConversationDetail(BaseModel):
     business_widget_accent_color: str | None = None
     business_widget_greeting_message: str | None = None
     allow_file_upload: bool = True
+    allow_screen_recording: bool = False
     conversation: SessionDetailResponse
     has_more_messages: bool = False

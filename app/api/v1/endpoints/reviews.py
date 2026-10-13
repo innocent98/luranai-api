@@ -1,6 +1,7 @@
 """Review and rating endpoints."""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -15,6 +16,7 @@ from app.api.deps import (
     get_db,
 )
 from app.db.models.review import FeedbackCategory
+from app.db.models.user import UserRole
 from app.schemas.platform_admin import PlatformAdminResponse
 from app.schemas.review import (
     PlatformFeedbackCreate,
@@ -25,10 +27,11 @@ from app.schemas.review import (
     PublicFeedbackResponse,
     SessionRatingCreate,
     SessionRatingListResponse,
-    SessionRatingResponse,
+    SessionRatingSubmitResponse,
 )
 from app.schemas.user import UserResponse
-from app.services.review_service import ReviewService
+from app.services.review_service import RatingSubmitError, ReviewService
+from app.utils.http_rate_limiter import rating_rate_limit
 
 router = APIRouter()
 
@@ -38,12 +41,13 @@ router = APIRouter()
 
 @router.post(
     "/session",
-    response_model=SessionRatingResponse,
+    response_model=SessionRatingSubmitResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(rating_rate_limit)],
     summary="Submit session rating",
     description="Public endpoint for customers to rate their chat experience. No authentication required.",
 )
-async def create_session_rating(
+def create_session_rating(
     rating_data: SessionRatingCreate,
     db: Session = Depends(get_db),
 ):
@@ -62,8 +66,10 @@ async def create_session_rating(
 
     **Returns:**
     - 201: Rating created successfully
-    - 400: Invalid data (session not found, user mismatch)
-    - 409: Rating already exists for this session
+    - 400: Invalid data (session not found, user mismatch) or `rating_request_invalid`
+    - 409: Rating already exists for this session, or `already_rated` (token path)
+    - 410: `rating_request_expired`
+    - 429: `rating_rate_limited`
     """
     try:
         review_service = ReviewService(db)
@@ -71,11 +77,13 @@ async def create_session_rating(
 
         logger.info(
             f"Session rating created: session_id={rating_data.session_id}, "
-            f"score={rating_data.score}"
+            f"score={rating_data.score}, tokened={bool(rating_data.rating_request_token)}"
         )
 
         return rating
 
+    except RatingSubmitError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail()) from e
     except ValueError as e:
         error_msg = str(e)
         if "already exists" in error_msg.lower():
@@ -101,12 +109,19 @@ async def create_session_rating(
     summary="List session ratings",
     description="View customer ratings (tenant users see own ratings, platform admins see all)",
 )
-async def list_session_ratings(
+def list_session_ratings(
     session_id: UUID | None = Query(None, description="Filter by session ID"),
     min_score: int | None = Query(None, ge=1, le=5, description="Minimum rating score"),
     max_score: int | None = Query(None, ge=1, le=5, description="Maximum rating score"),
     start_date: datetime | None = Query(None, description="Filter from date (ISO 8601)"),
     end_date: datetime | None = Query(None, description="Filter to date (ISO 8601)"),
+    rated_agent_id: UUID | None = Query(
+        None, description="Filter by rated agent (support agents: own id only)"
+    ),
+    rated_party: Literal["ai", "human"] | None = Query(None, description="AI vs human ratings"),
+    source: (
+        Literal["idle_prompt", "resolution_prompt", "manual_request", "auto_resolve"] | None
+    ) = Query(None, description="Rating source"),
     limit: int = Query(50, ge=1, le=100, description="Max results per page"),
     offset: int = Query(0, ge=0, description="Results offset for pagination"),
     auth: AuthContext = Depends(get_current_user_or_platform_admin),
@@ -116,13 +131,16 @@ async def list_session_ratings(
     List session ratings with dual authentication.
 
     **Access Control:**
-    - Tenant users (any role): View ratings for their own tenant only
+    - Tenant admins: all ratings of their tenant
+    - Support agents and viewers: only ratings of themselves (`rated_agent_id` forced to self;
+      another id -> 403 `rating_scope_forbidden`; `rated_party=ai` -> empty)
     - Platform admins: View ratings across ALL tenants
 
     **Query Parameters:**
     - session_id: Filter by specific session
     - min_score/max_score: Filter by rating range
     - start_date/end_date: Filter by date range
+    - rated_agent_id / rated_party (ai|human) / source: rating-attribution filters
     - limit/offset: Pagination controls
 
     **Returns:**
@@ -131,20 +149,36 @@ async def list_session_ratings(
     - Average score across filtered results
     - Pagination metadata
     """
+    tenant_id = None
+    if auth.auth_type == "tenant_user":
+        tenant_id = auth.tenant_id
+        user = auth.user
+        # N4-D5: anyone below tenant admin sees only ratings of themselves.
+        if user.role != UserRole.TENANT_ADMIN:
+            if rated_agent_id is not None and rated_agent_id != user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "code": "rating_scope_forbidden",
+                        "message": "You can only view your own ratings",
+                    },
+                )
+            if rated_party == "ai":
+                return SessionRatingListResponse(
+                    ratings=[],
+                    total=0,
+                    average_score=None,
+                    csat_percent=None,
+                    page=(offset // limit) + 1,
+                    page_size=limit,
+                )
+            rated_agent_id = user.id
+        logger.info(f"Tenant user viewing ratings for tenant {tenant_id}")
+    else:
+        logger.info("Platform admin viewing all ratings (system-wide)")
+
     try:
-        review_service = ReviewService(db)
-
-        # Determine tenant scope based on auth type
-        if auth.auth_type == "tenant_user":
-            # Tenant user: filter by their tenant
-            tenant_id = auth.tenant_id
-            logger.info(f"Tenant user viewing ratings for tenant {tenant_id}")
-        else:
-            # Platform admin: no tenant filter (view all)
-            tenant_id = None
-            logger.info("Platform admin viewing all ratings (system-wide)")
-
-        ratings = review_service.list_session_ratings(
+        return ReviewService(db).list_session_ratings(
             tenant_id=tenant_id,
             session_id=session_id,
             min_score=min_score,
@@ -153,10 +187,10 @@ async def list_session_ratings(
             end_date=end_date,
             limit=limit,
             offset=offset,
+            rated_agent_id=rated_agent_id,
+            rated_party=rated_party,
+            source=source,
         )
-
-        return ratings
-
     except Exception as e:
         logger.error(f"Error listing session ratings: {e}")
         raise HTTPException(

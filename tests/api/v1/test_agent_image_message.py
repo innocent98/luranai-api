@@ -148,6 +148,10 @@ def test_agent_message_links_attachments_and_fans_out(client, db):
             "content_type": "image/png",
             "width": 4,
             "height": 3,
+            "kind": "image",
+            "duration_ms": None,
+            "poster_url": None,
+            "expired": False,
         }
     ]
 

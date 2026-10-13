@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, computed_field, field_validator
 
 from app.db.models.review import FeedbackCategory
 
@@ -19,16 +19,27 @@ class SessionRatingBase(BaseModel):
 
 
 class SessionRatingCreate(SessionRatingBase):
-    """Schema for creating a session rating (public endpoint)."""
+    """Schema for creating a session rating (public endpoint).
 
+    Unknown fields (e.g. a client-sent rated_agent_id) are ignored: the rated agent is
+    derived server-side from rating_request_token only (N4-D2).
+    """
+
+    comment: str | None = Field(None, max_length=500, description="Optional comment (<= 500)")
     session_id: UUID = Field(..., description="Conversation session ID")
     user_identifier: str = Field(
         ..., min_length=1, max_length=255, description="User identifier for verification"
     )
+    rating_request_token: str | None = Field(
+        None,
+        min_length=1,
+        max_length=128,
+        description="Token from the rating_requested frame / message meta; rates that agent",
+    )
 
 
-class SessionRatingResponse(SessionRatingBase):
-    """Schema for session rating response."""
+class SessionRatingSubmitResponse(SessionRatingBase):
+    """201 body of the public POST (no staff-only fields)."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -38,6 +49,39 @@ class SessionRatingResponse(SessionRatingBase):
     user_identifier: str
     created_at: datetime
     updated_at: datetime
+    rated_agent_id: UUID | None = None
+    source: str = "idle_prompt"
+    rating_request_id: UUID | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def rated_party(self) -> str:
+        return "human" if self.rated_agent_id else "ai"
+
+
+class SessionRatingResponse(SessionRatingBase):
+    """Staff list item. No user_identifier (customer socket credential): `customer_label`
+    is the non-secret display value. Adds the agent's name and the originating ticket."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    tenant_id: UUID
+    session_id: UUID
+    customer_label: str = ""
+    created_at: datetime
+    updated_at: datetime
+    rated_agent_id: UUID | None = None
+    source: str = "idle_prompt"
+    rating_request_id: UUID | None = None
+    rated_agent_name: str | None = None
+    ticket_id: UUID | None = None
+    ticket_number: str | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def rated_party(self) -> str:
+        return "human" if self.rated_agent_id else "ai"
 
 
 class SessionRatingListResponse(BaseModel):
@@ -46,6 +90,9 @@ class SessionRatingListResponse(BaseModel):
     ratings: list[SessionRatingResponse]
     total: int
     average_score: float | None = Field(None, description="Average rating score")
+    csat_percent: float | None = Field(
+        None, description="% of filtered ratings scoring >= 4 (1 dp); null when none"
+    )
     page: int
     page_size: int
 

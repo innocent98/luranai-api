@@ -1,0 +1,37 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/tickets/6712e2a8-03cb-479a-9df2-98e329af8265/resolve",
+    "headers": {
+      "Authorization": "Bearer <agent-jwt-placeholder>"
+    },
+    "body": {
+      "resolution_notes": "Invoice corrected"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "summary": "Wrong invoice amount",
+      "priority": "medium",
+      "id": "6712e2a8-03cb-479a-9df2-98e329af8265",
+      "tenant_id": "8843f825-64d4-4299-b661-a87d55bec122",
+      "session_id": "ad17082a-9b95-4302-af3d-9c1314da9b98",
+      "ticket_number": "TKT-2026-0004",
+      "status": "resolved",
+      "assigned_to": "4da5516f-1d3c-4eb4-8c45-29ddf75e706e",
+      "assigned_agent": {
+        "id": "4da5516f-1d3c-4eb4-8c45-29ddf75e706e",
+        "email": "sam.rivers@example.com",
+        "full_name": "Sam Rivers",
+        "role": "support_agent"
+      },
+      "visitor": null,
+      "resolution_notes": "Invoice corrected",
+      "resolved_at": "2026-10-13T11:30:28.119104Z",
+      "rating_request_id": "a7c6472b-e2fa-4230-911a-08b87f6f899e",
+      "created_at": "2026-10-13T11:30:25.531376Z",
+      "updated_at": "2026-10-13T11:30:28.108824Z"
+    }
+  }
+}

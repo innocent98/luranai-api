@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/reviews/session?rated_agent_id=7be9e545-e0f0-4898-9b98-77fe94cdab78",
+    "headers": {
+      "Authorization": "Bearer <agent-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "detail": {
+        "code": "rating_scope_forbidden",
+        "message": "You can only view your own ratings"
+      }
+    }
+  }
+}

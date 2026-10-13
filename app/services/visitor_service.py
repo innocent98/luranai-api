@@ -25,6 +25,7 @@ from app.schemas.visitor import (
     VisitorEnrichmentUpdate,
     VisitorProfileSummary,
 )
+from app.services.screen_recording.gating import screen_recording_allowed
 from app.utils.categories import coerce_tenant_category
 from app.utils.datetime import utcnow_aware
 
@@ -96,6 +97,7 @@ class VisitorService:
             widget_logo_url=tenant.widget_logo_url,
             widget_greeting_message=tenant.widget_greeting_message,
             allow_file_upload=tenant.widget_allow_file_upload,
+            allow_screen_recording=screen_recording_allowed(self.db, tenant),
             collect_name_before_chat=bool(
                 getattr(tenant.ai_config, "collect_name_before_chat", False)
             ),
@@ -436,6 +438,7 @@ class VisitorService:
                 widget_logo_url=tenant.widget_logo_url,
                 widget_greeting_message=tenant.widget_greeting_message,
                 allow_file_upload=tenant.widget_allow_file_upload,
+                allow_screen_recording=screen_recording_allowed(self.db, tenant),
                 collect_name_before_chat=bool(
                     getattr(tenant.ai_config, "collect_name_before_chat", False)
                 ),
@@ -492,14 +495,19 @@ class VisitorService:
         if not session:
             return None
 
-        messages = list(
+        # Newest 50, flipped to chronological order: the oldest-50 window dropped the
+        # latest messages (incl. the N4 rating card) in conversations longer than 50.
+        newest = (
             self.db.execute(
                 select(Message)
                 .where(Message.session_id == session.id)
-                .order_by(Message.created_at)
+                .order_by(Message.created_at.desc(), Message.id.desc())
                 .limit(50)
-            ).scalars()
+            )
+            .scalars()
+            .all()
         )
+        messages = list(reversed(newest))
 
         return VisitorConversationSummary(
             session_id=session.id,

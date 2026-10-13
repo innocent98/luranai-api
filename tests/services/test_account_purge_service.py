@@ -11,6 +11,7 @@ subset — there is no more such subset); and a PII-free DeletionRequest row
 survives as the minimal proof a purge ran.
 """
 
+from datetime import timedelta
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -56,7 +57,7 @@ from app.db.models.payment import PaymentTransaction
 from app.db.models.promotional_grant import PromotionalGrant
 from app.db.models.quote import Quote
 from app.db.models.refresh_token import RefreshToken
-from app.db.models.review import PlatformFeedback, SessionRating
+from app.db.models.review import PlatformFeedback, RatingRequest, SessionRating
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
@@ -373,6 +374,48 @@ def test_purge_user_deidentifies_other_tenant_owned_fk_references(db_session):
     assert feedback.title == "Great product"
     assert db_session.get(Flow, flow_id) is not None
     assert db_session.get(PlatformFeedback, feedback_id) is not None
+
+
+def test_purge_user_keeps_rating_attribution_and_nulls_requested_by(db_session):
+    """N4-D10: NULLing rated_agent_id would turn a human rating into an AI one (and could
+    collide with the AI partial unique index); the purged user row is a PII-free shell,
+    so the attribution FKs are kept. requested_by is a "who did it" column -> NULL."""
+    tenant = _make_tenant(db_session)
+    agent = _make_user(db_session, tenant)
+    admin = _make_user(db_session, tenant, role=UserRole.TENANT_ADMIN)
+    session = _make_session(db_session, tenant, agent=agent)
+    request = RatingRequest(
+        tenant_id=tenant.id,
+        session_id=session.id,
+        agent_id=agent.id,
+        requested_by=admin.id,
+        source="manual_request",
+        token_hash=uuid4().hex + uuid4().hex,
+        expires_at=utcnow_aware() + timedelta(days=7),
+    )
+    db_session.add(request)
+    db_session.flush()
+    rating = SessionRating(
+        tenant_id=tenant.id,
+        session_id=session.id,
+        score=4,
+        user_identifier="u1",
+        rated_agent_id=agent.id,
+        source="manual_request",
+        rating_request_id=request.id,
+    )
+    db_session.add(rating)
+    db_session.flush()
+
+    service = AccountPurgeService(db_session)
+    service.purge_user(agent.id)
+    service.purge_user(admin.id)
+
+    db_session.refresh(rating)
+    db_session.refresh(request)
+    assert rating.rated_agent_id == agent.id
+    assert request.agent_id == agent.id
+    assert request.requested_by is None
 
 
 def test_purge_user_scrubs_audit_log_ip_and_user_agent(db_session):
@@ -791,6 +834,7 @@ def test_purge_tenant_deletes_attachments_and_cloudinary_assets(db_session):
 
     assert destroy.call_count == 2
     assert {c.args[0] for c in destroy.call_args_list} == set(pids)
+    assert all(c.kwargs == {"resource_type": "image"} for c in destroy.call_args_list)
     assert _attachment_count(db_session, tenant.id) == 0
 
 
@@ -799,7 +843,7 @@ def test_purge_tenant_survives_cloudinary_destroy_failure(db_session, failure):
     pids = [f"luran/chat/{uuid4().hex}", f"luran/chat/{uuid4().hex}"]
     tenant = _seed_tenant_with_attachments(db_session, pids)
 
-    def flaky(public_id):
+    def flaky(public_id, *, resource_type):
         if public_id == pids[0]:
             if failure == "raises":
                 raise RuntimeError("cloudinary down")
@@ -917,6 +961,23 @@ def _seed_every_tenant_scoped_table(db_session, tenant: Tenant, agent: User) -> 
             user_identifier="u1",
         ),
         "session_ratings",
+    )
+    _add(
+        RatingRequest(
+            tenant_id=tenant.id,
+            session_id=(
+                db_session.execute(
+                    select(ConversationSession.id).where(ConversationSession.tenant_id == tenant.id)
+                )
+                .scalars()
+                .first()
+            ),
+            agent_id=agent.id,
+            source="manual_request",
+            token_hash=uuid4().hex + uuid4().hex,
+            expires_at=utcnow_aware() + timedelta(days=7),
+        ),
+        "rating_requests",
     )
     _add(_make_payment_transaction(db_session, tenant), "payment_transactions")
     _add(

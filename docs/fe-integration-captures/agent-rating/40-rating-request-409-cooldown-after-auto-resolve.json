@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/tickets/053f33f7-7cc1-4c8d-95c4-cfe347b5fd25/rating-requests",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "detail": {
+        "code": "rating_request_cooldown",
+        "message": "A rating was requested recently. Try again later",
+        "retry_after_seconds": 598
+      }
+    }
+  }
+}

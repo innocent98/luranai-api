@@ -1,0 +1,25 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/tickets/3aade2be-e716-4d27-b3cf-e96f406e905b/rating-status",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "can_request": false,
+      "reason_code": "ticket_not_ratable",
+      "retry_after_seconds": null,
+      "open_request": {
+        "request_id": "0e7b9b68-5713-4db7-852d-7570ae99ed36",
+        "source": "manual_request",
+        "created_at": "2026-10-13T11:30:39.444284Z",
+        "expires_at": "2026-10-20T11:30:39.444284Z"
+      },
+      "rating": null
+    }
+  }
+}

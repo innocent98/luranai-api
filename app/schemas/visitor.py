@@ -35,6 +35,7 @@ class PublicBusinessProfileResponse(BaseModel):
     widget_logo_url: str | None = None
     widget_greeting_message: str | None = None
     allow_file_upload: bool = True
+    allow_screen_recording: bool = False
     collect_name_before_chat: bool = False
     collect_email_before_chat: bool = False
     first_responder: str = "ai"
@@ -110,13 +111,16 @@ class VisitorProfileSummary(BaseModel):
 
 
 class VisitorIdentitySummary(BaseModel):
-    """Internal support-facing summary of a visitor attached to a conversation."""
+    """Support-facing summary of a visitor attached to a conversation.
+
+    Deliberately has no ``public_token``: that is the visitor's bearer credential and
+    must never be serialised to staff (or to anyone but the visitor's own browser).
+    """
 
     id: UUID
     name: str | None = None
     email: str | None = None
     phone: str | None = None
-    public_token: str
     first_seen_at: datetime
     last_seen_at: datetime
     is_blocked: bool

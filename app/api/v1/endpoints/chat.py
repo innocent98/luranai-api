@@ -33,6 +33,7 @@ from app.core.config import settings
 from app.core.websocket import connection_manager
 from app.db.models.conversation import (
     AttachmentDirection,
+    AttachmentKind,
     AttachmentModeration,
     AttachmentStatus,
     ConversationSession,
@@ -58,8 +59,9 @@ from app.schemas.conversation import (
     MessageRequest,
     MessageResponse,
     SessionCreateRequest,
-    SessionDetailResponse,
     SessionResponse,
+    StaffSessionDetailResponse,
+    StaffSessionResponse,
 )
 from app.schemas.rag import EscalationDecision, ResponseQuality
 from app.schemas.ticket import TicketCreate, TicketResponse
@@ -82,6 +84,8 @@ from app.services.first_responder import (
     HUMAN_FIRST_REASON,
     HUMAN_FIRST_REPLY,
     HUMAN_FIRST_WELCOME,
+    SCREEN_RECORDING_ACK,
+    SCREEN_RECORDING_REASON,
 )
 from app.services.flow_engine import FlowEngine
 from app.sales.pricing import compute_quote
@@ -92,6 +96,7 @@ from app.services.notification_enqueue import (
 )
 from app.services.quote_service import QuoteService
 from app.services.rag_service import RAGService
+from app.services.rating_read_service import session_rating_briefs
 from app.services.tenant_service import TenantService
 from app.services.voice import turn_signal
 from app.services.ticket_service import TicketService
@@ -101,6 +106,7 @@ from app.utils.email import send_ticket_escalation_email
 from app.services.image_moderation import moderate_image
 from app.utils.cloudinary_client import cloudinary_manager
 from app.utils.http_rate_limiter import chat_rate_limit, chat_upload_rate_limit
+from app.utils.staff_redaction import redact_staff_messages, staff_customer_label
 
 router = APIRouter()
 
@@ -190,6 +196,9 @@ def _upload_response(attachment: MessageAttachment) -> dict:
         "content_type": attachment.content_type,
         "width": attachment.width,
         "height": attachment.height,
+        "kind": getattr(attachment.kind, "value", attachment.kind),
+        "duration_ms": attachment.duration_ms,
+        "poster_url": attachment.poster_url,
         "bytes": attachment.bytes,
     }
 
@@ -221,6 +230,7 @@ async def upload_chat_image(
 
 
 IMAGE_ONLY_PLACEHOLDER = "[image]"
+VIDEO_ONLY_PLACEHOLDER = "[screen recording]"
 SYSTEM_START_TRIGGER = "start"
 FLOW_START_PREFIX = "__flow_start__:"
 TALK_TO_HUMAN_TOKEN = "__talk_to_human__"
@@ -726,15 +736,24 @@ def _get_or_create_escalation_ticket(
         just-reopened MISSED one; False for any other reuse (already OPEN or
         IN_PROGRESS, and therefore already ringing or already being handled).
     """
-    existing = ticket_service.get_open_ticket_for_session(session_id)
-    if existing is not None:
-        if existing.status == TicketStatus.MISSED and existing.assigned_to is None:
-            reopened = ticket_service.reopen_missed_ticket(existing.id)
-            if reopened is not None:
-                AgentAlertService(ticket_service.db).reset_ring(reopened.id)
-                return reopened, True
-        return existing, False
-    return ticket_service.create_ticket(ticket_data), True
+    # Row lock first, then the check: two concurrent escalations of one session
+    # would otherwise both see "no open ticket" and both create one. The lock is
+    # released by the commit inside create/reopen, or explicitly below.
+    try:
+        ticket_service.lock_session_for_escalation(session_id)
+        existing = ticket_service.get_open_ticket_for_session(session_id)
+        if existing is not None:
+            if existing.status == TicketStatus.MISSED and existing.assigned_to is None:
+                reopened = ticket_service.reopen_missed_ticket(existing.id)
+                if reopened is not None:
+                    AgentAlertService(ticket_service.db).reset_ring(reopened.id)
+                    return reopened, True
+            ticket_service.db.commit()  # nothing to write; just release the row lock
+            return existing, False
+        return ticket_service.create_ticket(ticket_data), True
+    except Exception:
+        ticket_service.db.rollback()  # never leave the session row locked
+        raise
 
 
 async def _escalate_to_human(
@@ -901,13 +920,14 @@ async def _fanout_customer_images(
         session = db.get(ConversationSession, session_id)
         if message is None or session is None:
             return
+        label = staff_customer_label(db, session.id, session.visitor_id)
         await connection_manager.fanout_event(
             session_id=session_id,
             message={
                 "type": "customer_message",
                 "message_id": str(message.id),
                 "content": message.content,
-                "user_identifier": session.user_identifier,
+                "customer_label": label,
                 "timestamp": message.created_at.isoformat(),
                 "attachments": attachment_frames(message.attachments),
             },
@@ -1214,14 +1234,24 @@ async def _send_message_impl(
     # Attachments: validate up-front (nothing persisted on failure), then link them to
     # the USER message at whichever branch persists it. The send endpoint has many
     # branches that each call add_message(role=USER), so wrap add_message once here.
+    turn_has_video = False
     if message_data.attachment_ids:
         try:
-            conversation_service.get_linkable_attachments(session_id, message_data.attachment_ids)
+            _linkable = conversation_service.get_linkable_attachments(
+                session_id, message_data.attachment_ids
+            )
         except ValueError:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid or already-used attachment",
             ) from None
+        _video_count = sum(1 for a in _linkable if a.kind == AttachmentKind.VIDEO)
+        if _video_count > 1:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={"code": "too_many_videos", "message": "One recording per message"},
+            )
+        turn_has_video = _video_count == 1
         _attachment_ids = message_data.attachment_ids
         _plain_add_message = conversation_service.add_message
         _linked = False
@@ -1260,6 +1290,86 @@ async def _send_message_impl(
     effective_message_lower = effective_message.lower().strip()
     session_meta = dict(session_model.meta or {})
     rag_only_mode = bool(session_meta.get("rag_only_mode", False))
+
+    # Screen recording (spec SR-D4): a video is a request for a human. It never reaches the
+    # AI, flows or automations. Same contact gate + _escalate_to_human as talk-to-human;
+    # an already-escalated session only re-rings when its ticket is MISSED (inside the helper).
+    if turn_has_video:
+        video_text = (
+            VIDEO_ONLY_PLACEHOLDER
+            if message_data.message == IMAGE_ONLY_PLACEHOLDER
+            else message_data.message
+        )
+        video_user_message = conversation_service.add_message(
+            session_id=session_id, role=MessageRole.USER, content=video_text
+        )
+        already_escalated = session.status == SessionStatus.ESCALATED
+        if not already_escalated:
+            video_missing = _get_missing_contact_fields(
+                require_name_before_escalation=require_name_before_escalation,
+                require_email_before_escalation=require_email_before_escalation,
+                customer_name=customer_name,
+                customer_contact_email=customer_contact_email,
+            )
+            if video_missing:
+                _store_pending_contact_capture(
+                    conversation_service=conversation_service,
+                    session_id=session_id,
+                    session_meta=dict(session_model.meta or {}),
+                    escalation_reason=SCREEN_RECORDING_REASON,
+                    customer_query=video_text,
+                    required_fields=video_missing,
+                )
+                video_prompt = conversation_service.add_message(
+                    session_id=session_id,
+                    role=MessageRole.ASSISTANT,
+                    content=_build_contact_capture_prompt(video_missing),
+                    meta={
+                        "contact_capture_required": True,
+                        "contact_capture_fields": video_missing,
+                    },
+                )
+                return ChatResponse(
+                    session_id=session_id,
+                    message=video_prompt,
+                    should_escalate=False,
+                    escalation_reason=None,
+                    ticket_id=None,
+                )
+        video_ticket_id = await _escalate_to_human(
+            db,
+            conversation_service=conversation_service,
+            tenant_service=tenant_service,
+            session=session,
+            session_id=session_id,
+            escalation_reason=SCREEN_RECORDING_REASON,
+            customer_query=video_text,
+            conversation_history=conversation_service.get_session_messages(
+                session_id=session_id, limit=20
+            ),
+            contact_email=customer_contact_email,
+        )
+        if already_escalated:
+            return ChatResponse(
+                session_id=session_id,
+                message=video_user_message,
+                should_escalate=False,
+                escalation_reason=None,
+                ticket_id=None,
+            )
+        video_ack = conversation_service.add_message(
+            session_id=session_id,
+            role=MessageRole.ASSISTANT,
+            content=SCREEN_RECORDING_ACK,
+            meta={"system_notice": "screen_recording_ack"},
+        )
+        return ChatResponse(
+            session_id=session_id,
+            message=video_ack,
+            should_escalate=True,
+            escalation_reason=SCREEN_RECORDING_REASON,
+            ticket_id=video_ticket_id,
+        )
 
     # Escalated session: a human agent owns this conversation, so the bot must not auto-reply.
     # Customers still send images (and text) over REST after escalation because images cannot go
@@ -2552,7 +2662,9 @@ async def _send_message_impl(
 
             # Current turn's linked image URLs (populated when the USER message was
             # persisted); None keeps the text-only path unchanged.
-            _turn_image_urls = [a.url for a in linked_attachments] or None
+            _turn_image_urls = [
+                a.url for a in linked_attachments if a.kind == "image" and a.url
+            ] or None
 
             if _sales_mode:
                 # State-threading: pin facts already captured this conversation so
@@ -2945,7 +3057,7 @@ async def _send_message_impl(
 
 @router.get(
     "/sessions/{session_id}",
-    response_model=SessionDetailResponse,
+    response_model=StaffSessionDetailResponse,
     status_code=status.HTTP_200_OK,
 )
 def get_session(
@@ -2973,12 +3085,14 @@ def get_session(
     # Verify tenant access
     verify_tenant_access(session.tenant_id, current_user)
 
-    return session
+    session.messages = redact_staff_messages(session.messages)
+    session.ratings = session_rating_briefs(db, session_id)
+    return ConversationService.to_staff_session(session)
 
 
 @router.get(
     "/tenants/{tenant_id}/sessions",
-    response_model=list[SessionResponse],
+    response_model=list[StaffSessionResponse],
     status_code=status.HTTP_200_OK,
 )
 def list_tenant_sessions(
@@ -3009,7 +3123,7 @@ def list_tenant_sessions(
         tenant_id, status=status_filter, limit=limit
     )
 
-    return sessions
+    return [ConversationService.to_staff_session(s) for s in sessions]
 
 
 @router.get(
@@ -3046,12 +3160,12 @@ def get_session_messages(
     verify_tenant_access(session.tenant_id, current_user)
 
     messages = conversation_service.get_session_messages(session_id, limit=limit)
-    return messages
+    return redact_staff_messages(messages)
 
 
 @router.post(
     "/sessions/{session_id}/takeover",
-    response_model=SessionResponse,
+    response_model=StaffSessionResponse,
     status_code=status.HTTP_200_OK,
 )
 async def agent_takeover(
@@ -3141,7 +3255,7 @@ async def agent_takeover(
 
     logger.info("Agent took over session")
 
-    return updated_session
+    return ConversationService.to_staff_session(updated_session)
 
 
 @router.post(

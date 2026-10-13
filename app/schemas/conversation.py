@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.db.models.conversation import MessageRole, SessionStatus
 from app.schemas.explore import SourceMeta
+from app.schemas.rating import SessionRatingBrief
 from app.schemas.visitor import VisitorIdentitySummary
 
 MAX_ATTACHMENTS_PER_MESSAGE = 3
@@ -99,15 +100,39 @@ class ConversationSessionUpdate(BaseModel):
 
 # Response schemas
 class AttachmentOut(BaseModel):
-    """Image attachment surfaced on a message."""
+    """Chat attachment surfaced on a message (image or video; url is null once expired)."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    url: str
+    url: str | None = None
     content_type: str
     width: int | None = None
     height: int | None = None
+    kind: str = "image"
+    duration_ms: int | None = None
+    poster_url: str | None = None
+    expired: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_row(cls, data):  # type: ignore[no-untyped-def]
+        # ORM rows: derive the wire kind/expired from the enums.
+        if hasattr(data, "status") and hasattr(data, "kind"):
+            status = getattr(data.status, "value", data.status)
+            kind = getattr(data.kind, "value", data.kind)
+            return {
+                "id": data.id,
+                "url": data.url,
+                "content_type": data.content_type,
+                "width": data.width,
+                "height": data.height,
+                "kind": kind,
+                "duration_ms": data.duration_ms,
+                "poster_url": data.poster_url,
+                "expired": status == "expired",
+            }
+        return data
 
 
 class MessageResponse(MessageBase):
@@ -134,11 +159,12 @@ class MessageResponse(MessageBase):
     created_at: datetime
 
 
-class SessionResponse(ConversationSessionBase):
-    """Schema for conversation session response."""
+class _SessionFields(BaseModel):
+    """Session fields shared by the customer-facing and staff-facing responses."""
 
     model_config = ConfigDict(from_attributes=True)
 
+    meta: dict | None = Field(None, description="Additional context metadata")
     id: UUID
     tenant_id: UUID
     visitor_id: UUID | None = None
@@ -155,11 +181,33 @@ class SessionResponse(ConversationSessionBase):
     updated_at: datetime
 
 
-class SessionDetailResponse(SessionResponse):
-    """Schema for session with messages."""
-
+class _SessionDetailFields(BaseModel):
     messages: list[MessageResponse] = Field(default_factory=list)
     ticket_id: UUID | None = None  # latest ticket for this session
+    ratings: list[SessionRatingBrief] = Field(
+        default_factory=list,
+        description="Every rating for the session (AI and human), oldest first; staff detail only",
+    )
+
+
+class SessionResponse(_SessionFields):
+    """Customer-facing session (public create, customer history). Carries user_identifier."""
+
+    user_identifier: str = Field(..., min_length=1, max_length=255)
+
+
+class SessionDetailResponse(SessionResponse, _SessionDetailFields):
+    """Schema for session with messages."""
+
+
+class StaffSessionResponse(_SessionFields):
+    """Staff-facing session: no user_identifier (customer socket credential), meta redacted."""
+
+    customer_label: str = Field(..., description="Non-secret display label for the customer")
+
+
+class StaffSessionDetailResponse(StaffSessionResponse, _SessionDetailFields):
+    """Staff-facing session with messages."""
 
 
 class ChatResponse(BaseModel):

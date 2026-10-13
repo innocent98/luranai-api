@@ -25,6 +25,7 @@ from app.schemas.ticket import (
     TicketUpdate,
 )
 from app.schemas.user import UserResponse
+from app.services.rating_request_service import auto_request_on_resolve, rating_frame_fields
 from app.services.ticket_service import TicketAlreadyFinalError, TicketService
 
 router = APIRouter()
@@ -85,8 +86,8 @@ def list_tickets(
         None,
         max_length=100,
         description=(
-            "Case-insensitive substring search over ticket number, summary, session "
-            "user identifier and visitor name/email/phone. Ignored if < 2 chars after trim."
+            "Case-insensitive substring search over ticket number, summary and "
+            "visitor name/email/phone. Ignored if < 2 chars after trim."
         ),
     ),
     limit: int = Query(100, ge=1, le=500),
@@ -289,6 +290,13 @@ async def resolve_ticket(
     try:
         resolved_ticket = ticket_service.resolve_ticket(ticket_id, resolve_data)
 
+        # N4 §4.4: the auto rating request (and its customer card) must be in the widget's
+        # state before ticket_resolved, because the widget clears its session on that frame.
+        rating_request_id, rating_state = await auto_request_on_resolve(
+            db, resolved_ticket.id, resolved_ticket.assigned_to
+        )
+        resolved_ticket.rating_request_id = rating_request_id
+
         # Broadcast ticket_resolved event via WebSocket
         if resolved_ticket.session_id:
             await connection_manager.fanout_event(
@@ -304,6 +312,8 @@ async def resolve_ticket(
                         if resolved_ticket.resolved_at
                         else None
                     ),
+                    "rating_request_id": str(rating_request_id) if rating_request_id else None,
+                    "rating_state": rating_state,
                 },
                 to_customer=True,
                 to_agents=True,
@@ -358,6 +368,7 @@ async def close_ticket(
                     "ticket_number": closed_ticket.ticket_number,
                     "closed_by": current_user.full_name,
                     "closed_at": datetime.utcnow().isoformat(),
+                    **rating_frame_fields(db, closed_ticket),
                 },
                 to_customer=True,
                 to_agents=True,

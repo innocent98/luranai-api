@@ -237,9 +237,7 @@ async def test_send_visitor_confirmation_marks_failed_on_email_error(db_session,
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch(
-        "app.services.email_service.EmailService.send_templated_email", return_value=False
-    ):
+    with patch("app.services.email_service.EmailService.send_templated_email", return_value=False):
         with pytest.raises(RuntimeError, match="email send failed"):
             await send_visitor_meeting_confirmation({}, str(log_id))
 

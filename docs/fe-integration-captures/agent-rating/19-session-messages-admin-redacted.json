@@ -1,0 +1,44 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/chat/sessions/2f620b02-5700-4897-870c-3ace295f42dd/messages",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "role": "system",
+        "content": "Sam Rivers joined the conversation",
+        "id": "6254c4fa-b753-4133-a830-219cfd669dc3",
+        "session_id": "2f620b02-5700-4897-870c-3ace295f42dd",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [],
+        "meta": {
+          "event": "agent_joined",
+          "agent_id": "4da5516f-1d3c-4eb4-8c45-29ddf75e706e"
+        },
+        "created_at": "2026-10-13T11:30:14.999202Z"
+      },
+      {
+        "role": "assistant",
+        "content": "How was your chat with Sam?",
+        "id": "dd27f498-b5ad-423d-9e21-ebfbec6f48bb",
+        "session_id": "2f620b02-5700-4897-870c-3ace295f42dd",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [],
+        "meta": {
+          "system_notice": "rating_request",
+          "request_id": "45550168-84fe-441c-8cd4-f77a310c2b65",
+          "agent_first_name": "Sam"
+        },
+        "created_at": "2026-10-13T11:30:16.068611Z"
+      }
+    ]
+  }
+}

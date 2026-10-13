@@ -1216,6 +1216,10 @@ class WorkerSettings:
     from app.workers.attachment_cleanup import (  # type: ignore[misc]
         cleanup_orphan_attachments,
     )
+    from app.workers.attachment_retention import (  # type: ignore[misc]
+        expire_attachments,
+        sweep_unregistered_videos,
+    )
 
     from app.auditor.pipeline import run_website_audit  # type: ignore[misc]
 
@@ -1246,6 +1250,8 @@ class WorkerSettings:
         auto_resolve_stale_tickets,
         purge_due_deletion_requests,
         cleanup_orphan_attachments,
+        expire_attachments,
+        sweep_unregistered_videos,
         check_trial_expiration_3days,
         expire_lapsed_trials,
         check_subscription_renewal_reminders,
@@ -1305,6 +1311,20 @@ class WorkerSettings:
             cleanup_orphan_attachments,
             hour={3},
             minute=0,
+            run_at_startup=False,
+        ),
+        # Expire chat attachments past their 30-day retention - daily at 3:15 AM UTC
+        cron(
+            expire_attachments,
+            hour={3},
+            minute=15,
+            run_at_startup=False,
+        ),
+        # Destroy screen-recording uploads never registered (>24h) - daily at 3:30 AM UTC
+        cron(
+            sweep_unregistered_videos,
+            hour={3},
+            minute=30,
             run_at_startup=False,
         ),
         # Check trial expiration reminders (14/7/3/1/0 days) - daily at 9 AM UTC

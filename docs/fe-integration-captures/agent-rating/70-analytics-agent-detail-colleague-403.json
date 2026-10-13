@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/analytics/agents/4da5516f-1d3c-4eb4-8c45-29ddf75e706e",
+    "headers": {
+      "Authorization": "Bearer <agent-kim-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "detail": "You can only view your own performance metrics"
+    }
+  }
+}

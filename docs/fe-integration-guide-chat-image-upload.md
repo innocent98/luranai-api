@@ -1,5 +1,7 @@
 # FE Integration Guide — Chat Image Upload
 
+> **UPDATE 2026-10-12 (screen recording + 30-day retention, PR #122).** The attachment object is no longer `{id,url,content_type,width,height}`. Everywhere an attachment appears (`user_message_attachments`, `message.attachments`, REST history, WS frames, transcripts) it is now `{id, url, content_type, width, height, kind, duration_ms, poster_url, expired}`, and **`url` is nullable**. Where this guide below shows the 5-field form, read it as the 9-field form in section 9. Live captures: `docs/fe-integration-captures/screen-recording/` and `docs/fe-integration-guide-screen-recording.md`.
+
 **Audience:** the widget (`luran-chat`), dashboard (`luran-dashboard`), and agent app (`luran_agent`) teams.
 **Backend:** merged to `develop`, deployed to staging. **Every payload below marked `LIVE` was captured against staging** (`https://staging-api.luranai.com`, 2026-10-07) — not derived from schemas. Items marked `PENDING-AUTHED` or `SCHEMA` could not be exercised over the public flow and are labelled so you know how much to trust them.
 
@@ -125,6 +127,8 @@ The **same** `allow_file_upload: bool` flag (default **true**) is now also retur
 ## 8. Verification table
 | Behaviour | Status |
 |---|---|
+| Attachment object with `kind`/`duration_ms`/`poster_url`/`expired`, nullable `url` (video) | ✅ LIVE (local, 2026-10-12; section 9) |
+| Image expiry shape (`url: null`) | ⬜ CODE only |
 | Customer upload 200 (url/public_id/dims/bytes) | ✅ LIVE |
 | `url` is `.jpg` regardless of `content_type` | ✅ LIVE |
 | Upload 422 missing fields | ✅ LIVE |
@@ -141,5 +145,40 @@ The **same** `allow_file_upload: bool` flag (default **true**) is now also retur
 | Escalation `transcript[].attachments` (History/Missed) | ✅ CODE (#106) · live-capture PENDING-AUTHED |
 | **R7** `allow_file_upload` on `CustomerConversationDetail` + `PublicBusinessProfileResponse` (reflects tenant flag) | 🟨 CODE — tests assert true/false; authed live capture pending |
 | Authed customer send forwards `attachment_ids` → links + `user_message_attachments` | 🟨 CODE — test asserts link; authed live capture pending |
+
+## 9. Attachment object after screen recording (2026-10-12)
+
+Captured live (local app, real Cloudinary dev cloud): `17-session-messages-admin-with-video.json`, `16-chat-message-video-ack.json`, `25-ws-agent-frames.json`, `26-session-messages-admin-after-expiry.json` in `docs/fe-integration-captures/screen-recording/`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | uuid | (upload/register responses call it `attachment_id`; embedded objects use `id`) |
+| `url` | string or **null** | **null when `expired` is true.** Null-check before rendering. |
+| `content_type` | string | client MIME for images, always `video/mp4` for videos. Never render from it. |
+| `width`, `height` | int or null | kept after expiry |
+| `kind` | `"image"` or `"video"` | **new.** Drives rendering. Skip unknown kinds. Defaults to `"image"` for every pre-existing attachment. |
+| `duration_ms` | int or null | video only; null for images |
+| `poster_url` | string or null | video only (JPEG first frame); null for images and when expired |
+| `expired` | bool | **new.** true once the 30-day retention job has destroyed the asset |
+
+Video example (live, `17-...`):
+```json
+{
+  "id": "6dfcb19f-a79a-4155-ad01-104009d5868d",
+  "url": "https://res.cloudinary.com/<cloud-name-placeholder>/video/upload/c_limit,q_auto,vc_h264,w_1280/v1791839383/.../video/540a7bce2a0746ac9ee5384a1b19bfe7.mp4",
+  "content_type": "video/mp4",
+  "width": 854,
+  "height": 480,
+  "kind": "video",
+  "duration_ms": 13413,
+  "poster_url": "https://res.cloudinary.com/<cloud-name-placeholder>/video/upload/c_limit,so_0,w_640/v1791839383/.../video/540a7bce2a0746ac9ee5384a1b19bfe7.jpg",
+  "expired": false
+}
+```
+Expired (live, `26-...`): same object with `"url": null`, `"poster_url": null`, `"expired": true`; `kind`, `duration_ms`, `width`, `height`, `content_type` are retained.
+
+- **Images now expire too:** 30 days after upload for every image (existing images: 30 days after the sr10 rollout). An expired image is `kind: "image"`, `url: null`, `expired: true`; show "Image . expired". The image expiry body itself was **not captured live** (resolved-from-code, same serializer).
+- **WS history-replay and live frames** now carry the 9-field object (this resolves the earlier "`attachments: [{id,url,content_type}]`" note; live-captured for `customer_message` with a video).
+- The image upload response (`/chat/upload`) is unchanged and does not include `kind`; only the video `register` response adds `kind`, `duration_ms`, `poster_url`.
 
 _Staging captures used a test tenant/session; the UUIDs/URLs above are real staging artifacts (not customer data), kept verbatim as the live shapes._

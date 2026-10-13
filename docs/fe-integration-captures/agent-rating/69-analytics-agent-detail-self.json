@@ -1,0 +1,29 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/analytics/agents/4da5516f-1d3c-4eb4-8c45-29ddf75e706e",
+    "headers": {
+      "Authorization": "Bearer <agent-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "agent_id": "4da5516f-1d3c-4eb4-8c45-29ddf75e706e",
+      "agent_name": "Sam Rivers",
+      "agent_email": "sam.rivers@example.com",
+      "period_start": "2026-09-13T11:30:49.082829",
+      "period_end": "2026-10-13T11:30:49.082829",
+      "total_tickets_assigned": 5,
+      "tickets_resolved": 3,
+      "tickets_in_progress": 2,
+      "avg_resolution_time_hours": -8.332684958518518,
+      "conversations_handled": 5,
+      "avg_response_time_minutes": 0.0,
+      "ratings_count": 3,
+      "average_rating": 4.0,
+      "csat_percent": 66.7
+    }
+  }
+}

@@ -38,6 +38,17 @@ services:
       # `.env` (owner-managed encrypted env); it is not set here.
       API_WORKERS: ${API_WORKERS:-2}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Trust X-Forwarded-For only from the Docker bridge gateway (host nginx
+      # reaches the 127.0.0.1-published port via the compose network gateway,
+      # 172.18/172.19.0.1 today). Without this, request.client.host is that
+      # gateway for every visitor and all IP rate limits share one bucket.
+      # nginx must resolve the real visitor IP first (Cloudflare real_ip conf,
+      # see docs/sop/trusted_proxy_client_ip.md). Uvicorn takes the rightmost
+      # untrusted XFF entry, so a client-supplied XFF cannot spoof it.
+      # Exact IPs, not a CIDR: gunicorn 23 validates this setting itself and
+      # rejects network ranges (crash-looped staging on de1dc4d). If a compose
+      # network is recreated with a new gateway, update this list.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.18.0.1,172.19.0.1}
     healthcheck:
       test:
         [

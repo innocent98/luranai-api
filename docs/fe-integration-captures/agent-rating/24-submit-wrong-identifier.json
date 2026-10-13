@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/reviews/session",
+    "headers": {},
+    "body": {
+      "session_id": "2f620b02-5700-4897-870c-3ace295f42dd",
+      "user_identifier": "someone-else@example.test",
+      "score": 5,
+      "rating_request_token": "<rating-token-1-placeholder>"
+    }
+  },
+  "response": {
+    "status": 400,
+    "body": {
+      "detail": "User identifier does not match session"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/agent/me/ratings",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "period_start": "2026-09-13T11:30:49.128567Z",
+      "period_end": "2026-10-13T11:30:49.128567Z",
+      "count": 0,
+      "average_score": null,
+      "csat_percent": null,
+      "recent": []
+    }
+  }
+}

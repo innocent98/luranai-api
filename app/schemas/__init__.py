@@ -35,6 +35,8 @@ from app.schemas.conversation import (
     MessageRequest,
     MessageResponse,
     SessionDetailResponse,
+    StaffSessionDetailResponse,
+    StaffSessionResponse,
     SessionResponse,
 )
 from app.schemas.flow import (
@@ -86,6 +88,7 @@ from app.schemas.review import (
     SessionRatingCreate,
     SessionRatingListResponse,
     SessionRatingResponse,
+    SessionRatingSubmitResponse,
 )
 from app.schemas.tenant import (
     TenantAIConfigCreate,
@@ -163,6 +166,8 @@ __all__ = [
     "ConversationSessionUpdate",
     "SessionResponse",
     "SessionDetailResponse",
+    "StaffSessionDetailResponse",
+    "StaffSessionResponse",
     "MessageCreate",
     "MessageRequest",
     "MessageResponse",
@@ -240,6 +245,7 @@ __all__ = [
     # Review schemas
     "SessionRatingCreate",
     "SessionRatingResponse",
+    "SessionRatingSubmitResponse",
     "SessionRatingListResponse",
     "PlatformFeedbackCreate",
     "PlatformFeedbackUpdate",

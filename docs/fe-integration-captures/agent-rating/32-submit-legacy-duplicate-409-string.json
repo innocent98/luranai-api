@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/reviews/session",
+    "headers": {},
+    "body": {
+      "session_id": "2f620b02-5700-4897-870c-3ace295f42dd",
+      "user_identifier": "<customer-identifier-placeholder>",
+      "score": 4
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "detail": "Rating already exists for this session"
+    }
+  }
+}

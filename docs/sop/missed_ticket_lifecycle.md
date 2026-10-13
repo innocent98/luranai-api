@@ -28,6 +28,8 @@ Resolve/close endpoints have no status guard; a test now pins resolving a MISSED
 - `GET /chat/sessions/{id}` returns `ticket_id` (latest ticket of the session, nullable). `GET /tickets?session_id=<uuid>` filters (still tenant-scoped). Replaces the dashboard's last-200 scan.
 - Every `agent_message` / `customer_message` frame carrying a `message_id` now includes `attachments` (id, url, content_type, width, height; send order) via `attachment_frames()` in `conversation_service.py`: replays on customer and agent sockets, live agent text frames (`[]`), `send_agent_message` and customer fanout. Root cause of dashboard "images vanish": id-merging clients overwrote the message with a frame lacking `attachments`.
 
+- `ticket_resolved` / `ticket_closed` now also carry `rating_request_id` and `rating_state` (N4, see `n4_agent_rating_backend.md`).
+
 ## Migrations
 | Revision | Purpose |
 |---|---|

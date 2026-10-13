@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.v1.endpoints import (
     account_deletion,
     agent_app,
+    agent_ratings,
     analytics,
     api_keys,
     auditor,
@@ -10,6 +11,7 @@ from app.api.v1.endpoints import (
     automation,
     automation_sandbox,
     chat,
+    chat_video,
     company_registration,
     customer_auth,
     customer_conversations,
@@ -30,6 +32,7 @@ from app.api.v1.endpoints import (
     subscription,
     tenant,
     tenant_channels,
+    ticket_ratings,
     tickets,
     users,
     voice,
@@ -266,15 +269,18 @@ api_router.include_router(knowledge.router, prefix="/knowledge", tags=["knowledg
 
 # Chat/conversation endpoints
 api_router.include_router(chat.router, prefix="/chat", tags=["chat"])
+api_router.include_router(chat_video.router, prefix="/chat", tags=["chat"])
 
 # Voice chat endpoints (ElevenLabs Agents integration)
 api_router.include_router(voice.router, prefix="/voice", tags=["voice"])
 
 # Ticket management endpoints
 api_router.include_router(tickets.router, prefix="/tickets", tags=["tickets"])
+api_router.include_router(ticket_ratings.router, prefix="/tickets", tags=["tickets"])
 
 # Agent Caller mobile app endpoints
 api_router.include_router(agent_app.router, prefix="/agent", tags=["agent-app"])
+api_router.include_router(agent_ratings.router, prefix="/agent", tags=["agent-app"])
 
 # Flow management endpoints
 api_router.include_router(flows.router, prefix="/flows", tags=["flows"])

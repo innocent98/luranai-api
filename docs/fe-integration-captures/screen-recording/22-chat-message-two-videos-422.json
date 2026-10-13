@@ -1,0 +1,26 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/chat/message",
+    "headers": {},
+    "body": {
+      "message": "Two recordings",
+      "session_id": "1a7b2789-2bdc-4921-ab8d-ad3d2806c4d7",
+      "tenant_id": "86730f5c-e040-46f7-864b-2f9c8e7fd2bd",
+      "user_identifier": "customer@example.test",
+      "attachment_ids": [
+        "2e846bfd-5bce-4216-9e48-6ef78ebbc9f7",
+        "c58cab25-4ce9-4562-9fb2-660167915584"
+      ]
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "detail": {
+        "code": "too_many_videos",
+        "message": "One recording per message"
+      }
+    }
+  }
+}

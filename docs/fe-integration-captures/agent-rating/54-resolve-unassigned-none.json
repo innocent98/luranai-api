@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/tickets/f1830c30-f7b7-4cf3-95ce-4085e478117c/resolve",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "resolution_notes": "n/a"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "summary": "Spam",
+      "priority": "medium",
+      "id": "f1830c30-f7b7-4cf3-95ce-4085e478117c",
+      "tenant_id": "8843f825-64d4-4299-b661-a87d55bec122",
+      "session_id": "877bf8fa-80b0-44c6-8e75-abaffd9d7234",
+      "ticket_number": "TKT-2026-0008",
+      "status": "resolved",
+      "assigned_to": null,
+      "assigned_agent": null,
+      "visitor": null,
+      "resolution_notes": "n/a",
+      "resolved_at": "2026-10-13T11:30:44.274586Z",
+      "rating_request_id": null,
+      "created_at": "2026-10-13T11:30:43.233265Z",
+      "updated_at": "2026-10-13T11:30:44.264687Z"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "PATCH",
+    "path": "/widget/config",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "widget_allow_screen_recording": true
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "tenant_id": "86730f5c-e040-46f7-864b-2f9c8e7fd2bd",
+      "company_name": "Acme Test Co",
+      "widget_primary_color": "#2563eb",
+      "widget_accent_color": "#10b981",
+      "widget_logo_url": null,
+      "widget_greeting_message": "Hi! How can we help you today?",
+      "widget_position": "bottom-right",
+      "widget_show_unread_badge": true,
+      "widget_allow_file_upload": true,
+      "widget_allow_screen_recording": true,
+      "can_use_screen_recording": true
+    }
+  }
+}

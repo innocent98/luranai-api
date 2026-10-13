@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "GET",
+    "path": "/tickets/633d7c63-f992-4a99-94d3-d09d827fe8b6/rating-status",
+    "headers": {
+      "Authorization": "Bearer <agent-kim-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "can_request": false,
+      "reason_code": "rating_request_forbidden",
+      "retry_after_seconds": null,
+      "open_request": null,
+      "rating": null
+    }
+  }
+}

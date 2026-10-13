@@ -18,6 +18,8 @@ HUMAN_FIRST_REPLY = "Thanks for reaching out — connecting you with someone fro
 HUMAN_FIRST_WELCOME = (
     "Hi! Welcome to {company_name}. Send us a message and someone from our team will reply."
 )
+SCREEN_RECORDING_REASON = "Customer sent a screen recording"
+SCREEN_RECORDING_ACK = "Thanks — a member of our team will watch your recording and reply here."
 MISSED_NOTICE = "Our team couldn't get to you right now. We'll reply right here as soon as we can."
 
 

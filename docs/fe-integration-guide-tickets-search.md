@@ -7,13 +7,15 @@ Base path `/api/v1`. Auth: bearer access token (tenant user). Tenant scoping is 
 
 ---
 
+> **UPDATE 2026-10-13 (staff credential hygiene, not re-captured live):** `ticket.visitor.public_token` is **removed** from every ticket response (it was the visitor's bearer credential). The captured bodies below still show the old field; ignore it. Do not render a "Token:" line (`TicketDetails.tsx:202`).
+>
 > **Placeholder note:** captures are verbatim except `visitor.public_token`, whose fixture values (random, throwaway DB) are replaced by `<public-token-placeholder>`. Real values are opaque strings.
 
 ## 1. What it is
 A search box on the tickets list. One new optional query param, `q`, on the existing `GET /api/v1/tickets`. Everything else about the endpoint (path, auth, response shape, ordering newest-first) is unchanged. The response is the **bare** `TicketListResponse` object (`tickets`, `total`, `page`, `page_size`) - there is no `{success, data}` envelope on this endpoint.
 
 ## 2. Semantics (what `q` matches)
-- Case-insensitive **literal substring** match, OR-ed across: `ticket_number`, `summary`, the session's `user_identifier`, and the linked visitor's `name`, `email`, `phone`.
+- Case-insensitive **literal substring** match, OR-ed across: `ticket_number`, `summary`, and the linked visitor's `name`, `email`, `phone`. (`user_identifier` is no longer searched, 2026-10-13: it is the customer socket credential. Shape from code + pytest, not re-captured live.)
 - `q` is trimmed. If shorter than **2 characters after trimming** (including empty / whitespace) it is **ignored** - you get the unfiltered list, HTTP 200, not an error.
 - Max **100 characters**; longer is HTTP 422.
 - `%`, `_` and `\` are literal characters (searching `50%` finds "50%", not "500"). Do not pre-escape them; just URL-encode (`%` -> `%25`).
@@ -153,7 +155,7 @@ Visitor name/email/phone are encrypted at rest, so the server decrypts the (tena
 | Match on visitor email, case-insensitive | verified-live (3.3) |
 | 1-char `q` ignored | verified-live (3.4) |
 | `%` literal | verified-live (3.5) |
-| `_` and `\` literal; summary / user_identifier match; blank/whitespace `q` ignored | verified by pytest only (`tests/api/v1/test_tickets_search.py`), not captured live |
+| `_` and `\` literal; summary match (user_identifier match REMOVED 2026-10-13); blank/whitespace `q` ignored | verified by pytest only (`tests/api/v1/test_tickets_search.py`), not captured live |
 | >100 chars -> 422 shape | verified-live (3.6) |
 | `q` + `status_filter` | verified-live (3.7) |
 | Pagination `total` / `page` with `q` | verified-live (3.8) |

@@ -18,16 +18,20 @@ from app.db.models.conversation import (
 )
 from app.db.models.visitor import Visitor
 from app.schemas.conversation import (
+    AttachmentOut,
     MAX_ATTACHMENTS_PER_MESSAGE,
     ConversationSessionCreate,
     ConversationSessionUpdate,
     MessageResponse,
     SessionDetailResponse,
     SessionResponse,
+    StaffSessionDetailResponse,
+    StaffSessionResponse,
 )
 from app.schemas.visitor import VisitorIdentitySummary
 from app.utils.attribution import coerce_source, normalize_source_meta
 from app.utils.datetime import utcnow_naive
+from app.utils.staff_redaction import customer_label, redact_staff_session_meta
 
 
 class ConversationService:
@@ -53,7 +57,6 @@ class ConversationService:
             name=visitor.name,
             email=visitor.email,
             phone=visitor.phone,
-            public_token=visitor.public_token,
             first_seen_at=visitor.first_seen_at,
             last_seen_at=visitor.last_seen_at,
             is_blocked=visitor.is_blocked,
@@ -74,10 +77,33 @@ class ConversationService:
                 .order_by(Ticket.created_at.desc())
                 .limit(1)
             ).scalar_one_or_none()
+            # The ORM backref would auto-fill this; the admin endpoint fills it explicitly.
+            response.ratings = []
         else:
             response = SessionResponse.model_validate(session)
         response.visitor = self._build_visitor_summary(session.visitor_id)
         return response
+
+    @staticmethod
+    def to_staff_session(
+        session: SessionResponse | SessionDetailResponse,
+    ) -> StaffSessionResponse | StaffSessionDetailResponse:
+        """Staff view of a session: no user_identifier, credential-bearing meta keys dropped.
+
+        Message-level redaction (rating tokens) stays the endpoint's job, as before.
+        """
+        data = session.model_dump(exclude={"user_identifier"})
+        data["meta"] = redact_staff_session_meta(data.get("meta"))
+        visitor = session.visitor
+        data["customer_label"] = customer_label(
+            session.id,
+            name=visitor.name if visitor else None,
+            email=visitor.email if visitor else None,
+            phone=visitor.phone if visitor else None,
+        )
+        if isinstance(session, SessionDetailResponse):
+            return StaffSessionDetailResponse.model_validate(data)
+        return StaffSessionResponse.model_validate(data)
 
     def create_session(self, session_data: ConversationSessionCreate) -> SessionResponse:
         """
@@ -656,14 +682,5 @@ async def emit_agent_joined(db: Session, session: ConversationSession, agent) ->
 def attachment_frames(attachments) -> list[dict]:
     """WS payload shape for a message's attachments (same fields as REST
     `AttachmentOut`), in send order. Every frame carrying a `message_id` must
-    include this so clients that merge by id never drop images."""
-    return [
-        {
-            "id": str(a.id),
-            "url": a.url,
-            "content_type": a.content_type,
-            "width": a.width,
-            "height": a.height,
-        }
-        for a in attachments
-    ]
+    include this so clients that merge by id never drop attachments."""
+    return [AttachmentOut.model_validate(a).model_dump(mode="json") for a in attachments]
