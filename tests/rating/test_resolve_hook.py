@@ -44,6 +44,7 @@ def test_resolve_with_assignee_requests_rating_before_ticket_resolved(
     assert resolved["rating_state"] == "pending"
     assert resolved["rating_request_id"] == str(req.id)
     assert r.json()["rating_request_id"] == str(req.id)
+    assert "token" not in resolved
 
 
 def test_resolve_reuses_open_manual_request_without_new_card(client, db, tenant, agent, fanout):
@@ -109,6 +110,7 @@ def test_close_carries_rating_fields_without_creating(client, db, tenant, agent,
     assert r.status_code == 200
     closed = fanout.await_args_list[-1].kwargs["message"]
     assert closed["type"] == "ticket_closed"
+    assert "token" not in closed
     assert (closed["rating_state"], closed["rating_request_id"]) == ("pending", str(req.id))
     assert _requests(db, t) == 1
 
@@ -146,3 +148,31 @@ def test_frame_build_failure_is_logged_token_free_and_resolve_still_fans_out(
     token = db.query(Message).filter_by(session_id=t.session_id).one().meta["rating_token"]
     leaked = token in caplog.text
     assert not leaked, "rating token leaked into logs"
+
+
+def test_auto_request_locking_select_runs_off_the_event_loop(client, db, tenant, agent, fanout):
+    """The resolve hook's FOR UPDATE select must execute on a worker thread."""
+    import asyncio
+
+    seen: list[bool] = []
+    real_execute = db.execute
+
+    def spy_execute(stmt, *args, **kwargs):
+        if getattr(stmt, "_for_update_arg", None) is None:
+            return real_execute(stmt, *args, **kwargs)
+        try:
+            asyncio.get_running_loop()
+            seen.append(True)
+        except RuntimeError:
+            seen.append(False)
+        return real_execute(stmt, *args, **kwargs)
+
+    t = make_ticket(db, tenant, assigned_to=agent.id)
+    db.execute = spy_execute
+    try:
+        r = _resolve(client, t, agent)
+    finally:
+        db.execute = real_execute
+    assert r.status_code == 200, r.text
+    assert seen and not any(seen), "DB execute ran on the event loop"
+    assert _types(fanout) == ["rating_requested", "rating_request_created", "ticket_resolved"]

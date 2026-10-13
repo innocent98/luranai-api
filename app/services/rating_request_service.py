@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -369,6 +370,26 @@ def _state_or_none(db: Session, ticket_id: UUID) -> tuple[UUID | None, str]:
         return None, "none"
 
 
+def _auto_create(
+    db: Session, ticket_id: UUID
+) -> tuple[RatingRequestResult | None, UUID | None, str]:
+    """Sync (runs in the threadpool): locking create + commit, or the fallback state."""
+    try:
+        result = RatingRequestService(db).create_request(
+            ticket_id, source=RatingSource.AUTO_RESOLVE, requested_by=None
+        )
+    except RatingRequestError as exc:
+        if exc.code == "already_rated":
+            return None, None, "already_rated"
+        request_id, state = _state_or_none(db, ticket_id)
+        return None, request_id, state
+    except Exception as exc:  # noqa: BLE001
+        logger.error("auto rating request failed ticket_id=%s (%s)", ticket_id, type(exc).__name__)
+        request_id, state = _state_or_none(db, ticket_id)
+        return None, request_id, state
+    return result, result.request.id, "pending"
+
+
 async def auto_request_on_resolve(
     db: Session, ticket_id: UUID, assigned_to: UUID | None
 ) -> tuple[UUID | None, str]:
@@ -376,23 +397,19 @@ async def auto_request_on_resolve(
 
     Never raises: a rating failure must never fail the resolve. The caller's resolve is
     already committed (TicketService.resolve_ticket commits), so create_request's
-    commit/rollback cannot discard it.
+    commit/rollback cannot discard it. The locking DB work runs in the threadpool so a
+    row-lock wait never blocks the event loop; the fanout happens after the commit.
     """
     if assigned_to is None:
         return None, "none"
     try:
-        result = RatingRequestService(db).create_request(
-            ticket_id, source=RatingSource.AUTO_RESOLVE, requested_by=None
-        )
-    except RatingRequestError as exc:
-        if exc.code == "already_rated":
-            return None, "already_rated"
-        return _state_or_none(db, ticket_id)
+        result, request_id, state = await run_in_threadpool(_auto_create, db, ticket_id)
     except Exception as exc:  # noqa: BLE001
         logger.error("auto rating request failed ticket_id=%s (%s)", ticket_id, type(exc).__name__)
-        return _state_or_none(db, ticket_id)
-    await fanout_rating_request(result)  # no-op on reuse (token is not recoverable server-side)
-    return result.request.id, "pending"
+        return None, "none"
+    if result is not None:
+        await fanout_rating_request(result)  # no-op on reuse (token not recoverable)
+    return request_id, state
 
 
 def rating_frame_fields(db: Session, ticket: Any) -> dict[str, Any]:

@@ -27,7 +27,6 @@ from app.schemas.review import (
     PublicFeedbackResponse,
     SessionRatingCreate,
     SessionRatingListResponse,
-    SessionRatingResponse,
     SessionRatingSubmitResponse,
 )
 from app.services.rating_read_service import csat_percent_expr, enrich_ratings
@@ -173,26 +172,9 @@ class ReviewService:
             self.db.commit()
             self.db.refresh(db_rating)
         except IntegrityError as err:
+            self.db.rollback()
             raise RatingSubmitError("already_rated") from err
         return SessionRatingSubmitResponse.model_validate(db_rating)
-
-    def get_session_rating(self, session_id: UUID) -> SessionRatingResponse | None:
-        """
-        Get rating for a specific session.
-
-        Args:
-            session_id: Session UUID
-
-        Returns:
-            Rating response if found, None otherwise
-        """
-        stmt = select(SessionRating).where(SessionRating.session_id == session_id)
-        rating = self.db.execute(stmt).scalar_one_or_none()
-
-        if not rating:
-            return None
-
-        return SessionRatingResponse.model_validate(rating)
 
     def list_session_ratings(
         self,
