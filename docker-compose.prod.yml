@@ -45,7 +45,10 @@ services:
       # nginx must resolve the real visitor IP first (Cloudflare real_ip conf,
       # see docs/sop/trusted_proxy_client_ip.md). Uvicorn takes the rightmost
       # untrusted XFF entry, so a client-supplied XFF cannot spoof it.
-      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.16.0.0/12}
+      # Exact IPs, not a CIDR: gunicorn 23 validates this setting itself and
+      # rejects network ranges (crash-looped staging on de1dc4d). If a compose
+      # network is recreated with a new gateway, update this list.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-172.18.0.1,172.19.0.1}
     healthcheck:
       test:
         [

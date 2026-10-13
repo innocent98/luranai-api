@@ -15,15 +15,18 @@ Two hops each hid the IP:
 | Hop | Saw | Fix |
 |---|---|---|
 | Cloudflare → nginx | Cloudflare edge IP as `$remote_addr` (DNS for api/staging-api is proxied, `server: cloudflare`) | nginx `real_ip_header CF-Connecting-IP` + `set_real_ip_from` Cloudflare ranges |
-| nginx → container | Docker gateway `172.18.0.1` (prod) / `172.19.0.1` (staging); uvicorn trusted XFF only from 127.0.0.1 | `FORWARDED_ALLOW_IPS=172.16.0.0/12` |
+| nginx → container | Docker gateway `172.18.0.1` (prod) / `172.19.0.1` (staging); uvicorn trusted XFF only from 127.0.0.1 | `FORWARDED_ALLOW_IPS=172.18.0.1,172.19.0.1` |
 
 ## How / decisions
 - uvicorn 0.32.1 `ProxyHeadersMiddleware` (reached via gunicorn `UvicornWorker`, which passes
   gunicorn's `forwarded_allow_ips`, default from the `FORWARDED_ALLOW_IPS` env) supports CIDR and takes
   the **rightmost untrusted** XFF entry → client-supplied XFF cannot spoof. Verified locally on the
   pinned version: normal → visitor IP; `6.6.6.6, real, real` → real; untrusted peer → peer.
-- CIDR `172.16.0.0/12` rather than the exact gateway: compose network subnets can change if a network
-  is recreated; only the host and other compose containers can reach the 127.0.0.1-bound port.
+- Exact gateway IPs `172.18.0.1,172.19.0.1` (prod, staging). **Not a CIDR:** uvicorn accepts ranges but
+  gunicorn 23 validates `forwarded_allow_ips` itself and rejects them — the first version (`172.16.0.0/12`,
+  #127 `de1dc4d`) crash-looped the staging api (`'172.16.0.0/12' does not appear to be an IPv4 or IPv6
+  address`). Prod never received it. Verify any change with gunicorn's `Config().set(...)`, not uvicorn alone.
+  If a compose network is recreated with a new gateway, update the list (`docker network inspect`).
 - `set_real_ip_from` restricted to Cloudflare's published ranges → a direct-to-origin request can't
   forge `CF-Connecting-IP`. Existing `X-Forwarded-For $proxy_add_x_forwarded_for` lines unchanged.
 - Rejected: reading `CF-Connecting-IP` in app code (spoofable on direct-to-origin hits).
