@@ -495,14 +495,19 @@ class VisitorService:
         if not session:
             return None
 
-        messages = list(
+        # Newest 50, flipped to chronological order: the oldest-50 window dropped the
+        # latest messages (incl. the N4 rating card) in conversations longer than 50.
+        newest = (
             self.db.execute(
                 select(Message)
                 .where(Message.session_id == session.id)
-                .order_by(Message.created_at)
+                .order_by(Message.created_at.desc(), Message.id.desc())
                 .limit(50)
-            ).scalars()
+            )
+            .scalars()
+            .all()
         )
+        messages = list(reversed(newest))
 
         return VisitorConversationSummary(
             session_id=session.id,

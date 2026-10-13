@@ -59,8 +59,9 @@ from app.schemas.conversation import (
     MessageRequest,
     MessageResponse,
     SessionCreateRequest,
-    SessionDetailResponse,
     SessionResponse,
+    StaffSessionDetailResponse,
+    StaffSessionResponse,
 )
 from app.schemas.rag import EscalationDecision, ResponseQuality
 from app.schemas.ticket import TicketCreate, TicketResponse
@@ -105,7 +106,7 @@ from app.utils.email import send_ticket_escalation_email
 from app.services.image_moderation import moderate_image
 from app.utils.cloudinary_client import cloudinary_manager
 from app.utils.http_rate_limiter import chat_rate_limit, chat_upload_rate_limit
-from app.utils.staff_redaction import redact_staff_messages
+from app.utils.staff_redaction import redact_staff_messages, staff_customer_label
 
 router = APIRouter()
 
@@ -919,13 +920,14 @@ async def _fanout_customer_images(
         session = db.get(ConversationSession, session_id)
         if message is None or session is None:
             return
+        label = staff_customer_label(db, session.id, session.visitor_id)
         await connection_manager.fanout_event(
             session_id=session_id,
             message={
                 "type": "customer_message",
                 "message_id": str(message.id),
                 "content": message.content,
-                "user_identifier": session.user_identifier,
+                "customer_label": label,
                 "timestamp": message.created_at.isoformat(),
                 "attachments": attachment_frames(message.attachments),
             },
@@ -3055,7 +3057,7 @@ async def _send_message_impl(
 
 @router.get(
     "/sessions/{session_id}",
-    response_model=SessionDetailResponse,
+    response_model=StaffSessionDetailResponse,
     status_code=status.HTTP_200_OK,
 )
 def get_session(
@@ -3085,12 +3087,12 @@ def get_session(
 
     session.messages = redact_staff_messages(session.messages)
     session.ratings = session_rating_briefs(db, session_id)
-    return session
+    return ConversationService.to_staff_session(session)
 
 
 @router.get(
     "/tenants/{tenant_id}/sessions",
-    response_model=list[SessionResponse],
+    response_model=list[StaffSessionResponse],
     status_code=status.HTTP_200_OK,
 )
 def list_tenant_sessions(
@@ -3121,7 +3123,7 @@ def list_tenant_sessions(
         tenant_id, status=status_filter, limit=limit
     )
 
-    return sessions
+    return [ConversationService.to_staff_session(s) for s in sessions]
 
 
 @router.get(
@@ -3163,7 +3165,7 @@ def get_session_messages(
 
 @router.post(
     "/sessions/{session_id}/takeover",
-    response_model=SessionResponse,
+    response_model=StaffSessionResponse,
     status_code=status.HTTP_200_OK,
 )
 async def agent_takeover(
@@ -3253,7 +3255,7 @@ async def agent_takeover(
 
     logger.info("Agent took over session")
 
-    return updated_session
+    return ConversationService.to_staff_session(updated_session)
 
 
 @router.post(

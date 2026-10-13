@@ -234,7 +234,8 @@ def test_image_send_fans_out_customer_message_to_agents(client, db):
     row = db.execute(select(MessageAttachment).where(MessageAttachment.id == aid)).scalar_one()
     assert msg["message_id"] == str(row.message_id)
     assert msg["content"] == "look"
-    assert msg["user_identifier"].startswith("v-")
+    assert "user_identifier" not in msg
+    assert msg["customer_label"].startswith("Visitor ")
     assert msg["timestamp"]
     assert msg["attachments"] == [
         {

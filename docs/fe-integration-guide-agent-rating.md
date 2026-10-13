@@ -785,7 +785,7 @@ The agent socket received an identical `ticket_closed` frame. There is no frame 
 - **`rating` on `rating-status` is `null`** for support agents who are not the rated agent, and then `reason_code` is `rating_request_forbidden` even though the real reason may be `already_rated`.
 - **`open_request` can be non-null while `can_request` is false** (capture 51).
 - **Viewers** appear as rows in `/analytics/agents` (all tenant users are listed, existing behaviour) but get 403 on `rating-requests` and an empty `/reviews/session`.
-- **`user_identifier` is returned to staff** in `GET /reviews/session` items (existing field). Do not display it; see the SOP for why this is a prod blocker.
+- **RESOLVED 2026-10-13:** `GET /reviews/session` items no longer carry `user_identifier`; they carry `customer_label` (visitor name/email/phone, else `Visitor <first 8 of session_id>`). Shape from code + pytest (`tests/rating/test_staff_credential_hygiene.py`), not re-captured live. The captured list bodies above still show the old field. See `docs/sop/staff_surface_credential_hygiene.md`.
 - **`comment` is `null`, not absent,** when the customer left none (captures 41, 73).
 - **`rated_agent_name`** is `null` for AI ratings; `ticket_id` and `ticket_number` are `null` for untokened ratings.
 - **A reused request is invisible:** after a resolve that reuses a manual request, there is no new frame or message. Do not wait for one.
@@ -800,7 +800,7 @@ The agent socket received an identical `ticket_closed` frame. There is no frame 
 - **Submitting twice is success.** `409 already_rated` should read as "thanks, already received".
 - **Old clients keep working:** old widgets ignore the new frame and file the generic untokened rating (attributed to nobody); old authed views show the question as a plain assistant line.
 - **Comments are customer text up to 500 characters;** render as plain text.
-- **Do not show customer identity next to agent ratings in the agent app** (the payload has none; the dashboard list does carry `user_identifier`, keep it out of the UI).
+- **Do not show customer identity next to agent ratings in the agent app** (the payload has none; the dashboard list now carries `customer_label` instead of `user_identifier`).
 
 ## 10. Polling guidance
 

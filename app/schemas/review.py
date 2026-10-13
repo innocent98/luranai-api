@@ -59,12 +59,29 @@ class SessionRatingSubmitResponse(SessionRatingBase):
         return "human" if self.rated_agent_id else "ai"
 
 
-class SessionRatingResponse(SessionRatingSubmitResponse):
-    """Staff list item: adds the agent's name and the ticket the request came from."""
+class SessionRatingResponse(SessionRatingBase):
+    """Staff list item. No user_identifier (customer socket credential): `customer_label`
+    is the non-secret display value. Adds the agent's name and the originating ticket."""
 
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    tenant_id: UUID
+    session_id: UUID
+    customer_label: str = ""
+    created_at: datetime
+    updated_at: datetime
+    rated_agent_id: UUID | None = None
+    source: str = "idle_prompt"
+    rating_request_id: UUID | None = None
     rated_agent_name: str | None = None
     ticket_id: UUID | None = None
     ticket_number: str | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def rated_party(self) -> str:
+        return "human" if self.rated_agent_id else "ai"
 
 
 class SessionRatingListResponse(BaseModel):

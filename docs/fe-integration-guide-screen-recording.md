@@ -236,6 +236,8 @@ Nothing is persisted or linked; both videos stay staged and sendable.
 
 ### 5.1 Agent WebSocket `customer_message` frame (live)
 
+> **UPDATE 2026-10-13 (staff credential hygiene, not re-captured live):** agent-facing `customer_message` frames (live, replay, image fanout) no longer carry `user_identifier`; they carry `customer_label` (string). The capture below predates this. Not re-captured live.
+
 Agent socket: `ws://<host>/api/v1/ws/agent/{session_id}?token=<agent-jwt-placeholder>` (the dashboard may use the `access_token` cookie instead, Origin-checked; the Flutter app uses `?token=`). Captured with a real agent login connected **before** the customer sent (`25-ws-agent-frames.json`):
 ```json
 {
