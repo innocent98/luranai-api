@@ -4,14 +4,14 @@ import math
 import re
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from loguru import logger
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.v1.endpoints.chat import _upload_response
+from app.api.v1.endpoints.chat import _upload_response, require_customer_credential
 from app.core.config import settings
 from app.db.models.conversation import (
     AttachmentDirection,
@@ -39,10 +39,12 @@ _DURATION_SLACK_S = 1.0
 
 class SignVideoRequest(BaseModel):
     session_id: UUID
+    user_identifier: str | None = Field(None, max_length=255)
 
 
 class RegisterVideoRequest(BaseModel):
     session_id: UUID
+    user_identifier: str | None = Field(None, max_length=255)
     public_id: str = Field(..., min_length=1, max_length=255)
 
 
@@ -50,10 +52,13 @@ def _err(code: int, key: str, message: str, **extra) -> HTTPException:
     return HTTPException(code, detail={"code": key, "message": message, **extra})
 
 
-def _gated_session(db: Session, session_id: UUID) -> ConversationSession:
+def _gated_session(
+    db: Session, request: Request, session_id: UUID, user_identifier: str | None
+) -> ConversationSession:
     session = db.get(ConversationSession, session_id)
     if session is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+    require_customer_credential(db, request, session, user_identifier=user_identifier)
     tenant = db.get(Tenant, session.tenant_id)
     if not screen_recording_allowed(db, tenant):
         raise _err(403, "screen_recording_disabled", "Screen recording is not enabled")
@@ -88,8 +93,8 @@ def _existing_video(db: Session, public_id: str) -> MessageAttachment | None:
 
 
 @router.post("/video/sign", dependencies=[Depends(chat_video_sign_rate_limit)])
-def sign_video(body: SignVideoRequest, db: Session = Depends(get_db)) -> dict:
-    session = _gated_session(db, body.session_id)
+def sign_video(body: SignVideoRequest, request: Request, db: Session = Depends(get_db)) -> dict:
+    session = _gated_session(db, request, body.session_id, body.user_identifier)
     used = _session_video_count(db, session.id)
     if used >= MAX_VIDEOS_PER_SESSION:
         raise _err(429, "video_session_limit", "Recording limit reached for this conversation")
@@ -105,8 +110,10 @@ def sign_video(body: SignVideoRequest, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/video/register", dependencies=[Depends(chat_video_register_rate_limit)])
-def register_video(body: RegisterVideoRequest, db: Session = Depends(get_db)) -> dict:
-    session = _gated_session(db, body.session_id)
+def register_video(
+    body: RegisterVideoRequest, request: Request, db: Session = Depends(get_db)
+) -> dict:
+    session = _gated_session(db, request, body.session_id, body.user_identifier)
     folder = cloudinary_manager.video_folder(session.tenant_id, session.id)
     # Ownership first: never look up or destroy an asset outside this session's folder.
     # Exact allowlist of what the signer issues (<folder>/<uuid4 hex>); a prefix test is

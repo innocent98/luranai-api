@@ -182,3 +182,32 @@ Expired (live, `26-...`): same object with `"url": null`, `"poster_url": null`, 
 - The image upload response (`/chat/upload`) is unchanged and does not include `kind`; only the video `register` response adds `kind`, `duration_ms`, `poster_url`.
 
 _Staging captures used a test tenant/session; the UUIDs/URLs above are real staging artifacts (not customer data), kept verbatim as the live shapes._
+
+
+## Customer credential on write paths (2026-10-14)
+
+Posting into an existing conversation now requires the customer credential, not just `session_id`. Captured against a running app (`docs/captures/customer-credential-hardening/`, files `01`-`11`).
+
+| Path | Rule today |
+|---|---|
+| `POST /chat/message` with `session_id` | **Required.** Send `user_identifier` (what luran-chat already sends), or `metadata.visitor_token` of the session's visitor. Anything else is `403`. |
+| `POST /chat/upload` (form) | Send `user_identifier` as an extra form field. **Optional for now**: a wrong value is `403`; a missing one is still accepted. |
+| `POST /chat/video/sign`, `POST /chat/video/register` (JSON) | Same: optional `user_identifier` in the body; wrong is `403`, missing still accepted. |
+
+**Action for luran-chat:** add `user_identifier` (the same value `useChat` sends on `/chat/message`) to `uploadChatImage`, `signVideo` and `registerVideo`. Authed customers (cookie/Bearer customer token that owns the session) are also accepted without it. Backend will make it mandatory (`CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL=true`) only after that ships; until then missing is accepted.
+
+Rejection, identical on all three paths (verified live):
+```
+HTTP 403  {"detail": "Invalid customer credential"}
+HTTP 403  {"detail": "Invalid customer credential"}
+HTTP 403  {"detail": "Invalid customer credential"}
+```
+The body never echoes the credential. luran-chat's upload error mapper turns any `403` into the "upload is turned off" copy; a real credential mismatch should be impossible for a correct client, so no new copy is needed, but a `403` with `detail == "Invalid customer credential"` on `/chat/message` should be treated as "session no longer yours, start a new conversation".
+
+`metadata.customer_user_id` is ignored from public callers (`/chat/message`, `POST /chat/sessions`); the customer binding only comes from the authenticated `POST /customer/conversations/message` (verified live, `05`, `06`, `14`, `15`).
+
+| Claim | Verified |
+|---|---|
+| 403 body on `/chat/message`, `/chat/upload`, `/chat/video/sign` mismatch | live (`01`-`03`, `07`, `10`) |
+| Legit `user_identifier` still 200 on `/chat/message`; media paths with only `session_id` still pass the gate | live (`04`, `08`, `09`, `11`) |
+| `metadata.visitor_token` accepted as the credential; owning-customer token accepted on media paths when enforced; `CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL=true` behaviour | pytest only, not exercised live |

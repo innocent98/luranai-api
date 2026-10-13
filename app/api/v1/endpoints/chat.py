@@ -15,6 +15,7 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     status,
 )
@@ -106,9 +107,43 @@ from app.utils.email import send_ticket_escalation_email
 from app.services.image_moderation import moderate_image
 from app.utils.cloudinary_client import cloudinary_manager
 from app.utils.http_rate_limiter import chat_rate_limit, chat_upload_rate_limit
+from app.utils.customer_credential import (
+    invalid_credential,
+    optional_customer,
+    session_credential_matches,
+)
 from app.utils.staff_redaction import redact_staff_messages, staff_customer_label
 
 router = APIRouter()
+
+
+def require_customer_credential(
+    db: Session,
+    request: Request,
+    session: ConversationSession,
+    *,
+    user_identifier: str | None = None,
+    visitor_token: str | None = None,
+) -> None:
+    """Customer credential check for the media paths (upload, video sign/register).
+
+    A supplied credential must match. A request with none is let through only while
+    `CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL` is off, because live clients still send just
+    the session id on these paths.
+    """
+    customer = optional_customer(request, db)
+    supplied = bool(user_identifier or visitor_token or customer)
+    if not supplied and not settings.CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL:
+        return
+    if not session_credential_matches(
+        db,
+        session,
+        user_identifier=user_identifier,
+        visitor_token=visitor_token,
+        customer=customer,
+    ):
+        raise invalid_credential()
+
 
 _CHAT_UPLOAD_MAX_MB = 10
 _CHAT_UPLOAD_MAX_BYTES = _CHAT_UPLOAD_MAX_MB * 1024 * 1024
@@ -210,8 +245,10 @@ def _upload_response(attachment: MessageAttachment) -> dict:
     dependencies=[Depends(chat_upload_rate_limit)],
 )
 async def upload_chat_image(
+    request: Request,
     session_id: UUID = Form(...),
     file: UploadFile = File(..., description="Image (JPEG, PNG, GIF, WebP), max 10MB"),
+    user_identifier: str | None = Form(None, max_length=255),
     db: Session = Depends(get_db),
 ):
     """Public customer image upload: validate, moderate, then store (unlinked)."""
@@ -220,6 +257,7 @@ async def upload_chat_image(
     ).scalar_one_or_none()
     if not session:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+    require_customer_credential(db, request, session, user_identifier=user_identifier)
 
     tenant = db.execute(select(Tenant).where(Tenant.id == session.tenant_id)).scalar_one_or_none()
     if not tenant or not tenant.widget_allow_file_upload:
@@ -548,19 +586,10 @@ def _resolve_bootstrapped_visitor_context(
     return visitor.id, visitor_session_id
 
 
-def _resolve_customer_user_id(metadata: dict[str, Any] | None) -> UUID | None:
-    """Resolve authenticated customer ID from trusted wrapper metadata."""
-    if not isinstance(metadata, dict):
-        return None
-
-    raw_customer_user_id = metadata.get("customer_user_id")
-    if not isinstance(raw_customer_user_id, str) or not raw_customer_user_id.strip():
-        return None
-
-    try:
-        return UUID(raw_customer_user_id)
-    except (ValueError, TypeError):
-        return None
+def _without_customer_user_id(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    """Client metadata minus `customer_user_id`: that binding comes only from an
+    authenticated customer token, never from a caller-supplied field."""
+    return {k: v for k, v in (metadata or {}).items() if k != "customer_user_id"}
 
 
 def _persist_contact_email_to_visitor(
@@ -861,14 +890,12 @@ async def create_session(
         session_data.tenant_id,
         session_data.metadata,
     )
-    customer_user_id = _resolve_customer_user_id(session_data.metadata)
     session_create = ConversationSessionCreate(
         tenant_id=session_data.tenant_id,
         user_identifier=session_data.user_identifier,
         visitor_id=visitor_id,
         visitor_session_id=visitor_session_id,
-        customer_user_id=customer_user_id,
-        meta=session_data.metadata or {},
+        meta=_without_customer_user_id(session_data.metadata),
     )
 
     session = conversation_service.create_session(session_create)
@@ -882,13 +909,43 @@ async def create_session(
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(chat_rate_limit)],
 )
-async def send_message(
+async def post_chat_message(
     message_data: MessageRequest,
     db: Session = Depends(get_db),
 ):
-    """Send a customer message; surfaces any linked image attachments on the response."""
+    """Public customer message. Posting into an existing session needs its credential."""
+    if message_data.session_id:
+        session = db.get(ConversationSession, message_data.session_id)
+        if session is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+        visitor_token = (message_data.metadata or {}).get("visitor_token")
+        if not session_credential_matches(
+            db,
+            session,
+            user_identifier=message_data.user_identifier,
+            visitor_token=visitor_token if isinstance(visitor_token, str) else None,
+        ):
+            raise invalid_credential()
+    message_data.metadata = _without_customer_user_id(message_data.metadata) or None
+    return await send_message(message_data, db)
+
+
+async def send_message(
+    message_data: MessageRequest,
+    db: Session,
+    *,
+    authed_customer_id: UUID | None = None,
+):
+    """Send a customer message; surfaces any linked image attachments on the response.
+
+    Trusted entry point: the caller has already authenticated the customer (the public
+    route above, the customer-token route, or a voice token). `authed_customer_id` is
+    the only way a session gets bound to a customer account.
+    """
     linked_attachments: list[AttachmentOut] = []
-    response = await _send_message_impl(message_data, db, linked_attachments)
+    response = await _send_message_impl(
+        message_data, db, linked_attachments, authed_customer_id=authed_customer_id
+    )
     if (
         message_data.attachment_ids
         and not linked_attachments
@@ -973,6 +1030,7 @@ async def _send_message_impl(
     message_data: MessageRequest,
     db: Session,
     linked_attachments: list[AttachmentOut],
+    authed_customer_id: UUID | None = None,
 ):
     """
     Send a message to the AI assistant and get a response.
@@ -1022,7 +1080,7 @@ async def _send_message_impl(
             message_data.tenant_id,
             message_data.metadata,
         )
-        customer_user_id = _resolve_customer_user_id(message_data.metadata)
+        customer_user_id = authed_customer_id
 
         # If this public/browser visitor already has an active or escalated thread,
         # continue that thread instead of opening a parallel conversation.
@@ -1096,7 +1154,7 @@ async def _send_message_impl(
                 visitor_id=visitor_id,
                 visitor_session_id=visitor_session_id,
                 customer_user_id=customer_user_id,
-                meta=message_data.metadata or {},
+                meta=_without_customer_user_id(message_data.metadata),
             )
             session = conversation_service.create_session(session_create)
             session_id = session.id
