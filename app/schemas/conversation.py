@@ -1,7 +1,6 @@
 """Conversation Pydantic schemas."""
 
 from datetime import datetime
-from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -9,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.db.models.conversation import MessageRole, SessionStatus
 from app.schemas.explore import SourceMeta
 from app.schemas.rating import SessionRatingBrief
+from app.schemas.reply_to import ReplyToOut
 from app.schemas.visitor import VisitorIdentitySummary
 
 MAX_ATTACHMENTS_PER_MESSAGE = 3
@@ -137,17 +137,6 @@ class AttachmentOut(BaseModel):
                 "expired": status == "expired",
             }
         return data
-
-
-class ReplyToOut(BaseModel):
-    """The quote on a reply, frozen at send time. `message_id` is null once the original is gone."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    message_id: UUID | None = None
-    sender_type: Literal["customer", "agent", "ai"]
-    kind: Literal["text", "image", "video"]
-    snippet: str
 
 
 class MessageResponse(MessageBase):

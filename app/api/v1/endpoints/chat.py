@@ -2052,7 +2052,9 @@ async def _send_message_impl(
         welcome_triggers = {"start", "hello", "hi", "hey", "welcome", "__init__", "__welcome__"}
         message_lower = effective_message_lower
 
-        if message_lower in welcome_triggers:
+        # A reply is never a bare greeting: skipping this branch stores the USER message
+        # (with its quote) instead of silently dropping it.
+        if message_lower in welcome_triggers and reply_snapshot is None:
             logger.info(
                 f"No flow matched welcome trigger '{message_data.message}', returning default welcome"
             )

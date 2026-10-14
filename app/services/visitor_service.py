@@ -519,6 +519,7 @@ class VisitorService:
                     role=message.role,
                     content=message.content,
                     created_at=message.created_at,
+                    reply_to=message.reply_to,
                     meta=message.meta,
                 )
                 for message in messages

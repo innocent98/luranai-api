@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 from app.db.models.conversation import MessageRole, SessionStatus
 from app.db.models.visitor import VisitorSource
 from app.schemas.explore import SourceMeta, TenantCategory
+from app.schemas.reply_to import ReplyToOut
 
 
 class PublicBusinessProfileResponse(BaseModel):
@@ -133,6 +134,7 @@ class VisitorConversationMessageSummary(BaseModel):
     role: MessageRole
     content: str
     created_at: datetime
+    reply_to: ReplyToOut | None = None
     meta: dict[str, Any] | None = None
 
 

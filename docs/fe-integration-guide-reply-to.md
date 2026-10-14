@@ -36,7 +36,7 @@ A participant can **quote one earlier message** when sending a new one: the cust
 
 Where `reply_to` appears (all verified live in section 4-6):
 
-* REST history: `GET /chat/sessions/{id}/messages` and `GET /chat/sessions/{id}` (staff), `GET /customer/conversations/{id}` and `.../messages` (authed customer), `GET /agent/escalations/{ticket_id}` (agent app, `transcript[]`).
+* REST history: `GET /chat/sessions/{id}/messages` and `GET /chat/sessions/{id}` (staff), `GET /customer/conversations/{id}` and `.../messages` (authed customer), `GET /agent/escalations/{ticket_id}` (agent app, `transcript[]`), and `POST /public/visitor/bootstrap` (widget / hosted page reload: `last_conversation.messages[]`, last 50).
 * REST send responses: `POST /chat/sessions/{id}/agent-message` returns the new message (so `reply_to` is on the response root); `POST /chat/message` and `POST /customer/conversations/message` return a `ChatResponse` whose `message.reply_to` is that of **the message in `message`** (see trap T1).
 * WS frames: `customer_message` and `agent_message`, both live and in the replay sent on connect.
 
@@ -1107,7 +1107,96 @@ Response **200**:
 }
 ```
 
-**The widget/hosted page has no history endpoint** that returns `reply_to`: it hydrates from the WebSocket replay (section 4; customer socket replays human-agent messages only). Customer messages typed in an earlier page load therefore come back without their quote in the widget. Authed customer chat (`luran-chat`) uses the history endpoints above and gets everything.
+**Widget / hosted page history.** After a reload the widget restores its transcript from `POST /public/visitor/bootstrap` (`last_conversation.messages[]`, newest 50), and every row now carries `reply_to` (`null` for non-replies). The customer WS replay (section 4) only re-sends human-agent messages, so use bootstrap as the source of truth for the customer's own quoted messages:
+
+*Capture:* `docs/captures/n2-reply-to/35-widget-bootstrap-history.json` - Widget/hosted-page reload bootstrap: last_conversation.messages[] carries reply_to (null for non-replies). Tokens replaced by placeholders; messages trimmed to the last 3 of 7. The message with the quote was sent beforehand via POST /chat/message with reply_to_message_id.
+
+`POST /api/v1/public/visitor/bootstrap`  (auth: none (public))
+
+Request body:
+
+```json
+{
+  "workspace_id": "b018e2e3-c479-4501-8f59-9def2a19ea40",
+  "visitor_token": "<visitor_token placeholder>"
+}
+```
+Response **200**:
+
+```json
+{
+  "tenant": {
+    "tenant_id": "b018e2e3-c479-4501-8f59-9def2a19ea40",
+    "public_slug": "acme-live",
+    "display_name": "Acme Support",
+    "is_private": false,
+    "description": null,
+    "long_description": null,
+    "support_headline": null,
+    "support_subheadline": null,
+    "support_hours": null,
+    "support_response_time": null,
+    "support_footer_note": null,
+    "widget_primary_color": "#2563eb",
+    "widget_accent_color": "#10b981",
+    "widget_logo_url": null,
+    "widget_greeting_message": "Hi! How can we help you today?",
+    "allow_file_upload": true,
+    "allow_screen_recording": true,
+    "collect_name_before_chat": false,
+    "collect_email_before_chat": false,
+    "first_responder": "ai"
+  },
+  "visitor_token": "<visitor_token placeholder>",
+  "session_token": "<session_token placeholder>",
+  "visitor": {
+    "name": null,
+    "email": null,
+    "phone": null,
+    "is_blocked": false,
+    "first_seen_at": "2026-10-14T01:48:02.409049Z",
+    "last_seen_at": "2026-10-14T01:48:02.713595Z"
+  },
+  "last_conversation": {
+    "session_id": "b08da6a0-be4a-44e1-9423-d426ee95342e",
+    "status": "escalated",
+    "last_message_at": "2026-10-14T01:48:02.647038Z",
+    "messages": [
+      {
+        "id": "5ee36aa5-1fb0-4270-8287-83852d52613f",
+        "role": "user",
+        "content": "[image]",
+        "created_at": "2026-10-14T01:46:59.734531Z",
+        "reply_to": null,
+        "meta": {}
+      },
+      {
+        "id": "4c87b515-e45e-4f47-bbfa-015c8c53c01e",
+        "role": "user",
+        "content": "uh my parcel did not come",
+        "created_at": "2026-10-14T01:46:59.955987Z",
+        "reply_to": null,
+        "meta": {
+          "channel": "voice"
+        }
+      },
+      {
+        "id": "9e923287-c8c4-456b-b830-f6a61a54f466",
+        "role": "user",
+        "content": "Sending the label now",
+        "created_at": "2026-10-14T01:48:02.651890Z",
+        "reply_to": {
+          "message_id": "52bbf706-6ef7-4774-8e7f-49ebec51551b",
+          "sender_type": "agent",
+          "kind": "text",
+          "snippet": "Hi, Sam here. Can you send a photo of the shipping label?"
+        },
+        "meta": {}
+      }
+    ]
+  }
+}
+```
 
 **Original deleted.** If the quoted message no longer exists, `message_id` is `null` and the rest of the quote survives:
 
@@ -1201,6 +1290,7 @@ Threads, quoting several messages, editing/forwarding, reactions (spec "Out of s
 | Customer WS, agent WS, authed customer WS frames both directions, error frames, resolved rejection | verified live (17-28) |
 | WS replay on connect carries `reply_to` | verified live (17, 26) |
 | Staff history (list and session detail), agent-app transcript | verified live (29-31) |
+| Widget bootstrap history (`last_conversation.messages[].reply_to`) | verified live (35) |
 | Deleted original: `message_id` null, quote survives | verified live, row deleted directly in DB (34); FK is `ON DELETE SET NULL`, also proven in Postgres by `tests/migrations/test_n2_reply_to.py` |
 | Voice line rejected | verified live against a row marked through the same code path a voice turn uses; **NOT LIVE** with a real ElevenLabs call |
 | AI-answered reply (D5 prompt context, ChatResponse shape T1) | **NOT LIVE** (no LLM key in the capture environment); verified by `tests/api/v1/test_reply_to_api.py::test_ai_prompt_receives_quoted_snippet_but_not_images` |

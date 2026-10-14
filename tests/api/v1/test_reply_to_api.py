@@ -438,3 +438,39 @@ def test_voice_turn_marks_persisted_lines_as_voice(client, db):
     rows = db.execute(select(Message).where(Message.session_id == sid)).scalars().all()
     voiced = [m for m in rows if (m.meta or {}).get("channel") == "voice"]
     assert {m.role for m in voiced} == {MessageRole.USER, MessageRole.ASSISTANT}
+
+
+# --- widget bootstrap transcript + greeting-text replies -----------------------------
+
+
+def test_bootstrap_transcript_carries_reply_to(client, db):
+    sid, tid = img._session(db)
+    visitor_id = uuid4()
+    db.get(ConversationSession, sid).visitor_id = visitor_id
+    db.commit()
+    original = _seed_msg(db, sid, MessageRole.HUMAN_AGENT, "Try restarting")
+    r = _send(client, sid, "did that", original.id)
+    assert r.status_code == 200, r.text
+
+    from app.services.visitor_service import VisitorService
+
+    summary = VisitorService(db)._get_latest_conversation_summary(visitor_id, tid)
+    by_content = {m.content: m for m in summary.messages}
+    assert by_content["Try restarting"].reply_to is None
+    assert by_content["did that"].reply_to.model_dump(mode="json") == {
+        "message_id": str(original.id),
+        "sender_type": "agent",
+        "kind": "text",
+        "snippet": "Try restarting",
+    }
+    assert all("reply_to" in m.model_dump(mode="json") for m in summary.messages)
+
+
+def test_greeting_text_reply_is_stored_with_its_quote(client, db):
+    sid, _ = img._session(db)
+    original = _seed_msg(db, sid, MessageRole.ASSISTANT, "Anything else?")
+    r = _send(client, sid, "hi", original.id)
+    assert r.status_code == 200, r.text
+    row = _user_row(db, sid, "hi")
+    assert row.reply_to_message_id == original.id
+    assert row.reply_to_snapshot["snippet"] == "Anything else?"
