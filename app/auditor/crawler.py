@@ -20,7 +20,13 @@ from app.core.config import settings
 from app.auditor import discovery
 from app.auditor.discovery import guard_url
 from app.utils.network_security import resolve_and_validate_host
-from app.utils.pinned_http import build_pinned_request
+from app.utils.pinned_http import (
+    OutboundResolutionError,
+    ResponseTooLargeError,
+    UnsafeOutboundURLError,
+    apinned_request,
+    build_pinned_request,
+)
 
 # How many crawls may hold a Chromium at once.
 #
@@ -151,39 +157,32 @@ def is_allowed_by_robots(url: str, disallowed: set[str]) -> bool:
 _BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font", "stylesheet"})
 
 
-async def _validate_subresource_host(host: str, cache: dict[str, bool] | None) -> bool:
-    """Return True if `host` is SSRF-safe for a subresource fetch.
+# Subresource types we will fetch on Chromium's behalf from a host other than the
+# pinned root host (GET only). Everything else cross-host is aborted: Chromium
+# would otherwise resolve that host by name, which a rebinding domain can point
+# at an internal address.
+_FULFILLABLE_TYPES = frozenset({"script", "xhr", "fetch"})
+_SUBRESOURCE_MAX_BYTES = 5 * 1024 * 1024
+_FORWARDED_REQUEST_HEADERS = ("user-agent", "accept", "accept-language", "origin", "referer")
+_DROPPED_RESPONSE_HEADERS = frozenset(
+    {"content-encoding", "content-length", "transfer-encoding", "connection"}
+)
 
-    resolve_and_validate_host does a blocking socket.getaddrinfo; the route
-    handler runs on the crawl's event loop and is called once per allowed
-    subresource, so calling it inline serialised every render behind DNS. Two
-    fixes here:
 
-    - Resolution runs off the loop via asyncio.to_thread, so concurrent pages
-      and the rest of the render proceed while a lookup is in flight.
-    - An optional per-crawl cache collapses the many same-host subresources a
-      single page fires (a Next.js page pulls dozens of /_next chunks from the
-      root host) into one lookup. The cache's lifetime is a single crawl session
-      — the same span the root host is already IP-pinned for — so it does not
-      widen the DNS-rebinding window the guard exists to close.
+def _make_ssrf_route_handler(pinned_host: str | None = None):
+    """Build a Playwright request interceptor that guarantees Chromium never
+    connects by name to a host other than the pinned root host.
+
+    - image/media/font/stylesheet: aborted (perf, reduced surface).
+    - non-http(s) schemes: aborted.
+    - the pinned root host (``--host-resolver-rules`` maps it to the validated IP):
+      ``continue_()``.
+    - any other host: GET script/xhr/fetch requests are fetched here through the
+      pinned helper (resolve once, validate, connect to the validated IP) and
+      handed to the page with ``route.fulfill()``, capped at 5 MB; every other
+      cross-host request (documents/iframes, WebSocket, POSTs, ...) is aborted.
     """
-    if cache is not None and host in cache:
-        return cache[host]
-    try:
-        await asyncio.to_thread(resolve_and_validate_host, host)
-        ok = True
-    except ValueError:
-        ok = False
-    if cache is not None:
-        cache[host] = ok
-    return ok
-
-
-def _make_ssrf_route_handler(cache: dict[str, bool] | None = None):
-    """Build a Playwright request interceptor: abort heavy resource types the
-    auditor doesn't need, then abort any remaining subresource/redirect to a
-    non-http(s) or unvalidated/internal host (defense-in-depth vs subresource
-    SSRF). Pass a dict to memoise host validation for the caller's lifetime."""
+    root = pinned_host.lower() if pinned_host else None
 
     async def _handler(route, request) -> None:
         if request.resource_type in _BLOCKED_RESOURCE_TYPES:
@@ -191,15 +190,50 @@ def _make_ssrf_route_handler(cache: dict[str, bool] | None = None):
             return
         req_url = request.url
         req_parsed = urlparse(req_url)
-        req_host = req_parsed.hostname or ""
+        req_host = (req_parsed.hostname or "").lower()
         if req_parsed.scheme not in {"http", "https"} or not req_host:
             await route.abort()
             return
-        if await _validate_subresource_host(req_host, cache):
+        if root is not None and req_host == root:
             await route.continue_()
-        else:
-            logger.warning("_ssrf_route_handler blocked subresource: {}", req_url)
+            return
+        if request.method != "GET" or request.resource_type not in _FULFILLABLE_TYPES:
+            logger.warning("_ssrf_route_handler aborted cross-host request: {}", req_url)
             await route.abort()
+            return
+        req_headers = {
+            k: v
+            for k, v in (request.headers or {}).items()
+            if k.lower() in _FORWARDED_REQUEST_HEADERS
+        }
+        try:
+            resp = await apinned_request(
+                "GET",
+                req_url,
+                headers=req_headers,
+                timeout=10.0,
+                total_timeout=15.0,
+                max_bytes=_SUBRESOURCE_MAX_BYTES,
+            )
+        except (
+            UnsafeOutboundURLError,
+            OutboundResolutionError,
+            ResponseTooLargeError,
+            TimeoutError,
+            httpx.HTTPError,
+        ) as exc:
+            logger.warning(
+                "_ssrf_route_handler blocked subresource: {} ({})", req_url, type(exc).__name__
+            )
+            await route.abort()
+            return
+        await route.fulfill(
+            status=resp.status_code,
+            headers={
+                k: v for k, v in resp.headers.items() if k.lower() not in _DROPPED_RESPONSE_HEADERS
+            },
+            body=resp.content,
+        )
 
     return _handler
 
@@ -279,11 +313,9 @@ async def _browser_render_session(host: str, safe_ip: str):
             try:
                 context = await browser.new_context(user_agent=settings.AUDITOR_USER_AGENT)
 
-                # One host-validation cache for the whole crawl session: the many
-                # same-host subresources each page fires are resolved once, not
-                # per request. Lifetime == the crawl (same as the root-host pin).
-                subresource_host_cache: dict[str, bool] = {}
-                session_route_handler = _make_ssrf_route_handler(subresource_host_cache)
+                # Root host is pinned in Chromium via --host-resolver-rules; every
+                # other host is fetched through the pinned helper (see handler).
+                session_route_handler = _make_ssrf_route_handler(host)
 
                 async def _render(url: str) -> tuple[int, str, str]:
                     return await _render_page_in_context(context, url, session_route_handler)
