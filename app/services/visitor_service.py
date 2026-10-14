@@ -78,6 +78,10 @@ class VisitorService:
                 display_name=tenant.display_name,
                 is_private=True,
                 widget_logo_url=tenant.widget_logo_url,
+                # Behaviour flag, not descriptive content: the same value is already
+                # public via widget config / bootstrap. Reporting the default 'ai'
+                # here made clients offer voice on human-only private tenants.
+                first_responder=getattr(tenant.ai_config, "first_responder", "ai") or "ai",
             )
 
         return PublicBusinessProfileResponse(

@@ -163,6 +163,12 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
         default=None,
         comment="When the customer last viewed this conversation",
     )
+    customer_last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+        comment="When the customer was last connected (written on offline transition)",
+    )
 
     # Relationships
     messages: Mapped[list["Message"]] = relationship(
@@ -487,3 +493,17 @@ class Ticket(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<Ticket(id={self.id}, ticket_number={self.ticket_number}, status={self.status})>"
+
+
+class TicketNumberCounter(Base):
+    """Per-year high-water mark for the visible `TKT-YYYY-NNNN` ticket number.
+
+    One row per calendar year, advanced atomically by
+    `TicketService._generate_ticket_number`. Replaces COUNT(*)+1, which let two
+    concurrent escalations of different sessions mint the same number.
+    """
+
+    __tablename__ = "ticket_number_counters"
+
+    year: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    last_value: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

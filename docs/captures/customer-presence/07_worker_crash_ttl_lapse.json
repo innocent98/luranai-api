@@ -1,0 +1,29 @@
+[
+  {
+    "event": "customer connected (before worker crash)",
+    "status": 200,
+    "customer_presence": {
+      "state": "active",
+      "last_seen_at": null
+    }
+  },
+  {
+    "event": "worker killed with SIGKILL (no graceful shutdown, no offline frame possible)"
+  },
+  {
+    "event": "new worker, <5 s after kill (entry not yet lapsed)",
+    "status": 200,
+    "customer_presence": {
+      "state": "active",
+      "last_seen_at": null
+    }
+  },
+  {
+    "event": "~55 s after kill (TTL lapsed, nobody refreshed)",
+    "status": 200,
+    "customer_presence": {
+      "state": "offline",
+      "last_seen_at": "2026-10-14T00:06:50.482752Z"
+    }
+  }
+]

@@ -6,6 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.db.models.conversation import TicketPriority, TicketStatus
+from app.schemas.presence import CustomerPresence
 from app.schemas.visitor import VisitorIdentitySummary
 
 
@@ -92,6 +93,7 @@ class TicketResponse(TicketBase):
     resolution_notes: str | None = None
     resolved_at: datetime | None = None
     rating_request_id: UUID | None = None  # set only on the resolve response (N4 §4.4)
+    customer_presence: CustomerPresence | None = None  # staff surfaces only; null = unavailable
     created_at: datetime
     updated_at: datetime
 

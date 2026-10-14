@@ -198,13 +198,20 @@ def test_authed_customer_socket_fanout_to_agents_hides_credentials(agent_ws_env)
             ) as ws:
                 ws.send_json({"type": "message", "content": "hello from authed customer"})
                 for _ in range(50):
-                    if fanout.await_count:
+                    if any(
+                        c.kwargs["message"]["type"] == "customer_message"
+                        for c in fanout.await_args_list
+                    ):
                         break
                     ws.send_json({"type": "ping"})
                     ws.receive_json()
-    assert fanout.await_count == 1
-    frame = fanout.await_args.kwargs["message"]
-    assert fanout.await_args.kwargs["to_agents"] is True
+    # Presence frames also go through fanout_event; this test is about the message frame.
+    message_calls = [
+        c for c in fanout.await_args_list if c.kwargs["message"]["type"] == "customer_message"
+    ]
+    assert len(message_calls) == 1
+    frame = message_calls[0].kwargs["message"]
+    assert message_calls[0].kwargs["to_agents"] is True
     assert frame["type"] == "customer_message"
     dumped = json.dumps(frame)
     assert chat_user_key not in dumped and env.user_identifier not in dumped

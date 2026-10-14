@@ -1,0 +1,25 @@
+{
+  "status": 200,
+  "body": {
+    "tenant_id": "47774e45-8d04-4cc7-914e-90b3f22b193b",
+    "public_slug": "acme-n3fu-private",
+    "display_name": "Acme private",
+    "is_private": true,
+    "description": null,
+    "long_description": null,
+    "support_headline": null,
+    "support_subheadline": null,
+    "support_hours": null,
+    "support_response_time": null,
+    "support_footer_note": null,
+    "widget_primary_color": null,
+    "widget_accent_color": null,
+    "widget_logo_url": null,
+    "widget_greeting_message": null,
+    "allow_file_upload": true,
+    "allow_screen_recording": false,
+    "collect_name_before_chat": false,
+    "collect_email_before_chat": false,
+    "first_responder": "human"
+  }
+}

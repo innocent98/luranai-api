@@ -57,11 +57,35 @@ def _recv_until(ws, wanted_type, tries=30):
     raise AssertionError(f"no {wanted_type} frame")
 
 
+class _MessageFanouts:
+    """fanout_event calls minus the customer_presence frames the socket also emits."""
+
+    def __init__(self, mock):
+        self._mock = mock
+
+    @property
+    def _calls(self):
+        return [
+            c
+            for c in self._mock.await_args_list
+            if c.kwargs["message"].get("type") != "customer_presence"
+        ]
+
+    @property
+    def await_count(self):
+        return len(self._calls)
+
+    @property
+    def await_args(self):
+        calls = self._calls
+        return calls[-1] if calls else None
+
+
 def _customer_send(env, payload):
-    """Send one frame on the customer socket; return (fanout mock, frame received back)."""
-    fanout = AsyncMock()
+    """Send one frame on the customer socket; return (message fanouts, frame received back)."""
+    fanout = _MessageFanouts(AsyncMock())
     received = None
-    with patch.object(connection_manager, "fanout_event", fanout):
+    with patch.object(connection_manager, "fanout_event", fanout._mock):
         with TestClient(app) as c, c.websocket_connect(_customer_url(env)) as ws:
             ws.send_json(payload)
             for _ in range(50):

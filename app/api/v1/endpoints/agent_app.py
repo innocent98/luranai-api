@@ -35,9 +35,11 @@ from app.schemas.agent_app import (
     TranscriptMessage,
 )
 from app.schemas.conversation import AttachmentOut
+from app.schemas.presence import CustomerPresence
 from app.schemas.user import UserResponse
 from app.services.agent_alert_service import _PRIORITY_WIRE
 from app.services.conversation_service import emit_agent_joined
+from app.services.customer_presence import read_presence, read_presence_many
 from app.services.notification_enqueue import enqueue_clear_alert_async
 from app.utils.datetime import utcnow_naive
 
@@ -165,7 +167,12 @@ def _visitor_display_name_or_none(db: Session, session: ConversationSession | No
     return visitor.name if visitor and visitor.name else None
 
 
-def _summary(db: Session, ticket: Ticket, session: ConversationSession | None) -> EscalationSummary:
+def _summary(
+    db: Session,
+    ticket: Ticket,
+    session: ConversationSession | None,
+    presence: CustomerPresence | None = None,
+) -> EscalationSummary:
     return EscalationSummary(
         escalation_id=ticket.id,
         session_id=ticket.session_id,
@@ -175,6 +182,7 @@ def _summary(db: Session, ticket: Ticket, session: ConversationSession | None) -
         priority=_PRIORITY_WIRE.get(ticket.priority, "normal"),
         status=_wire_status(ticket),
         created_at=ticket.created_at,
+        customer_presence=presence,
     )
 
 
@@ -197,7 +205,10 @@ def list_escalations(
         .all()
     )
     sessions = {t.session_id: db.get(ConversationSession, t.session_id) for t in tickets}
-    return [_summary(db, t, sessions.get(t.session_id)) for t in tickets]
+    presence = read_presence_many(db, [t.session_id for t in tickets])
+    return [
+        _summary(db, t, sessions.get(t.session_id), presence.get(t.session_id)) for t in tickets
+    ]
 
 
 @router.get("/escalations/{ticket_id}", response_model=EscalationDetail)
@@ -226,7 +237,7 @@ def get_escalation(
     messages = list(reversed(newest))
     handler = db.get(User, ticket.assigned_to) if ticket.assigned_to else None
 
-    base = _summary(db, ticket, session)
+    base = _summary(db, ticket, session, read_presence(db, ticket.session_id))
     return EscalationDetail(
         **base.model_dump(),
         handled_by=handler.full_name if handler else None,

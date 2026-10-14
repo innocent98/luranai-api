@@ -72,7 +72,6 @@ from app.schemas.visitor import VisitorEnrichmentUpdate
 from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.sales.intent import is_trigger_intent
-from app.services.agent_alert_service import AgentAlertService
 from app.schemas.agent_app import AcknowledgeLost
 from app.services.conversation_service import (
     ConversationService,
@@ -113,6 +112,9 @@ from app.utils.email import send_ticket_escalation_email
 from app.services.image_moderation import moderate_image
 from app.utils.cloudinary_client import cloudinary_manager
 from app.utils.http_rate_limiter import chat_rate_limit, chat_upload_rate_limit
+from starlette.concurrency import run_in_threadpool
+
+from app.services.customer_presence import read_presence, read_presence_many
 from app.utils.customer_credential import (
     invalid_credential,
     optional_customer,
@@ -776,24 +778,9 @@ def _get_or_create_escalation_ticket(
         just-reopened MISSED one; False for any other reuse (already OPEN or
         IN_PROGRESS, and therefore already ringing or already being handled).
     """
-    # Row lock first, then the check: two concurrent escalations of one session
-    # would otherwise both see "no open ticket" and both create one. The lock is
-    # released by the commit inside create/reopen, or explicitly below.
-    try:
-        ticket_service.lock_session_for_escalation(session_id)
-        existing = ticket_service.get_open_ticket_for_session(session_id)
-        if existing is not None:
-            if existing.status == TicketStatus.MISSED and existing.assigned_to is None:
-                reopened = ticket_service.reopen_missed_ticket(existing.id)
-                if reopened is not None:
-                    AgentAlertService(ticket_service.db).reset_ring(reopened.id)
-                    return reopened, True
-            ticket_service.db.commit()  # nothing to write; just release the row lock
-            return existing, False
-        return ticket_service.create_ticket(ticket_data), True
-    except Exception:
-        ticket_service.db.rollback()  # never leave the session row locked
-        raise
+    # Lock + re-check + reuse/reopen/create live in TicketService so chat, voice and
+    # manual POST /tickets share one implementation.
+    return ticket_service.get_or_create_live_ticket(ticket_data)
 
 
 async def _escalate_to_human(
@@ -3172,7 +3159,7 @@ def get_session(
 
     session.messages = redact_staff_messages(session.messages)
     session.ratings = session_rating_briefs(db, session_id)
-    return ConversationService.to_staff_session(session)
+    return ConversationService.to_staff_session(session, read_presence(db, session_id))
 
 
 @router.get(
@@ -3208,7 +3195,8 @@ def list_tenant_sessions(
         tenant_id, status=status_filter, limit=limit
     )
 
-    return [ConversationService.to_staff_session(s) for s in sessions]
+    presence = read_presence_many(db, [s.id for s in sessions])
+    return [ConversationService.to_staff_session(s, presence.get(s.id)) for s in sessions]
 
 
 @router.get(
@@ -3340,7 +3328,9 @@ async def agent_takeover(
 
     logger.info("Agent took over session")
 
-    return ConversationService.to_staff_session(updated_session)
+    # Sync Redis I/O must not run on the event loop.
+    presence = await run_in_threadpool(read_presence, db, updated_session.id)
+    return ConversationService.to_staff_session(updated_session, presence)
 
 
 @router.post(

@@ -975,15 +975,16 @@ async def voice_escalate_to_human(
     ticket_service = TicketService(db)
 
     try:
-        existing = ticket_service.get_open_ticket_for_session(context.luran_session_id)
-        if existing is not None:
-            return {"switch_to_text": True, "ticket_id": str(existing.id)}
-
         # TODO(agent-caller): ring the on-call agent app here once it exists
         # (see project_agent_caller_app in memory) — today this only opens a
         # ticket for a human to pick up asynchronously.
+        # escalate_session is a no-op on an already-escalated session, so a
+        # repeated tool call neither restarts the clock nor re-escalates; it
+        # commits, so it must run before the lock is taken.
         ConversationService(db).escalate_session(context.luran_session_id, reason)
-        ticket = ticket_service.create_ticket(
+        # Same per-session lock + live-ticket guard as chat escalation: a repeated
+        # or concurrent tool call reuses the session's open ticket.
+        ticket, _created = ticket_service.get_or_create_live_ticket(
             TicketCreate(
                 tenant_id=context.tenant_id,
                 session_id=context.luran_session_id,

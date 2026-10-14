@@ -14,7 +14,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "n2replyto"
-down_revision = "n4agentrating"
+down_revision = "cp1customerpresence"
 branch_labels = None
 depends_on = None
 
