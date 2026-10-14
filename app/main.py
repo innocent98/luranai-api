@@ -8,6 +8,7 @@ from app.api.v1.api import api_router
 from app.core.config import settings
 from app.core.logger import log
 from app.core.websocket import connection_manager
+from app.services.customer_presence import presence_tracker
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
@@ -109,6 +110,7 @@ async def startup_event() -> None:
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
     await connection_manager.stop()
+    await presence_tracker.aclose()
 
 
 @app.get("/")

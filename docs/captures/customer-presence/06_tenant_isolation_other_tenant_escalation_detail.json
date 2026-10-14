@@ -1,0 +1,7 @@
+{
+  "request": "GET /api/v1/agent/escalations/21ab2bd5-4fdf-499f-9bec-1f5d7779c697",
+  "status": 404,
+  "response": {
+    "detail": "Escalation not found"
+  }
+}

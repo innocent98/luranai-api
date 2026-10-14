@@ -1,0 +1,7 @@
+{
+  "request": "GET /api/v1/chat/sessions/a6fa6681-93d9-4dac-85e4-bec0d118b6cd",
+  "status": 403,
+  "response": {
+    "detail": "Access denied. You don't have permission to access this tenant."
+  }
+}

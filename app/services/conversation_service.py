@@ -31,6 +31,7 @@ from app.schemas.conversation import (
 from app.schemas.visitor import VisitorIdentitySummary
 from app.utils.attribution import coerce_source, normalize_source_meta
 from app.utils.datetime import utcnow_naive
+from app.schemas.presence import CustomerPresence
 from app.utils.staff_redaction import customer_label, redact_staff_session_meta
 
 
@@ -87,6 +88,7 @@ class ConversationService:
     @staticmethod
     def to_staff_session(
         session: SessionResponse | SessionDetailResponse,
+        presence: CustomerPresence | None = None,
     ) -> StaffSessionResponse | StaffSessionDetailResponse:
         """Staff view of a session: no user_identifier, credential-bearing meta keys dropped.
 
@@ -94,6 +96,7 @@ class ConversationService:
         """
         data = session.model_dump(exclude={"user_identifier"})
         data["meta"] = redact_staff_session_meta(data.get("meta"))
+        data["customer_presence"] = presence
         visitor = session.visitor
         data["customer_label"] = customer_label(
             session.id,

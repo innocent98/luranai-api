@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.db.models.conversation import MessageRole, SessionStatus
 from app.schemas.explore import SourceMeta
+from app.schemas.presence import CustomerPresence
 from app.schemas.rating import SessionRatingBrief
 from app.schemas.visitor import VisitorIdentitySummary
 
@@ -204,6 +205,9 @@ class StaffSessionResponse(_SessionFields):
     """Staff-facing session: no user_identifier (customer socket credential), meta redacted."""
 
     customer_label: str = Field(..., description="Non-secret display label for the customer")
+    customer_presence: CustomerPresence | None = Field(
+        None, description="Live customer presence; null when presence is unavailable"
+    )
 
 
 class StaffSessionDetailResponse(StaffSessionResponse, _SessionDetailFields):

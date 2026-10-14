@@ -1,0 +1,96 @@
+{
+  "request": "GET /api/v1/chat/tenants/d80e470b-452f-41c0-a627-5a879df87658/sessions",
+  "status": 200,
+  "response": [
+    {
+      "meta": null,
+      "id": "096650d2-d572-4466-9e4a-f339749db26c",
+      "tenant_id": "d80e470b-452f-41c0-a627-5a879df87658",
+      "visitor_id": "015767f5-4730-44ba-a1c1-2d75cfa20143",
+      "visitor_session_id": null,
+      "customer_user_id": null,
+      "visitor": {
+        "id": "015767f5-4730-44ba-a1c1-2d75cfa20143",
+        "name": "Chidi",
+        "email": "chidicf1f@example.com",
+        "phone": null,
+        "first_seen_at": "2026-10-14T00:05:26.614126Z",
+        "last_seen_at": "2026-10-14T00:05:26.614129Z",
+        "is_blocked": false
+      },
+      "status": "escalated",
+      "escalation_reason": "Refund request",
+      "escalated_at": null,
+      "agent_id": null,
+      "agent_joined_at": null,
+      "last_message_at": "2026-10-14T00:05:26.648551Z",
+      "created_at": "2026-10-14T00:05:26.643233Z",
+      "updated_at": "2026-10-14T00:05:26.643233Z",
+      "customer_label": "Chidi",
+      "customer_presence": {
+        "state": "offline",
+        "last_seen_at": null
+      }
+    },
+    {
+      "meta": null,
+      "id": "0a6c7960-9767-401b-bb69-add7c5bfb52f",
+      "tenant_id": "d80e470b-452f-41c0-a627-5a879df87658",
+      "visitor_id": "7ce314f7-9b6d-45a4-b46c-1444dbf56390",
+      "visitor_session_id": null,
+      "customer_user_id": null,
+      "visitor": {
+        "id": "7ce314f7-9b6d-45a4-b46c-1444dbf56390",
+        "name": "Bola",
+        "email": "bola7fc1@example.com",
+        "phone": null,
+        "first_seen_at": "2026-10-14T00:05:26.604894Z",
+        "last_seen_at": "2026-10-14T00:05:26.604896Z",
+        "is_blocked": false
+      },
+      "status": "escalated",
+      "escalation_reason": "Refund request",
+      "escalated_at": null,
+      "agent_id": null,
+      "agent_joined_at": null,
+      "last_message_at": "2026-10-14T00:05:26.608584Z",
+      "created_at": "2026-10-14T00:05:26.603892Z",
+      "updated_at": "2026-10-14T00:05:26.603892Z",
+      "customer_label": "Bola",
+      "customer_presence": {
+        "state": "offline",
+        "last_seen_at": null
+      }
+    },
+    {
+      "meta": null,
+      "id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd",
+      "tenant_id": "d80e470b-452f-41c0-a627-5a879df87658",
+      "visitor_id": "1b7a156a-9c5f-479b-b049-d260e11a71e4",
+      "visitor_session_id": null,
+      "customer_user_id": null,
+      "visitor": {
+        "id": "1b7a156a-9c5f-479b-b049-d260e11a71e4",
+        "name": "Ada",
+        "email": "ada8ad2@example.com",
+        "phone": null,
+        "first_seen_at": "2026-10-14T00:05:26.578951Z",
+        "last_seen_at": "2026-10-14T00:05:26.578954Z",
+        "is_blocked": false
+      },
+      "status": "escalated",
+      "escalation_reason": "Refund request",
+      "escalated_at": null,
+      "agent_id": null,
+      "agent_joined_at": null,
+      "last_message_at": "2026-10-14T00:05:26.589964Z",
+      "created_at": "2026-10-14T00:05:26.583134Z",
+      "updated_at": "2026-10-14T00:05:26.583134Z",
+      "customer_label": "Ada",
+      "customer_presence": {
+        "state": "active",
+        "last_seen_at": null
+      }
+    }
+  ]
+}
