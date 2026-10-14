@@ -251,14 +251,14 @@ async def send_customer_message(
             tenant_id=payload.tenant_id,
             user_identifier=current_customer.chat_user_key,
             metadata={
-                **(payload.metadata or {}),
-                "customer_user_id": str(current_customer.id),
+                **{k: v for k, v in (payload.metadata or {}).items() if k != "customer_user_id"},
                 "customer_name": current_customer.full_name,
                 "customer_email": current_customer.email,
                 "source": "customer_dashboard",
             },
         ),
         db=db,
+        authed_customer_id=current_customer.id,
     )
     conversation_service.assign_customer_to_session(chat_response.session_id, current_customer.id)
     return chat_response

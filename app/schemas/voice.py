@@ -8,6 +8,12 @@ class VoiceTokenRequest(BaseModel):
     luran_session_id: UUID = Field(
         ..., description="Existing Luran conversation session to continue"
     )
+    user_identifier: str | None = Field(
+        default=None, max_length=255, description="Customer credential: the session's identifier"
+    )
+    visitor_token: str | None = Field(
+        default=None, max_length=255, description="Customer credential: the session visitor token"
+    )
     text_out: bool = Field(default=False, description="Also render assistant replies as text")
 
 

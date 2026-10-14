@@ -1,0 +1,40 @@
+{
+  "description": "customer_user_id in client metadata is ignored; see 15-db-sessions-after.txt",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "headers": {},
+    "json": {
+      "tenant_id": "ae5db257-c1f4-4d51-85a1-28c92d1542cc",
+      "user_identifier": "attacker-ident-1",
+      "message": "hi",
+      "metadata": {
+        "customer_user_id": "5f975f57-d1c0-434f-953d-9d1d5ddd2591",
+        "entry_point": "widget"
+      }
+    },
+    "form": null
+  },
+  "status": 200,
+  "response": {
+    "session_id": "93e4031c-d034-4898-a297-a89e1ea4759c",
+    "message": {
+      "role": "assistant",
+      "content": "Hi! Welcome to Live Co. I'm here to help! What can I assist you with today?",
+      "id": "8e8d5f14-4194-4abb-b00e-fe44a1a7fe23",
+      "session_id": "93e4031c-d034-4898-a297-a89e1ea4759c",
+      "retrieved_chunk_ids": null,
+      "token_count": null,
+      "attachments": [],
+      "meta": {
+        "auto_welcome": true,
+        "no_flow_available": true
+      },
+      "created_at": "2026-10-13T23:46:55.091734Z"
+    },
+    "user_message_attachments": [],
+    "should_escalate": false,
+    "escalation_reason": null,
+    "ticket_id": null
+  }
+}

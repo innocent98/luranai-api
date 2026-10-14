@@ -1,0 +1,17 @@
+{
+  "description": "Rejected",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/video/sign",
+    "headers": {},
+    "json": {
+      "session_id": "a5b69400-fb99-41e4-b50e-96e628c2e441",
+      "user_identifier": "wrong-value"
+    },
+    "form": null
+  },
+  "status": 403,
+  "response": {
+    "detail": "Invalid customer credential"
+  }
+}

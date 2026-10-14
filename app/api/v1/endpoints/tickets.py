@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -47,6 +47,7 @@ def _with_presence(db: Session, ticket: TicketResponse) -> TicketResponse:
 @router.post("", response_model=TicketResponse, status_code=status.HTTP_201_CREATED)
 def create_ticket(
     ticket_data: TicketManualCreate,
+    response: Response,
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user),
     _subscription_check: None = Depends(verify_subscription_active),
@@ -85,7 +86,12 @@ def create_ticket(
         priority=ticket_data.priority,
     )
 
-    ticket = ticket_service.create_ticket(create_data)
+    # Same per-session lock + live-ticket guard as the chat escalation path: a
+    # session that already has an OPEN/IN_PROGRESS/MISSED ticket gets that one back
+    # (200) instead of a duplicate.
+    ticket, created = ticket_service.get_or_create_live_ticket(create_data)
+    if not created:
+        response.status_code = status.HTTP_200_OK
     return ticket
 
 
@@ -152,6 +158,39 @@ def list_tickets(
     return TicketListResponse(
         tickets=tickets, total=total, page=offset // limit + 1, page_size=limit
     )
+
+
+# Literal-path routes must be registered before "/{ticket_id}": FastAPI matches in
+# declaration order, so "/unassigned" would otherwise be parsed as a UUID (422).
+@router.get("/unassigned", response_model=list[TicketResponse], status_code=status.HTTP_200_OK)
+def get_unassigned_tickets(
+    tenant_id: UUID | None = Query(None, description="Filter by tenant"),
+    db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_tenant_admin),
+):
+    """
+    Get unassigned tickets.
+
+    Args:
+        tenant_id: Optional tenant filter
+        db: Database session
+        current_user: Current admin user
+
+    Returns:
+        List of unassigned tickets
+    """
+    # Determine tenant_id from current user
+    # Tenant users can only access their own tenant's tickets
+    if not tenant_id:
+        tenant_id = current_user.tenant_id
+
+    # Verify tenant access
+    verify_tenant_access(tenant_id, current_user)
+
+    ticket_service = TicketService(db)
+    tickets = ticket_service.get_unassigned_tickets(tenant_id)
+
+    return _with_presence_many(db, tickets)
 
 
 @router.get("/{ticket_id}", response_model=TicketResponse, status_code=status.HTTP_200_OK)
@@ -391,34 +430,3 @@ async def close_ticket(
         return _with_presence(db, closed_ticket)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
-
-
-@router.get("/unassigned", response_model=list[TicketResponse], status_code=status.HTTP_200_OK)
-def get_unassigned_tickets(
-    tenant_id: UUID | None = Query(None, description="Filter by tenant"),
-    db: Session = Depends(get_db),
-    current_user: UserResponse = Depends(get_current_tenant_admin),
-):
-    """
-    Get unassigned tickets.
-
-    Args:
-        tenant_id: Optional tenant filter
-        db: Database session
-        current_user: Current admin user
-
-    Returns:
-        List of unassigned tickets
-    """
-    # Determine tenant_id from current user
-    # Tenant users can only access their own tenant's tickets
-    if not tenant_id:
-        tenant_id = current_user.tenant_id
-
-    # Verify tenant access
-    verify_tenant_access(tenant_id, current_user)
-
-    ticket_service = TicketService(db)
-    tickets = ticket_service.get_unassigned_tickets(tenant_id)
-
-    return _with_presence_many(db, tickets)
