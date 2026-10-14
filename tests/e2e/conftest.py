@@ -63,7 +63,11 @@ class LiveApiClient:
         )
         assert response.status_code == 200, response.text
         payload = response.json()
-        self.session.headers.update({"Authorization": f"Bearer {payload['access_token']}"})
+        # The token is delivered only as an HttpOnly cookie (never in the body). The harness
+        # talks plain HTTP, where a Secure cookie would not be replayed, so lift it manually.
+        cookie_token = response.cookies.get("customer_access_token")
+        assert cookie_token, "login did not set the customer_access_token cookie"
+        self.session.headers.update({"Authorization": f"Bearer {cookie_token}"})
         return payload
 
     def get(self, path: str, **kwargs) -> requests.Response:

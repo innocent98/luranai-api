@@ -139,9 +139,13 @@ def test_customer_register_verify_login_and_profile_flow(
     auth_payload = login_response.json()
     assert auth_payload["customer"]["email"] == "ada.customer@example.com"
     assert auth_payload["token_type"] == "bearer"
-    assert "access_token" in auth_payload
-
-    headers = {"Authorization": f"Bearer {auth_payload['access_token']}"}
+    assert "access_token" not in auth_payload
+    cookie_header = next(
+        h
+        for h in login_response.headers.get_list("set-cookie")
+        if h.startswith("customer_access_token=")
+    )
+    headers = {"Authorization": f"Bearer {cookie_header.split(';')[0].split('=', 1)[1]}"}
     me_response = client.get("/api/v1/customer/auth/me", headers=headers)
     assert me_response.status_code == 200
     assert me_response.json()["full_name"] == "Ada Customer"

@@ -1,0 +1,18 @@
+HTTP/1.1 200 OK
+date: Wed, 14 Oct 2026 01:05:07 GMT
+server: uvicorn
+content-length: 40
+content-type: application/json
+set-cookie: refresh_token=""; expires=Wed, 14 Oct 2026 01:05:07 GMT; Max-Age=0; Path=/api/v1/customer/auth/refresh; SameSite=lax
+set-cookie: customer_access_token=<redacted>; HttpOnly; Max-Age=900; Path=/; SameSite=lax; Secure
+set-cookie: customer_refresh_token=<redacted>; HttpOnly; Max-Age=604800; Path=/api/v1/customer/auth; SameSite=lax; Secure
+access-control-allow-credentials: true
+access-control-allow-origin: http://localhost:3100
+vary: Origin
+x-frame-options: DENY
+x-content-type-options: nosniff
+x-xss-protection: 1; mode=block
+referrer-policy: strict-origin-when-cross-origin
+permissions-policy: geolocation=(), microphone=(), camera=()
+
+{"token_type":"bearer","expires_in":900}
