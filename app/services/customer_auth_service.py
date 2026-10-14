@@ -250,6 +250,38 @@ class CustomerAuthService:
         self.db.refresh(customer)
         return self._create_tokens(customer)
 
+    REFRESH_ROTATION_GRACE = timedelta(seconds=30)
+    _ROTATION_LINK = timedelta(seconds=5)
+
+    def _was_just_rotated(self, record: RefreshToken) -> bool:
+        """True when `record` was revoked by rotation (a successor was minted in the same
+        commit) within the grace window. Logout and password changes mint no successor."""
+        revoked_at = record.revoked_at.replace(tzinfo=UTC)
+        if datetime.now(UTC) - revoked_at > self.REFRESH_ROTATION_GRACE:
+            return False
+        successors = self.db.execute(
+            select(RefreshToken).where(
+                RefreshToken.user_id == record.user_id,
+                RefreshToken.user_type == "customer",
+                RefreshToken.id != record.id,
+            )
+        ).scalars()
+        return any(
+            abs(t.created_at.replace(tzinfo=UTC) - revoked_at) <= self._ROTATION_LINK
+            for t in successors
+        )
+
+    def _revoke_all_refresh_tokens(self, customer_user_id: UUID) -> None:
+        now = datetime.now(UTC)
+        for token in self.db.execute(
+            select(RefreshToken).where(
+                RefreshToken.user_id == customer_user_id,
+                RefreshToken.user_type == "customer",
+                RefreshToken.revoked_at.is_(None),
+            )
+        ).scalars():
+            token.revoked_at = now
+
     def refresh(self, raw_refresh_token: str) -> dict:
         """Validate refresh token, rotate it, return new access + refresh tokens."""
         token_hash = hashlib.sha256(raw_refresh_token.encode()).hexdigest()
@@ -258,15 +290,19 @@ class CustomerAuthService:
             select(RefreshToken).where(
                 RefreshToken.token_hash == token_hash,
                 RefreshToken.user_type == "customer",
-                RefreshToken.revoked_at.is_(None),
             )
         ).scalar_one_or_none()
 
         if not record or record.expires_at.replace(tzinfo=UTC) < datetime.now(UTC):
             raise ValueError("Invalid or expired refresh token")
 
-        # Revoke old refresh token (rotation)
-        record.revoked_at = datetime.now(UTC)
+        if record.revoked_at is None:
+            # Revoke old refresh token (rotation)
+            record.revoked_at = datetime.now(UTC)
+        elif not self._was_just_rotated(record):
+            raise ValueError("Invalid or expired refresh token")
+        # else: a second tab raced the same token a moment after the first rotated it. Serve
+        # it (minting an independent new pair) so the loser is not signed out.
 
         # Load customer
         customer = self.db.execute(
@@ -340,6 +376,7 @@ class CustomerAuthService:
         customer.is_active = True
         if customer.email_verified_at is None:
             customer.email_verified_at = datetime.now(UTC)
+        self._revoke_all_refresh_tokens(customer.id)
         self.db.commit()
         return CustomerActionResponse(message="Password reset successfully.")
 
@@ -373,5 +410,6 @@ class CustomerAuthService:
             raise ValueError("Current password is incorrect")
 
         customer.hashed_password = get_password_hash(payload.new_password)
+        self._revoke_all_refresh_tokens(customer.id)
         self.db.commit()
         return CustomerActionResponse(message="Password updated successfully.")

@@ -37,7 +37,9 @@ This is the reload rehydrate call and the "am I signed in" probe.
 
 ### POST `/customer/auth/refresh`  (captures 04, 05)
 Sends `customer_refresh_token` automatically. 200 `{"token_type":"bearer","expires_in":900}` and both cookies are re-set (refresh token rotates).
-Replaying the previous refresh token: **401** `{"detail":"Invalid or expired refresh token"}`. No cookie at all: 401 `{"detail":"No refresh token"}` (verified in the test suite, not in a live capture).
+Replaying the previous refresh token more than 30 s after it rotated: **401** `{"detail":"Invalid or expired refresh token"}`. No cookie at all: 401 `{"detail":"No refresh token"}` (verified in the test suite, not in a live capture).
+A token rotated within the last 30 s (second tab racing the first) is served with a fresh pair instead of a 401; a 401 never carries `Set-Cookie`. Capture 05 was taken immediately after rotation, before the grace window was added, so it shows the pre-grace 401; the grace behaviour is verified in pytest only.
+Changing or resetting the password revokes every refresh token (verified in pytest only).
 
 ### POST `/customer/auth/logout`  (captures 06, 07, 08)
 200 `{"message":"Logged out"}`; `customer_access_token` and `customer_refresh_token` are expired (`Max-Age=0`).

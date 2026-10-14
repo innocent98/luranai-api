@@ -191,3 +191,113 @@ def test_logout_does_not_clear_tenant_cookies(client, customer):
     assert not any(h.startswith("access_token=") for h in cleared)
     # Only the customer-scoped legacy refresh path is ever expired, never the tenant's.
     assert not any(h.startswith("refresh_token=") and "path=/;" in h.lower() for h in cleared)
+
+
+def _cookie_value(response, name: str) -> str:
+    return _cookie(response, name).split(";")[0].split("=", 1)[1]
+
+
+def test_refresh_race_from_second_tab_is_served_not_signed_out(client, customer):
+    """Two tabs POST /refresh with the same token; the loser must still get a session."""
+    login = _login(client, customer)
+    r1 = _cookie_value(login, "customer_refresh_token")
+    client.cookies.clear()
+    client.cookies.set("customer_refresh_token", r1, path=REFRESH_PATH)
+    assert client.post("/api/v1/customer/auth/refresh").status_code == 200  # tab A rotates
+
+    client.cookies.clear()
+    client.cookies.set("customer_refresh_token", r1, path=REFRESH_PATH)
+    loser = client.post("/api/v1/customer/auth/refresh")  # tab B, token rotated moments ago
+    assert loser.status_code == 200
+    assert _cookie_value(loser, "customer_refresh_token") != r1
+    assert not any(
+        h.startswith("customer_") and "max-age=0" in h.lower() for h in _set_cookie_headers(loser)
+    )
+
+
+def _backdate_revocation(db, raw: str, **delta):
+    import hashlib
+    from datetime import timedelta
+
+    from sqlalchemy import select
+
+    from app.db.models.refresh_token import RefreshToken
+
+    row = db.execute(
+        select(RefreshToken).where(
+            RefreshToken.token_hash == hashlib.sha256(raw.encode()).hexdigest()
+        )
+    ).scalar_one()
+    row.revoked_at = datetime.now(UTC) - timedelta(**delta)
+    db.commit()
+
+
+def test_rotated_token_past_grace_is_rejected_without_set_cookie(client, customer, db):
+    login = _login(client, customer)
+    r1 = _cookie_value(login, "customer_refresh_token")
+    client.cookies.clear()
+    client.cookies.set("customer_refresh_token", r1, path=REFRESH_PATH)
+    assert client.post("/api/v1/customer/auth/refresh").status_code == 200
+    _backdate_revocation(db, r1, minutes=10)
+    response = client.post("/api/v1/customer/auth/refresh")
+    assert response.status_code == 401
+    assert _set_cookie_headers(response) == []
+
+
+def test_logged_out_token_is_not_served_by_the_grace_window(client, customer):
+    login = _login(client, customer)
+    r1 = _cookie_value(login, "customer_refresh_token")
+    a1 = _cookie_value(login, "customer_access_token")
+    client.cookies.clear()
+    client.cookies.set("customer_access_token", a1)
+    client.cookies.set("customer_refresh_token", r1, path=REFRESH_PATH)
+    assert client.post("/api/v1/customer/auth/logout").status_code == 200
+    client.cookies.clear()
+    client.cookies.set("customer_refresh_token", r1, path=REFRESH_PATH)
+    assert client.post("/api/v1/customer/auth/refresh").status_code == 401
+
+
+def test_logout_does_not_revoke_a_non_customer_token(client, customer, monkeypatch):
+    import app.api.deps as deps
+
+    revoked: list[str] = []
+    monkeypatch.setattr(deps, "revoke_token", lambda jti, ttl: revoked.append(jti))
+    tenant_token = create_access_token(
+        subject=str(uuid4()), additional_claims={"role": "tenant_admin"}
+    )
+    client.cookies.clear()
+    client.cookies.set("access_token", tenant_token)  # legacy fallback would pick this up
+    assert client.post("/api/v1/customer/auth/logout").status_code == 200
+    assert revoked == []
+
+
+@pytest.mark.parametrize("how", ["update", "reset"])
+def test_password_change_revokes_refresh_tokens(client, customer, monkeypatch, how):
+    from app.services.token_service import token_service
+
+    login = _login(client, customer)
+    r1 = _cookie_value(login, "customer_refresh_token")
+    access = _cookie_value(login, "customer_access_token")
+    if how == "update":
+        resp = client.put(
+            "/api/v1/customer/auth/me/password",
+            headers={"Authorization": f"Bearer {access}"},
+            json={"current_password": PASSWORD, "new_password": "NewCustomerPass456!"},
+        )
+    else:
+        monkeypatch.setattr(
+            token_service,
+            "verify_customer_password_reset_token",
+            lambda t: {"customer_user_id": customer.id, "email": customer.email},
+        )
+        resp = client.post(
+            "/api/v1/customer/auth/reset-password",
+            json={
+                "token": "x",
+                "new_password": "NewCustomerPass456!",
+            },
+        )
+    assert resp.status_code == 200, resp.text
+    client.cookies.clear()
+    client.cookies.set("customer_refresh_token", r1, path=REFRESH_PATH)
+    assert client.post("/api/v1/customer/auth/refresh").status_code == 401

@@ -236,7 +236,8 @@ def refresh_customer_token(request: Request, response: Response, db: Session = D
             "expires_in": result["expires_in"],
         }
     except ValueError as exc:
-        _clear_customer_cookies(response, request)
+        # No Set-Cookie here: a 401 never clears cookies, so a tab that lost a refresh race
+        # cannot wipe the winner's fresh pair.
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
 
 
@@ -255,7 +256,8 @@ def logout_customer(request: Request, response: Response, db: Session = Depends(
             payload = jose_jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
             jti = payload.get("jti")
             exp = payload.get("exp", 0)
-            if jti:
+            # The legacy cookie fallback can surface a tenant token; never revoke those here.
+            if jti and payload.get("auth_type") == "customer":
                 remaining = max(int(exp - datetime.now(UTC).timestamp()), 0)
                 revoke_token(jti, remaining)
         except Exception:
