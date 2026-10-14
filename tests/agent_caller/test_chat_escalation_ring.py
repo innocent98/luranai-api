@@ -104,7 +104,8 @@ def test_every_ticket_creation_site_rings():
 
     Every escalation site must resolve its ticket through
     `_get_or_create_escalation_ticket` (never call `ticket_service.create_ticket`
-    directly — a direct call reopens the F1 double-ticket bug), every such
+    directly — a direct call reopens the F1 double-ticket bug; the helper now
+    delegates to `TicketService.get_or_create_live_ticket`), every such
     resolution must sit next to a `_ring_agents` call, AND that call must
     actually be gated on `if ticket_created:` — the re-review's N2 finding is
     that the pre-fix version of this test only pinned the call *parity*
@@ -118,10 +119,10 @@ def test_every_ticket_creation_site_rings():
     resolutions = source.count("= _get_or_create_escalation_ticket(")
     rings = source.count("await _ring_agents(")
     gates = source.count("if ticket_created:")
-    assert direct_creates == 1, (
-        f"expected exactly one direct create_ticket call (inside the reuse-guard "
-        f"helper itself), found {direct_creates} — new escalation sites must go "
-        f"through _get_or_create_escalation_ticket instead"
+    assert direct_creates == 0, (
+        f"expected no direct create_ticket call in chat (the reuse guard lives in "
+        f"TicketService.get_or_create_live_ticket), found {direct_creates} — new "
+        f"escalation sites must go through _get_or_create_escalation_ticket instead"
     )
     assert (
         rings == resolutions
