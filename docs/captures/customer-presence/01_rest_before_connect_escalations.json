@@ -3,45 +3,45 @@
   "status": 200,
   "response": [
     {
-      "escalation_id": "28c2784f-2516-4a26-a628-76f79f145b9c",
-      "session_id": "f760e7dd-b10e-462a-be07-3e22138b6ef4",
-      "ticket_number": "TKT-3D8BF5",
+      "escalation_id": "cf34680e-a7b0-443d-b41f-ed5d18725ba1",
+      "session_id": "096650d2-d572-4466-9e4a-f339749db26c",
+      "ticket_number": "TKT-5D94BA",
       "customer_name": "Chidi",
       "reason": "Refund request",
       "priority": "important",
       "status": "missed",
-      "created_at": "2026-10-13T23:37:12.122499Z",
+      "created_at": "2026-10-14T00:05:26.648566Z",
       "customer_presence": {
         "state": "offline",
         "last_seen_at": null
       }
     },
     {
-      "escalation_id": "25c8a805-101f-4463-9127-b7fbb73d3280",
-      "session_id": "c46d5e08-63cf-4109-8280-6efc427fb1aa",
-      "ticket_number": "TKT-6DD006",
+      "escalation_id": "d838ffd7-578e-4605-9e4c-0da827abbc2a",
+      "session_id": "0a6c7960-9767-401b-bb69-add7c5bfb52f",
+      "ticket_number": "TKT-11AC78",
       "customer_name": "Bola",
       "reason": "Refund request",
       "priority": "important",
       "status": "pending",
-      "created_at": "2026-10-13T23:37:11.944999Z",
+      "created_at": "2026-10-14T00:05:26.607465Z",
       "customer_presence": {
         "state": "offline",
         "last_seen_at": null
       }
     },
     {
-      "escalation_id": "8884c8ef-d6ed-493e-b953-4f1f2489b38c",
-      "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
-      "ticket_number": "TKT-B46997",
+      "escalation_id": "21ab2bd5-4fdf-499f-9bec-1f5d7779c697",
+      "session_id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd",
+      "ticket_number": "TKT-C6C146",
       "customer_name": "Ada",
       "reason": "Refund request",
       "priority": "important",
       "status": "pending",
-      "created_at": "2026-10-13T23:37:11.458332Z",
+      "created_at": "2026-10-14T00:05:26.594044Z",
       "customer_presence": {
         "state": "offline",
-        "last_seen_at": "2026-10-13T23:38:13.927966Z"
+        "last_seen_at": null
       }
     }
   ]

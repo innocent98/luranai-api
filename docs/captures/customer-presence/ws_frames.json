@@ -1,41 +1,41 @@
 [
   {
-    "t": 1.9,
+    "t": 1.8,
     "event": "customer socket opened",
     "frame": {
       "type": "customer_presence",
-      "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
+      "session_id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd",
       "state": "active",
       "last_seen_at": null
     }
   },
   {
-    "t": 4.8,
+    "t": 4.6,
     "event": "customer tab hidden -> presence away",
     "frame": {
       "type": "customer_presence",
-      "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
+      "session_id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd",
       "state": "away",
       "last_seen_at": null
     }
   },
   {
-    "t": 13.3,
+    "t": 13.1,
     "event": "away heartbeat produced frames",
     "count": 0
   },
   {
-    "t": 13.3,
+    "t": 13.1,
     "event": "customer tab visible -> presence active",
     "frame": {
       "type": "customer_presence",
-      "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
+      "session_id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd",
       "state": "active",
       "last_seen_at": null
     }
   },
   {
-    "t": 15.9,
+    "t": 15.7,
     "event": "REST read ~1s after socket close (grace)",
     "customer_presence": {
       "state": "active",
@@ -43,27 +43,27 @@
     }
   },
   {
-    "t": 45.3,
+    "t": 45.1,
     "event": "grace elapsed -> offline",
     "frame": {
       "type": "customer_presence",
-      "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
+      "session_id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd",
       "state": "offline",
-      "last_seen_at": "2026-10-13T23:51:27.187977+00:00"
+      "last_seen_at": "2026-10-14T00:06:05.921693+00:00"
     }
   },
   {
-    "t": 52.5,
+    "t": 51.8,
     "event": "old client connect after offline -> active",
     "frame": {
       "type": "customer_presence",
-      "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
+      "session_id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd",
       "state": "active",
       "last_seen_at": null
     }
   },
   {
-    "t": 59.0,
+    "t": 58.3,
     "event": "reload within grace produced frames",
     "count": 0
   },

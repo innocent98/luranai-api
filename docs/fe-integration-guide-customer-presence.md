@@ -39,7 +39,7 @@ Both customer sockets accept the same new frame:
 2. If the page is **already hidden when the socket opens**, send `away` immediately.
 3. On every `visibilitychange`: hidden -> `away`, visible -> `active`.
 4. **Heartbeat every ~20 s** with the current state (same frame). It is optional for liveness (the server refreshes your socket itself) but it repairs a state change the network dropped.
-5. Do not send the same state more often than every 5 s, or a different state within 1 s of your previous accepted frame: the server drops those silently (flood guard; the next 20 s beat converges). The first frame after the socket opens is always accepted. *Source: code + pytest, not live-captured.*
+5. Do not send the same state more often than every 5 s: repeats are dropped silently. A *different* state sent less than 1 s after your previous accepted frame is not lost: the server applies the latest such state when the 1 s window closes (so a quick hidden -> visible ends on `active` about 1 s later). The first frame after the socket opens is always accepted. *Source: code + pytest, not live-captured.*
 
 Customers never receive presence frames or fields (staff only).
 
@@ -50,9 +50,9 @@ A second tab on the same session: the existing server behaviour is unchanged (a 
 On `/api/v1/ws/agent/{session_id}` (same auth as today, tenant-checked). Emitted **only when the aggregated state changes**, never on heartbeats. Captured verbatim:
 
 ```json
-{"type": "customer_presence", "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6", "state": "active", "last_seen_at": null}
-{"type": "customer_presence", "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6", "state": "away", "last_seen_at": null}
-{"type": "customer_presence", "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6", "state": "offline", "last_seen_at": "2026-10-13T23:51:27.187977+00:00"}
+{"type": "customer_presence", "session_id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd", "state": "active", "last_seen_at": null}
+{"type": "customer_presence", "session_id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd", "state": "away", "last_seen_at": null}
+{"type": "customer_presence", "session_id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd", "state": "offline", "last_seen_at": "2026-10-14T00:06:05.921693+00:00"}
 ```
 
 Captured timeline (`ws_frames.json`): socket open -> `active` frame; tab hidden -> `away`; **away heartbeat -> 0 frames**; tab visible -> `active`; socket closed -> a REST read 1 s later still says `active` (grace); **~30.5 s after the close** the `offline` frame arrives with `last_seen_at`; reconnecting an old client -> `active`; **close and reconnect within 3 s -> 0 frames** (no flap).
@@ -83,14 +83,14 @@ Escalation detail, active customer (`GET /api/v1/agent/escalations/{ticket_id}`)
 
 ```json
 {
-  "escalation_id": "8884c8ef-d6ed-493e-b953-4f1f2489b38c",
-  "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
-  "ticket_number": "TKT-B46997",
+  "escalation_id": "21ab2bd5-4fdf-499f-9bec-1f5d7779c697",
+  "session_id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd",
+  "ticket_number": "TKT-C6C146",
   "customer_name": "Ada",
   "reason": "Refund request",
   "priority": "important",
   "status": "pending",
-  "created_at": "2026-10-13T23:37:11.458332Z",
+  "created_at": "2026-10-14T00:05:26.594044Z",
   "customer_presence": {"state": "active", "last_seen_at": null},
   "handled_by": null,
   "handled_by_user_id": null,
@@ -103,8 +103,8 @@ Ticket detail (`GET /api/v1/tickets/{id}`), trimmed to the relevant keys:
 
 ```json
 {
-  "id": "8884c8ef-d6ed-493e-b953-4f1f2489b38c",
-  "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
+  "id": "21ab2bd5-4fdf-499f-9bec-1f5d7779c697",
+  "session_id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd",
   "status": "open",
   "customer_presence": {"state": "active", "last_seen_at": null}
 }
@@ -114,14 +114,14 @@ Session list item and session detail (`customer_label` sits next to it; offline,
 
 ```json
 {
-  "id": "f760e7dd-b10e-462a-be07-3e22138b6ef4",
+  "id": "096650d2-d572-4466-9e4a-f339749db26c",
   "status": "escalated",
   "customer_label": "Chidi",
   "customer_presence": {"state": "offline", "last_seen_at": null}
 }
 ```
 
-Offline after a visit (`05_rest_offline_session_detail.json`): `"customer_presence": {"state": "offline", "last_seen_at": "2026-10-13T23:51:27.187977Z"}`.
+Offline after a visit (`05_rest_offline_session_detail.json`): `"customer_presence": {"state": "offline", "last_seen_at": "2026-10-14T00:06:05.921693Z"}`.
 
 ### Field-nesting traps
 - **`customer_presence` is `null` (not absent) when presence is unavailable** (Redis outage). The key is always present on these payloads. Treat `null` as "unknown": show nothing, never "Offline". *Source: pytest; not live-captured.*
@@ -185,5 +185,7 @@ An agent from another tenant asking for these sessions gets (`06_*`):
 | Authed customer socket `/customer/{session_id}` emits presence | pytest only |
 | Aggregation across API workers (several sockets, several processes) | pytest only (live run was one worker) |
 | `customer_presence: null` on Redis outage | pytest only |
-| Flood guard (1 s / 5 s) behaviour | pytest only |
+| Flood guard (5 s repeat drop, 1 s trailing-edge apply) behaviour | pytest only |
+| Customer returns after a deploy cancelled the offline watcher: `active` frame still emitted, `last_seen_at` kept | pytest only |
+| Blackholed Redis: REST degrades to `null` within ~1 s | pytest only |
 | Customer clients never receive the frame | pytest only |

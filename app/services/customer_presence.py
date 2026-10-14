@@ -27,7 +27,7 @@ from uuid import UUID
 import redis as sync_redis
 import redis.asyncio as aioredis
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -39,8 +39,13 @@ CONN_TTL_S = 45  # a connection entry that is not refreshed stops counting after
 GRACE_S = 30  # after the last socket closes, keep the prior state this long
 KEEPALIVE_S = 15  # server-side refresh of this worker's open sockets
 _KEY_TTL_S = 300  # GC for the per-session ZSET
-_LAST_TTL_S = 86400
-_PUB_TTL_S = 7 * 86400
+_LAST_TTL_S = 7 * 86400  # outlives any deploy gap so last_seen can be persisted lazily
+# `pub` (last published state) is liveness-scoped: it must not outlive the connection
+# entries it describes, or a stale value swallows the next real change. Refreshed by every
+# set_conn, shortened to the grace window on release, deleted on the offline transition.
+_PUB_TTL_S = CONN_TTL_S + GRACE_S + 15
+_PUB_SLACK_MS = 2000
+_SOCKET_TIMEOUT_S = 0.75
 _MIN_CHANGE_INTERVAL_S = 1.0
 _MIN_REFRESH_INTERVAL_S = 5.0
 
@@ -52,7 +57,11 @@ _PUBLISH_CAS = """
 local old = redis.call('GET', KEYS[1])
 if not old then old = 'offline' end
 if old == ARGV[1] then return 0 end
-redis.call('SET', KEYS[1], ARGV[1], 'EX', tonumber(ARGV[2]))
+if ARGV[1] == 'offline' then
+  redis.call('DEL', KEYS[1])
+else
+  redis.call('SET', KEYS[1], ARGV[1], 'EX', tonumber(ARGV[2]))
+end
 return 1
 """
 
@@ -114,7 +123,13 @@ _sync_client: sync_redis.Redis | None = None
 def _get_sync_client() -> sync_redis.Redis:
     global _sync_client
     if _sync_client is None:
-        _sync_client = sync_redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
+        # Short timeouts: a blackholed Redis must degrade presence, not hang list endpoints.
+        _sync_client = sync_redis.Redis.from_url(
+            settings.REDIS_URL,
+            decode_responses=True,
+            socket_timeout=_SOCKET_TIMEOUT_S,
+            socket_connect_timeout=_SOCKET_TIMEOUT_S,
+        )
     return _sync_client
 
 
@@ -156,7 +171,54 @@ def read_presence_many(
         ).all()
         db_last = {r[0]: r[1] for r in rows}
 
-    return {sid: _build_presence(members[sid], redis_last[sid], db_last.get(sid)) for sid in ids}
+    result = {
+        sid: _build_presence(members[sid], redis_last[sid], db_last.get(sid)) for sid in offline
+    }
+    result.update(
+        {
+            sid: _build_presence(members[sid], redis_last[sid], None)
+            for sid in ids
+            if sid not in result
+        }
+    )
+    _persist_lazily(db, offline, redis_last, db_last)
+    return {sid: result[sid] for sid in ids}
+
+
+def _persist_lazily(
+    db: Session,
+    offline: list[UUID],
+    redis_last: dict[UUID, str | None],
+    db_last: dict[UUID, datetime | None],
+) -> None:
+    """Offline sessions whose Redis `last` is newer than the DB value (the offline
+    transition never ran, e.g. a deploy cancelled it): write it now, best effort."""
+    from app.db.models.conversation import ConversationSession
+
+    stale = []
+    for sid in offline:
+        raw = redis_last.get(sid)
+        if not raw or sid not in db_last:
+            continue
+        seen = _to_dt(float(raw))
+        cur = db_last[sid]
+        if cur is not None and cur.tzinfo is None:
+            cur = cur.replace(tzinfo=UTC)
+        if seen and (cur is None or seen > cur):
+            stale.append((sid, seen))
+    if not stale:
+        return
+    try:
+        for sid, seen in stale:
+            db.execute(
+                update(ConversationSession)
+                .where(ConversationSession.id == sid)
+                .values(customer_last_seen_at=seen)
+            )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("lazy customer_last_seen_at persist failed")
 
 
 def read_presence(db: Session, session_id: UUID) -> CustomerPresence | None:
@@ -226,7 +288,7 @@ class CustomerPresenceTracker:
         pipe.zadd(key, {f"{conn_id}|{state}": ts + self.conn_ttl_s})
         pipe.expire(key, _KEY_TTL_S)
         pipe.set(_last_key(session_id), repr(ts), ex=_LAST_TTL_S)
-        pipe.expire(_pub_key(session_id), _PUB_TTL_S)  # a long-lived socket must not lose it
+        pipe.expire(_pub_key(session_id), _PUB_TTL_S)  # live socket keeps it; lapse clears it
         await pipe.execute()
 
     async def release_conn(self, session_id: UUID, conn_id: str) -> None:
@@ -239,6 +301,9 @@ class CustomerPresenceTracker:
             pipe.zadd(key, {f"{conn_id}|{st}": ts + self.grace_s}, xx=True)
         pipe.expire(key, _KEY_TTL_S)
         pipe.set(_last_key(session_id), repr(ts), ex=_LAST_TTL_S)
+        # The published state may not outlive the grace: if the watcher never runs
+        # (deploy), a stale value must not swallow the customer's next change.
+        pipe.pexpire(_pub_key(session_id), int(self.grace_s * 1000) + _PUB_SLACK_MS)
         await pipe.execute()
 
     async def current(self, session_id: UUID, db_last: datetime | None = None) -> CustomerPresence:
@@ -336,6 +401,8 @@ class CustomerPresenceConnection:
         self._last_frame = 0.0  # last accepted client frame (flood guard); keepalive excluded
         self._keepalive: asyncio.Task | None = None
         self._closed = False
+        self._pending: str | None = None
+        self._trailing: asyncio.Task | None = None
 
     async def start(self) -> None:
         try:
@@ -360,8 +427,32 @@ class CustomerPresenceConnection:
             return
         elapsed = self._tracker._now() - self._last_frame
         changed = state != self.state
-        if elapsed < (_MIN_CHANGE_INTERVAL_S if changed else _MIN_REFRESH_INTERVAL_S):
-            return  # flood guard; the next beat/keepalive converges
+        window = _MIN_CHANGE_INTERVAL_S if changed else _MIN_REFRESH_INTERVAL_S
+        if elapsed < window:
+            # Flood guard. A dropped *change* must not be lost (hidden -> visible inside
+            # a second would leave agents on "away"): remember the latest and apply it
+            # when the window closes. Dropped same-state refreshes are just ignored.
+            if changed or self._pending is not None:
+                self._pending = state
+                self._schedule_trailing(max(0.0, _MIN_CHANGE_INTERVAL_S - elapsed))
+            return
+        self._pending = None
+        await self._apply(state)
+
+    def _schedule_trailing(self, delay: float) -> None:
+        if self._trailing is not None and not self._trailing.done():
+            return
+
+        async def _run() -> None:
+            await asyncio.sleep(delay)
+            state, self._pending = self._pending, None
+            if state and not self._closed and state != self.state:
+                await self._apply(state)
+
+        self._trailing = self._tracker._spawn(_run())
+
+    async def _apply(self, state: str) -> None:
+        changed = state != self.state
         self.state = state
         self._last_frame = self._tracker._now()
         try:
@@ -377,6 +468,8 @@ class CustomerPresenceConnection:
         self._closed = True
         if self._keepalive:
             self._keepalive.cancel()
+        if self._trailing:
+            self._trailing.cancel()
         released = self._tracker.release_and_watch(self.session_id, self.conn_id, self._persist)
         await released.wait()
 

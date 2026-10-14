@@ -281,3 +281,114 @@ def test_read_degrades_to_empty_when_redis_down(db, monkeypatch):
     monkeypatch.setattr(cp, "_get_sync_client", boom)
     # RedisError subclass raised while building the pipeline -> {}
     assert read_presence_many(db, [uuid4()]) == {}
+
+
+# ---------------------------------------------------------------- review fix wave
+
+
+async def test_cancelled_watch_then_return_emits_back_frame_and_keeps_last_seen(
+    frames, db, monkeypatch
+):
+    """Deploy cancels release_and_watch: no offline frame, no DB write. The stale
+    `pub` key must not swallow the customer's next `active` frame, and last_seen
+    must still be readable (and get persisted lazily)."""
+    from app.db.models.conversation import ConversationSession
+    from app.db.models.tenant import Tenant
+
+    monkeypatch.setattr(cp, "_PUB_SLACK_MS", 100)
+    tenant = Tenant(
+        name=f"t_{uuid4().hex[:8]}",
+        display_name="T",
+        api_key_hash=uuid4().hex,
+        subscription_tier="pro",
+        subscription_status="active",
+    )
+    db.add(tenant)
+    db.flush()
+    sess = ConversationSession(tenant_id=tenant.id, user_identifier="u-cancel")
+    db.add(sess)
+    db.flush()
+    sid = sess.id
+
+    t = CustomerPresenceTracker(grace_s=0.2, keepalive_s=3600)
+    conn = t.open(sid)
+    await conn.start()
+    conn._keepalive.cancel()
+    # what survives a cancelled handler: the release, but never the watch task
+    await t.release_conn(sid, conn.conn_id)
+    await asyncio.sleep(0.6)  # grace over, pub key expired with it
+
+    p = read_presence_many(db, [sid])[sid]
+    assert p.state == "offline" and p.last_seen_at is not None  # never null after a deploy
+    db.refresh(sess)
+    assert sess.customer_last_seen_at is not None  # persisted lazily on read
+
+    back = t.open(sid)
+    await back.start()
+    assert [f["state"] for f in frames] == ["active", "active"]  # the back frame IS emitted
+    await back.close()
+    await t.aclose()
+
+
+async def test_offline_transition_clears_pub_key(frames):
+    t = CustomerPresenceTracker(grace_s=0.05, keepalive_s=3600)
+    sid = uuid4()
+    conn = t.open(sid)
+    await conn.start()
+    await conn.close()
+    await asyncio.sleep(0.8)
+    assert [f["state"] for f in frames] == ["active", "offline"]
+    assert cp._get_sync_client().get(cp._pub_key(sid)) is None
+    await t.aclose()
+
+
+async def test_keepalive_keeps_socket_active_past_ttl_and_stops_on_close(frames, db, clock):
+    t = CustomerPresenceTracker(now=clock, conn_ttl_s=45, grace_s=30, keepalive_s=0.05)
+    sid = uuid4()
+    conn = t.open(sid)
+    await conn.start()
+    clock.advance(40)
+    await asyncio.sleep(0.2)  # keepalive pushes the entry to clock+45
+    clock.advance(40)  # 80 s since connect: lapsed without the keepalive
+    await asyncio.sleep(0.2)
+    assert _read(db, sid, clock).state == "active"
+    keepalive = conn._keepalive
+    await conn.close()
+    await asyncio.sleep(0.1)
+    assert keepalive.done()
+    await t.aclose()
+
+
+async def test_rapid_hidden_then_visible_applies_trailing_state(frames, db, clock):
+    t = CustomerPresenceTracker(now=clock, keepalive_s=3600)
+    conn = t.open(uuid4())
+    await conn.start()
+    await conn.handle_frame({"type": "presence", "state": "away"})
+    await conn.handle_frame({"type": "presence", "state": "active"})  # inside the 1 s window
+    assert [f["state"] for f in frames] == ["active", "away"]
+    await asyncio.sleep(1.4)  # trailing edge applies the latest dropped state
+    assert [f["state"] for f in frames] == ["active", "away", "active"]
+    await conn.close()
+    await t.aclose()
+
+
+def test_sync_client_has_socket_timeouts():
+    kw = cp._get_sync_client().connection_pool.connection_kwargs
+    assert 0 < kw["socket_timeout"] <= 1
+    assert 0 < kw["socket_connect_timeout"] <= 1
+
+
+def test_blackholed_redis_does_not_hang_reads(db, monkeypatch):
+    import socket
+    import time as _t
+
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(5)  # accepts the TCP handshake, never answers
+    monkeypatch.setattr(cp.settings, "REDIS_URL", f"redis://127.0.0.1:{srv.getsockname()[1]}/0")
+    monkeypatch.setattr(cp, "_sync_client", None)
+    start = _t.time()
+    assert read_presence_many(db, [uuid4()]) == {}
+    assert _t.time() - start < 3
+    srv.close()
+    monkeypatch.setattr(cp, "_sync_client", None)

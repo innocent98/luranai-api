@@ -170,3 +170,30 @@ def test_assign_resolve_close_responses_carry_presence(
     closed = client.post(f"/api/v1/tickets/{t.id}/close", headers=admin_headers)
     assert closed.status_code == 200, closed.text
     assert closed.json()["customer_presence"]["state"] == "away"
+
+
+def test_takeover_reads_presence_off_the_event_loop(
+    client, db, agent_tenant, auth_headers, monkeypatch
+):
+    import asyncio
+
+    from app.api.v1.endpoints import chat as chat_module
+
+    s, t = make_escalated(db, agent_tenant)
+    seen = {}
+    real = chat_module.read_presence
+
+    def spy(db_, sid):
+        try:
+            asyncio.get_running_loop()
+            seen["on_loop"] = True
+        except RuntimeError:
+            seen["on_loop"] = False
+        return real(db_, sid)
+
+    monkeypatch.setattr(chat_module, "read_presence", spy)
+    with patch("app.api.v1.endpoints.chat.enqueue_clear_alert_async", AsyncMock()):
+        resp = client.post(f"/api/v1/chat/sessions/{s.id}/takeover", headers=auth_headers)
+    assert resp.status_code == 200, resp.text
+    assert seen["on_loop"] is False
+    assert resp.json()["customer_presence"]["state"] == "offline"

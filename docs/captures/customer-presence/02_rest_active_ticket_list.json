@@ -6,20 +6,20 @@
       {
         "summary": "Refund request",
         "priority": "high",
-        "id": "28c2784f-2516-4a26-a628-76f79f145b9c",
-        "tenant_id": "0d6434a1-4235-4677-baa0-87dcfce8cd54",
-        "session_id": "f760e7dd-b10e-462a-be07-3e22138b6ef4",
-        "ticket_number": "TKT-3D8BF5",
+        "id": "cf34680e-a7b0-443d-b41f-ed5d18725ba1",
+        "tenant_id": "d80e470b-452f-41c0-a627-5a879df87658",
+        "session_id": "096650d2-d572-4466-9e4a-f339749db26c",
+        "ticket_number": "TKT-5D94BA",
         "status": "missed",
         "assigned_to": null,
         "assigned_agent": null,
         "visitor": {
-          "id": "77722cfc-e583-4297-92ca-d26a2f089a42",
+          "id": "015767f5-4730-44ba-a1c1-2d75cfa20143",
           "name": "Chidi",
-          "email": "chidi79ab@example.com",
+          "email": "chidicf1f@example.com",
           "phone": null,
-          "first_seen_at": "2026-10-13T23:37:12.061721Z",
-          "last_seen_at": "2026-10-13T23:37:12.061725Z",
+          "first_seen_at": "2026-10-14T00:05:26.614126Z",
+          "last_seen_at": "2026-10-14T00:05:26.614129Z",
           "is_blocked": false
         },
         "resolution_notes": null,
@@ -29,26 +29,26 @@
           "state": "offline",
           "last_seen_at": null
         },
-        "created_at": "2026-10-13T23:37:12.122499Z",
-        "updated_at": "2026-10-13T23:37:12.122499Z"
+        "created_at": "2026-10-14T00:05:26.648566Z",
+        "updated_at": "2026-10-14T00:05:26.648566Z"
       },
       {
         "summary": "Refund request",
         "priority": "high",
-        "id": "25c8a805-101f-4463-9127-b7fbb73d3280",
-        "tenant_id": "0d6434a1-4235-4677-baa0-87dcfce8cd54",
-        "session_id": "c46d5e08-63cf-4109-8280-6efc427fb1aa",
-        "ticket_number": "TKT-6DD006",
+        "id": "d838ffd7-578e-4605-9e4c-0da827abbc2a",
+        "tenant_id": "d80e470b-452f-41c0-a627-5a879df87658",
+        "session_id": "0a6c7960-9767-401b-bb69-add7c5bfb52f",
+        "ticket_number": "TKT-11AC78",
         "status": "open",
         "assigned_to": null,
         "assigned_agent": null,
         "visitor": {
-          "id": "66ae6fc6-76df-42bc-ac13-822c3b2e70d0",
+          "id": "7ce314f7-9b6d-45a4-b46c-1444dbf56390",
           "name": "Bola",
-          "email": "bolad3e4@example.com",
+          "email": "bola7fc1@example.com",
           "phone": null,
-          "first_seen_at": "2026-10-13T23:37:11.794632Z",
-          "last_seen_at": "2026-10-13T23:37:11.794636Z",
+          "first_seen_at": "2026-10-14T00:05:26.604894Z",
+          "last_seen_at": "2026-10-14T00:05:26.604896Z",
           "is_blocked": false
         },
         "resolution_notes": null,
@@ -58,26 +58,26 @@
           "state": "offline",
           "last_seen_at": null
         },
-        "created_at": "2026-10-13T23:37:11.944999Z",
-        "updated_at": "2026-10-13T23:37:11.944999Z"
+        "created_at": "2026-10-14T00:05:26.607465Z",
+        "updated_at": "2026-10-14T00:05:26.607465Z"
       },
       {
         "summary": "Refund request",
         "priority": "high",
-        "id": "8884c8ef-d6ed-493e-b953-4f1f2489b38c",
-        "tenant_id": "0d6434a1-4235-4677-baa0-87dcfce8cd54",
-        "session_id": "6eb62246-ba39-4cf3-8760-cd6fe8323ee6",
-        "ticket_number": "TKT-B46997",
+        "id": "21ab2bd5-4fdf-499f-9bec-1f5d7779c697",
+        "tenant_id": "d80e470b-452f-41c0-a627-5a879df87658",
+        "session_id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd",
+        "ticket_number": "TKT-C6C146",
         "status": "open",
         "assigned_to": null,
         "assigned_agent": null,
         "visitor": {
-          "id": "853df78b-d986-4e39-ae2c-c33d7df3f915",
+          "id": "1b7a156a-9c5f-479b-b049-d260e11a71e4",
           "name": "Ada",
-          "email": "adace8a@example.com",
+          "email": "ada8ad2@example.com",
           "phone": null,
-          "first_seen_at": "2026-10-13T23:37:11.253746Z",
-          "last_seen_at": "2026-10-13T23:37:11.253752Z",
+          "first_seen_at": "2026-10-14T00:05:26.578951Z",
+          "last_seen_at": "2026-10-14T00:05:26.578954Z",
           "is_blocked": false
         },
         "resolution_notes": null,
@@ -87,8 +87,8 @@
           "state": "active",
           "last_seen_at": null
         },
-        "created_at": "2026-10-13T23:37:11.458332Z",
-        "updated_at": "2026-10-13T23:37:11.458332Z"
+        "created_at": "2026-10-14T00:05:26.594044Z",
+        "updated_at": "2026-10-14T00:05:26.594044Z"
       }
     ],
     "total": 3,

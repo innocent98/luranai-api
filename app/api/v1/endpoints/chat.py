@@ -106,6 +106,8 @@ from app.utils.email import send_ticket_escalation_email
 from app.services.image_moderation import moderate_image
 from app.utils.cloudinary_client import cloudinary_manager
 from app.utils.http_rate_limiter import chat_rate_limit, chat_upload_rate_limit
+from starlette.concurrency import run_in_threadpool
+
 from app.services.customer_presence import read_presence, read_presence_many
 from app.utils.staff_redaction import redact_staff_messages, staff_customer_label
 
@@ -3257,9 +3259,9 @@ async def agent_takeover(
 
     logger.info("Agent took over session")
 
-    return ConversationService.to_staff_session(
-        updated_session, read_presence(db, updated_session.id)
-    )
+    # Sync Redis I/O must not run on the event loop.
+    presence = await run_in_threadpool(read_presence, db, updated_session.id)
+    return ConversationService.to_staff_session(updated_session, presence)
 
 
 @router.post(
