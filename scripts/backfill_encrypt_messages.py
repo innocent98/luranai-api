@@ -12,7 +12,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import create_engine, select
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import load_only, sessionmaker
 from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.config import settings
@@ -29,9 +29,19 @@ def main():
     total = 0
 
     while True:
-        messages = session.execute(
-            select(Message).offset(offset).limit(batch_size)
-        ).scalars().all()
+        # Load only the encrypted columns: CD runs this at an intermediate migration
+        # revision, before later migrations have added newer Message columns.
+        messages = (
+            session.execute(
+                select(Message)
+                .options(load_only(Message.id, Message.content, Message.meta))
+                .order_by(Message.id)
+                .offset(offset)
+                .limit(batch_size)
+            )
+            .scalars()
+            .all()
+        )
 
         if not messages:
             break
