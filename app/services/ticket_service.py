@@ -16,6 +16,7 @@ from app.db.models.conversation import (
 from app.db.models.tenant import TenantCapabilities
 from app.db.models.user import User
 from app.db.models.visitor import Visitor
+from app.services.agent_alert_service import AgentAlertService
 from app.schemas.ticket import (
     AssignedAgent,
     TicketAssign,
@@ -248,18 +249,25 @@ class TicketService:
     def get_or_create_live_ticket(self, ticket_data: TicketCreate) -> tuple[TicketResponse, bool]:
         """Create a ticket unless the session already has a live one.
 
-        Same guard as the chat escalation path (`lock_session_for_escalation`
-        then `get_open_ticket_for_session`), for callers that have no ring
-        bookkeeping to do: manual `POST /tickets` and voice escalation.
+        The single implementation of the escalation guard, shared by chat, voice
+        and manual `POST /tickets`: lock the session row, re-check for a live
+        ticket under the lock, then reuse / reopen / create. A MISSED,
+        still-unassigned ticket is reopened to OPEN and its ring bookkeeping
+        reset (nothing else ever re-rings it); the caller rings it.
 
         Returns:
-            (ticket, created) - created is False when an existing live ticket
-            was reused.
+            (ticket, should_ring) - True for a new ticket and for a just-reopened
+            MISSED one; False for any other reuse.
         """
         try:
             self.lock_session_for_escalation(ticket_data.session_id)
             existing = self.get_open_ticket_for_session(ticket_data.session_id)
             if existing is not None:
+                if existing.status == TicketStatus.MISSED and existing.assigned_to is None:
+                    reopened = self.reopen_missed_ticket(existing.id)
+                    if reopened is not None:
+                        AgentAlertService(self.db).reset_ring(reopened.id)
+                        return reopened, True
                 self.db.commit()  # nothing to write; just release the row lock
                 return existing, False
             return self.create_ticket(ticket_data), True

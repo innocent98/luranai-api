@@ -181,3 +181,43 @@ def test_guarded_create_serialises_same_session(committed_sessions):
     finally:
         check.close()
     assert len(rows) == 1
+
+
+def test_guarded_create_across_sessions_is_deadlock_free_with_unique_numbers(committed_sessions):
+    """Lock order is session row, then counter row. Several callers per session, over
+    several sessions at once, must finish (no deadlock), make one ticket per session
+    and never repeat a number."""
+    factory, tenant_id, session_ids = committed_sessions
+    sessions = session_ids[:4]
+    callers = [sid for sid in sessions for _ in range(3)]
+    barrier = threading.Barrier(len(callers))
+    outcomes: list = []
+    errors: list[BaseException] = []
+
+    def caller(session_id):
+        db = factory()
+        try:
+            barrier.wait(timeout=10)
+            outcomes.append(
+                TicketService(db).get_or_create_live_ticket(
+                    TicketCreate(tenant_id=tenant_id, session_id=session_id, summary="mixed")
+                )
+            )
+        except BaseException as exc:  # noqa: BLE001 -- surfaced via assert below
+            errors.append(exc)
+        finally:
+            db.close()
+
+    threads = [threading.Thread(target=caller, args=(sid,)) for sid in callers]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=30)
+
+    assert not any(t.is_alive() for t in threads), "deadlock: callers still blocked"
+    assert not errors, errors
+    assert len(outcomes) == len(callers)
+    assert sum(1 for _, created in outcomes if created) == len(sessions)
+    tickets = {t.id: t.ticket_number for t, _ in outcomes}
+    assert len(tickets) == len(sessions)
+    assert len(set(tickets.values())) == len(sessions)

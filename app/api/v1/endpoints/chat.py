@@ -71,7 +71,6 @@ from app.schemas.visitor import VisitorEnrichmentUpdate
 from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.sales.intent import is_trigger_intent
-from app.services.agent_alert_service import AgentAlertService
 from app.schemas.agent_app import AcknowledgeLost
 from app.services.conversation_service import (
     ConversationService,
@@ -736,24 +735,9 @@ def _get_or_create_escalation_ticket(
         just-reopened MISSED one; False for any other reuse (already OPEN or
         IN_PROGRESS, and therefore already ringing or already being handled).
     """
-    # Row lock first, then the check: two concurrent escalations of one session
-    # would otherwise both see "no open ticket" and both create one. The lock is
-    # released by the commit inside create/reopen, or explicitly below.
-    try:
-        ticket_service.lock_session_for_escalation(session_id)
-        existing = ticket_service.get_open_ticket_for_session(session_id)
-        if existing is not None:
-            if existing.status == TicketStatus.MISSED and existing.assigned_to is None:
-                reopened = ticket_service.reopen_missed_ticket(existing.id)
-                if reopened is not None:
-                    AgentAlertService(ticket_service.db).reset_ring(reopened.id)
-                    return reopened, True
-            ticket_service.db.commit()  # nothing to write; just release the row lock
-            return existing, False
-        return ticket_service.create_ticket(ticket_data), True
-    except Exception:
-        ticket_service.db.rollback()  # never leave the session row locked
-        raise
+    # Lock + re-check + reuse/reopen/create live in TicketService so chat, voice and
+    # manual POST /tickets share one implementation.
+    return ticket_service.get_or_create_live_ticket(ticket_data)
 
 
 async def _escalate_to_human(

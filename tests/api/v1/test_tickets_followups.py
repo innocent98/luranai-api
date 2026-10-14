@@ -108,3 +108,41 @@ def test_voice_escalation_takes_session_lock(
     lock.assert_called_once()
     assert lock.call_args.args[1] == session.id
     assert uuid.UUID(resp.json()["ticket_id"])
+
+
+def test_guarded_create_reopens_missed_ticket_and_resets_ring(db_session):
+    from unittest.mock import patch as _patch
+
+    from app.schemas.ticket import TicketCreate
+    from app.services.agent_alert_service import AgentAlertService
+
+    user, _token = _make_tenant_user(db_session)
+    missed = _ticket(db_session, user.tenant_id, number="TKT-M-1", status=TicketStatus.MISSED)
+
+    with _patch.object(AgentAlertService, "reset_ring", autospec=True) as reset:
+        ticket, created = TicketService(db_session).get_or_create_live_ticket(
+            TicketCreate(tenant_id=user.tenant_id, session_id=missed.session_id, summary="again")
+        )
+
+    assert created is True
+    assert ticket.id == missed.id
+    assert ticket.status == TicketStatus.OPEN
+    reset.assert_called_once()
+    assert reset.call_args.args[1] == missed.id
+
+
+def test_guarded_create_leaves_assigned_missed_ticket_alone(db_session):
+    from app.schemas.ticket import TicketCreate
+
+    user, _token = _make_tenant_user(db_session)
+    missed = _ticket(db_session, user.tenant_id, number="TKT-M-2", status=TicketStatus.MISSED)
+    missed.assigned_to = user.id
+    db_session.flush()
+
+    ticket, created = TicketService(db_session).get_or_create_live_ticket(
+        TicketCreate(tenant_id=user.tenant_id, session_id=missed.session_id, summary="again")
+    )
+
+    assert created is False
+    assert ticket.id == missed.id
+    assert ticket.status == TicketStatus.MISSED

@@ -14,7 +14,7 @@
 New `TicketService.get_or_create_live_ticket(ticket_data) -> (ticket, created)`: lock session row, reuse the live ticket if any, else create; rollback on error so the lock is never left held.
 - `voice.py::voice_escalate_to_human`: `escalate_session` (idempotent, commits) now runs first, then the guarded create. Previously check -> escalate (commit) -> create left a race window.
 - `tickets.py::create_ticket` (`POST /tickets`): returns the existing live ticket with **200** instead of a duplicate; 201 for a new one. See `docs/fe-integration-guide-ticket-followups.md`.
-- Chat paths unchanged (they keep their own helper because of MISSED-reopen + ring reset).
+- The method is now the single implementation: it also reopens a MISSED unassigned ticket and resets its ring (`reset_ring`), returning created=True. `chat.py::_get_or_create_escalation_ticket` delegates to it. Voice and manual do not enqueue the ring themselves (voice has no ring today; see its TODO), so a reopened ticket there is OPEN with fresh ring state but not yet pushed.
 
 ## 3. `GET /tickets/unassigned` 422
 **Root cause**: declared after `/{ticket_id}`; FastAPI matches in order, so `unassigned` was parsed as a UUID. Moved above it (comment explains).
