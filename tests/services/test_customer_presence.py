@@ -392,3 +392,32 @@ def test_blackholed_redis_does_not_hang_reads(db, monkeypatch):
     assert _t.time() - start < 3
     srv.close()
     monkeypatch.setattr(cp, "_sync_client", None)
+
+
+def test_lazy_persist_never_moves_last_seen_backwards(db):
+    """A newer offline write landing between the read and the lazy write wins."""
+    from app.db.models.conversation import ConversationSession
+    from app.db.models.tenant import Tenant
+
+    tenant = Tenant(
+        name=f"t_{uuid4().hex[:8]}",
+        display_name="T",
+        api_key_hash=uuid4().hex,
+        subscription_tier="pro",
+        subscription_status="active",
+    )
+    db.add(tenant)
+    db.flush()
+    newer = datetime(2026, 10, 1, 12, 5, tzinfo=UTC)
+    sess = ConversationSession(
+        tenant_id=tenant.id, user_identifier="u-race", customer_last_seen_at=newer
+    )
+    db.add(sess)
+    db.flush()
+    older = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
+    # The read saw no DB value (stale snapshot) and an older Redis `last`.
+    cp._persist_lazily(
+        db, [sess.id], {sess.id: str(older.timestamp())}, {sess.id: None}
+    )
+    db.refresh(sess)
+    assert sess.customer_last_seen_at.replace(tzinfo=UTC) == newer

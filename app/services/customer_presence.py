@@ -27,7 +27,7 @@ from uuid import UUID
 import redis as sync_redis
 import redis.asyncio as aioredis
 from loguru import logger
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -213,6 +213,13 @@ def _persist_lazily(
             db.execute(
                 update(ConversationSession)
                 .where(ConversationSession.id == sid)
+                # Never move it backwards if a newer offline write landed meanwhile.
+                .where(
+                    or_(
+                        ConversationSession.customer_last_seen_at.is_(None),
+                        ConversationSession.customer_last_seen_at < seen,
+                    )
+                )
                 .values(customer_last_seen_at=seen)
             )
         db.commit()
