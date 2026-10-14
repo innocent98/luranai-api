@@ -53,8 +53,15 @@ def _session(db):
         tenant_id=tenant.id, user_identifier=f"v-{prefix}", status=SessionStatus.ACTIVE
     )
     db.add(s)
+    db.flush()
+    s.user_identifier = _identifier(s.id)
     db.commit()
     return s.id, tenant.id
+
+
+def _identifier(session_id):
+    """The customer credential `_session` stamps on the session (sent as user_identifier)."""
+    return f"v-{session_id}"
 
 
 def _att(db, session_id, tenant_id, **kw):
@@ -111,7 +118,12 @@ def _send(client, session_id, message, ids):
     with p1, p2, p3:
         return client.post(
             "/api/v1/chat/message",
-            json={"session_id": str(session_id), "message": message, "attachment_ids": ids},
+            json={
+                "session_id": str(session_id),
+                "user_identifier": _identifier(session_id),
+                "message": message,
+                "attachment_ids": ids,
+            },
         )
 
 
@@ -183,7 +195,7 @@ def test_guard_links_to_latest_user_message_when_branch_skipped_link(client, db)
     sid, tid = _session(db)
     aid = _att(db, sid, tid)
 
-    async def _fake_impl(message_data, db_, linked):
+    async def _fake_impl(message_data, db_, linked, authed_customer_id=None):
         svc = ConversationService(db_)
         svc.add_message(sid, MessageRole.USER, "hello")  # unwrapped: never links
         reply = svc.add_message(sid, MessageRole.ASSISTANT, "hi")
@@ -192,7 +204,12 @@ def test_guard_links_to_latest_user_message_when_branch_skipped_link(client, db)
     with patch.object(chat_module, "_send_message_impl", new=_fake_impl):
         r = client.post(
             "/api/v1/chat/message",
-            json={"session_id": str(sid), "message": "hello", "attachment_ids": [str(aid)]},
+            json={
+                "session_id": str(sid),
+                "user_identifier": _identifier(sid),
+                "message": "hello",
+                "attachment_ids": [str(aid)],
+            },
         )
     assert r.status_code == 200, r.text
     assert [a["id"] for a in r.json()["user_message_attachments"]] == [str(aid)]

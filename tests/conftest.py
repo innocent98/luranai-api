@@ -417,6 +417,8 @@ def voice_session_factory(db_session):
             status=SessionStatus.ACTIVE,
         )
         db_session.add(session)
+        db_session.flush()
+        session.user_identifier = f"visitor-{session.id}"  # voice mint needs the credential
         db_session.commit()
         return session
 

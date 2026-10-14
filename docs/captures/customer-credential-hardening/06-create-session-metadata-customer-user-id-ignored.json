@@ -1,0 +1,35 @@
+{
+  "description": "customer_user_id is null on the created session",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/sessions",
+    "headers": {},
+    "json": {
+      "tenant_id": "ae5db257-c1f4-4d51-85a1-28c92d1542cc",
+      "user_identifier": "attacker-ident-2",
+      "metadata": {
+        "customer_user_id": "5f975f57-d1c0-434f-953d-9d1d5ddd2591"
+      }
+    },
+    "form": null
+  },
+  "status": 201,
+  "response": {
+    "meta": {},
+    "id": "265d8ec3-e710-4a67-8a09-a064d1fd557c",
+    "tenant_id": "ae5db257-c1f4-4d51-85a1-28c92d1542cc",
+    "visitor_id": null,
+    "visitor_session_id": null,
+    "customer_user_id": null,
+    "visitor": null,
+    "status": "active",
+    "escalation_reason": null,
+    "escalated_at": null,
+    "agent_id": null,
+    "agent_joined_at": null,
+    "last_message_at": "2026-10-13T23:46:55.116393Z",
+    "created_at": "2026-10-13T23:46:55.114276Z",
+    "updated_at": "2026-10-13T23:46:55.114276Z",
+    "user_identifier": "attacker-ident-2"
+  }
+}

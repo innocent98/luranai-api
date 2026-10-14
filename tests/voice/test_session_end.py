@@ -121,6 +121,7 @@ def test_session_end_frees_slot_for_a_subsequent_mint_at_the_ceiling(
             json={
                 "tenant_id": str(tenant.id),
                 "luran_session_id": str(session_b.id),
+                "user_identifier": f"visitor-{session_b.id}",
                 "text_out": False,
             },
         )
@@ -135,6 +136,7 @@ def test_session_end_frees_slot_for_a_subsequent_mint_at_the_ceiling(
             json={
                 "tenant_id": str(tenant.id),
                 "luran_session_id": str(session_b.id),
+                "user_identifier": f"visitor-{session_b.id}",
                 "text_out": False,
             },
         )

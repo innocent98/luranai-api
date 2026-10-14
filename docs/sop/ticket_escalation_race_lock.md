@@ -18,7 +18,7 @@ Chosen over a unique partial index on `tickets(session_id)` for live statuses: t
 
 **Verification**: `tests/agent_caller/test_escalation_race_lock.py` (real Postgres, independent connections, committed rows, self-cleaning): (a) A holds the row lock, B must block, then reuses A's ticket; (b) 4 threads released by a barrier produce exactly 1 ticket and 1 `created=True`. Both fail on the old code.
 
-**Not covered / follow-ups**
+**Not covered / follow-ups** (voice, `POST /tickets` and the ticket-number race were closed by `ticket_number_sequence_and_followups.md`)
 - `voice.py::voice_escalate_to_human` (own get-then-create; `escalate_session` commits between check and create, so it needs reordering, not just a lock).
 - `POST /tickets` (`tickets.py::create_ticket`) manual creation.
 - `_generate_ticket_number` is count-based, so two different sessions can still collide on number.
