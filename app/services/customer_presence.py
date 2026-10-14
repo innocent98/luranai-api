@@ -266,17 +266,25 @@ class CustomerPresenceTracker:
         return self._redis
 
     async def aclose(self) -> None:
+        loop = asyncio.get_running_loop()
         for task in list(self._tasks):
             task.cancel()
         for task in list(self._tasks):
+            # Tasks from another (already closed) loop can't be awaited here.
+            if task.get_loop() is not loop:
+                continue
             try:
                 await task
             except asyncio.CancelledError:
                 pass
         self._tasks.clear()
         if self._redis is not None:
-            await self._redis.aclose()
+            # A client bound to a different loop (one event loop per test client) can't be
+            # closed from this one; drop it, its sockets went with that loop.
+            if self._loop is loop:
+                await self._redis.aclose()
             self._redis = None
+            self._loop = None
 
     def _spawn(self, coro) -> asyncio.Task:
         task = asyncio.create_task(coro)

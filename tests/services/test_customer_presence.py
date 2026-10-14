@@ -416,8 +416,19 @@ def test_lazy_persist_never_moves_last_seen_backwards(db):
     db.flush()
     older = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
     # The read saw no DB value (stale snapshot) and an older Redis `last`.
-    cp._persist_lazily(
-        db, [sess.id], {sess.id: str(older.timestamp())}, {sess.id: None}
-    )
+    cp._persist_lazily(db, [sess.id], {sess.id: str(older.timestamp())}, {sess.id: None})
     db.refresh(sess)
     assert sess.customer_last_seen_at.replace(tzinfo=UTC) == newer
+
+
+def test_aclose_on_a_new_loop_drops_a_client_bound_to_a_closed_loop():
+    """Test clients run one event loop each; shutdown must not touch a dead loop's client."""
+    t = CustomerPresenceTracker(grace_s=0.05, keepalive_s=3600)
+
+    async def bind_client():
+        await t._client()
+        await (await t._client()).ping()
+
+    asyncio.run(bind_client())  # this loop is now closed, the client is still bound to it
+    asyncio.run(t.aclose())  # must not raise "Event loop is closed"
+    assert t._redis is None
