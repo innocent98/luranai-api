@@ -239,13 +239,13 @@ Bootstrap by slug for a **private** tenant is refused (`36-visitor-bootstrap-pri
 ## 3. Field-nesting traps (read these)
 
 1. **`first_responder` lives in three places with different nesting:** `GET/PUT /tenant/ai-config` → top level; public widget config → top level; visitor bootstrap → `tenant.first_responder` (nested under `tenant`).
-2. **Private tenants report `"ai"` on `GET /public/business/{slug}` regardless of the real mode.** That endpoint returns a minimal identity-only profile for private tenants (`is_private: true`); `first_responder` there is the schema default, not the stored value. Live proof (`17-public-business-profile-human.json`, tenant stored as `human`):
+2. **`GET /public/business/{slug}` now reports the real mode for private tenants too** (fixed after the original N3 release; the profile used to return the schema default `"ai"` for private tenants, so a human-only private tenant looked AI-first). Only the mode string is added; every descriptive/widget field stays `null`. Live capture (`captures/n3-followup/01-public-business-profile-private-human.json`, tenant stored as `human`, `is_private: true`):
 
 ```json
 {
-  "tenant_id": "93c27b29-d555-4314-93de-444abb5ef265",
-  "public_slug": "n3-live-tenant-a",
-  "display_name": "Acme Test Co",
+  "tenant_id": "47774e45-8d04-4cc7-914e-90b3f22b193b",
+  "public_slug": "acme-n3fu-private",
+  "display_name": "Acme private",
   "is_private": true,
   "description": null,
   "long_description": null,
@@ -259,13 +259,33 @@ Bootstrap by slug for a **private** tenant is refused (`36-visitor-bootstrap-pri
   "widget_logo_url": null,
   "widget_greeting_message": null,
   "allow_file_upload": true,
+  "allow_screen_recording": false,
   "collect_name_before_chat": false,
   "collect_email_before_chat": false,
-  "first_responder": "ai"
+  "first_responder": "human"
 }
 ```
 
-   Use the **bootstrap** payload (`tenant.first_responder`) or the widget config for anything that gates behaviour, never the business-profile endpoint of a private tenant. New tenants are private by default.
+   Contract note: other flags on the private profile (`allow_file_upload`, `allow_screen_recording`, `collect_*`) are still schema defaults, not real values. Only `first_responder` is real. An older API still returns `"ai"` for private tenants, so the authed customer views should prefer the conversation detail (trap 2b) when a thread exists.
+2b. **Authed customer conversation detail carries `first_responder` at the top level** (`GET /customer/conversations/{session_id}`; not under `conversation`). Live capture (`captures/n3-followup/03-customer-conversation-detail-private-human.json`, `conversation` omitted here, it is unchanged and verbatim in the capture):
+
+```json
+{
+  "business_name": "Acme private",
+  "business_slug": "acme-n3fu-private",
+  "business_logo_url": null,
+  "business_description": "Desc",
+  "business_widget_primary_color": "#2563eb",
+  "business_widget_accent_color": "#10b981",
+  "business_widget_greeting_message": "Hi! How can we help you today?",
+  "allow_file_upload": true,
+  "allow_screen_recording": false,
+  "first_responder": "human",
+  "has_more_messages": false
+}
+```
+
+   Type: string, one of `ai` | `ai_with_handoff` | `human`, default `"ai"` (also when the tenant has no AI config row). Gate the Talk (voice) button on `first_responder !== "human"`. The conversation list (`GET /customer/conversations`) does not carry it.
 3. **`active_knowledge_sources` exists only on `/tenant/ai-config`** (not in widget config or bootstrap). The nudge/banner logic must use the admin config.
 4. **The preset writes two *other* fields.** After saving `ai_with_handoff`, the `no_retrieval_action` / `low_confidence_action` in the response differ from what you sent. Always replace form state with the PUT response.
 5. **Welcome trigger is not a message that reaches a human.** `hi`/`hello`/`start`/`__welcome__` get the human-mode welcome and create no ticket (`should_escalate: false`, `ticket_id: null`).
@@ -589,7 +609,9 @@ Polling: none required; the WebSocket is the push channel. If the socket is down
 | No-token 401 | verified-live (local) | 09 |
 | Public widget config `first_responder` (handoff, human) | verified-live (local) | 11, 15 |
 | Bootstrap `tenant.first_responder` (human, ai), private-slug 403 | verified-live (local) | 35, 36, 38, 40 |
-| Private-tenant business profile reports `ai` | verified-live (local) | 17 |
+| Private-tenant business profile reports `ai` (superseded by the fix below; capture 17 is the pre-fix state) | verified-live (local), historical | 17 |
+| Private-tenant business profile reports the real mode; listed profile unchanged | verified-live (local) | n3-followup 01, 02 |
+| Customer conversation detail `first_responder` (top level) | verified-live (local) | n3-followup 03 |
 | Human welcome, first message, escalated follow-up | verified-live (local) | 18, 19, 20 |
 | Contact-capture prompt + reply (email) | verified-live (local) | 30, 31 |
 | Contact capture for name | NOT LIVE | code path only; same mechanism as email |
