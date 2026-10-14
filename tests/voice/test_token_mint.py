@@ -344,3 +344,65 @@ def test_mint_accepts_visitor_token_credential(
     del base["user_identifier"]
     resp = _mint(pg_client, {**base, "visitor_token": visitor.public_token})
     assert resp.status_code == 200, resp.text
+
+
+def _customer_headers(db_session, *, owns_session=None):
+    from datetime import UTC, datetime, timedelta
+    from uuid import uuid4
+
+    from jose import jwt
+
+    from app.db.models.customer_user import CustomerUser
+
+    customer = CustomerUser(
+        full_name="Cus Tomer",
+        email=f"c-{uuid4().hex[:6]}@example.com",
+        email_hash=uuid4().hex + uuid4().hex,
+        hashed_password="x",
+        is_active=True,
+    )
+    db_session.add(customer)
+    db_session.flush()
+    if owns_session is not None:
+        owns_session.customer_user_id = customer.id
+    db_session.commit()
+    token = jwt.encode(
+        {
+            "sub": str(customer.id),
+            "auth_type": "customer",
+            "exp": datetime.now(UTC) + timedelta(minutes=5),
+        },
+        settings.SECRET_KEY,
+        algorithm=settings.ALGORITHM,
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_mint_accepts_owning_customer_token_without_explicit_credential(
+    pg_client, voice_tenant_factory, voice_session_factory, db_session
+):
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    session = voice_session_factory(tenant.id)
+    # authed customers can own a session whose user_identifier != chat_user_key
+    hdrs = _customer_headers(db_session, owns_session=session)
+    base = _payload(tenant.id, session.id)
+    del base["user_identifier"]
+    with patch(
+        "app.api.v1.endpoints.voice.ElevenLabsClient.mint_conversation_token",
+        new=AsyncMock(return_value="el-convo-token-abc"),
+    ):
+        resp = pg_client.post("/api/v1/voice/session/token", json=base, headers=hdrs)
+    assert resp.status_code == 200, resp.text
+
+
+def test_mint_rejects_stranger_customer_token_without_explicit_credential(
+    pg_client, voice_tenant_factory, voice_session_factory, db_session
+):
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    session = voice_session_factory(tenant.id)
+    hdrs = _customer_headers(db_session)
+    base = _payload(tenant.id, session.id)
+    del base["user_identifier"]
+    resp = pg_client.post("/api/v1/voice/session/token", json=base, headers=hdrs)
+    assert resp.status_code == 403, resp.text
+    assert resp.json() == {"detail": {"reason": "invalid_customer_credential"}}

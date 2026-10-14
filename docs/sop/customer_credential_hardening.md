@@ -12,7 +12,7 @@ Defence in depth for the public chat write paths. REST accepted a `session_id` w
 | `send_message` | Now a plain trusted function (no route): callers have authenticated already. New kw `authed_customer_id` is the only way a session is bound to a customer account. Callers: public route, `POST /customer/conversations/message` (passes the token-derived id), voice pipeline (unchanged, voice token). |
 | `POST /chat/sessions`, new-session branch of `/chat/message` | `customer_user_id` is never read from metadata and is removed from stored `meta`. |
 | `/chat/upload`, `/chat/video/sign`, `/chat/video/register` | Optional `user_identifier` or `visitor_token` (form field / JSON field). An explicit credential must match (or be the owning authed customer's token). A request with no explicit credential is accepted unless `CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL=true`; a non-owning customer cookie is ignored while the flag is off (guest pages send cookies with `credentials: 'include'`). |
-| `POST /voice/session/token` | Requires `user_identifier` or `visitor_token` for the session (403 `{"detail":{"reason":"invalid_customer_credential"}}`), enforced now with no flag: the minted token writes user messages through the trusted `send_message`. luran-chat must add the field (see `docs/fe-integration-guide-voice-credential.md`). |
+| `POST /voice/session/token` | Requires `user_identifier` or `visitor_token` for the session (403 `{"detail":{"reason":"invalid_customer_credential"}}`), also accepts the owning authed customer's token (cookie/Bearer; a non-owning customer with no explicit credential stays 403), enforced now with no flag: the minted token writes user messages through the trusted `send_message`. luran-chat must add the field (see `docs/fe-integration-guide-voice-credential.md`). |
 | Session rating submit | Uses the constant-time credential helper. |
 | Staff session meta | `redact_staff_session_meta` keeps only `STAFF_VISIBLE_SESSION_META_KEYS` with scalar values. Message meta keeps the `rating_token` block-list (arbitrary shape, FE reads many keys). |
 
@@ -27,7 +27,7 @@ Client audit (all on `origin/main`): luran-chat `useChat.ts` sends `user_identif
 - `tests/api/v1/test_customer_credential_hardening.py` (18): bare session id, staff token, wrong/right identifier, visitor token, metadata binding and reuse, `/chat/sessions`, authed endpoint still binds, upload/video wrong/missing/enforced, owning customer vs staff vs stranger token. Exploit tests were red before the fix.
 - `tests/rating/test_staff_session_meta_allowlist.py` (7): allow-list unit, session detail/list, `GET /chat/sessions/{id}/messages`, platform `GET /platform/reviews/ratings/all`, authed-customer socket fan-out to agents. The allow-list tests fail against the old block-list.
 - Existing tests that posted `session_id` only now send `user_identifier`.
-- Full suite on Postgres 15 + Redis 7 (CI env): baseline 1658 passed / 33 skipped; after 1688 passed / 33 skipped. ruff 0.8.6 and black 24.10.0 clean on `app/`.
+- Full suite on Postgres 15 + Redis 7 (CI env): baseline 1658 passed / 33 skipped; after 1690 passed / 33 skipped. ruff 0.8.6 and black 24.10.0 clean on `app/`.
 - Live run and captures: `docs/captures/customer-credential-hardening/` (migrated Postgres, uvicorn, curl).
 
 ## Operate / roll back
