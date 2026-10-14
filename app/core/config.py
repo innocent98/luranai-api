@@ -192,6 +192,11 @@ class Settings(BaseSettings):
     SCREEN_RECORDING_MAX_SECONDS: int = 60
     SCREEN_RECORDING_MAX_BYTES: int = 52_428_800
 
+    # /chat/upload and /chat/video/* historically identified the customer by session_id
+    # alone. A supplied user_identifier is always verified; flip this once every customer
+    # client sends one to make it mandatory (see docs/sop/customer_credential_hardening.md).
+    CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL: bool = False
+
     # Paystack Payment Gateway
     PAYSTACK_SECRET_KEY: str
     PAYSTACK_PUBLIC_KEY: str | None = None

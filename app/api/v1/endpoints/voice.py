@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.api.v1.endpoints.chat import send_message
 from app.core.config import settings
+from app.utils.customer_credential import optional_customer, session_credential_matches
 from app.db.models.conversation import ConversationSession, MessageRole
 from app.db.session import SessionLocal
 from app.schemas.conversation import MessageRequest
@@ -145,6 +146,7 @@ async def _release_reserved_slot(
 )
 async def mint_voice_session_token(
     payload: VoiceTokenRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """Mint a short-lived ElevenLabs WebRTC token, subject to tenant gating.
@@ -172,6 +174,20 @@ async def mint_voice_session_token(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"reason": "session_not_found"},
+        )
+
+    # The minted token later writes USER messages through the trusted send_message path,
+    # so minting needs the same customer credential as the public chat message route.
+    if not session_credential_matches(
+        db,
+        session,
+        user_identifier=payload.user_identifier,
+        visitor_token=payload.visitor_token,
+        customer=optional_customer(request, db),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"reason": "invalid_customer_credential"},
         )
 
     gate = VoiceGate(db)

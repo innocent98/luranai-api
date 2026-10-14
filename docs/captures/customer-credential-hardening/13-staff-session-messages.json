@@ -1,0 +1,26 @@
+{
+  "description": "",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/chat/sessions/a5b69400-fb99-41e4-b50e-96e628c2e441/messages",
+    "headers": {
+      "Authorization": "Bearer <staff access token placeholder>"
+    },
+    "json": null,
+    "form": null
+  },
+  "status": 200,
+  "response": [
+    {
+      "role": "user",
+      "content": "hello",
+      "id": "7c82bc2b-1a5d-4856-8ed1-e20ee82319f2",
+      "session_id": "a5b69400-fb99-41e4-b50e-96e628c2e441",
+      "retrieved_chunk_ids": null,
+      "token_count": null,
+      "attachments": [],
+      "meta": {},
+      "created_at": "2026-10-13T23:46:55.046051Z"
+    }
+  ]
+}
