@@ -1,5 +1,7 @@
 """Tests for the CRM webhook ARQ job (Stage 3 Slice 5e Task 3)."""
 
+import json
+
 import pytest
 import httpx
 from uuid import uuid4
@@ -69,13 +71,9 @@ def _seed(db, *, url="https://hooks.zapier.com/hooks/catch/1/x"):
 
 
 def _resp(code, json_body=None):
-    r = MagicMock()
-    r.status_code = code
     if json_body is None:
-        r.json.side_effect = ValueError("no json")
-    else:
-        r.json.return_value = json_body
-    return r
+        return httpx.Response(code)
+    return httpx.Response(code, json=json_body)
 
 
 async def test_crm_2xx_marks_sent_and_posts_lead_payload(db_session, monkeypatch):
@@ -84,14 +82,14 @@ async def test_crm_2xx_marks_sent_and_posts_lead_payload(db_session, monkeypatch
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post", return_value=_resp(200)) as post:
+    with patch("httpx.AsyncClient.send", return_value=_resp(200)) as post:
         await sync_lead_to_crm({}, str(log_id))
 
     post.assert_called_once()
-    call = post.call_args
-    url = call[0][0] if call[0] else call[1]["url"]
-    payload = call[1]["json"]
-    assert url == "https://hooks.zapier.com/hooks/catch/1/x"
+    sent = post.call_args[0][0]
+    payload = json.loads(sent.content)
+    assert sent.headers["host"] == "hooks.zapier.com"
+    assert sent.url.path == "/hooks/catch/1/x"
     assert payload["email"] == "d@co.com"
     assert payload["company"] == "Acme"
     assert payload["lead_score"] == 90
@@ -105,7 +103,7 @@ async def test_crm_2xx_with_id_writes_back_crm_id(db_session, monkeypatch):
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post", return_value=_resp(200, {"id": "crm-789"})):
+    with patch("httpx.AsyncClient.send", return_value=_resp(200, {"id": "crm-789"})):
         await sync_lead_to_crm({}, str(log_id))
 
     assert db_session.get(NotificationLog, log_id).status == NotifStatus.SENT
@@ -118,7 +116,7 @@ async def test_crm_2xx_without_id_leaves_crm_id_none(db_session, monkeypatch):
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post", return_value=_resp(200, {"ok": True})):
+    with patch("httpx.AsyncClient.send", return_value=_resp(200, {"ok": True})):
         await sync_lead_to_crm({}, str(log_id))
 
     assert db_session.get(NotificationLog, log_id).status == NotifStatus.SENT
@@ -131,7 +129,7 @@ async def test_crm_5xx_raises_for_retry(db_session, monkeypatch):
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post", return_value=_resp(503)):
+    with patch("httpx.AsyncClient.send", return_value=_resp(503)):
         with pytest.raises(Exception):
             await sync_lead_to_crm({}, str(log_id))
 
@@ -144,7 +142,7 @@ async def test_crm_4xx_no_retry(db_session, monkeypatch):
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post", return_value=_resp(404)):
+    with patch("httpx.AsyncClient.send", return_value=_resp(404)):
         await sync_lead_to_crm({}, str(log_id))  # must NOT raise
 
     assert db_session.get(NotificationLog, log_id).status == NotifStatus.FAILED
@@ -156,7 +154,7 @@ async def test_crm_missing_url_marks_failed(db_session, monkeypatch):
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post") as post:
+    with patch("httpx.AsyncClient.send") as post:
         await sync_lead_to_crm({}, str(log_id))
 
     post.assert_not_called()
@@ -171,7 +169,7 @@ async def test_crm_already_sent_is_noop(db_session, monkeypatch):
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post") as post:
+    with patch("httpx.AsyncClient.send") as post:
         await sync_lead_to_crm({}, str(log_id))
 
     post.assert_not_called()
@@ -183,7 +181,7 @@ async def test_crm_blocked_host_marks_failed_no_post(db_session, monkeypatch):
     import app.workers.sales_notifications as notif_mod
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
-    with patch("httpx.Client.post") as post:
+    with patch("httpx.AsyncClient.send") as post:
         await sync_lead_to_crm({}, str(log_id))  # must NOT raise
     post.assert_not_called()
     log = db_session.get(NotificationLog, log_id)
@@ -198,7 +196,7 @@ async def test_crm_network_timeout_raises_and_marks_failed(db_session, monkeypat
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post", side_effect=httpx.TimeoutException("timeout")):
+    with patch("httpx.AsyncClient.send", side_effect=httpx.TimeoutException("timeout")):
         with pytest.raises(Exception):
             await sync_lead_to_crm({}, str(log_id))
 
@@ -212,7 +210,7 @@ async def test_crm_2xx_contact_id_key_writes_back(db_session, monkeypatch):
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post", return_value=_resp(200, {"contactId": "hub-42"})):
+    with patch("httpx.AsyncClient.send", return_value=_resp(200, {"contactId": "hub-42"})):
         await sync_lead_to_crm({}, str(log_id))
 
     assert db_session.get(NotificationLog, log_id).status == NotifStatus.SENT
@@ -225,7 +223,7 @@ async def test_crm_missing_log_is_noop(db_session, monkeypatch):
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post") as post:
+    with patch("httpx.AsyncClient.send") as post:
         await sync_lead_to_crm({}, str(uuid4()))  # no log seeded
 
     post.assert_not_called()
@@ -238,7 +236,7 @@ async def test_crm_2xx_zero_integer_id_writes_back(db_session, monkeypatch):
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post", return_value=_resp(200, {"id": 0})):
+    with patch("httpx.AsyncClient.send", return_value=_resp(200, {"id": 0})):
         await sync_lead_to_crm({}, str(log_id))
 
     assert db_session.get(NotificationLog, log_id).status == NotifStatus.SENT
@@ -264,13 +262,13 @@ async def test_crm_never_logs_url_or_pii(db_session, monkeypatch, caplog):
     # Error path: network failure sets log.error + raises (worker may log).
     log_id, _ = _seed(db_session, url=secret_url)
     with caplog.at_level(logging.DEBUG):
-        with patch("httpx.Client.post", side_effect=httpx.ConnectError("boom")):
+        with patch("httpx.AsyncClient.send", side_effect=httpx.ConnectError("boom")):
             with pytest.raises(Exception):
                 await sync_lead_to_crm({}, str(log_id))
 
         # SENT path: a successful POST with the same secret URL.
         log_id2, _ = _seed(db_session, url=secret_url)
-        with patch("httpx.Client.post", return_value=_resp(200)):
+        with patch("httpx.AsyncClient.send", return_value=_resp(200)):
             await sync_lead_to_crm({}, str(log_id2))
 
     assert "SECRET-TOKEN-zzz999" not in caplog.text
@@ -278,3 +276,76 @@ async def test_crm_never_logs_url_or_pii(db_session, monkeypatch, caplog):
     assert "Dana" not in caplog.text  # lead name PII
     # DB error field stays a generic, URL-free string.
     assert db_session.get(NotificationLog, log_id).error == "crm network error: ConnectError"
+
+
+async def test_crm_rebinding_host_connects_only_to_validated_ip(db_session, monkeypatch):
+    import socket
+
+    log_id, _ = _seed(db_session, url="https://rebind.example.com/hook")
+    import app.workers.sales_notifications as notif_mod
+
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+    seen: list[str] = []
+
+    def fake(host, *a, **k):
+        seen.append(host)
+        ip = "93.184.216.34" if len(seen) == 1 else "169.254.169.254"
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, 0))]
+
+    monkeypatch.setattr("app.utils.network_security.socket.getaddrinfo", fake)
+
+    with patch("httpx.AsyncClient.send", return_value=_resp(200)) as send:
+        await sync_lead_to_crm({}, str(log_id))
+
+    sent = send.call_args[0][0]
+    assert sent.url.host == "93.184.216.34"
+    assert sent.headers["host"] == "rebind.example.com"
+    assert sent.extensions["sni_hostname"] == "rebind.example.com"
+    assert seen == ["rebind.example.com"]  # one lookup; httpx never re-resolves the name
+    assert db_session.get(NotificationLog, log_id).status == NotifStatus.SENT
+
+
+async def test_crm_redirect_is_not_followed(db_session, monkeypatch):
+    log_id, _ = _seed(db_session)
+    import app.workers.sales_notifications as notif_mod
+
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+    redirect = httpx.Response(302, headers={"location": "http://169.254.169.254/latest/"})
+    with patch("httpx.AsyncClient.send", return_value=redirect) as send:
+        await sync_lead_to_crm({}, str(log_id))
+    assert send.call_count == 1
+    assert db_session.get(NotificationLog, log_id).status == NotifStatus.FAILED
+
+
+async def test_crm_dns_outage_is_retried_not_marked_blocked(db_session, monkeypatch):
+    import socket
+
+    log_id, _ = _seed(db_session, url="https://flaky-dns.example.com/hook")
+    import app.workers.sales_notifications as notif_mod
+
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+
+    def boom(*a, **k):
+        raise socket.gaierror("temporary failure")
+
+    monkeypatch.setattr("app.utils.network_security.socket.getaddrinfo", boom)
+    with patch("httpx.AsyncClient.send") as send:
+        with pytest.raises(Exception):
+            await sync_lead_to_crm({}, str(log_id))  # raises so ARQ retries
+    send.assert_not_called()
+    log = db_session.get(NotificationLog, log_id)
+    assert log.status == NotifStatus.FAILED
+    assert log.error != "blocked webhook host"
+
+
+async def test_crm_oversized_response_fails_permanently_without_retry(db_session, monkeypatch):
+    log_id, _ = _seed(db_session)
+    import app.workers.sales_notifications as notif_mod
+    from app.utils.pinned_http import ResponseTooLargeError
+
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+    with patch("httpx.AsyncClient.send", side_effect=ResponseTooLargeError("big")):
+        await sync_lead_to_crm({}, str(log_id))  # must NOT raise (ARQ would retry)
+    log = db_session.get(NotificationLog, log_id)
+    assert log.status == NotifStatus.FAILED
+    assert log.error == "response rejected"

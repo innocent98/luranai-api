@@ -1,5 +1,8 @@
 """Tests for ARQ Slack notification job (Stage 3 Slice 5d)."""
 
+import json
+
+import httpx
 import pytest
 from uuid import uuid4
 from unittest.mock import patch, MagicMock
@@ -77,9 +80,7 @@ def _seed(db, *, url="https://hooks.slack.com/services/T/B/x"):
 
 
 def _resp(code):
-    r = MagicMock()
-    r.status_code = code
-    return r
+    return httpx.Response(code)
 
 
 async def test_slack_2xx_marks_sent(db_session, monkeypatch):
@@ -91,12 +92,13 @@ async def test_slack_2xx_marks_sent(db_session, monkeypatch):
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post", return_value=_resp(200)) as post:
+    with patch("httpx.AsyncClient.send", return_value=_resp(200)) as post:
         await send_slack_notification({}, str(log_id))
 
     post.assert_called_once()
-    call_kwargs = post.call_args
-    payload = call_kwargs[1]["json"] if call_kwargs[1] else call_kwargs[0][1]
+    sent = post.call_args[0][0]
+    assert sent.headers["host"] == "hooks.slack.com"
+    payload = json.loads(sent.content)
     blocks = payload["blocks"]
     assert any(b["type"] == "header" for b in blocks)
     assert any(b["type"] == "section" for b in blocks)
@@ -117,7 +119,7 @@ async def test_slack_5xx_raises_for_retry(db_session, monkeypatch):
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post", return_value=_resp(503)):
+    with patch("httpx.AsyncClient.send", return_value=_resp(503)):
         with pytest.raises(Exception):
             await send_slack_notification({}, str(log_id))
 
@@ -132,7 +134,7 @@ async def test_slack_4xx_no_retry(db_session, monkeypatch):
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post", return_value=_resp(404)):
+    with patch("httpx.AsyncClient.send", return_value=_resp(404)):
         await send_slack_notification({}, str(log_id))  # must NOT raise
 
     assert db_session.get(NotificationLog, log_id).status == NotifStatus.FAILED
@@ -146,7 +148,7 @@ async def test_slack_missing_url_marks_failed(db_session, monkeypatch):
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post") as post:
+    with patch("httpx.AsyncClient.send") as post:
         await send_slack_notification({}, str(log_id))
 
     post.assert_not_called()
@@ -164,8 +166,70 @@ async def test_slack_already_sent_is_noop(db_session, monkeypatch):
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
 
-    with patch("httpx.Client.post") as post:
+    with patch("httpx.AsyncClient.send") as post:
         await send_slack_notification({}, str(log_id))
 
     post.assert_not_called()
     assert db_session.get(NotificationLog, log_id).status == NotifStatus.SENT
+
+
+def _rebinding_dns(monkeypatch, name):
+    """Public answer on the first lookup, link-local on every later one."""
+    import socket
+
+    seen = []
+
+    def fake(host, *a, **k):
+        ip = "93.184.216.34" if not seen else "169.254.169.254"
+        if host == name:
+            seen.append(host)
+        else:
+            ip = host
+        return [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", (ip, 0))]
+
+    monkeypatch.setattr("app.utils.network_security.socket.getaddrinfo", fake)
+    return seen
+
+
+async def test_slack_rebinding_host_connects_only_to_validated_ip(db_session, monkeypatch):
+    log_id = _seed(db_session, url="https://rebind.example.com/services/T/B/x")
+    import app.workers.sales_notifications as notif_mod
+
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+    seen = _rebinding_dns(monkeypatch, "rebind.example.com")
+
+    with patch("httpx.AsyncClient.send", return_value=_resp(200)) as send:
+        await send_slack_notification({}, str(log_id))
+
+    sent = send.call_args[0][0]
+    assert sent.url.host == "93.184.216.34"
+    assert sent.headers["host"] == "rebind.example.com"
+    assert sent.extensions["sni_hostname"] == "rebind.example.com"
+    assert len(seen) == 1
+    assert db_session.get(NotificationLog, log_id).status == NotifStatus.SENT
+
+
+async def test_slack_internal_target_blocked_no_send_no_retry(db_session, monkeypatch):
+    log_id = _seed(db_session, url="http://169.254.169.254/latest/meta-data/")
+    import app.workers.sales_notifications as notif_mod
+
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+    with patch("httpx.AsyncClient.send") as send:
+        await send_slack_notification({}, str(log_id))  # must not raise (no ARQ retry)
+    send.assert_not_called()
+    log = db_session.get(NotificationLog, log_id)
+    assert log.status == NotifStatus.FAILED
+    assert log.error == "blocked webhook host"
+
+
+async def test_slack_oversized_response_fails_permanently_without_retry(db_session, monkeypatch):
+    log_id = _seed(db_session)
+    import app.workers.sales_notifications as notif_mod
+    from app.utils.pinned_http import ResponseTooLargeError
+
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+    with patch("httpx.AsyncClient.send", side_effect=ResponseTooLargeError("big")):
+        await send_slack_notification({}, str(log_id))  # must NOT raise
+    log = db_session.get(NotificationLog, log_id)
+    assert log.status == NotifStatus.FAILED
+    assert log.error == "response rejected"

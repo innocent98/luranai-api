@@ -89,6 +89,25 @@ async def test_attempt_request_response(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_attempt_request_oversized_body_is_a_non_retryable_error(monkeypatch):
+    import httpx
+
+    svc = _svc()
+    action = SimpleNamespace(timeout_seconds=5, id="a1")
+    req = httpx.Request("GET", "https://api.example.com/x")
+
+    async def fake_send(self, request, **kw):
+        return httpx.Response(
+            200, headers={"content-length": str(50 * 1024 * 1024)}, content=b"x", request=request
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", fake_send)
+    outcome = await svc._attempt_request(action, req)
+    assert outcome.kind == "error"
+    assert not svc._outcome_retryable(outcome)
+
+
+@pytest.mark.asyncio
 async def test_attempt_request_timeout(monkeypatch):
     import httpx
 

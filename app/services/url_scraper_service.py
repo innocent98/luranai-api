@@ -1,13 +1,11 @@
 """Service for scraping webpage content."""
 
-from urllib.parse import urljoin
-
 import httpx
 from bs4 import BeautifulSoup
 from fastapi import HTTPException, status
 from loguru import logger
 
-from app.utils.network_security import ensure_safe_outbound_url
+from app.utils.pinned_http import apinned_request, original_url
 
 
 class URLScraperService:
@@ -31,62 +29,49 @@ class URLScraperService:
             HTTPException: On scraping failure
         """
         try:
-            ensure_safe_outbound_url(url)
+            response = await apinned_request(
+                "GET",
+                url,
+                timeout=self.TIMEOUT,
+                total_timeout=self.TIMEOUT * 2,
+                max_bytes=self.MAX_CONTENT_LENGTH,
+                max_redirects=self.MAX_REDIRECTS,
+            )
 
-            async with httpx.AsyncClient(timeout=self.TIMEOUT) as client:
-                current_url = url
-                response = None
+            response.raise_for_status()
 
-                for _ in range(self.MAX_REDIRECTS + 1):
-                    ensure_safe_outbound_url(current_url)
-                    response = await client.get(current_url, follow_redirects=False)
+            # Check content length
+            content_length = int(response.headers.get("content-length", 0))
+            if content_length > self.MAX_CONTENT_LENGTH:
+                raise ValueError(f"Content too large: {content_length} bytes")
 
-                    if response.status_code in {301, 302, 303, 307, 308}:
-                        location = response.headers.get("location")
-                        if not location:
-                            break
-                        current_url = urljoin(current_url, location)
-                        continue
+            # Parse HTML
+            soup = BeautifulSoup(response.text, "html.parser")
 
-                    break
+            # Extract title
+            title = soup.find("title")
+            title_text = title.get_text(strip=True) if title else url
 
-                if response is None:
-                    raise ValueError("No response received from URL")
+            # Remove script and style elements
+            for element in soup(["script", "style", "nav", "footer", "header"]):
+                element.decompose()
 
-                response.raise_for_status()
+            # Get text content
+            text = soup.get_text(separator="\n", strip=True)
 
-                # Check content length
-                content_length = int(response.headers.get("content-length", 0))
-                if content_length > self.MAX_CONTENT_LENGTH:
-                    raise ValueError(f"Content too large: {content_length} bytes")
+            # Clean up whitespace
+            lines = (line.strip() for line in text.splitlines())
+            text = "\n".join(line for line in lines if line)
 
-                # Parse HTML
-                soup = BeautifulSoup(response.text, "html.parser")
+            if len(text) < 100:
+                raise ValueError("Insufficient content extracted")
 
-                # Extract title
-                title = soup.find("title")
-                title_text = title.get_text(strip=True) if title else url
-
-                # Remove script and style elements
-                for element in soup(["script", "style", "nav", "footer", "header"]):
-                    element.decompose()
-
-                # Get text content
-                text = soup.get_text(separator="\n", strip=True)
-
-                # Clean up whitespace
-                lines = (line.strip() for line in text.splitlines())
-                text = "\n".join(line for line in lines if line)
-
-                if len(text) < 100:
-                    raise ValueError("Insufficient content extracted")
-
-                return {
-                    "title": title_text,
-                    "content": text,
-                    "url": str(response.url),
-                    "content_length": len(text),
-                }
+            return {
+                "title": title_text,
+                "content": text,
+                "url": original_url(response),
+                "content_length": len(text),
+            }
 
         except httpx.HTTPStatusError as e:
             logger.error(f"HTTP error scraping {url}: {e}")

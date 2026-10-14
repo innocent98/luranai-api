@@ -31,96 +31,169 @@ def _hermetic_dns(monkeypatch):
     monkeypatch.setattr(network_security, "_resolve_ips", _fake_resolve_ips)
 
 
+def _req(url, rtype="script", method="GET", headers=None):
+    return SimpleNamespace(url=url, resource_type=rtype, method=method, headers=headers or {})
+
+
+def _fake_pinned(response=None, exc=None, calls=None):
+    async def fake(method, url, **kw):
+        if calls is not None:
+            calls.append((method, url, kw))
+        if exc:
+            raise exc
+        return response
+
+    return fake
+
+
 @pytest.mark.asyncio
-async def test_ssrf_route_handler_aborts_non_http_and_internal_continues_safe():
-    # non-http scheme -> abort, never validated
+async def test_route_handler_aborts_non_http_schemes():
     route = AsyncMock()
-    await crawler._ssrf_route_handler(
-        route, SimpleNamespace(url="data:text/html,hi", resource_type="document")
+    await crawler._make_ssrf_route_handler("example.com")(
+        route, _req("data:text/html,hi", "document")
     )
     route.abort.assert_awaited_once()
     route.continue_.assert_not_awaited()
 
-    # internal host (guard raises) -> abort
-    route2 = AsyncMock()
-    with patch("app.auditor.crawler.resolve_and_validate_host", side_effect=ValueError("private")):
-        await crawler._ssrf_route_handler(
-            route2, SimpleNamespace(url="http://10.0.0.1/x", resource_type="document")
-        )
-    route2.abort.assert_awaited_once()
-    route2.continue_.assert_not_awaited()
 
-    # safe public host -> continue
-    route3 = AsyncMock()
-    with patch("app.auditor.crawler.resolve_and_validate_host", return_value="93.184.216.34"):
-        await crawler._ssrf_route_handler(
-            route3, SimpleNamespace(url="https://example.com/page", resource_type="document")
-        )
-    route3.continue_.assert_awaited_once()
-    route3.abort.assert_not_awaited()
+@pytest.mark.asyncio
+async def test_route_handler_continues_only_for_pinned_root_host():
+    handler = crawler._make_ssrf_route_handler("Example.com")
+    route = AsyncMock()
+    await handler(route, _req("https://example.com/_next/a.js"))
+    route.continue_.assert_awaited_once()
+    route.fulfill.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_ssrf_route_handler_caches_repeated_same_host_lookups():
-    """A single page fires many same-host subresources (Next.js /_next chunks).
-    A per-session handler must validate each host at most once, not re-run the
-    blocking getaddrinfo for every request."""
-    cache: dict[str, bool] = {}
-    handler = crawler._make_ssrf_route_handler(cache)
+async def test_route_handler_never_continues_unpinned_host_by_name():
+    """A non-root host must NOT be handed back to Chromium (it would re-resolve
+    it by name and a rebinding domain could point it at an internal address)."""
+    import httpx
+
+    handler = crawler._make_ssrf_route_handler("example.com")
     calls = []
+    resp = httpx.Response(
+        200, content=b"console.log(1)", headers={"content-type": "text/javascript"}
+    )
+    route = AsyncMock()
+    with patch("app.auditor.crawler.apinned_request", _fake_pinned(resp, calls=calls)):
+        await handler(
+            route,
+            _req(
+                "https://cdn.other.com/app.js",
+                "script",
+                headers={"cookie": "x", "user-agent": "UA"},
+            ),
+        )
+    route.continue_.assert_not_awaited()
+    route.fulfill.assert_awaited_once()
+    kw = route.fulfill.await_args.kwargs
+    assert kw["status"] == 200 and kw["body"] == b"console.log(1)"
+    assert "content-length" not in {k.lower() for k in kw["headers"]}
+    # only allow-listed request headers are forwarded (no cookie)
+    assert calls[0][2]["headers"] == {"user-agent": "UA"}
+    assert calls[0][0] == "GET"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "rtype,method",
+    [
+        ("document", "GET"),
+        ("script", "POST"),
+        ("xhr", "POST"),
+        ("websocket", "GET"),
+        ("other", "GET"),
+    ],
+)
+async def test_route_handler_aborts_unfulfillable_cross_host_requests(rtype, method):
+    route = AsyncMock()
     with patch(
-        "app.auditor.crawler.resolve_and_validate_host",
-        side_effect=lambda h: calls.append(h) or "1.2.3.4",
+        "app.auditor.crawler.apinned_request", _fake_pinned(exc=AssertionError("must not fetch"))
     ):
-        for _ in range(5):
-            route = AsyncMock()
-            await handler(
-                route, SimpleNamespace(url="https://app.example.com/_next/x", resource_type="script")
-            )
-            route.continue_.assert_awaited_once()
-    assert calls == ["app.example.com"], "same host must be resolved only once per session"
+        await crawler._make_ssrf_route_handler("example.com")(
+            route, _req("https://other.com/x", rtype, method)
+        )
+    route.abort.assert_awaited_once()
+    route.fulfill.assert_not_awaited()
+    route.continue_.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_ssrf_route_handler_caches_blocked_host():
-    """A host that fails validation is cached as blocked too — it must not be
-    re-resolved on every subresource, and must keep being aborted."""
-    cache: dict[str, bool] = {}
-    handler = crawler._make_ssrf_route_handler(cache)
+async def test_route_handler_follows_cross_host_redirects_itself():
+    """A fulfilled 3xx would hand Chromium a Location to resolve by name; the
+    pinned fetch must follow (re-validated per hop) and fulfil the final body."""
+    import httpx
+
     calls = []
-
-    def _boom(h):
-        calls.append(h)
-        raise ValueError("private")
-
-    with patch("app.auditor.crawler.resolve_and_validate_host", side_effect=_boom):
-        for _ in range(3):
-            route = AsyncMock()
-            await handler(
-                route, SimpleNamespace(url="http://10.0.0.1/x", resource_type="xhr")
-            )
-            route.abort.assert_awaited_once()
-            route.continue_.assert_not_awaited()
-    assert calls == ["10.0.0.1"], "blocked host must be resolved only once per session"
+    resp = httpx.Response(200, content=b"final")
+    route = AsyncMock()
+    with patch("app.auditor.crawler.apinned_request", _fake_pinned(resp, calls=calls)):
+        await crawler._make_ssrf_route_handler("example.com")(
+            route, _req("https://cdn.other.com/a.js")
+        )
+    assert calls[0][2]["max_redirects"] >= 1
+    assert route.fulfill.await_args.kwargs["status"] == 200
+    assert "location" not in {k.lower() for k in route.fulfill.await_args.kwargs["headers"]}
 
 
 @pytest.mark.asyncio
-async def test_ssrf_route_handler_aborts_heavy_resource_types():
-    """image/media/font/stylesheet are aborted before any DNS validation (perf +
-    reduced SSRF surface); allowed types still get validated."""
+async def test_route_handler_aborts_when_redirect_hop_is_internal():
+    from app.utils.pinned_http import UnsafeOutboundURLError
+
+    route = AsyncMock()
+    with patch(
+        "app.auditor.crawler.apinned_request",
+        _fake_pinned(exc=UnsafeOutboundURLError("URL resolves to disallowed IP: 169.254.169.254")),
+    ):
+        await crawler._make_ssrf_route_handler("example.com")(
+            route, _req("https://cdn.other.com/a.js")
+        )
+    route.abort.assert_awaited_once()
+    route.fulfill.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_route_handler_aborts_cross_host_rebinding_to_internal():
+    from app.utils.pinned_http import UnsafeOutboundURLError
+
+    route = AsyncMock()
+    with patch(
+        "app.auditor.crawler.apinned_request",
+        _fake_pinned(exc=UnsafeOutboundURLError("URL resolves to disallowed IP: 169.254.169.254")),
+    ):
+        await crawler._make_ssrf_route_handler("example.com")(
+            route, _req("https://rebind.evil.com/data", "fetch")
+        )
+    route.abort.assert_awaited_once()
+    route.fulfill.assert_not_awaited()
+    route.continue_.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_route_handler_default_handler_has_no_pinned_host():
+    """The module-level handler has no root host, so nothing is continued by name."""
+    route = AsyncMock()
+    with patch("app.auditor.crawler.apinned_request", _fake_pinned(exc=TimeoutError())):
+        await crawler._ssrf_route_handler(route, _req("https://example.com/a.js"))
+    route.continue_.assert_not_awaited()
+    route.abort.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_route_handler_aborts_heavy_resource_types():
+    """image/media/font/stylesheet are aborted before any network or DNS work."""
     for rtype in ("image", "media", "font", "stylesheet"):
         route = AsyncMock()
-        resolved = []
         with patch(
-            "app.auditor.crawler.resolve_and_validate_host",
-            side_effect=lambda h: resolved.append(h) or "1.2.3.4",
+            "app.auditor.crawler.apinned_request", _fake_pinned(exc=AssertionError("no fetch"))
         ):
-            await crawler._ssrf_route_handler(
-                route, SimpleNamespace(url="https://cdn.example.com/a", resource_type=rtype)
+            await crawler._make_ssrf_route_handler("example.com")(
+                route, _req("https://cdn.example.com/a", rtype)
             )
         route.abort.assert_awaited_once()
         route.continue_.assert_not_awaited()
-        assert resolved == [], f"{rtype} must be aborted WITHOUT a DNS lookup"
 
 
 def test_robots_blocks_disallowed_path():
@@ -514,6 +587,12 @@ async def test_playwright_render_launches_with_host_resolver_rules():
     assert "MAP example.com 1.2.3.4" in matching[0], (
         f"Expected MAP rule for example.com -> 1.2.3.4, got: {matching[0]}"
     )
+    # Chromium must not be able to resolve ANY other host (redirects it follows
+    # itself, IP literals, WebSockets bypass page.route), and the catch-all must
+    # come after the root-host MAP and must not exempt localhost.
+    rule = matching[0]
+    assert rule.index("MAP example.com 1.2.3.4") < rule.index("MAP * ~NOTFOUND")
+    assert "EXCLUDE" not in rule
 
 
 @pytest.mark.asyncio
@@ -629,7 +708,7 @@ async def test_playwright_route_handler_aborts_internal_host():
 
 @pytest.mark.asyncio
 async def test_playwright_route_handler_continues_safe_host():
-    """Route handler must call route.continue_() for subresource requests to safe hosts."""
+    """Route handler continues requests to the pinned root host (cross-host ones are fulfilled/aborted)."""
     from unittest.mock import AsyncMock, MagicMock
 
     captured_handler = []
@@ -687,7 +766,8 @@ async def test_playwright_route_handler_continues_safe_host():
 
         mock_route_safe = AsyncMock()
         mock_request_safe = MagicMock()
-        mock_request_safe.url = "https://cdn.example.com/style.css"
+        mock_request_safe.url = "https://example.com/app.js"
+        mock_request_safe.resource_type = "script"
         await handler(mock_route_safe, mock_request_safe)
 
     mock_route_safe.continue_.assert_called_once()

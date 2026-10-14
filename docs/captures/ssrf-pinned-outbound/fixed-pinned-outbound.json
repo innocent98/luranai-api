@@ -1,0 +1,111 @@
+{
+  "label": "fixed_pinned_outbound",
+  "results": [
+    {
+      "scenario": "crm_public_httpbin_post",
+      "path": "sync_lead_to_crm",
+      "url_host": "httpbin.org",
+      "rebind_simulated": false,
+      "log_status": "sent",
+      "log_error": null,
+      "job_raised": null,
+      "tcp_connects": [
+        "100.56.179.159"
+      ],
+      "connected_to_metadata_ip": false
+    },
+    {
+      "scenario": "crm_private_via_nipio",
+      "path": "sync_lead_to_crm",
+      "url_host": "169.254.169.254.nip.io",
+      "rebind_simulated": false,
+      "log_status": "failed",
+      "log_error": "blocked webhook host",
+      "job_raised": null,
+      "tcp_connects": [],
+      "connected_to_metadata_ip": false
+    },
+    {
+      "scenario": "crm_dns_rebinding_simulated",
+      "path": "sync_lead_to_crm",
+      "url_host": "httpbin.org",
+      "rebind_simulated": true,
+      "log_status": "sent",
+      "log_error": null,
+      "job_raised": null,
+      "tcp_connects": [
+        "100.56.179.159"
+      ],
+      "connected_to_metadata_ip": false
+    },
+    {
+      "scenario": "flow_webhook_public_httpbin_post",
+      "path": "flow_engine._exec_webhook",
+      "url_host": "httpbin.org",
+      "rebind_simulated": false,
+      "result": "continued",
+      "webhook_status_code": 200,
+      "webhook_error": null,
+      "tcp_connects": [
+        "100.56.179.159"
+      ],
+      "connected_to_metadata_ip": false
+    },
+    {
+      "scenario": "flow_webhook_private_via_nipio",
+      "path": "flow_engine._exec_webhook",
+      "url_host": "169.254.169.254.nip.io",
+      "rebind_simulated": false,
+      "result": "continued",
+      "webhook_status_code": null,
+      "webhook_error": null,
+      "tcp_connects": [],
+      "connected_to_metadata_ip": false
+    },
+    {
+      "scenario": "flow_webhook_dns_rebinding_simulated",
+      "path": "flow_engine._exec_webhook",
+      "url_host": "httpbin.org",
+      "rebind_simulated": true,
+      "result": "continued",
+      "webhook_status_code": 200,
+      "webhook_error": null,
+      "tcp_connects": [
+        "100.56.179.159"
+      ],
+      "connected_to_metadata_ip": false
+    },
+    {
+      "scenario": "scraper_public_example_com",
+      "path": "url_scraper.scrape_url",
+      "url_host": "example.com",
+      "ok": true,
+      "title": "Example Domain",
+      "url": "https://example.com/",
+      "tcp_connects": [
+        "104.20.23.154"
+      ],
+      "connected_to_metadata_ip": false
+    },
+    {
+      "scenario": "scraper_private_via_nipio",
+      "path": "url_scraper.scrape_url",
+      "url_host": "169.254.169.254.nip.io",
+      "ok": false,
+      "error": "Failed to scrape URL: URL resolves to disallowed IP: 169.254.169.254",
+      "tcp_connects": [],
+      "connected_to_metadata_ip": false
+    },
+    {
+      "scenario": "scraper_redirect_to_private_via_httpbin",
+      "path": "url_scraper.scrape_url",
+      "url_host": "httpbin.org",
+      "ok": false,
+      "error": "Failed to scrape URL: URL resolves to disallowed IP: 169.254.169.254",
+      "tcp_connects": [
+        "100.56.179.159"
+      ],
+      "connected_to_metadata_ip": false
+    }
+  ]
+}
