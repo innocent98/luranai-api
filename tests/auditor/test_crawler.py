@@ -1,9 +1,34 @@
+import ipaddress
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from app.auditor import crawler
+from app.utils import network_security
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_dns(monkeypatch):
+    """Keep this module off the real resolver.
+
+    crawl_site / fetch_robots gate every URL through the SSRF guard, which does a
+    live getaddrinfo. Tests that crawl example.com / x.com without patching it
+    passed only while DNS answered; on a resolver blip the seed was dropped as
+    "unresolvable", the injected renderer was never called, and the test failed
+    with "Expected mock to have been awaited". Resolve every hostname to a fixed
+    public IP instead; IP literals pass through so the private/loopback rejection
+    paths are still exercised for real.
+    """
+
+    def _fake_resolve_ips(hostname: str) -> set[str]:
+        try:
+            ipaddress.ip_address(hostname.strip("[]"))
+        except ValueError:
+            return {"93.184.216.34"}
+        return {hostname.strip("[]")}
+
+    monkeypatch.setattr(network_security, "_resolve_ips", _fake_resolve_ips)
 
 
 @pytest.mark.asyncio
