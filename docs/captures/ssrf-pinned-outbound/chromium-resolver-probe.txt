@@ -1,0 +1,4 @@
+/ok 200 final http://root.test:8099/ok hits [(8099, '/ok')]
+/r2ip ERR Page.goto: net::ERR_NAME_NOT_RESOLVED at http://root.test:80 final http://root.test:8099/ok hits [(8099, '/r2ip')]
+/r2name ERR Page.goto: net::ERR_NAME_NOT_RESOLVED at http://root.test:80 final chrome-error://chromewebdata/ hits [(8099, '/r2name')]
+ws ws-error hits []

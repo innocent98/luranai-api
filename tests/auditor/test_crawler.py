@@ -96,6 +96,40 @@ async def test_route_handler_aborts_unfulfillable_cross_host_requests(rtype, met
 
 
 @pytest.mark.asyncio
+async def test_route_handler_follows_cross_host_redirects_itself():
+    """A fulfilled 3xx would hand Chromium a Location to resolve by name; the
+    pinned fetch must follow (re-validated per hop) and fulfil the final body."""
+    import httpx
+
+    calls = []
+    resp = httpx.Response(200, content=b"final")
+    route = AsyncMock()
+    with patch("app.auditor.crawler.apinned_request", _fake_pinned(resp, calls=calls)):
+        await crawler._make_ssrf_route_handler("example.com")(
+            route, _req("https://cdn.other.com/a.js")
+        )
+    assert calls[0][2]["max_redirects"] >= 1
+    assert route.fulfill.await_args.kwargs["status"] == 200
+    assert "location" not in {k.lower() for k in route.fulfill.await_args.kwargs["headers"]}
+
+
+@pytest.mark.asyncio
+async def test_route_handler_aborts_when_redirect_hop_is_internal():
+    from app.utils.pinned_http import UnsafeOutboundURLError
+
+    route = AsyncMock()
+    with patch(
+        "app.auditor.crawler.apinned_request",
+        _fake_pinned(exc=UnsafeOutboundURLError("URL resolves to disallowed IP: 169.254.169.254")),
+    ):
+        await crawler._make_ssrf_route_handler("example.com")(
+            route, _req("https://cdn.other.com/a.js")
+        )
+    route.abort.assert_awaited_once()
+    route.fulfill.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_route_handler_aborts_cross_host_rebinding_to_internal():
     from app.utils.pinned_http import UnsafeOutboundURLError
 
@@ -528,6 +562,12 @@ async def test_playwright_render_launches_with_host_resolver_rules():
     assert "MAP example.com 1.2.3.4" in matching[0], (
         f"Expected MAP rule for example.com -> 1.2.3.4, got: {matching[0]}"
     )
+    # Chromium must not be able to resolve ANY other host (redirects it follows
+    # itself, IP literals, WebSockets bypass page.route), and the catch-all must
+    # come after the root-host MAP and must not exempt localhost.
+    rule = matching[0]
+    assert rule.index("MAP example.com 1.2.3.4") < rule.index("MAP * ~NOTFOUND")
+    assert "EXCLUDE" not in rule
 
 
 @pytest.mark.asyncio

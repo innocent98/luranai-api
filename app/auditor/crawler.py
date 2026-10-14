@@ -22,7 +22,7 @@ from app.auditor.discovery import guard_url
 from app.utils.network_security import resolve_and_validate_host
 from app.utils.pinned_http import (
     OutboundResolutionError,
-    ResponseTooLargeError,
+    ResponseRejectedError,
     UnsafeOutboundURLError,
     apinned_request,
     build_pinned_request,
@@ -176,7 +176,10 @@ def _make_ssrf_route_handler(pinned_host: str | None = None):
     - image/media/font/stylesheet: aborted (perf, reduced surface).
     - non-http(s) schemes: aborted.
     - the pinned root host (``--host-resolver-rules`` maps it to the validated IP):
-      ``continue_()``.
+      ``continue_()``. Redirects Chromium follows after that, IP-literal URLs and
+      WebSockets are NOT seen by ``page.route``; they are stopped by the
+      ``MAP * ~NOTFOUND`` resolver rule instead, so Chromium cannot resolve any
+      other host by name.
     - any other host: GET script/xhr/fetch requests are fetched here through the
       pinned helper (resolve once, validate, connect to the validated IP) and
       handed to the page with ``route.fulfill()``, capped at 5 MB; every other
@@ -214,11 +217,14 @@ def _make_ssrf_route_handler(pinned_host: str | None = None):
                 timeout=10.0,
                 total_timeout=15.0,
                 max_bytes=_SUBRESOURCE_MAX_BYTES,
+                # Follow redirects here (re-validated and re-pinned per hop) rather
+                # than passing a Location back for Chromium to resolve itself.
+                max_redirects=3,
             )
         except (
             UnsafeOutboundURLError,
             OutboundResolutionError,
-            ResponseTooLargeError,
+            ResponseRejectedError,
             TimeoutError,
             httpx.HTTPError,
         ) as exc:
@@ -292,7 +298,11 @@ async def _browser_render_session(host: str, safe_ip: str):
     sites. The DNS-rebinding pin (--host-resolver-rules) is set once for the
     crawl's single host — safe because crawl_site is same-host only.
     """
-    resolver_rule = f"MAP {host} {safe_ip}, EXCLUDE localhost"
+    # Chromium may resolve ONLY the root host (to the validated IP). Everything else,
+    # including redirects Chromium follows itself after a continue_(), IP-literal
+    # URLs and WebSockets (none of which page.route sees), fails to resolve.
+    # Cross-host subresources keep working through the route handler's pinned fetch.
+    resolver_rule = f"MAP {host} {safe_ip}, MAP * ~NOTFOUND"
     # Hold a slot for the whole crawl, not per page: the browser lives for the
     # crawl's duration, so that is the span that costs 394 MiB. `async with`
     # returns the permit on every exit path — a crawl that raises mid-page must
