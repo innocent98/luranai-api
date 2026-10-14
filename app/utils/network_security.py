@@ -86,11 +86,41 @@ def _reject_unsafe_hostname(hostname: str) -> None:
         raise ValueError("Localhost/internal hostnames are not allowed")
 
 
+def resolve_and_validate_hosts(
+    hostname: str, allowed_hostnames: set[str] | None = None
+) -> list[str]:
+    """Resolve ``hostname`` ONCE, validate every answer, and return ALL of them,
+    IPv4 first (then IPv6), each group sorted for determinism.
+
+    IPv4 is preferred because most deployments have no IPv6 route; callers that
+    can retry (``app.utils.pinned_http``) walk the list on connect failure, which
+    restores the happy-eyeballs behaviour connect-by-name used to give.
+    Allowlisted hostnames are returned unchanged as a single-item list.
+
+    Raises:
+        HostResolutionError: the name did not resolve (transient/typo; a ValueError).
+        ValueError: internal hostname, or ANY answer is a disallowed IP.
+    """
+    hostname = hostname.strip().lower()
+    allowed_hostnames = allowed_hostnames or set()
+    if hostname in allowed_hostnames:
+        return [hostname]
+
+    _reject_unsafe_hostname(hostname)
+
+    resolved_ips = _resolve_ips(hostname)
+    for ip_str in resolved_ips:
+        if _is_disallowed_ip(ip_str):
+            raise ValueError(f"URL resolves to disallowed IP: {ip_str}")
+
+    return sorted(resolved_ips, key=lambda ip: (ipaddress.ip_address(ip).version, ip))
+
+
 def resolve_and_validate_host(hostname: str, allowed_hostnames: set[str] | None = None) -> str:
     """
     Resolve a hostname ONCE, validate every resolved IP, and return a single
-    safe IP to connect to. Callers must connect to the returned value (not the
-    hostname) to prevent DNS-rebinding between check and request.
+    safe IP to connect to (IPv4 preferred). Callers must connect to the returned
+    value (not the hostname) to prevent DNS-rebinding between check and request.
 
     Connection contract: connect to the returned IP while still sending the
     ORIGINAL hostname as the Host header and TLS SNI / cert-verification name
@@ -104,20 +134,7 @@ def resolve_and_validate_host(hostname: str, allowed_hostnames: set[str] | None 
         ValueError: if the hostname is internal, unresolvable, or resolves to
         any disallowed IP range.
     """
-    hostname = hostname.strip().lower()
-    allowed_hostnames = allowed_hostnames or set()
-    if hostname in allowed_hostnames:
-        return hostname
-
-    _reject_unsafe_hostname(hostname)
-
-    resolved_ips = _resolve_ips(hostname)
-    for ip_str in resolved_ips:
-        if _is_disallowed_ip(ip_str):
-            raise ValueError(f"URL resolves to disallowed IP: {ip_str}")
-
-    # All resolved IPs are safe; pin a single deterministic address.
-    return sorted(resolved_ips)[0]
+    return resolve_and_validate_hosts(hostname, allowed_hostnames)[0]
 
 
 def ensure_safe_outbound_url(url: str, allowed_hostnames: set[str] | None = None) -> None:

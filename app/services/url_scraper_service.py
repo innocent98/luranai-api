@@ -33,6 +33,8 @@ class URLScraperService:
                 "GET",
                 url,
                 timeout=self.TIMEOUT,
+                total_timeout=self.TIMEOUT * 2,
+                max_bytes=self.MAX_CONTENT_LENGTH,
                 max_redirects=self.MAX_REDIRECTS,
             )
 

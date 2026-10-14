@@ -649,6 +649,7 @@ class FlowEngine:
                 headers=headers,
                 json=body if method in {"POST", "PUT"} else None,
                 timeout=timeout,
+                total_timeout=max(float(timeout), 1.0) * 2,
             )
 
             # Save response

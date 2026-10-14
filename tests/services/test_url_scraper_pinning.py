@@ -106,3 +106,12 @@ async def test_too_many_redirects_fails(monkeypatch, sent):
     with pytest.raises(HTTPException):
         await URLScraperService().scrape_url("https://a.example.com/start")
     assert len(sent["requests"]) == URLScraperService.MAX_REDIRECTS + 1
+
+
+async def test_https_to_http_redirect_downgrade_refused(monkeypatch, sent):
+    _dns(monkeypatch, {"a.example.com": [PUBLIC], "b.example.com": [PUBLIC_B]})
+    sent["responder"] = lambda req: httpx.Response(301, headers={"location": "http://b.example.com/"})
+    with pytest.raises(HTTPException) as exc:
+        await URLScraperService().scrape_url("https://a.example.com/")
+    assert "downgrade" in exc.value.detail
+    assert len(sent["requests"]) == 1

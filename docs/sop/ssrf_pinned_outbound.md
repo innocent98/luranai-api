@@ -19,11 +19,11 @@ One shared helper, `app.utils.pinned_http`, now performs every outbound HTTP req
 | Function | Purpose |
 |---|---|
 | `build_pinned_request(method, url, safe_ip, ...)` | Pure builder: URL host replaced by the IP, `Host` header = original host(+port, never userinfo), `sni_hostname` extension = original host so TLS SNI and certificate verification use the hostname. Allowlisted hosts connect by name. |
-| `resolve_pinned_ip(url, allowed_hostnames)` | Scheme/host check + `resolve_and_validate_host`; raises `UnsafeOutboundURLError` (a `ValueError`). |
-| `apinned_request(...)` / `pinned_request(...)` | Async / sync request. DNS runs in a thread in the async variant (no event-loop blocking). `max_redirects=0` by default (3xx is returned, not followed). |
+| `resolve_pinned_ips(url, allowed_hostnames)` | Scheme/host check + `resolve_and_validate_hosts` (all validated answers, **IPv4 first**). Policy block -> `UnsafeOutboundURLError` (a `ValueError`); DNS failure -> `OutboundResolutionError` (not a block, retryable). |
+| `apinned_request(...)` / `pinned_request(...)` | Async / sync request. DNS runs in a thread in the async variant (no event-loop blocking). On `ConnectError`/`ConnectTimeout` the next validated IP is tried (max 4), restoring the happy-eyeballs behaviour of connect-by-name on hosts with no IPv6 route. Body is streamed with a byte cap (`max_bytes`, default 1 MB; scraper 10 MB -> `ResponseTooLargeError`) and an overall deadline (`total_timeout`, default 30 s). A fresh client/connection is used per hop, so a redirect to another hostname never reuses a pooled connection. `max_redirects=0` by default (3xx is returned, not followed). |
 | `original_url(response)` | `response.url` carries the IP; this returns the URL the caller asked for. |
 
-Redirects: callers that opt in (`max_redirects=N`, used by the URL scraper) get a full re-validate + re-pin on every hop; `Authorization`/`Cookie` are dropped on cross-origin hops; 303 (and 301/302 on POST) downgrade to GET without a body; scheme must stay http(s); exceeding N raises `UnsafeOutboundURLError("Too many redirects")`.
+Redirects: callers that opt in (`max_redirects=N`, used by the URL scraper) get a full re-validate + re-pin on every hop; `Authorization`/`Cookie` are dropped on cross-origin hops; 303 (and 301/302 on POST) downgrade to GET without a body; scheme must stay http(s); exceeding N raises `UnsafeOutboundURLError("Too many redirects")`; an https->http downgrade is refused.
 
 `network_security._is_disallowed_ip` was hardened: any non-globally-routable address is rejected (adds CGNAT `100.64/10`), and IPv6 forms embedding IPv4 (IPv4-mapped, NAT64 `64:ff9b::/96`, 6to4, Teredo) are judged by the IPv4 they carry.
 
@@ -37,9 +37,24 @@ Alternatives rejected: a custom httpx transport that overrides name resolution (
 | `app/services/flow_engine.py` `_exec_webhook` | `apinned_request`; "Unsafe webhook URL: ..." error string unchanged; unsupported-method check moved before the call. |
 | `app/services/url_scraper_service.py` | Manual redirect loop replaced by `apinned_request(max_redirects=5)`; returned `url` is the original/final URL, not the IP. |
 | `app/services/automation_service.py` `_build_pinned_request` | Delegates to `build_pinned_request` (behaviour identical; also strips caller-supplied `Host`). |
-| `app/auditor/crawler.py`, `discovery.py` | Three copy-pasted pin blocks replaced by `build_pinned_request`. Playwright (`--host-resolver-rules`) and curl_cffi (`resolve=`) paths are unchanged: different engines, already pinned. |
+| `app/auditor/crawler.py`, `discovery.py` | Three copy-pasted pin blocks replaced by `build_pinned_request`. curl_cffi (`resolve=`) path unchanged (already pinned). |
+| `app/auditor/crawler.py` headless browser route handler | See "Auditor browser" below. |
 
 Audited and out of scope (fixed vendor endpoints, no tenant/user URL): Paystack, FCM, ElevenLabs, SMTP, Cloudinary. `source_url` on knowledge documents is stored, never fetched. No migrations, no config, no API shape changes.
+
+## Auditor browser (Chromium)
+
+Only the root host is pinned in Chromium (`--host-resolver-rules`). The old route handler validated other hosts with our DNS and then `route.continue_()`d, so Chromium re-resolved them by name: a scanned page's JS could `fetch()` a rebinding host that flipped to an internal address. The handler now guarantees Chromium never connects by name to an unpinned host:
+
+| Request | Handling |
+|---|---|
+| image / media / font / stylesheet | aborted (unchanged) |
+| non-http(s) | aborted (unchanged) |
+| pinned root host | `continue_()` (pinned by Chromium) |
+| other host, GET `script` / `xhr` / `fetch` | fetched through `apinned_request` (validated, pinned, 5 MB cap, 15 s) and returned via `route.fulfill()` |
+| other host, anything else (documents/iframes, WebSocket, POST, ...) | aborted |
+
+Tradeoffs: third-party scripts and cross-host API calls (CDN bundles, `api.` subdomains) still load, so SPA hydration and audit quality are kept; cross-host iframes, WebSockets and POSTs are dropped, as is a main-frame navigation that leaves the root host mid-crawl (the crawl is same-host only). Fulfilled responses are fully buffered (the 5 MB cap bounds memory) and each costs one DNS lookup plus a fresh connection. The old per-crawl host-validation cache is gone, since nothing is continued by name any more.
 
 ## Verification
 
@@ -49,11 +64,11 @@ Audited and out of scope (fixed vendor endpoints, no tenant/user URL): Paystack,
 
 ## Operate / roll back
 
-Pure code change; revert the PR. No data or config to unwind. Behaviour deltas to know: Slack webhooks to non-public hosts now fail with `blocked webhook host`; CGNAT and embedded-IPv4 IPv6 targets are now blocked everywhere `resolve_and_validate_host` is used (including the auditor).
+Pure code change; revert the PR. No data or config to unwind. Behaviour deltas to know: A DNS outage on a CRM/Slack host is now retried by ARQ (previously recorded as a permanent block). Slack webhooks to non-public hosts now fail with `blocked webhook host`; CGNAT and embedded-IPv4 IPv6 targets are now blocked everywhere `resolve_and_validate_host` is used (including the auditor).
 
 ## Follow-ups
 
 - `ensure_safe_outbound_url` is now unused by app code; keep or delete in a separate cleanup.
+- `AutomationService._attempt_request` builds its own pinned request and still reads the full body (no byte cap); move it onto the helper.
 - `AutomationService.execute` still calls the blocking `resolve_and_validate_host` directly inside an async path (it already pinned; wrap in `asyncio.to_thread`).
 - `sync_lead_to_crm` still does not re-check `lead.tenant_id == log.tenant_id` (from the 2026-06-30 record).
-- Response bodies are fully buffered; a streaming size cap would harden the scraper against huge responses.

@@ -16,13 +16,14 @@ when they do, every hop is re-validated and re-pinned from scratch.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urljoin
 
 import httpx
 
-from app.utils.network_security import resolve_and_validate_host
+from app.utils.network_security import HostResolutionError, resolve_and_validate_hosts
 
 REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
@@ -47,6 +48,20 @@ class UnsafeOutboundURLError(ValueError):
     """
 
 
+class OutboundResolutionError(Exception):
+    """The hostname did not resolve. Transient (DNS outage) or a typo - NOT a
+    policy block, so retry-capable callers should treat it like a network error."""
+
+
+class ResponseTooLargeError(ValueError):
+    """The response body exceeded the caller's byte cap."""
+
+
+DEFAULT_MAX_BYTES = 1024 * 1024
+DEFAULT_TOTAL_TIMEOUT = 30.0
+_MAX_CONNECT_ATTEMPTS = 4
+
+
 @dataclass(frozen=True)
 class _Target:
     scheme: str
@@ -69,19 +84,26 @@ def _parse_target(url: str) -> _Target:
     return _Target(scheme=scheme, host=host, port=port)
 
 
-def resolve_pinned_ip(url: str, allowed_hostnames: set[str] | None = None) -> str:
-    """Validate ``url`` and return the single IP to connect to (or the hostname
-    unchanged when it is explicitly allowlisted).
+def resolve_pinned_ips(url: str, allowed_hostnames: set[str] | None = None) -> list[str]:
+    """Validate ``url`` and return every validated IP to try, IPv4 first (or the
+    hostname unchanged when it is explicitly allowlisted).
 
     Blocking (``socket.getaddrinfo``): async callers use ``apinned_request``.
+    Raises ``UnsafeOutboundURLError`` for policy blocks and
+    ``OutboundResolutionError`` when DNS itself failed.
     """
     target = _parse_target(url)
     try:
-        return resolve_and_validate_host(target.host, allowed_hostnames)
-    except UnsafeOutboundURLError:
-        raise
+        return resolve_and_validate_hosts(target.host, allowed_hostnames)
+    except HostResolutionError as exc:
+        raise OutboundResolutionError(str(exc)) from exc
     except ValueError as exc:
         raise UnsafeOutboundURLError(str(exc)) from exc
+
+
+def resolve_pinned_ip(url: str, allowed_hostnames: set[str] | None = None) -> str:
+    """First (preferred) validated IP for ``url``; see ``resolve_pinned_ips``."""
+    return resolve_pinned_ips(url, allowed_hostnames)[0]
 
 
 def build_pinned_request(
@@ -95,7 +117,7 @@ def build_pinned_request(
 ) -> httpx.Request:
     """Build a request that connects to ``safe_ip`` but presents ``url``'s host.
 
-    Pure (no DNS). ``safe_ip`` is the value returned by ``resolve_and_validate_host``;
+    Pure (no DNS). ``safe_ip`` is a value returned by ``resolve_and_validate_host(s)``;
     when it equals the URL hostname (allowlisted host) the request connects by name.
     """
     target = _parse_target(url)
@@ -149,6 +171,8 @@ def _next_hop(hop: _Hop, response: httpx.Response, max_redirects: int) -> _Hop |
     if hop.followed >= max_redirects:
         raise UnsafeOutboundURLError("Too many redirects")
     next_url = urljoin(hop.url, location)
+    if hop._origin[0] == "https" and _parse_target(next_url).scheme == "http":
+        raise UnsafeOutboundURLError("Redirect downgrades https to http")
 
     method, body = hop.method, hop.json
     if response.status_code == 303 and method != "HEAD":
@@ -166,6 +190,68 @@ def _next_hop(hop: _Hop, response: httpx.Response, max_redirects: int) -> _Hop |
     return nxt
 
 
+def _buffered(response: httpx.Response, body: bytes) -> httpx.Response:
+    """Rebuild a streamed response around its (already decoded) capped body."""
+    headers = [
+        (k, v)
+        for k, v in response.headers.multi_items()
+        if k.lower() not in {"content-encoding", "content-length", "transfer-encoding"}
+    ]
+    try:
+        request: httpx.Request | None = response.request
+    except RuntimeError:  # response produced without a request (test doubles)
+        request = None
+    return httpx.Response(
+        status_code=response.status_code,
+        headers=headers,
+        content=body,
+        request=request,
+        extensions=dict(response.extensions),
+    )
+
+
+def _declared_too_large(response: httpx.Response, max_bytes: int) -> bool:
+    declared = response.headers.get("content-length", "")
+    return declared.isdigit() and int(declared) > max_bytes
+
+
+async def _aread_capped(response: httpx.Response, max_bytes: int) -> httpx.Response:
+    try:
+        if _declared_too_large(response, max_bytes):
+            raise ResponseTooLargeError(f"Response larger than {max_bytes} bytes")
+        chunks: list[bytes] = []
+        size = 0
+        async for chunk in response.aiter_bytes():
+            size += len(chunk)
+            if size > max_bytes:
+                raise ResponseTooLargeError(f"Response larger than {max_bytes} bytes")
+            chunks.append(chunk)
+        return _buffered(response, b"".join(chunks))
+    finally:
+        await response.aclose()
+
+
+def _read_capped(response: httpx.Response, max_bytes: int, deadline: float) -> httpx.Response:
+    try:
+        if _declared_too_large(response, max_bytes):
+            raise ResponseTooLargeError(f"Response larger than {max_bytes} bytes")
+        chunks: list[bytes] = []
+        size = 0
+        for chunk in response.iter_bytes():
+            size += len(chunk)
+            if size > max_bytes:
+                raise ResponseTooLargeError(f"Response larger than {max_bytes} bytes")
+            if time.monotonic() > deadline:
+                raise TimeoutError("Outbound request exceeded its total deadline")
+            chunks.append(chunk)
+        return _buffered(response, b"".join(chunks))
+    finally:
+        response.close()
+
+
+_CONNECT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout)
+
+
 async def apinned_request(
     method: str,
     url: str,
@@ -174,30 +260,61 @@ async def apinned_request(
     params: dict[str, Any] | None = None,
     json: Any = None,
     timeout: float | httpx.Timeout = 10.0,
+    total_timeout: float | None = DEFAULT_TOTAL_TIMEOUT,
+    max_bytes: int = DEFAULT_MAX_BYTES,
     max_redirects: int = 0,
     allowed_hostnames: set[str] | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> httpx.Response:
-    """Async pinned request. Raises ``UnsafeOutboundURLError`` for blocked targets;
-    httpx transport errors propagate unchanged. ``transport`` is a test seam."""
-    hop: _Hop | None = _Hop(method.upper(), url, dict(headers or {}), params, json)
-    async with httpx.AsyncClient(
-        timeout=timeout, follow_redirects=False, transport=transport
-    ) as client:
+    """Async pinned request.
+
+    Raises ``UnsafeOutboundURLError`` (policy block), ``OutboundResolutionError``
+    (DNS failure, retryable), ``ResponseTooLargeError`` (body over ``max_bytes``),
+    ``TimeoutError`` (over ``total_timeout`` across DNS, hops and body); httpx
+    transport errors propagate unchanged. On connect failure the next validated
+    IP is tried. A fresh connection is used per hop, so a redirect to another
+    hostname never reuses a pooled connection (and its TLS identity).
+    ``transport`` is a test seam.
+    """
+
+    async def run() -> httpx.Response:
+        hop: _Hop | None = _Hop(method.upper(), url, dict(headers or {}), params, json)
         while hop is not None:
             # getaddrinfo blocks: keep it off the event loop.
-            safe_ip = await asyncio.to_thread(resolve_pinned_ip, hop.url, allowed_hostnames)
-            request = build_pinned_request(
-                hop.method, hop.url, safe_ip, headers=hop.headers, params=hop.params, json=hop.json
-            )
-            response = await client.send(request)
+            ips = await asyncio.to_thread(resolve_pinned_ips, hop.url, allowed_hostnames)
+            response: httpx.Response | None = None
+            async with httpx.AsyncClient(
+                timeout=timeout, follow_redirects=False, transport=transport
+            ) as client:
+                for attempt, ip in enumerate(ips[:_MAX_CONNECT_ATTEMPTS]):
+                    request = build_pinned_request(
+                        hop.method,
+                        hop.url,
+                        ip,
+                        headers=hop.headers,
+                        params=hop.params,
+                        json=hop.json,
+                    )
+                    try:
+                        streamed = await client.send(request, stream=True)
+                    except _CONNECT_ERRORS:
+                        if attempt + 1 >= min(len(ips), _MAX_CONNECT_ATTEMPTS):
+                            raise
+                        continue
+                    response = await _aread_capped(streamed, max_bytes)
+                    break
+            assert response is not None
             nxt = _next_hop(hop, response, max_redirects)
             if nxt is None:
                 response.extensions[_ORIGINAL_URL_KEY] = hop.url
                 return response
-            await response.aclose()
             hop = nxt
-    raise AssertionError("unreachable")  # pragma: no cover
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    if total_timeout is None:
+        return await run()
+    async with asyncio.timeout(total_timeout):
+        return await run()
 
 
 def pinned_request(
@@ -208,23 +325,37 @@ def pinned_request(
     params: dict[str, Any] | None = None,
     json: Any = None,
     timeout: float | httpx.Timeout = 10.0,
+    total_timeout: float | None = DEFAULT_TOTAL_TIMEOUT,
+    max_bytes: int = DEFAULT_MAX_BYTES,
     max_redirects: int = 0,
     allowed_hostnames: set[str] | None = None,
     transport: httpx.BaseTransport | None = None,
 ) -> httpx.Response:
     """Sync twin of ``apinned_request`` for synchronous workers."""
+    deadline = time.monotonic() + (total_timeout if total_timeout is not None else 1e9)
     hop: _Hop | None = _Hop(method.upper(), url, dict(headers or {}), params, json)
-    with httpx.Client(timeout=timeout, follow_redirects=False, transport=transport) as client:
-        while hop is not None:
-            safe_ip = resolve_pinned_ip(hop.url, allowed_hostnames)
-            request = build_pinned_request(
-                hop.method, hop.url, safe_ip, headers=hop.headers, params=hop.params, json=hop.json
-            )
-            response = client.send(request)
-            nxt = _next_hop(hop, response, max_redirects)
-            if nxt is None:
-                response.extensions[_ORIGINAL_URL_KEY] = hop.url
-                return response
-            response.close()
-            hop = nxt
+    while hop is not None:
+        ips = resolve_pinned_ips(hop.url, allowed_hostnames)
+        response: httpx.Response | None = None
+        with httpx.Client(timeout=timeout, follow_redirects=False, transport=transport) as client:
+            for attempt, ip in enumerate(ips[:_MAX_CONNECT_ATTEMPTS]):
+                request = build_pinned_request(
+                    hop.method, hop.url, ip, headers=hop.headers, params=hop.params, json=hop.json
+                )
+                try:
+                    streamed = client.send(request, stream=True)
+                except _CONNECT_ERRORS:
+                    if attempt + 1 >= min(len(ips), _MAX_CONNECT_ATTEMPTS):
+                        raise
+                    continue
+                response = _read_capped(streamed, max_bytes, deadline)
+                break
+        assert response is not None
+        nxt = _next_hop(hop, response, max_redirects)
+        if nxt is None:
+            response.extensions[_ORIGINAL_URL_KEY] = hop.url
+            return response
+        if time.monotonic() > deadline:
+            raise TimeoutError("Outbound request exceeded its total deadline")
+        hop = nxt
     raise AssertionError("unreachable")  # pragma: no cover

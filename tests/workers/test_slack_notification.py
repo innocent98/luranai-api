@@ -2,6 +2,7 @@
 
 import json
 
+import httpx
 import pytest
 from uuid import uuid4
 from unittest.mock import patch, MagicMock
@@ -79,9 +80,7 @@ def _seed(db, *, url="https://hooks.slack.com/services/T/B/x"):
 
 
 def _resp(code):
-    r = MagicMock()
-    r.status_code = code
-    return r
+    return httpx.Response(code)
 
 
 async def test_slack_2xx_marks_sent(db_session, monkeypatch):

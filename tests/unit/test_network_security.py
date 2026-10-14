@@ -141,3 +141,10 @@ def test_resolve_rejects_embedded_and_non_global_addresses(ip: str):
 def test_resolve_accepts_public_addresses(ip: str):
     with patch("app.utils.network_security.socket.getaddrinfo", return_value=_addrinfo(ip)):
         assert resolve_and_validate_host("ok.example.com") == ip
+
+
+def test_resolve_prefers_ipv4_on_dual_stack():
+    # "2600:..." string-sorts before "52.x"; the pinned IP must still be IPv4.
+    answers = _addrinfo("2600:1f18::1") + _addrinfo("52.1.2.3")
+    with patch("app.utils.network_security.socket.getaddrinfo", return_value=answers):
+        assert resolve_and_validate_host("dual.example.com") == "52.1.2.3"

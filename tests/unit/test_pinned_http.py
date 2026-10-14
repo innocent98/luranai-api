@@ -12,6 +12,8 @@ import httpx
 import pytest
 
 from app.utils.pinned_http import (
+    OutboundResolutionError,
+    ResponseTooLargeError,
     UnsafeOutboundURLError,
     apinned_request,
     build_pinned_request,
@@ -183,14 +185,15 @@ def test_blocked_targets_never_connect(dns, url):
     assert rec.requests == []
 
 
-def test_unresolvable_host_fails_closed(monkeypatch):
+def test_unresolvable_host_is_retryable_not_a_policy_block(monkeypatch):
     def boom(*a, **k):
         raise socket.gaierror("nope")
 
     monkeypatch.setattr("app.utils.network_security.socket.getaddrinfo", boom)
     rec = Recorder()
-    with pytest.raises(UnsafeOutboundURLError):
+    with pytest.raises(OutboundResolutionError) as exc:
         pinned_request("GET", "https://nx.example.com/", transport=rec.sync)
+    assert not isinstance(exc.value, UnsafeOutboundURLError)
     assert rec.requests == []
 
 
@@ -405,3 +408,183 @@ def test_tls_cert_verified_against_hostname_when_connecting_to_ip(tmp_path):
     with client_for() as c, pytest.raises(httpx.ConnectError):
         c.send(bad)
     listener.close()
+
+
+# --- dual-stack preference and connect fallback -----------------------------
+
+V6 = "2600:1f18::1"  # string-sorts before "52.x" - the old sorted()[0] picked this
+
+
+def _dual(monkeypatch, name="dual.example.com"):
+    def fake(host, *a, **k):
+        return _ai(V6) + _ai("52.1.2.3")
+
+    monkeypatch.setattr("app.utils.network_security.socket.getaddrinfo", fake)
+
+
+def test_dual_stack_prefers_ipv4(monkeypatch):
+    _dual(monkeypatch)
+    rec = Recorder()
+    pinned_request("GET", "https://dual.example.com/", transport=rec.sync)
+    assert rec.hosts == ["52.1.2.3"]
+
+
+def test_connect_failure_falls_back_to_next_validated_ip(monkeypatch):
+    _dual(monkeypatch)
+
+    def responder(req):
+        if req.url.host == "52.1.2.3":
+            raise httpx.ConnectError("unreachable", request=req)
+        return httpx.Response(200, text="v6 ok")
+
+    rec = Recorder(responder)
+    resp = pinned_request("GET", "https://dual.example.com/", transport=rec.sync)
+    assert resp.text == "v6 ok"
+    assert rec.hosts == ["52.1.2.3", V6]
+    assert rec.requests[1].headers["host"] == "dual.example.com"
+
+
+async def test_async_connect_failure_falls_back(monkeypatch):
+    _dual(monkeypatch)
+
+    def responder(req):
+        if req.url.host == "52.1.2.3":
+            raise httpx.ConnectError("unreachable", request=req)
+        return httpx.Response(200, text="ok")
+
+    rec = Recorder(responder)
+    resp = await apinned_request(
+        "GET", "https://dual.example.com/", transport=httpx.MockTransport(rec.handler)
+    )
+    assert resp.text == "ok"
+    assert rec.hosts == ["52.1.2.3", V6]
+
+
+def test_all_ips_failing_raises_last_connect_error(monkeypatch):
+    _dual(monkeypatch)
+
+    def responder(req):
+        raise httpx.ConnectError("unreachable", request=req)
+
+    rec = Recorder(responder)
+    with pytest.raises(httpx.ConnectError):
+        pinned_request("GET", "https://dual.example.com/", transport=rec.sync)
+    assert len(rec.requests) == 2
+
+
+def test_non_connect_errors_do_not_fall_back(monkeypatch):
+    _dual(monkeypatch)
+
+    def responder(req):
+        raise httpx.ReadTimeout("slow", request=req)
+
+    rec = Recorder(responder)
+    with pytest.raises(httpx.ReadTimeout):
+        pinned_request("GET", "https://dual.example.com/", transport=rec.sync)
+    assert len(rec.requests) == 1
+
+
+# --- body cap and deadline --------------------------------------------------
+
+
+def test_body_over_cap_is_rejected(dns):
+    dns.table["big.example.com"] = (PUBLIC, PUBLIC)
+    rec = Recorder(lambda req: httpx.Response(200, content=b"x" * 2048))
+    with pytest.raises(ResponseTooLargeError):
+        pinned_request("GET", "https://big.example.com/", max_bytes=1024, transport=rec.sync)
+
+
+def test_declared_content_length_over_cap_is_rejected_early(dns):
+    dns.table["big.example.com"] = (PUBLIC, PUBLIC)
+    rec = Recorder(
+        lambda req: httpx.Response(200, headers={"content-length": "999999"}, content=b"x")
+    )
+    with pytest.raises(ResponseTooLargeError):
+        pinned_request("GET", "https://big.example.com/", max_bytes=1024, transport=rec.sync)
+
+
+async def test_async_body_over_cap_is_rejected(dns):
+    dns.table["big.example.com"] = (PUBLIC, PUBLIC)
+    rec = Recorder(lambda req: httpx.Response(200, content=b"x" * 2048))
+    with pytest.raises(ResponseTooLargeError):
+        await apinned_request(
+            "GET",
+            "https://big.example.com/",
+            max_bytes=1024,
+            transport=httpx.MockTransport(rec.handler),
+        )
+
+
+def test_body_under_cap_is_readable_and_decoded(dns):
+    dns.table["ok.example.com"] = (PUBLIC, PUBLIC)
+    rec = Recorder(lambda req: httpx.Response(200, json={"a": 1}))
+    resp = pinned_request("GET", "https://ok.example.com/", max_bytes=1024, transport=rec.sync)
+    assert resp.json() == {"a": 1}
+    assert resp.status_code == 200
+
+
+async def test_total_deadline_is_enforced(dns):
+    import asyncio
+
+    dns.table["slow.example.com"] = (PUBLIC, PUBLIC)
+
+    class Slow(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            await asyncio.sleep(5)
+            return httpx.Response(200)
+
+    with pytest.raises(TimeoutError):
+        await apinned_request(
+            "GET", "https://slow.example.com/", total_timeout=0.05, transport=Slow()
+        )
+
+
+# --- redirect hardening -----------------------------------------------------
+
+
+def test_https_to_http_downgrade_is_refused(dns):
+    dns.table["a.example.com"] = (PUBLIC, PUBLIC)
+    dns.table["b.example.com"] = (PUBLIC_B, PUBLIC_B)
+    rec = Recorder(_redirector("http://b.example.com/"))
+    with pytest.raises(UnsafeOutboundURLError, match="downgrade"):
+        pinned_request("GET", "https://a.example.com/", max_redirects=3, transport=rec.sync)
+    assert rec.hosts == [PUBLIC]
+
+
+def test_http_to_https_upgrade_is_allowed(dns):
+    dns.table["a.example.com"] = (PUBLIC, PUBLIC)
+
+    def responder(req):
+        if req.url.scheme == "http":
+            return httpx.Response(301, headers={"location": "https://a.example.com/"})
+        return httpx.Response(200)
+
+    rec = Recorder(responder)
+    assert (
+        pinned_request(
+            "GET", "http://a.example.com/", max_redirects=3, transport=rec.sync
+        ).status_code
+        == 200
+    )
+
+
+def test_fresh_client_per_hop(dns, monkeypatch):
+    dns.table["a.example.com"] = (PUBLIC, PUBLIC)
+    dns.table["b.example.com"] = (PUBLIC_B, PUBLIC_B)
+    made = []
+    real_init = httpx.Client.__init__
+
+    def counting_init(self, *a, **k):
+        made.append(1)
+        real_init(self, *a, **k)
+
+    monkeypatch.setattr(httpx.Client, "__init__", counting_init)
+
+    def responder(req):
+        if req.url.host == PUBLIC:
+            return httpx.Response(302, headers={"location": "https://b.example.com/"})
+        return httpx.Response(200)
+
+    rec = Recorder(responder)
+    pinned_request("GET", "https://a.example.com/", max_redirects=3, transport=rec.sync)
+    assert len(made) == 2  # no pooled connection (TLS identity) carried across hostnames

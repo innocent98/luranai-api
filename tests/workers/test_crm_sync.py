@@ -71,13 +71,9 @@ def _seed(db, *, url="https://hooks.zapier.com/hooks/catch/1/x"):
 
 
 def _resp(code, json_body=None):
-    r = MagicMock()
-    r.status_code = code
     if json_body is None:
-        r.json.side_effect = ValueError("no json")
-    else:
-        r.json.return_value = json_body
-    return r
+        return httpx.Response(code)
+    return httpx.Response(code, json=json_body)
 
 
 async def test_crm_2xx_marks_sent_and_posts_lead_payload(db_session, monkeypatch):
@@ -314,9 +310,29 @@ async def test_crm_redirect_is_not_followed(db_session, monkeypatch):
     import app.workers.sales_notifications as notif_mod
 
     monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
-    redirect = _resp(302)
-    redirect.headers = {"location": "http://169.254.169.254/latest/"}
+    redirect = httpx.Response(302, headers={"location": "http://169.254.169.254/latest/"})
     with patch("httpx.AsyncClient.send", return_value=redirect) as send:
         await sync_lead_to_crm({}, str(log_id))
     assert send.call_count == 1
     assert db_session.get(NotificationLog, log_id).status == NotifStatus.FAILED
+
+
+async def test_crm_dns_outage_is_retried_not_marked_blocked(db_session, monkeypatch):
+    import socket
+
+    log_id, _ = _seed(db_session, url="https://flaky-dns.example.com/hook")
+    import app.workers.sales_notifications as notif_mod
+
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+
+    def boom(*a, **k):
+        raise socket.gaierror("temporary failure")
+
+    monkeypatch.setattr("app.utils.network_security.socket.getaddrinfo", boom)
+    with patch("httpx.AsyncClient.send") as send:
+        with pytest.raises(Exception):
+            await sync_lead_to_crm({}, str(log_id))  # raises so ARQ retries
+    send.assert_not_called()
+    log = db_session.get(NotificationLog, log_id)
+    assert log.status == NotifStatus.FAILED
+    assert log.error != "blocked webhook host"
