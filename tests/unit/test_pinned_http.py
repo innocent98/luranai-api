@@ -13,7 +13,9 @@ import pytest
 
 from app.utils.pinned_http import (
     OutboundResolutionError,
+    ResponseRejectedError,
     ResponseTooLargeError,
+    UnsupportedContentEncodingError,
     UnsafeOutboundURLError,
     apinned_request,
     build_pinned_request,
@@ -588,3 +590,214 @@ def test_fresh_client_per_hop(dns, monkeypatch):
     rec = Recorder(responder)
     pinned_request("GET", "https://a.example.com/", max_redirects=3, transport=rec.sync)
     assert len(made) == 2  # no pooled connection (TLS identity) carried across hostnames
+
+
+# --- resource bounds: caps and deadlines are enforced where the bytes/time are spent ---
+
+
+class _Chunks(httpx.SyncByteStream, httpx.AsyncByteStream):
+    """Raw (still content-encoded) wire chunks; counts how many were pulled."""
+
+    def __init__(self, chunks, fail_on_read=False):
+        self.chunks, self.pulled, self.fail_on_read = chunks, 0, fail_on_read
+
+    def __iter__(self):
+        for c in self.chunks:
+            assert not self.fail_on_read, "body of a followed redirect must not be read"
+            self.pulled += 1
+            yield c
+
+    async def __aiter__(self):
+        for c in self.chunks:
+            assert not self.fail_on_read, "body of a followed redirect must not be read"
+            self.pulled += 1
+            yield c
+
+
+def _gz(data: bytes) -> bytes:
+    import gzip
+
+    return gzip.compress(data)
+
+
+def _resp(stream, headers=None, status=200):
+    return httpx.Response(status, headers=headers or {}, stream=stream)
+
+
+def test_gzip_bomb_is_capped_on_decoded_bytes_with_bounded_memory(dns):
+    import tracemalloc
+
+    dns.table["z.example.com"] = (PUBLIC, PUBLIC)
+    bomb = _gz(b"\0" * 50_000_000)  # ~50 KB on the wire, 50 MB decoded
+    assert len(bomb) < 1_000_000
+    rec = Recorder(lambda req: _resp(_Chunks([bomb]), {"content-encoding": "gzip"}))
+    tracemalloc.start()
+    try:
+        with pytest.raises(ResponseTooLargeError):
+            pinned_request("GET", "https://z.example.com/", max_bytes=1_000_000, transport=rec.sync)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert peak < 8_000_000, f"decoder materialised {peak} bytes before the cap fired"
+
+
+async def test_async_gzip_bomb_is_capped(dns):
+    dns.table["z.example.com"] = (PUBLIC, PUBLIC)
+    bomb = _gz(b"\0" * 20_000_000)
+    rec = Recorder(lambda req: _resp(_Chunks([bomb]), {"content-encoding": "gzip"}))
+    with pytest.raises(ResponseTooLargeError):
+        await apinned_request(
+            "GET",
+            "https://z.example.com/",
+            max_bytes=1_000_000,
+            transport=httpx.MockTransport(rec.handler),
+        )
+
+
+def test_gzip_body_under_cap_is_decoded(dns):
+    dns.table["z.example.com"] = (PUBLIC, PUBLIC)
+    body = _gz(b'{"ok": true}')
+    rec = Recorder(lambda req: _resp(_Chunks([body[:5], body[5:]]), {"content-encoding": "gzip"}))
+    resp = pinned_request("GET", "https://z.example.com/", transport=rec.sync)
+    assert resp.json() == {"ok": True}
+    assert "content-encoding" not in resp.headers
+
+
+def test_deflate_zlib_and_raw_are_decoded(dns):
+    import zlib
+
+    dns.table["z.example.com"] = (PUBLIC, PUBLIC)
+    for payload in (zlib.compress(b"hello"), zlib.compressobj(wbits=-15).compress(b"hello")):
+        c = zlib.compressobj(wbits=-15)
+        raw = c.compress(b"hello") + c.flush()
+        data = payload if payload[:1] == b"x" else raw
+        rec = Recorder(lambda req, d=data: _resp(_Chunks([d]), {"content-encoding": "deflate"}))
+        assert pinned_request("GET", "https://z.example.com/", transport=rec.sync).text == "hello"
+
+
+def test_unsupported_content_encoding_is_rejected(dns):
+    dns.table["z.example.com"] = (PUBLIC, PUBLIC)
+    rec = Recorder(lambda req: _resp(_Chunks([b"xx"]), {"content-encoding": "br"}))
+    with pytest.raises(UnsupportedContentEncodingError):
+        pinned_request("GET", "https://z.example.com/", transport=rec.sync)
+    assert issubclass(UnsupportedContentEncodingError, ResponseRejectedError)
+    assert issubclass(ResponseTooLargeError, ResponseRejectedError)
+
+
+def test_corrupt_gzip_is_rejected(dns):
+    dns.table["z.example.com"] = (PUBLIC, PUBLIC)
+    rec = Recorder(lambda req: _resp(_Chunks([b"not gzip at all"]), {"content-encoding": "gzip"}))
+    with pytest.raises(ResponseRejectedError):
+        pinned_request("GET", "https://z.example.com/", transport=rec.sync)
+
+
+def test_request_only_advertises_encodings_we_can_bound(dns):
+    dns.table["z.example.com"] = (PUBLIC, PUBLIC)
+    rec = Recorder()
+    pinned_request("GET", "https://z.example.com/", transport=rec.sync)
+    assert rec.requests[0].headers["accept-encoding"] == "gzip, deflate"
+
+
+def test_identity_body_stops_streaming_once_cap_exceeded(dns):
+    dns.table["z.example.com"] = (PUBLIC, PUBLIC)
+    stream = _Chunks([b"x" * 1024] * 10_000)
+    rec = Recorder(lambda req: _resp(stream))
+    with pytest.raises(ResponseTooLargeError):
+        pinned_request("GET", "https://z.example.com/", max_bytes=4096, transport=rec.sync)
+    assert stream.pulled <= 5  # aborted while streaming, not after a full read
+
+
+def test_followed_redirect_body_is_never_read(dns):
+    dns.table["a.example.com"] = (PUBLIC, PUBLIC)
+
+    def responder(req):
+        if req.url.path != "/next":
+            return _resp(
+                _Chunks([b"x" * 10_000_000], fail_on_read=True), {"location": "/next"}, 302
+            )
+        return httpx.Response(200, text="done")
+
+    rec = Recorder(responder)
+    assert (
+        pinned_request("GET", "https://a.example.com/", max_redirects=2, transport=rec.sync).text
+        == "done"
+    )
+
+
+async def test_async_followed_redirect_body_is_never_read(dns):
+    dns.table["a.example.com"] = (PUBLIC, PUBLIC)
+
+    def responder(req):
+        if req.url.path != "/next":
+            return _resp(
+                _Chunks([b"x" * 10_000_000], fail_on_read=True), {"location": "/next"}, 302
+            )
+        return httpx.Response(200, text="done")
+
+    rec = Recorder(responder)
+    resp = await apinned_request(
+        "GET", "https://a.example.com/", max_redirects=2, transport=httpx.MockTransport(rec.handler)
+    )
+    assert resp.text == "done"
+
+
+def test_unfollowed_redirect_body_is_still_capped(dns):
+    dns.table["a.example.com"] = (PUBLIC, PUBLIC)
+    rec = Recorder(lambda req: _resp(_Chunks([b"x" * 4096] * 100), {"location": "/n"}, 302))
+    with pytest.raises(ResponseTooLargeError):
+        pinned_request("GET", "https://a.example.com/", max_bytes=1024, transport=rec.sync)
+
+
+def test_sync_total_deadline_spans_hops_and_ips_and_is_not_reset(dns):
+    import time
+
+    dns.table["a.example.com"] = (PUBLIC, PUBLIC)
+
+    def responder(req):
+        time.sleep(0.06)
+        return httpx.Response(302, headers={"location": "/again"})
+
+    rec = Recorder(responder)
+    t0 = time.monotonic()
+    with pytest.raises(TimeoutError):
+        pinned_request(
+            "GET", "https://a.example.com/", max_redirects=50, total_timeout=0.2, transport=rec.sync
+        )
+    assert time.monotonic() - t0 < 1.0
+
+
+async def test_async_total_deadline_spans_hops(dns):
+    import asyncio
+    import time
+
+    dns.table["a.example.com"] = (PUBLIC, PUBLIC)
+
+    class Slow(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            await asyncio.sleep(0.06)
+            return httpx.Response(302, headers={"location": "/again"})
+
+    t0 = time.monotonic()
+    with pytest.raises(TimeoutError):
+        await apinned_request(
+            "GET", "https://a.example.com/", max_redirects=50, total_timeout=0.2, transport=Slow()
+        )
+    assert time.monotonic() - t0 < 1.0
+
+
+def test_sync_deadline_bounds_fallback_ips(monkeypatch):
+    import time
+
+    monkeypatch.setattr(
+        "app.utils.network_security.socket.getaddrinfo",
+        lambda *a, **k: _ai("52.1.1.1") + _ai("52.1.1.2") + _ai("52.1.1.3") + _ai("52.1.1.4"),
+    )
+
+    def responder(req):
+        time.sleep(0.08)
+        raise httpx.ConnectTimeout("slow", request=req)
+
+    rec = Recorder(responder)
+    with pytest.raises((TimeoutError, httpx.ConnectTimeout)):
+        pinned_request("GET", "https://many.example.com/", total_timeout=0.15, transport=rec.sync)
+    assert len(rec.requests) < 4  # stopped by the shared deadline, not 4 x per-IP timeout

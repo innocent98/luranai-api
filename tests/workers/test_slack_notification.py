@@ -220,3 +220,16 @@ async def test_slack_internal_target_blocked_no_send_no_retry(db_session, monkey
     log = db_session.get(NotificationLog, log_id)
     assert log.status == NotifStatus.FAILED
     assert log.error == "blocked webhook host"
+
+
+async def test_slack_oversized_response_fails_permanently_without_retry(db_session, monkeypatch):
+    log_id = _seed(db_session)
+    import app.workers.sales_notifications as notif_mod
+    from app.utils.pinned_http import ResponseTooLargeError
+
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+    with patch("httpx.AsyncClient.send", side_effect=ResponseTooLargeError("big")):
+        await send_slack_notification({}, str(log_id))  # must NOT raise
+    log = db_session.get(NotificationLog, log_id)
+    assert log.status == NotifStatus.FAILED
+    assert log.error == "response rejected"

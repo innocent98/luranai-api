@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import zlib
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urljoin
@@ -53,11 +54,21 @@ class OutboundResolutionError(Exception):
     policy block, so retry-capable callers should treat it like a network error."""
 
 
-class ResponseTooLargeError(ValueError):
-    """The response body exceeded the caller's byte cap."""
+class ResponseRejectedError(ValueError):
+    """The response body was refused (too large, or undecodable within bounds).
+    A property of the remote response, so retrying will not help."""
+
+
+class ResponseTooLargeError(ResponseRejectedError):
+    """The response body exceeded the caller's byte cap (wire or decoded)."""
+
+
+class UnsupportedContentEncodingError(ResponseRejectedError):
+    """Compressed with an encoding we cannot decode within the byte cap."""
 
 
 DEFAULT_MAX_BYTES = 1024 * 1024
+_ACCEPT_ENCODING = "gzip, deflate"  # what _BodyBuilder can decode under a cap
 DEFAULT_TOTAL_TIMEOUT = 30.0
 _MAX_CONNECT_ATTEMPTS = 4
 
@@ -129,9 +140,11 @@ def build_pinned_request(
     pinned_url = httpx.URL(url).copy_with(host=safe_ip) if pin else httpx.URL(url)
 
     request_headers = dict(headers or {})
-    for name in [k for k in request_headers if k.lower() == "host"]:
+    for name in [k for k in request_headers if k.lower() in {"host", "accept-encoding"}]:
         del request_headers[name]
     request_headers["Host"] = host_header
+    # Only advertise encodings the capped body reader can decode within bounds.
+    request_headers["Accept-Encoding"] = _ACCEPT_ENCODING
 
     request = httpx.Request(
         method=method,
@@ -190,6 +203,67 @@ def _next_hop(hop: _Hop, response: httpx.Response, max_redirects: int) -> _Hop |
     return nxt
 
 
+class _BodyBuilder:
+    """Accumulates a response body under a byte cap.
+
+    The cap is applied to BOTH the wire bytes and the decoded bytes. Decoding is
+    done here (httpx's own decoder would expand a whole network chunk at once, so
+    a gzip bomb could allocate far past the cap before we noticed): zlib is driven
+    with ``max_length`` so at most ``remaining + 1`` decoded bytes ever exist.
+    """
+
+    def __init__(self, response: httpx.Response, max_bytes: int) -> None:
+        self.max_bytes = max_bytes
+        self.wire = 0
+        self.decoded = 0
+        self.chunks: list[bytes] = []
+        encoding = response.headers.get("content-encoding", "identity").strip().lower()
+        if encoding in {"", "identity"}:
+            self._mode = "identity"
+        elif encoding in {"gzip", "x-gzip", "deflate"}:
+            self._mode = encoding
+        else:
+            raise UnsupportedContentEncodingError(f"Unsupported content-encoding: {encoding[:32]}")
+        self._d = zlib.decompressobj(zlib.MAX_WBITS | 32) if self._mode != "identity" else None
+        self._first = True
+        _check_declared(response, max_bytes)
+
+    def _too_large(self) -> ResponseTooLargeError:
+        return ResponseTooLargeError(f"Response larger than {self.max_bytes} bytes")
+
+    def _inflate(self, data: bytes) -> bytes:
+        assert self._d is not None
+        room = self.max_bytes - self.decoded
+        try:
+            out = self._d.decompress(data, room + 1)
+            while self._d.unconsumed_tail and len(out) <= room:
+                out += self._d.decompress(self._d.unconsumed_tail, room + 1 - len(out))
+        except zlib.error as exc:
+            if self._mode == "deflate" and self._first:
+                # Some servers send raw deflate (no zlib header).
+                self._d = zlib.decompressobj(-zlib.MAX_WBITS)
+                self._first = False
+                return self._inflate(data)
+            raise UnsupportedContentEncodingError("Invalid compressed response body") from exc
+        self._first = False
+        return out
+
+    def feed(self, wire_chunk: bytes) -> None:
+        self.wire += len(wire_chunk)
+        if self.wire > self.max_bytes:
+            raise self._too_large()
+        data = wire_chunk if self._d is None else self._inflate(wire_chunk)
+        self.decoded += len(data)
+        if self.decoded > self.max_bytes:
+            raise self._too_large()
+        self.chunks.append(data)
+
+    def finish(self, response: httpx.Response) -> httpx.Response:
+        if self._d is not None and not self._d.eof and self.wire:
+            raise UnsupportedContentEncodingError("Truncated compressed response body")
+        return _buffered(response, b"".join(self.chunks))
+
+
 def _buffered(response: httpx.Response, body: bytes) -> httpx.Response:
     """Rebuild a streamed response around its (already decoded) capped body."""
     headers = [
@@ -210,46 +284,82 @@ def _buffered(response: httpx.Response, body: bytes) -> httpx.Response:
     )
 
 
-def _declared_too_large(response: httpx.Response, max_bytes: int) -> bool:
+def _check_declared(response: httpx.Response, max_bytes: int) -> None:
     declared = response.headers.get("content-length", "")
-    return declared.isdigit() and int(declared) > max_bytes
+    if declared.isdigit() and int(declared) > max_bytes:
+        raise ResponseTooLargeError(f"Response larger than {max_bytes} bytes")
 
 
-async def _aread_capped(response: httpx.Response, max_bytes: int) -> httpx.Response:
+def _already_buffered(response: httpx.Response) -> bytes | None:
+    """Body of a response that was fully read before we got it (test doubles)."""
     try:
-        if _declared_too_large(response, max_bytes):
-            raise ResponseTooLargeError(f"Response larger than {max_bytes} bytes")
-        chunks: list[bytes] = []
-        size = 0
-        async for chunk in response.aiter_bytes():
-            size += len(chunk)
-            if size > max_bytes:
+        return response.content
+    except httpx.ResponseNotRead:
+        return None
+
+
+async def aread_capped(response: httpx.Response, max_bytes: int) -> httpx.Response:
+    """Read a streamed response under the byte cap (wire and decoded), closing it."""
+    try:
+        _check_declared(response, max_bytes)
+        buffered = _already_buffered(response)
+        if buffered is not None:
+            if len(buffered) > max_bytes:
                 raise ResponseTooLargeError(f"Response larger than {max_bytes} bytes")
-            chunks.append(chunk)
-        return _buffered(response, b"".join(chunks))
+            return _buffered(response, buffered)
+        builder = _BodyBuilder(response, max_bytes)
+        async for chunk in response.aiter_raw():
+            builder.feed(chunk)
+        return builder.finish(response)
     finally:
         await response.aclose()
 
 
 def _read_capped(response: httpx.Response, max_bytes: int, deadline: float) -> httpx.Response:
     try:
-        if _declared_too_large(response, max_bytes):
-            raise ResponseTooLargeError(f"Response larger than {max_bytes} bytes")
-        chunks: list[bytes] = []
-        size = 0
-        for chunk in response.iter_bytes():
-            size += len(chunk)
-            if size > max_bytes:
+        _check_declared(response, max_bytes)
+        buffered = _already_buffered(response)
+        if buffered is not None:
+            if len(buffered) > max_bytes:
                 raise ResponseTooLargeError(f"Response larger than {max_bytes} bytes")
+            return _buffered(response, buffered)
+        builder = _BodyBuilder(response, max_bytes)
+        for chunk in response.iter_raw():
+            builder.feed(chunk)
             if time.monotonic() > deadline:
                 raise TimeoutError("Outbound request exceeded its total deadline")
-            chunks.append(chunk)
-        return _buffered(response, b"".join(chunks))
+        return builder.finish(response)
     finally:
         response.close()
 
 
 _CONNECT_ERRORS = (httpx.ConnectError, httpx.ConnectTimeout)
+
+
+def _remaining_timeout(timeout: float | httpx.Timeout, deadline: float) -> float | httpx.Timeout:
+    """Per-operation timeout clipped to what is left of the total deadline."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("Outbound request exceeded its total deadline")
+    if isinstance(timeout, httpx.Timeout):
+        return httpx.Timeout(
+            connect=None if timeout.connect is None else min(timeout.connect, remaining),
+            read=None if timeout.read is None else min(timeout.read, remaining),
+            write=None if timeout.write is None else min(timeout.write, remaining),
+            pool=None if timeout.pool is None else min(timeout.pool, remaining),
+        )
+    return min(float(timeout), remaining)
+
+
+def _request_for(hop: _Hop, ip: str) -> httpx.Request:
+    return build_pinned_request(
+        hop.method,
+        hop.url,
+        ip,
+        headers=hop.headers,
+        params=hop.params,
+        json=hop.json,
+    )
 
 
 async def apinned_request(
@@ -269,47 +379,47 @@ async def apinned_request(
     """Async pinned request.
 
     Raises ``UnsafeOutboundURLError`` (policy block), ``OutboundResolutionError``
-    (DNS failure, retryable), ``ResponseTooLargeError`` (body over ``max_bytes``),
-    ``TimeoutError`` (over ``total_timeout`` across DNS, hops and body); httpx
+    (DNS failure, retryable), ``ResponseRejectedError`` (body over ``max_bytes`` on
+    the wire or decoded, or undecodable), ``TimeoutError`` (over ``total_timeout``,
+    which covers DNS, every fallback IP, every redirect hop and the body); httpx
     transport errors propagate unchanged. On connect failure the next validated
     IP is tried. A fresh connection is used per hop, so a redirect to another
-    hostname never reuses a pooled connection (and its TLS identity).
-    ``transport`` is a test seam.
+    hostname never reuses a pooled connection (and its TLS identity). The body of
+    a redirect that is followed is never read. ``transport`` is a test seam.
     """
 
     async def run() -> httpx.Response:
-        hop: _Hop | None = _Hop(method.upper(), url, dict(headers or {}), params, json)
-        while hop is not None:
+        hop = _Hop(method.upper(), url, dict(headers or {}), params, json)
+        while True:
             # getaddrinfo blocks: keep it off the event loop.
-            ips = await asyncio.to_thread(resolve_pinned_ips, hop.url, allowed_hostnames)
-            response: httpx.Response | None = None
+            ips = (await asyncio.to_thread(resolve_pinned_ips, hop.url, allowed_hostnames))[
+                :_MAX_CONNECT_ATTEMPTS
+            ]
             async with httpx.AsyncClient(
                 timeout=timeout, follow_redirects=False, transport=transport
             ) as client:
-                for attempt, ip in enumerate(ips[:_MAX_CONNECT_ATTEMPTS]):
-                    request = build_pinned_request(
-                        hop.method,
-                        hop.url,
-                        ip,
-                        headers=hop.headers,
-                        params=hop.params,
-                        json=hop.json,
-                    )
+                streamed: httpx.Response | None = None
+                for attempt, ip in enumerate(ips):
                     try:
-                        streamed = await client.send(request, stream=True)
+                        streamed = await client.send(_request_for(hop, ip), stream=True)
+                        break
                     except _CONNECT_ERRORS:
-                        if attempt + 1 >= min(len(ips), _MAX_CONNECT_ATTEMPTS):
+                        if attempt + 1 >= len(ips):
                             raise
-                        continue
-                    response = await _aread_capped(streamed, max_bytes)
-                    break
-            assert response is not None
-            nxt = _next_hop(hop, response, max_redirects)
+                assert streamed is not None
+                try:
+                    nxt = _next_hop(hop, streamed, max_redirects)
+                except BaseException:
+                    await streamed.aclose()
+                    raise
+                if nxt is not None:
+                    await streamed.aclose()  # redirect body is discarded unread
+                else:
+                    response = await aread_capped(streamed, max_bytes)
             if nxt is None:
                 response.extensions[_ORIGINAL_URL_KEY] = hop.url
                 return response
             hop = nxt
-        raise AssertionError("unreachable")  # pragma: no cover
 
     if total_timeout is None:
         return await run()
@@ -331,31 +441,39 @@ def pinned_request(
     allowed_hostnames: set[str] | None = None,
     transport: httpx.BaseTransport | None = None,
 ) -> httpx.Response:
-    """Sync twin of ``apinned_request`` for synchronous workers."""
+    """Sync twin of ``apinned_request``. The total deadline is checked before every
+    DNS lookup, IP attempt and hop, per-operation timeouts are clipped to what is
+    left of it, and body reads check it between chunks."""
     deadline = time.monotonic() + (total_timeout if total_timeout is not None else 1e9)
-    hop: _Hop | None = _Hop(method.upper(), url, dict(headers or {}), params, json)
-    while hop is not None:
-        ips = resolve_pinned_ips(hop.url, allowed_hostnames)
-        response: httpx.Response | None = None
-        with httpx.Client(timeout=timeout, follow_redirects=False, transport=transport) as client:
-            for attempt, ip in enumerate(ips[:_MAX_CONNECT_ATTEMPTS]):
-                request = build_pinned_request(
-                    hop.method, hop.url, ip, headers=hop.headers, params=hop.params, json=hop.json
-                )
+    hop = _Hop(method.upper(), url, dict(headers or {}), params, json)
+    while True:
+        _remaining_timeout(timeout, deadline)  # raises if already out of time
+        ips = resolve_pinned_ips(hop.url, allowed_hostnames)[:_MAX_CONNECT_ATTEMPTS]
+        with httpx.Client(
+            timeout=_remaining_timeout(timeout, deadline),
+            follow_redirects=False,
+            transport=transport,
+        ) as client:
+            streamed: httpx.Response | None = None
+            for attempt, ip in enumerate(ips):
                 try:
-                    streamed = client.send(request, stream=True)
+                    streamed = client.send(_request_for(hop, ip), stream=True)
+                    break
                 except _CONNECT_ERRORS:
-                    if attempt + 1 >= min(len(ips), _MAX_CONNECT_ATTEMPTS):
+                    if attempt + 1 >= len(ips):
                         raise
-                    continue
+                    _remaining_timeout(timeout, deadline)
+            assert streamed is not None
+            try:
+                nxt = _next_hop(hop, streamed, max_redirects)
+            except BaseException:
+                streamed.close()
+                raise
+            if nxt is not None:
+                streamed.close()  # redirect body is discarded unread
+            else:
                 response = _read_capped(streamed, max_bytes, deadline)
-                break
-        assert response is not None
-        nxt = _next_hop(hop, response, max_redirects)
         if nxt is None:
             response.extensions[_ORIGINAL_URL_KEY] = hop.url
             return response
-        if time.monotonic() > deadline:
-            raise TimeoutError("Outbound request exceeded its total deadline")
         hop = nxt
-    raise AssertionError("unreachable")  # pragma: no cover

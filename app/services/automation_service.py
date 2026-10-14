@@ -31,7 +31,11 @@ from app.db.models.tenant import TenantCapabilities
 from app.schemas.automation import TenantActionCreate, TenantActionUpdate
 from app.services.action_success import SuccessConditionError, evaluate_success_condition
 from app.utils.network_security import resolve_and_validate_host
-from app.utils.pinned_http import build_pinned_request
+from app.utils.pinned_http import aread_capped, build_pinned_request
+
+
+# Upper bound on a tenant action's buffered response body (wire and decoded).
+ACTION_RESPONSE_MAX_BYTES = 5 * 1024 * 1024
 
 
 @dataclass
@@ -673,7 +677,9 @@ class AutomationService:
             async with httpx.AsyncClient(
                 timeout=action.timeout_seconds, follow_redirects=False
             ) as client:
-                response = await client.send(request)
+                response = await aread_capped(
+                    await client.send(request, stream=True), ACTION_RESPONSE_MAX_BYTES
+                )
             latency_ms = int((perf_counter() - started) * 1000)
             return _AttemptOutcome(
                 kind="response",

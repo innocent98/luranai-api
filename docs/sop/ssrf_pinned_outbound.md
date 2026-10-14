@@ -42,19 +42,32 @@ Alternatives rejected: a custom httpx transport that overrides name resolution (
 
 Audited and out of scope (fixed vendor endpoints, no tenant/user URL): Paystack, FCM, ElevenLabs, SMTP, Cloudinary. `source_url` on knowledge documents is stored, never fetched. No migrations, no config, no API shape changes.
 
+## Resource bounds (where caps and deadlines are applied)
+
+| Bound | Where it is enforced |
+|---|---|
+| Byte cap | While streaming, on wire bytes AND decoded bytes. zlib is driven with `max_length`, so a gzip/deflate bomb never materialises more than the cap (tested with tracemalloc). `Content-Length` over the cap is refused before reading. Only `gzip, deflate` are advertised; any other `Content-Encoding` is rejected (`UnsupportedContentEncodingError`). |
+| Redirect bodies | A redirect that is followed is closed unread; one that is returned to the caller is read under the cap. |
+| Total deadline | Async: one `asyncio.timeout` around DNS, every fallback IP, every hop and the body (not reset per hop or IP). Sync: checked before each lookup/attempt/hop and between body chunks, with per-operation timeouts clipped to the time left (max IPs x per-IP timeout can no longer exceed it). |
+| Rejected bodies | `ResponseRejectedError` (too large / undecodable) is permanent: CRM and Slack mark the log FAILED (`response rejected`) without an ARQ retry. |
+| Tenant actions | `AutomationService._attempt_request` now reads through `aread_capped` (5 MB). |
+
 ## Auditor browser (Chromium)
 
-Only the root host is pinned in Chromium (`--host-resolver-rules`). The old route handler validated other hosts with our DNS and then `route.continue_()`d, so Chromium re-resolved them by name: a scanned page's JS could `fetch()` a rebinding host that flipped to an internal address. The handler now guarantees Chromium never connects by name to an unpinned host:
+The old route handler validated other hosts with our DNS and then `route.continue_()`d, so Chromium re-resolved them by name: a scanned page's JS could `fetch()` a rebinding host that flipped to an internal address. Two layers now guarantee Chromium never connects by name to an unpinned host:
+
+1. **Resolver rule** `--host-resolver-rules=MAP <root> <validated-ip>, MAP * ~NOTFOUND`. Redirects Chromium follows itself after `continue_()`, IP-literal URLs and WebSockets are NOT visible to `page.route`, so they are stopped here: Chromium cannot resolve anything but the root host. (`EXCLUDE localhost` was dropped: it would have left `localhost` resolvable.) Probe in `docs/captures/ssrf-pinned-outbound/chromium-resolver-probe.txt`: root 302 to an IP literal or to another name fetches nothing, and a WebSocket to a loopback IP fails.
+2. **Route handler** for what the resolver rule cannot express (cross-host subresources must still load):
 
 | Request | Handling |
 |---|---|
 | image / media / font / stylesheet | aborted (unchanged) |
 | non-http(s) | aborted (unchanged) |
 | pinned root host | `continue_()` (pinned by Chromium) |
-| other host, GET `script` / `xhr` / `fetch` | fetched through `apinned_request` (validated, pinned, 5 MB cap, 15 s) and returned via `route.fulfill()` |
+| other host, GET `script` / `xhr` / `fetch` | fetched through `apinned_request` (validated, pinned, redirects followed and re-validated per hop inside the helper so no `Location` is handed back to Chromium, 5 MB cap, 15 s) and returned via `route.fulfill()` |
 | other host, anything else (documents/iframes, WebSocket, POST, ...) | aborted |
 
-Tradeoffs: third-party scripts and cross-host API calls (CDN bundles, `api.` subdomains) still load, so SPA hydration and audit quality are kept; cross-host iframes, WebSockets and POSTs are dropped, as is a main-frame navigation that leaves the root host mid-crawl (the crawl is same-host only). Fulfilled responses are fully buffered (the 5 MB cap bounds memory) and each costs one DNS lookup plus a fresh connection. The old per-crawl host-validation cache is gone, since nothing is continued by name any more.
+Tradeoffs: third-party scripts and cross-host API calls (CDN bundles, `api.` subdomains) still load, so SPA hydration and audit quality are kept; cross-host iframes, WebSockets and POSTs are dropped, as is a main-frame navigation that leaves the root host mid-crawl (the crawl is same-host only). Live run of the real crawler on a multi-host public site (`chromium-live-audit.json`): python.org rendered (200, 53 KB) with 5 cross-host scripts fulfilled via the pinned fetch; en.wikipedia.org rendered (200, 413 KB). Fulfilled responses are fully buffered (the 5 MB cap bounds memory) and each costs one DNS lookup plus a fresh connection. The old per-crawl host-validation cache is gone, since nothing is continued by name any more.
 
 ## Verification
 
@@ -69,6 +82,5 @@ Pure code change; revert the PR. No data or config to unwind. Behaviour deltas t
 ## Follow-ups
 
 - `ensure_safe_outbound_url` is now unused by app code; keep or delete in a separate cleanup.
-- `AutomationService._attempt_request` builds its own pinned request and still reads the full body (no byte cap); move it onto the helper.
 - `AutomationService.execute` still calls the blocking `resolve_and_validate_host` directly inside an async path (it already pinned; wrap in `asyncio.to_thread`).
 - `sync_lead_to_crm` still does not re-check `lead.tenant_id == log.tenant_id` (from the 2026-06-30 record).

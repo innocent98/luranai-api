@@ -336,3 +336,16 @@ async def test_crm_dns_outage_is_retried_not_marked_blocked(db_session, monkeypa
     log = db_session.get(NotificationLog, log_id)
     assert log.status == NotifStatus.FAILED
     assert log.error != "blocked webhook host"
+
+
+async def test_crm_oversized_response_fails_permanently_without_retry(db_session, monkeypatch):
+    log_id, _ = _seed(db_session)
+    import app.workers.sales_notifications as notif_mod
+    from app.utils.pinned_http import ResponseTooLargeError
+
+    monkeypatch.setattr(notif_mod, "SessionLocal", lambda: _NoCloseSession(db_session))
+    with patch("httpx.AsyncClient.send", side_effect=ResponseTooLargeError("big")):
+        await sync_lead_to_crm({}, str(log_id))  # must NOT raise (ARQ would retry)
+    log = db_session.get(NotificationLog, log_id)
+    assert log.status == NotifStatus.FAILED
+    assert log.error == "response rejected"
