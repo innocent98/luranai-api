@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from typing import Any, cast
 from uuid import UUID
 
-import httpx
 from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -17,7 +16,7 @@ from app.services.rag_service import RAGService
 from app.services.automation_service import AutomationService
 from app.schemas.knowledge import KnowledgeChunkResponse
 from app.utils.datetime import utcnow_naive
-from app.utils.network_security import ensure_safe_outbound_url
+from app.utils.pinned_http import UnsafeOutboundURLError, apinned_request
 
 
 class FlowEngine:
@@ -640,48 +639,44 @@ class FlowEngine:
         headers = self._interpolate_dict(headers, execution.collected_data)
         body = self._interpolate_dict(body, execution.collected_data)
 
+        if method not in {"GET", "POST", "PUT", "DELETE"}:
+            return self._error_result(f"Unsupported HTTP method: {method}")
+
         try:
-            ensure_safe_outbound_url(url)
-        except ValueError as e:
+            response = await apinned_request(
+                method,
+                url,
+                headers=headers,
+                json=body if method in {"POST", "PUT"} else None,
+                timeout=timeout,
+            )
+
+            # Save response
+            response_data = None
+            if response.text:
+                try:
+                    response_data = response.json()
+                except ValueError:
+                    response_data = response.text
+
+            webhook_result = {
+                "status_code": response.status_code,
+                "success": 200 <= response.status_code < 300,
+                "data": response_data,
+            }
+            self._set_collected_value(execution, save_to, webhook_result)
+            self.db.flush()
+
+            # Advance to next node
+            next_node_id = self._get_next_node(node, execution)
+            execution.current_node_id = next_node_id
+            self.db.commit()
+
+            # Continue execution
+            return await self.execute_node(execution, None)
+
+        except UnsafeOutboundURLError as e:
             return self._error_result(f"Unsafe webhook URL: {str(e)}")
-
-        try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                if method == "GET":
-                    response = await client.get(url, headers=headers)
-                elif method == "POST":
-                    response = await client.post(url, headers=headers, json=body)
-                elif method == "PUT":
-                    response = await client.put(url, headers=headers, json=body)
-                elif method == "DELETE":
-                    response = await client.delete(url, headers=headers)
-                else:
-                    return self._error_result(f"Unsupported HTTP method: {method}")
-
-                # Save response
-                response_data = None
-                if response.text:
-                    try:
-                        response_data = response.json()
-                    except ValueError:
-                        response_data = response.text
-
-                webhook_result = {
-                    "status_code": response.status_code,
-                    "success": 200 <= response.status_code < 300,
-                    "data": response_data,
-                }
-                self._set_collected_value(execution, save_to, webhook_result)
-                self.db.flush()
-
-                # Advance to next node
-                next_node_id = self._get_next_node(node, execution)
-                execution.current_node_id = next_node_id
-                self.db.commit()
-
-                # Continue execution
-                return await self.execute_node(execution, None)
-
         except Exception as e:
             logger.error(f"Webhook call failed: {e}", exc_info=True)
             # Save error

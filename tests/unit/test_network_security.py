@@ -115,3 +115,29 @@ def test_disallowed_ip_is_not_a_resolution_error():
         with pytest.raises(ValueError) as exc:
             resolve_and_validate_host("rebound.example")
         assert not isinstance(exc.value, HostResolutionError)
+
+
+@pytest.mark.parametrize(
+    "ip",
+    [
+        "::ffff:169.254.169.254",
+        "::ffff:127.0.0.1",
+        "::ffff:10.0.0.1",
+        "64:ff9b::a9fe:a9fe",
+        "2002:a9fe:a9fe::1",
+        "100.64.0.1",
+        "fe80::1",
+        "fd00::1",
+        "0.0.0.0",
+    ],
+)
+def test_resolve_rejects_embedded_and_non_global_addresses(ip: str):
+    with patch("app.utils.network_security.socket.getaddrinfo", return_value=_addrinfo(ip)):
+        with pytest.raises(ValueError):
+            resolve_and_validate_host("rebind.example.com")
+
+
+@pytest.mark.parametrize("ip", ["93.184.216.34", "8.8.8.8", "2606:4700:4700::1111"])
+def test_resolve_accepts_public_addresses(ip: str):
+    with patch("app.utils.network_security.socket.getaddrinfo", return_value=_addrinfo(ip)):
+        assert resolve_and_validate_host("ok.example.com") == ip

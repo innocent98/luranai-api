@@ -21,18 +21,43 @@ class HostResolutionError(ValueError):
     """
 
 
+def _embedded_ipv4(ip_obj: ipaddress.IPv6Address) -> list[ipaddress.IPv4Address]:
+    """IPv4 addresses an IPv6 address can tunnel to (mapped, NAT64, 6to4, Teredo)."""
+    embedded: list[ipaddress.IPv4Address] = []
+    if ip_obj.ipv4_mapped is not None:
+        embedded.append(ip_obj.ipv4_mapped)
+    if ip_obj.sixtofour is not None:
+        embedded.append(ip_obj.sixtofour)
+    if ip_obj.teredo is not None:
+        embedded.extend(ip_obj.teredo)
+    if ip_obj in _NAT64_PREFIX:
+        embedded.append(ipaddress.IPv4Address(int(ip_obj) & 0xFFFFFFFF))
+    return embedded
+
+
+_NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+
+
 def _is_disallowed_ip(ip_str: str) -> bool:
-    """Return True if IP is not safe for outbound tenant-controlled traffic."""
-    ip_obj = ipaddress.ip_address(ip_str)
-    return any(
-        [
-            ip_obj.is_private,
-            ip_obj.is_loopback,
-            ip_obj.is_link_local,
-            ip_obj.is_multicast,
-            ip_obj.is_reserved,
-            ip_obj.is_unspecified,
-        ]
+    """Return True if IP is not safe for outbound tenant-controlled traffic.
+
+    Anything that is not globally routable is rejected (private, loopback,
+    link-local, CGNAT, reserved, ...), and IPv6 forms that embed an IPv4
+    address (IPv4-mapped, NAT64, 6to4, Teredo) are judged by the IPv4 they
+    carry, so ``::ffff:169.254.169.254`` cannot slip through.
+    """
+    ip_obj = ipaddress.ip_address(ip_str.split("%", 1)[0])
+    if isinstance(ip_obj, ipaddress.IPv6Address):
+        if any(_is_disallowed_ip(str(v4)) for v4 in _embedded_ipv4(ip_obj)):
+            return True
+    return (
+        not ip_obj.is_global
+        or ip_obj.is_private
+        or ip_obj.is_loopback
+        or ip_obj.is_link_local
+        or ip_obj.is_multicast
+        or ip_obj.is_reserved
+        or ip_obj.is_unspecified
     )
 
 

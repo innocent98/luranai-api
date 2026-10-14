@@ -10,6 +10,7 @@ import httpx
 from loguru import logger
 
 from app.utils.network_security import resolve_and_validate_host
+from app.utils.pinned_http import build_pinned_request
 
 _TRACKING_PREFIXES = ("utm_", "fbclid", "gclid", "mc_", "ref")
 _PRUNE_PATH_RE = re.compile(
@@ -159,16 +160,7 @@ async def _default_fetch_text(url: str) -> str | None:
     except ValueError:
         logger.warning("discovery _default_fetch_text SSRF guard blocked: {}", url)
         return None
-    # Build the Host header: bracket IPv6, append port when explicit.
-    host_for_header = f"[{original_host}]" if ":" in original_host else original_host
-    host_header = f"{host_for_header}:{parsed.port}" if parsed.port else host_for_header
-    # Pin the connection to the validated IP; keep connecting by hostname when
-    # resolve_and_validate_host returned the hostname unchanged (allowlisted).
-    connect_host = safe_ip if safe_ip != original_host else original_host
-    pinned_url = httpx.URL(url).copy_with(host=connect_host)
-    req = httpx.Request("GET", pinned_url, headers={"Host": host_header})
-    if connect_host != original_host:
-        req.extensions["sni_hostname"] = original_host
+    req = build_pinned_request("GET", url, safe_ip)
     try:
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
             resp = await client.send(req)
@@ -204,13 +196,7 @@ async def _guarded_get(url: str) -> tuple[int, str | None]:
     parsed = urlparse(url)
     original_host = parsed.hostname or ""
     safe_ip = resolve_and_validate_host(original_host)  # raises ValueError if unsafe
-    host_for_header = f"[{original_host}]" if ":" in original_host else original_host
-    host_header = f"{host_for_header}:{parsed.port}" if parsed.port else host_for_header
-    connect_host = safe_ip if safe_ip != original_host else original_host
-    pinned_url = httpx.URL(url).copy_with(host=connect_host)
-    req = httpx.Request("GET", pinned_url, headers={"Host": host_header})
-    if connect_host != original_host:
-        req.extensions["sni_hostname"] = original_host
+    req = build_pinned_request("GET", url, safe_ip)
     async with httpx.AsyncClient(timeout=10.0, follow_redirects=False) as client:
         try:
             resp = await client.send(req)
