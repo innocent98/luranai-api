@@ -1,4 +1,4 @@
-/ok 200 final http://root.test:8099/ok hits [(8099, '/ok')]
-/r2ip ERR Page.goto: net::ERR_NAME_NOT_RESOLVED at http://root.test:80 final http://root.test:8099/ok hits [(8099, '/r2ip')]
-/r2name ERR Page.goto: net::ERR_NAME_NOT_RESOLVED at http://root.test:80 final chrome-error://chromewebdata/ hits [(8099, '/r2name')]
-ws ws-error hits []
+CONTROL root 302 -> mapped name    | HTTP 200 landed on http://canary.test:8098/canary                                          | canary hits: 1
+root 302 -> IP literal (canary)    | navigation failed: Page.goto: net::ERR_NAME_NOT_RESOLVED at http://root.test:8099/to-ip    | canary hits: 0
+root 302 -> other name (canary)    | navigation failed: Page.goto: net::ERR_NAME_NOT_RESOLVED at http://root.test:8099/to-name  | canary hits: 0
+WebSocket to IP literal (canary)   | websocket error                                                                            | canary hits: 0

@@ -233,6 +233,10 @@ class _BodyBuilder:
 
     def _inflate(self, data: bytes) -> bytes:
         assert self._d is not None
+        if self._d.eof:
+            # Bytes after the end of the compressed stream (e.g. a second gzip
+            # member) would be silently dropped; refuse instead of truncating.
+            raise UnsupportedContentEncodingError("Multi-member compressed response body")
         room = self.max_bytes - self.decoded
         try:
             out = self._d.decompress(data, room + 1)
@@ -246,6 +250,8 @@ class _BodyBuilder:
                 return self._inflate(data)
             raise UnsupportedContentEncodingError("Invalid compressed response body") from exc
         self._first = False
+        if self._d.eof and self._d.unused_data:
+            raise UnsupportedContentEncodingError("Multi-member compressed response body")
         return out
 
     def feed(self, wire_chunk: bytes) -> None:

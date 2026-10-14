@@ -801,3 +801,12 @@ def test_sync_deadline_bounds_fallback_ips(monkeypatch):
     with pytest.raises((TimeoutError, httpx.ConnectTimeout)):
         pinned_request("GET", "https://many.example.com/", total_timeout=0.15, transport=rec.sync)
     assert len(rec.requests) < 4  # stopped by the shared deadline, not 4 x per-IP timeout
+
+
+def test_multi_member_gzip_is_rejected_not_truncated(dns):
+    dns.table["z.example.com"] = (PUBLIC, PUBLIC)
+    body = _gz(b"first") + _gz(b"second")
+    for chunks in ([body], [_gz(b"first"), _gz(b"second")]):
+        rec = Recorder(lambda req, c=chunks: _resp(_Chunks(c), {"content-encoding": "gzip"}))
+        with pytest.raises(UnsupportedContentEncodingError):
+            pinned_request("GET", "https://z.example.com/", transport=rec.sync)
