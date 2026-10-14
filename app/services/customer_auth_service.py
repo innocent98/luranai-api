@@ -250,27 +250,6 @@ class CustomerAuthService:
         self.db.refresh(customer)
         return self._create_tokens(customer)
 
-    REFRESH_ROTATION_GRACE = timedelta(seconds=30)
-    _ROTATION_LINK = timedelta(seconds=5)
-
-    def _was_just_rotated(self, record: RefreshToken) -> bool:
-        """True when `record` was revoked by rotation (a successor was minted in the same
-        commit) within the grace window. Logout and password changes mint no successor."""
-        revoked_at = record.revoked_at.replace(tzinfo=UTC)
-        if datetime.now(UTC) - revoked_at > self.REFRESH_ROTATION_GRACE:
-            return False
-        successors = self.db.execute(
-            select(RefreshToken).where(
-                RefreshToken.user_id == record.user_id,
-                RefreshToken.user_type == "customer",
-                RefreshToken.id != record.id,
-            )
-        ).scalars()
-        return any(
-            abs(t.created_at.replace(tzinfo=UTC) - revoked_at) <= self._ROTATION_LINK
-            for t in successors
-        )
-
     def _revoke_all_refresh_tokens(self, customer_user_id: UUID) -> None:
         now = datetime.now(UTC)
         for token in self.db.execute(
@@ -296,13 +275,11 @@ class CustomerAuthService:
         if not record or record.expires_at.replace(tzinfo=UTC) < datetime.now(UTC):
             raise ValueError("Invalid or expired refresh token")
 
-        if record.revoked_at is None:
-            # Revoke old refresh token (rotation)
-            record.revoked_at = datetime.now(UTC)
-        elif not self._was_just_rotated(record):
+        if record.revoked_at is not None:
             raise ValueError("Invalid or expired refresh token")
-        # else: a second tab raced the same token a moment after the first rotated it. Serve
-        # it (minting an independent new pair) so the loser is not signed out.
+
+        # Revoke old refresh token (rotation)
+        record.revoked_at = datetime.now(UTC)
 
         # Load customer
         customer = self.db.execute(

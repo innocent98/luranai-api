@@ -52,10 +52,9 @@ remained:
 
 ## Review follow-up (same PR)
 
-- **Refresh race across tabs.** A refresh token rotated within the last 30 s is still served (an independent new pair is
-  minted) when a rotation successor exists, so the losing tab is not signed out. Logout and password changes mint no
-  successor, so they are never served by the grace window. A failed refresh now returns 401 with no `Set-Cookie` (the
-  earlier "clear cookies" call on that path was dead: `HTTPException` drops headers set on the injected response).
+- **Refresh race across tabs.** No server-side grace window: a rotated or revoked refresh token is always a 401 (a 30 s
+  grace was tried and dropped, as it would defeat logout/password-change revocation). The frontend serialises rotation
+  across tabs with a Web Lock instead. A failed refresh returns 401 with no `Set-Cookie`.
 - **Logout** revokes the `jti` only when the token is `auth_type=customer` (the legacy cookie fallback can surface a tenant token).
 - **Password change / reset** revokes all of the customer's refresh tokens. Already-issued access tokens live out their 15 minutes.
 
