@@ -231,7 +231,9 @@ def test_customer_send_message_uses_customer_context(client: TestClient, db: Ses
     headers = _customer_headers(customer)
     existing_session = _create_session(db, tenant, customer, customer_user_id=customer.id)
 
-    async def fake_send_message(message_request, db):
+    async def fake_send_message(message_request, db, authed_customer_id=None):
+        assert authed_customer_id == customer.id
+        assert "customer_user_id" not in message_request.metadata
         assert message_request.user_identifier == customer.chat_user_key
         assert message_request.metadata["customer_email"] == customer.email
         return ChatResponse(
@@ -383,3 +385,22 @@ def test_customer_send_message_forwards_attachment_ids(client: TestClient, db: S
     assert row.message_id is not None
     user_msg = db.execute(select(Message).where(Message.id == row.message_id)).scalar_one()
     assert user_msg.content == "look at this"
+
+
+def test_customer_conversation_detail_exposes_first_responder(client: TestClient, db: Session):
+    """N3 follow-up: the authed detail carries the tenant's real first_responder."""
+    tenant = _create_tenant(db)
+    customer = _create_customer(db)
+    headers = _customer_headers(customer)
+    session = _create_session(db, tenant, customer, customer_user_id=customer.id)
+
+    # No AI config row -> schema default.
+    r = client.get(f"/api/v1/customer/conversations/{session.id}", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["first_responder"] == "ai"
+
+    db.add(TenantAIConfig(tenant_id=tenant.id, first_responder="human"))
+    db.commit()
+    r = client.get(f"/api/v1/customer/conversations/{session.id}", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["first_responder"] == "human"

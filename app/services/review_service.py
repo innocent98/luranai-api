@@ -17,6 +17,7 @@ from app.db.models.review import (
     RatingSource,
     SessionRating,
 )
+from app.utils.customer_credential import session_credential_matches
 from app.schemas.review import (
     PlatformFeedbackCreate,
     PlatformFeedbackListResponse,
@@ -88,7 +89,9 @@ class ReviewService:
         if not session:
             raise ValueError("Session not found")
 
-        if session.user_identifier != rating_data.user_identifier:
+        if not session_credential_matches(
+            self.db, session, user_identifier=rating_data.user_identifier
+        ):
             raise ValueError("User identifier does not match session")
 
         if rating_data.rating_request_token:

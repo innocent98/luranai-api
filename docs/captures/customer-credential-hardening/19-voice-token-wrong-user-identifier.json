@@ -1,0 +1,20 @@
+{
+  "description": "Rejected",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/voice/session/token",
+    "headers": {},
+    "json": {
+      "tenant_id": "6892347e-26b4-41a8-94df-b6974ba7fe30",
+      "luran_session_id": "9bd63829-3805-4913-acef-6bb8ec9b2345",
+      "user_identifier": "wrong-value"
+    },
+    "form": null
+  },
+  "status": 403,
+  "response": {
+    "detail": {
+      "reason": "invalid_customer_credential"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "description": "Credential accepted: request proceeds to the tenant voice gate (this seed tenant has voice off, so 409; no ElevenLabs call is made locally)",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/voice/session/token",
+    "headers": {},
+    "json": {
+      "tenant_id": "6892347e-26b4-41a8-94df-b6974ba7fe30",
+      "luran_session_id": "9bd63829-3805-4913-acef-6bb8ec9b2345",
+      "user_identifier": "cust-ident-53eac6"
+    },
+    "form": null
+  },
+  "status": 409,
+  "response": {
+    "detail": {
+      "reason": "voice_disabled"
+    }
+  }
+}

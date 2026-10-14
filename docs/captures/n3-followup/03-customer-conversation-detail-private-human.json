@@ -1,0 +1,37 @@
+{
+  "status": 200,
+  "body": {
+    "business_name": "Acme private",
+    "business_slug": "acme-n3fu-private",
+    "business_logo_url": null,
+    "business_description": "Desc",
+    "business_widget_primary_color": "#2563eb",
+    "business_widget_accent_color": "#10b981",
+    "business_widget_greeting_message": "Hi! How can we help you today?",
+    "allow_file_upload": true,
+    "allow_screen_recording": false,
+    "first_responder": "human",
+    "conversation": {
+      "messages": [],
+      "ticket_id": null,
+      "ratings": [],
+      "meta": null,
+      "id": "b0974f02-01e9-4dcc-9f1b-465fb5771e0a",
+      "tenant_id": "47774e45-8d04-4cc7-914e-90b3f22b193b",
+      "visitor_id": null,
+      "visitor_session_id": null,
+      "customer_user_id": "16790928-1f76-4a66-949e-4e4729e79e89",
+      "visitor": null,
+      "status": "active",
+      "escalation_reason": null,
+      "escalated_at": null,
+      "agent_id": null,
+      "agent_joined_at": null,
+      "last_message_at": "2026-10-14T00:29:17.169147Z",
+      "created_at": "2026-10-14T00:29:17.163549Z",
+      "updated_at": "2026-10-14T00:29:17.163549Z",
+      "user_identifier": "z8QJ1zTdgolpA62LIJbxI8hdOGK-rV5q"
+    },
+    "has_more_messages": false
+  }
+}

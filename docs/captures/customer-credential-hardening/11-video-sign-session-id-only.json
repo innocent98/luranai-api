@@ -1,0 +1,19 @@
+{
+  "description": "Live luran-chat shape: not rejected for credentials; 503 is this local env having no Cloudinary signing config",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/video/sign",
+    "headers": {},
+    "json": {
+      "session_id": "a5b69400-fb99-41e4-b50e-96e628c2e441"
+    },
+    "form": null
+  },
+  "status": 503,
+  "response": {
+    "detail": {
+      "code": "video_unavailable",
+      "message": "Video upload is not available"
+    }
+  }
+}

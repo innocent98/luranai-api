@@ -1,0 +1,49 @@
+{
+  "description": "Seeded meta also held visitor_token and customer_user_id; staff see only allow-listed keys",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/chat/sessions/a5b69400-fb99-41e4-b50e-96e628c2e441",
+    "headers": {
+      "Authorization": "Bearer <staff access token placeholder>"
+    },
+    "json": null,
+    "form": null
+  },
+  "status": 200,
+  "response": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "hello",
+        "id": "7c82bc2b-1a5d-4856-8ed1-e20ee82319f2",
+        "session_id": "a5b69400-fb99-41e4-b50e-96e628c2e441",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [],
+        "meta": {},
+        "created_at": "2026-10-13T23:46:55.046051Z"
+      }
+    ],
+    "ticket_id": null,
+    "ratings": [],
+    "meta": {
+      "entry_point": "widget",
+      "page_url": "https://shop.example.com/p"
+    },
+    "id": "a5b69400-fb99-41e4-b50e-96e628c2e441",
+    "tenant_id": "ae5db257-c1f4-4d51-85a1-28c92d1542cc",
+    "visitor_id": null,
+    "visitor_session_id": null,
+    "customer_user_id": "5f975f57-d1c0-434f-953d-9d1d5ddd2591",
+    "visitor": null,
+    "status": "escalated",
+    "escalation_reason": null,
+    "escalated_at": null,
+    "agent_id": null,
+    "agent_joined_at": null,
+    "last_message_at": "2026-10-13T23:46:55.042718Z",
+    "created_at": "2026-10-13T23:46:15.590687Z",
+    "updated_at": "2026-10-13T23:46:55.027486Z",
+    "customer_label": "Visitor a5b69400"
+  }
+}
