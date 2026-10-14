@@ -1,5 +1,6 @@
 """Conversation service for managing chat sessions and messages."""
 
+from contextvars import ContextVar
 from datetime import datetime
 from uuid import UUID
 
@@ -29,9 +30,15 @@ from app.schemas.conversation import (
     StaffSessionResponse,
 )
 from app.schemas.visitor import VisitorIdentitySummary
+from app.services.reply_to import ReplySnapshot
 from app.utils.attribution import coerce_source, normalize_source_meta
 from app.utils.datetime import utcnow_naive
 from app.utils.staff_redaction import customer_label, redact_staff_session_meta
+
+
+# Set for the duration of a voice turn so the messages it persists are marked
+# `meta["channel"] == "voice"` (transcript lines are not quotable, spec N2-D2).
+voice_channel: ContextVar[bool] = ContextVar("voice_channel", default=False)
 
 
 class ConversationService:
@@ -40,6 +47,15 @@ class ConversationService:
     def __init__(self, db: Session):
         """Initialize conversation service with database session."""
         self.db = db
+        self._queued_reply_to: ReplySnapshot | None = None
+
+    def queue_reply_to(self, reply_to: ReplySnapshot | None) -> None:
+        """Attach this quote to the next USER message `add_message` persists.
+
+        The customer send path has many branches that each persist the USER message, so
+        the quote is queued once up-front instead of threaded through every call site.
+        """
+        self._queued_reply_to = reply_to
 
     def _build_visitor_summary(self, visitor_id: UUID | None) -> VisitorIdentitySummary | None:
         """Build a support-facing visitor identity summary."""
@@ -356,6 +372,7 @@ class ConversationService:
         retrieved_chunk_ids: list[UUID] | list[str] | None = None,
         token_count: int | None = None,
         meta: dict | None = None,
+        reply_to: ReplySnapshot | None = None,
     ) -> MessageResponse:
         """
         Add a message to a conversation session.
@@ -367,6 +384,7 @@ class ConversationService:
             retrieved_chunk_ids: Optional knowledge chunk IDs used
             token_count: Optional token count
             meta: Optional metadata
+            reply_to: Validated quote (see `app.services.reply_to.resolve_reply_to`)
 
         Returns:
             Created message response
@@ -381,6 +399,14 @@ class ConversationService:
         if not session:
             raise ValueError("Session not found")
 
+        if reply_to is None and role == MessageRole.USER and self._queued_reply_to is not None:
+            reply_to = self._queued_reply_to
+            self._queued_reply_to = None
+
+        message_meta = meta or {}
+        if voice_channel.get() and role in (MessageRole.USER, MessageRole.ASSISTANT):
+            message_meta = {**message_meta, "channel": "voice"}
+
         # Create message
         db_message = Message(
             session_id=session_id,
@@ -388,7 +414,9 @@ class ConversationService:
             content=content,
             retrieved_chunk_ids=retrieved_chunk_ids,
             token_count=token_count,
-            meta=meta or {},
+            meta=message_meta,
+            reply_to_message_id=reply_to.message_id if reply_to else None,
+            reply_to_snapshot=dict(reply_to.snapshot) if reply_to else None,
         )
 
         self.db.add(db_message)

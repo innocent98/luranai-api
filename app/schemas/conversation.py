@@ -1,6 +1,7 @@
 """Conversation Pydantic schemas."""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -73,6 +74,9 @@ class MessageRequest(BaseModel):
         max_length=MAX_ATTACHMENTS_PER_MESSAGE,
         description="IDs of previously uploaded image attachments to link to this message",
     )
+    reply_to_message_id: UUID | None = Field(
+        None, description="Message in this session being replied to (requires session_id)"
+    )
     session_id: UUID | None = Field(None, description="Existing session ID or null for new")
     tenant_id: UUID | None = Field(None, description="Tenant ID (required for new sessions)")
     user_identifier: str | None = Field(
@@ -135,6 +139,17 @@ class AttachmentOut(BaseModel):
         return data
 
 
+class ReplyToOut(BaseModel):
+    """The quote on a reply, frozen at send time. `message_id` is null once the original is gone."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    message_id: UUID | None = None
+    sender_type: Literal["customer", "agent", "ai"]
+    kind: Literal["text", "image", "video"]
+    snippet: str
+
+
 class MessageResponse(MessageBase):
     """Schema for message response."""
 
@@ -145,6 +160,9 @@ class MessageResponse(MessageBase):
     retrieved_chunk_ids: list[UUID] | None = None
     token_count: int | None = None
     attachments: list[AttachmentOut] = Field(default_factory=list)
+    reply_to: ReplyToOut | None = Field(
+        None, description="Quoted message when this is a reply; null (never absent) otherwise"
+    )
     meta: dict | None = Field(
         None,
         description=(

@@ -1,0 +1,24 @@
+{
+  "agent_socket_sent": {
+    "type": "message",
+    "content": "Understood, one moment",
+    "reply_to_message_id": "5bcf1dee-ba26-4322-a8e0-274fcdc3a6af"
+  },
+  "customer_socket_received": [
+    {
+      "type": "agent_message",
+      "message_id": "3e1831d0-d0c9-4a2c-be10-57bbf7074fd4",
+      "content": "Understood, one moment",
+      "agent_name": "Sam Agent",
+      "timestamp": "2026-10-14T01:30:29.160426+00:00",
+      "attachments": [],
+      "reply_to": {
+        "message_id": "5bcf1dee-ba26-4322-a8e0-274fcdc3a6af",
+        "sender_type": "customer",
+        "kind": "image",
+        "snippet": ""
+      }
+    }
+  ],
+  "agent_socket_received (sender is excluded from its own fanout)": []
+}

@@ -31,7 +31,7 @@ from app.schemas.voice import (
     VoiceTokenRequest,
     VoiceTokenResponse,
 )
-from app.services.conversation_service import ConversationService
+from app.services.conversation_service import ConversationService, voice_channel
 from app.services.rag_service import RAGService
 from app.services.ticket_service import TicketService
 from app.services.voice.auth import verify_elevenlabs_request
@@ -698,14 +698,19 @@ async def _run_pipeline(
     tool_already_invoked: bool = False,
 ) -> _TurnOutcome:
     try:
-        chat_response = await send_message(
-            MessageRequest(
-                message=user_text,
-                session_id=context.luran_session_id,
-                tenant_id=context.tenant_id,
-            ),
-            db,
-        )
+        # Mark the lines this turn persists as voice transcript (not quotable, N2-D2).
+        voice_marker = voice_channel.set(True)
+        try:
+            chat_response = await send_message(
+                MessageRequest(
+                    message=user_text,
+                    session_id=context.luran_session_id,
+                    tenant_id=context.tenant_id,
+                ),
+                db,
+            )
+        finally:
+            voice_channel.reset(voice_marker)
         reply_text = chat_response.message.content
         if chat_response.message.role == MessageRole.USER:
             # ALREADY-ESCALATED session: `send_message` skips generation and

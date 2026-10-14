@@ -15,6 +15,7 @@ from app.db.models.tenant import Tenant
 from app.db.models.user import UserRole
 from app.db.session import SessionLocal
 from app.services.conversation_service import ConversationService, attachment_frames
+from app.services.reply_to import ReplySnapshot, ReplyToError, frame_reply_to, resolve_reply_to
 from app.utils.datetime import ensure_utc_aware
 from app.utils.staff_redaction import staff_customer_label
 
@@ -57,6 +58,26 @@ def _authenticate_customer_socket_token(token: str) -> CustomerUser | None:
             db.close()
     except (JWTError, ValueError):
         return None
+
+
+def _resolve_frame_reply(
+    db, session: ConversationSession | None, raw_id
+) -> tuple[ReplySnapshot | None, dict | None]:
+    """(snapshot, error_frame) for an optional `reply_to_message_id` on a message frame."""
+    if not raw_id:
+        return None, None
+    try:
+        if session is None:
+            raise ReplyToError("REPLY_TARGET_NOT_FOUND", "Conversation not found", 422)
+        try:
+            target_id = UUID(str(raw_id))
+        except ValueError:
+            raise ReplyToError(
+                "REPLY_TARGET_NOT_FOUND", "The message you are replying to was not found", 422
+            ) from None
+        return resolve_reply_to(db, session, target_id), None
+    except ReplyToError as exc:
+        return None, {"type": "error", **exc.detail()}
 
 
 @router.websocket("/chat/{session_id}")
@@ -126,6 +147,7 @@ async def customer_websocket(
                     "agent_id": meta.get("agent_id"),
                     "timestamp": msg.created_at.isoformat(),
                     "attachments": attachment_frames(msg.attachments),
+                    "reply_to": frame_reply_to(msg.reply_to),
                 }
             )
     except Exception as replay_error:
@@ -162,17 +184,26 @@ async def customer_websocket(
                         await websocket.close(code=4003, reason="Subscription inactive")
                         return
 
+                    reply, reply_error = _resolve_frame_reply(
+                        db, active_session, data.get("reply_to_message_id")
+                    )
+                    if reply_error:
+                        await websocket.send_json(reply_error)
+                        continue
+
                     conversation_service = ConversationService(db)
                     message = conversation_service.add_message(
                         session_id=session_id,
                         role=MessageRole.USER,
                         content=content,
+                        reply_to=reply,
                     )
                     db.commit()  # Ensure message is committed
 
                     # Store message data before closing DB connection
                     message_id = str(message.id)
                     message_timestamp = message.created_at.isoformat()
+                    message_reply_to = frame_reply_to(message.reply_to)
                 finally:
                     db.close()  # Release connection immediately
 
@@ -186,6 +217,7 @@ async def customer_websocket(
                         "customer_label": agent_facing_label,
                         "timestamp": message_timestamp,
                         "attachments": [],
+                        "reply_to": message_reply_to,
                     },
                     to_customer=False,
                     to_agents=True,
@@ -274,6 +306,7 @@ async def authenticated_customer_websocket(
                     "agent_id": meta.get("agent_id"),
                     "timestamp": msg.created_at.isoformat(),
                     "attachments": attachment_frames(msg.attachments),
+                    "reply_to": frame_reply_to(msg.reply_to),
                 }
             )
     except Exception as replay_error:
@@ -307,15 +340,24 @@ async def authenticated_customer_websocket(
                         await websocket.close(code=4003, reason="Subscription inactive")
                         return
 
+                    reply, reply_error = _resolve_frame_reply(
+                        db, active_session, data.get("reply_to_message_id")
+                    )
+                    if reply_error:
+                        await websocket.send_json(reply_error)
+                        continue
+
                     conversation_service = ConversationService(db)
                     message = conversation_service.add_message(
                         session_id=session_id,
                         role=MessageRole.USER,
                         content=content,
+                        reply_to=reply,
                     )
                     db.commit()
                     message_id = str(message.id)
                     message_timestamp = message.created_at.isoformat()
+                    message_reply_to = frame_reply_to(message.reply_to)
                 finally:
                     db.close()
 
@@ -328,6 +370,7 @@ async def authenticated_customer_websocket(
                         "customer_label": agent_facing_label,
                         "timestamp": message_timestamp,
                         "attachments": [],
+                        "reply_to": message_reply_to,
                     },
                     to_customer=False,
                     to_agents=True,
@@ -491,6 +534,7 @@ async def agent_websocket(
                         "customer_label": customer_display_label,
                         "timestamp": msg.created_at.isoformat(),
                         "attachments": attachment_frames(msg.attachments),
+                        "reply_to": frame_reply_to(msg.reply_to),
                     }
                 )
             elif msg.role == MessageRole.HUMAN_AGENT:
@@ -504,6 +548,7 @@ async def agent_websocket(
                         "agent_id": meta.get("agent_id"),
                         "timestamp": msg.created_at.isoformat(),
                         "attachments": attachment_frames(msg.attachments),
+                        "reply_to": frame_reply_to(msg.reply_to),
                     }
                 )
     except Exception as replay_error:
@@ -540,9 +585,17 @@ async def agent_websocket(
                         await websocket.close(code=4003, reason="Subscription inactive")
                         return
 
+                    reply, reply_error = _resolve_frame_reply(
+                        db, active_session, data.get("reply_to_message_id")
+                    )
+                    if reply_error:
+                        await websocket.send_json(reply_error)
+                        continue
+
                     conversation_service = ConversationService(db)
                     message = conversation_service.add_message(
                         session_id=session_id,
+                        reply_to=reply,
                         # message_role stores enum NAMES — pass the member (the old
                         # `.value` was inert; see migration d1f2humanagentname).
                         role=MessageRole.HUMAN_AGENT,
@@ -557,6 +610,7 @@ async def agent_websocket(
                     # Store message data before closing DB connection
                     message_id = str(message.id)
                     message_timestamp = message.created_at.isoformat()
+                    message_reply_to = frame_reply_to(message.reply_to)
                 finally:
                     db.close()  # Release connection immediately
 
@@ -572,6 +626,7 @@ async def agent_websocket(
                         # Text-only over this socket; always present so id-merging
                         # clients never see a frame that drops images.
                         "attachments": [],
+                        "reply_to": message_reply_to,
                     },
                     to_customer=True,
                     to_agents=True,

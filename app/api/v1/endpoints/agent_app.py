@@ -234,10 +234,12 @@ def get_escalation(
         acknowledged_at=ticket.acknowledged_at,
         transcript=[
             TranscriptMessage(
+                id=m.id,
                 role=m.role.value if hasattr(m.role, "value") else str(m.role),
                 content=m.content,
                 created_at=m.created_at,
                 attachments=[AttachmentOut.model_validate(a) for a in m.attachments],
+                reply_to=m.reply_to,
             )
             for m in messages
         ],

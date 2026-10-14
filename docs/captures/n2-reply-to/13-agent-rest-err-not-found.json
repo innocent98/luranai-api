@@ -1,0 +1,21 @@
+{
+  "note": null,
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/sessions/66645e12-7da4-481a-a7c8-e19b88dd1308/agent-message",
+    "auth": "agent JWT",
+    "body": {
+      "message": "x",
+      "reply_to_message_id": "00000000-0000-4000-8000-000000000001"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "detail": {
+        "code": "REPLY_TARGET_NOT_FOUND",
+        "message": "The message you are replying to was not found"
+      }
+    }
+  }
+}
