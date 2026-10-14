@@ -1,0 +1,20 @@
+{
+  "description": "Explicit wrong credential: rejected",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/upload",
+    "headers": {
+      "Authorization": "Bearer <customer access token placeholder>"
+    },
+    "json": null,
+    "form": {
+      "session_id": "9bd63829-3805-4913-acef-6bb8ec9b2345",
+      "user_identifier": "wrong-value",
+      "file": "<invalid test file>"
+    }
+  },
+  "status": 403,
+  "response": {
+    "detail": "Invalid customer credential"
+  }
+}

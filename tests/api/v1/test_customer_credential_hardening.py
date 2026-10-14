@@ -355,3 +355,76 @@ def test_enforced_media_accepts_owning_customer_token_and_rejects_staff(client, 
     assert post(_customer_bearer(customer_id)).status_code == 200
     assert post(staff_headers).status_code == 403
     assert post(stranger_headers).status_code == 403
+
+
+def test_flag_off_stranger_customer_cookie_does_not_block_guest_upload(client, db):
+    """A signed-in customer using someone else's guest page must still upload (flag off)."""
+    sid, tid, uid = _chat_session(db)
+    _allow_uploads(db, tid)
+    stranger = _customer_bearer(_customer(db).id)
+    db.commit()
+    assert settings.CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL is False
+
+    def post(**form):
+        with (
+            patch(UPLOAD_CM) as cm,
+            patch(UPLOAD_MOD, new=AsyncMock(return_value=(True, None))),
+        ):
+            cm.validate_image.return_value = (True, None)
+            cm.upload_chat_image.return_value = ("https://c/x.jpg", "chat/x", None)
+            return client.post(
+                "/api/v1/chat/upload",
+                data={"session_id": str(sid), **form},
+                files={"file": ("a.png", _png(), "image/png")},
+                headers=stranger,
+            )
+
+    assert post().status_code == 200
+    assert post(user_identifier="nope").status_code == 403
+    assert post(user_identifier=uid).status_code == 200
+    video = client.post("/api/v1/chat/video/sign", json={"session_id": str(sid)}, headers=stranger)
+    assert video.status_code != 403 or video.json()["detail"] != "Invalid customer credential"
+
+
+def test_media_paths_accept_visitor_token(client, db, monkeypatch):
+    monkeypatch.setattr(settings, "CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL", True)
+    sid, tid, _ = _chat_session(db)
+    _allow_uploads(db, tid)
+    now = utcnow_naive()
+    visitor = Visitor(
+        tenant_id=tid,
+        public_token=f"vtok-{uuid4().hex}",
+        first_seen_at=now,
+        last_seen_at=now,
+        created_from=VisitorSource.WIDGET,
+    )
+    db.add(visitor)
+    db.flush()
+    db.get(ConversationSession, sid).visitor_id = visitor.id
+    db.commit()
+    token = visitor.public_token
+    assert _upload(client, sid, visitor_token=token).status_code == 200
+    assert _upload(client, sid, visitor_token="bogus").status_code == 403
+    with patch(VIDEO_CM) as cm:
+        cm.sign_video_upload.return_value = {"upload_url": "u", "fields": {}, "public_id": "p"}
+        ok = client.post(
+            "/api/v1/chat/video/sign", json={"session_id": str(sid), "visitor_token": token}
+        )
+        assert ok.status_code == 200, ok.text
+        bad = client.post(
+            "/api/v1/chat/video/sign", json={"session_id": str(sid), "visitor_token": "bogus"}
+        )
+        assert bad.status_code == 403
+
+
+def test_session_rating_uses_constant_time_compare(client, db):
+    sid, _, uid = _chat_session(db)
+    body = {"session_id": str(sid), "score": 4}
+    assert (
+        client.post("/api/v1/reviews/session", json={**body, "user_identifier": "no"}).status_code
+        == 400
+    )
+    assert (
+        client.post("/api/v1/reviews/session", json={**body, "user_identifier": uid}).status_code
+        == 201
+    )

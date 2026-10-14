@@ -12,6 +12,7 @@ def _payload(tenant_id, session_id):
     return {
         "tenant_id": str(tenant_id),
         "luran_session_id": str(session_id),
+        "user_identifier": f"visitor-{session_id}",
         "text_out": False,
     }
 
@@ -293,3 +294,53 @@ def test_mint_is_rate_limited(pg_client, voice_tenant_factory, voice_session_fac
     assert resp1.status_code == 409
     assert resp2.status_code == 409
     assert resp3.status_code == 429
+
+
+def _mint(pg_client, payload):
+    with patch(
+        "app.api.v1.endpoints.voice.ElevenLabsClient.mint_conversation_token",
+        new=AsyncMock(return_value="el-convo-token-abc"),
+    ):
+        return pg_client.post("/api/v1/voice/session/token", json=payload)
+
+
+def test_mint_without_customer_credential_is_403(
+    pg_client, voice_tenant_factory, voice_session_factory
+):
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    session = voice_session_factory(tenant.id)
+    base = _payload(tenant.id, session.id)
+    del base["user_identifier"]
+    resp = _mint(pg_client, base)
+    assert resp.status_code == 403, resp.text
+    assert resp.json() == {"detail": {"reason": "invalid_customer_credential"}}
+    assert _mint(pg_client, {**base, "user_identifier": "nope"}).status_code == 403
+    assert _mint(pg_client, {**base, "visitor_token": "nope"}).status_code == 403
+
+
+def test_mint_accepts_visitor_token_credential(
+    pg_client, voice_tenant_factory, voice_session_factory, db_session
+):
+    from uuid import uuid4
+
+    from app.db.models.visitor import Visitor, VisitorSource
+    from app.utils.datetime import utcnow_naive
+
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    session = voice_session_factory(tenant.id)
+    now = utcnow_naive()
+    visitor = Visitor(
+        tenant_id=tenant.id,
+        public_token=f"vtok-{uuid4().hex}",
+        first_seen_at=now,
+        last_seen_at=now,
+        created_from=VisitorSource.WIDGET,
+    )
+    db_session.add(visitor)
+    db_session.flush()
+    session.visitor_id = visitor.id
+    db_session.commit()
+    base = _payload(tenant.id, session.id)
+    del base["user_identifier"]
+    resp = _mint(pg_client, {**base, "visitor_token": visitor.public_token})
+    assert resp.status_code == 200, resp.text

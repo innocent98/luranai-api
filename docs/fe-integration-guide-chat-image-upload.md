@@ -194,7 +194,7 @@ Posting into an existing conversation now requires the customer credential, not 
 | `POST /chat/upload` (form) | Send `user_identifier` as an extra form field. **Optional for now**: a wrong value is `403`; a missing one is still accepted. |
 | `POST /chat/video/sign`, `POST /chat/video/register` (JSON) | Same: optional `user_identifier` in the body; wrong is `403`, missing still accepted. |
 
-**Action for luran-chat:** add `user_identifier` (the same value `useChat` sends on `/chat/message`) to `uploadChatImage`, `signVideo` and `registerVideo`. Authed customers (cookie/Bearer customer token that owns the session) are also accepted without it. Backend will make it mandatory (`CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL=true`) only after that ships; until then missing is accepted.
+**Action for luran-chat:** add `user_identifier` (the same value `useChat` sends on `/chat/message`; field name is `user_identifier` in the form/JSON body) to `uploadChatImage`, `signVideo` and `registerVideo`. `visitor_token` is accepted instead (same field name in form/JSON). While the flag is off, only an explicit `user_identifier`/`visitor_token` is checked: a signed-in customer's cookie that does not own the session is ignored (verified live, `16`, `17`), so guest pages keep working. With the flag on, the owning customer's token is also accepted. Backend will make it mandatory (`CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL=true`) only after that ships; until then missing is accepted.
 
 Rejection, identical on all three paths (verified live):
 ```
@@ -211,3 +211,5 @@ The body never echoes the credential. luran-chat's upload error mapper turns any
 | 403 body on `/chat/message`, `/chat/upload`, `/chat/video/sign` mismatch | live (`01`-`03`, `07`, `10`) |
 | Legit `user_identifier` still 200 on `/chat/message`; media paths with only `session_id` still pass the gate | live (`04`, `08`, `09`, `11`) |
 | `metadata.visitor_token` accepted as the credential; owning-customer token accepted on media paths when enforced; `CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL=true` behaviour | pytest only, not exercised live |
+
+| Stranger customer cookie + no explicit credential, flag off: accepted; + wrong `user_identifier`: 403 | live (`16`, `17`) |

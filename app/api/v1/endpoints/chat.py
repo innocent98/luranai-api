@@ -127,14 +127,16 @@ def require_customer_credential(
 ) -> None:
     """Customer credential check for the media paths (upload, video sign/register).
 
-    A supplied credential must match. A request with none is let through only while
+    A supplied (explicit) credential must match. A request with none is let through only while
     `CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL` is off, because live clients still send just
     the session id on these paths.
     """
-    customer = optional_customer(request, db)
-    supplied = bool(user_identifier or visitor_token or customer)
-    if not supplied and not settings.CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL:
+    # Only an explicit credential counts as "supplied": a signed-in customer's cookie rides
+    # along on every call (credentials: 'include'), including on someone else's guest page.
+    explicit = bool(user_identifier or visitor_token)
+    if not explicit and not settings.CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL:
         return
+    customer = optional_customer(request, db)
     if not session_credential_matches(
         db,
         session,
@@ -249,6 +251,7 @@ async def upload_chat_image(
     session_id: UUID = Form(...),
     file: UploadFile = File(..., description="Image (JPEG, PNG, GIF, WebP), max 10MB"),
     user_identifier: str | None = Form(None, max_length=255),
+    visitor_token: str | None = Form(None, max_length=255),
     db: Session = Depends(get_db),
 ):
     """Public customer image upload: validate, moderate, then store (unlinked)."""
@@ -257,7 +260,9 @@ async def upload_chat_image(
     ).scalar_one_or_none()
     if not session:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
-    require_customer_credential(db, request, session, user_identifier=user_identifier)
+    require_customer_credential(
+        db, request, session, user_identifier=user_identifier, visitor_token=visitor_token
+    )
 
     tenant = db.execute(select(Tenant).where(Tenant.id == session.tenant_id)).scalar_one_or_none()
     if not tenant or not tenant.widget_allow_file_upload:
