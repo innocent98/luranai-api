@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from jose import JWTError, jwt
 from loguru import logger
 
+from app.api.deps import extract_customer_token_from_cookies, is_token_revoked
 from app.core.config import settings
 from app.core.websocket import connection_manager
 from app.db.models.conversation import ConversationSession, MessageRole
@@ -43,6 +44,9 @@ def _authenticate_customer_socket_token(token: str) -> CustomerUser | None:
         if payload.get("auth_type") != "customer":
             return None
 
+        jti = payload.get("jti")
+        if jti and is_token_revoked(jti):
+            return None
         customer_id = payload.get("sub")
         if not customer_id:
             return None
@@ -228,10 +232,29 @@ async def customer_websocket(
 async def authenticated_customer_websocket(
     websocket: WebSocket,
     session_id: UUID,
-    token: str = Query(..., description="Customer JWT authentication token"),
+    token: str | None = Query(None, description="Customer JWT (non-browser clients)"),
 ):
-    """WebSocket endpoint for authenticated customer chat."""
-    customer = _authenticate_customer_socket_token(token)
+    """WebSocket endpoint for authenticated customer chat.
+
+    The web app authenticates with its HttpOnly ``customer_access_token`` cookie, which the
+    browser attaches to the handshake itself. Because that is an ambient credential and
+    WebSocket handshakes bypass CORS, the cookie path is Origin-gated against
+    ``BACKEND_CORS_ORIGINS`` (Cross-Site WebSocket Hijacking). The ``?token=`` bearer path is
+    kept for non-browser clients and is not Origin-gated, matching the agent socket.
+    """
+    if token:
+        effective_token = token
+    else:
+        origin = websocket.headers.get("origin")
+        if not origin or origin not in settings.BACKEND_CORS_ORIGINS:
+            await websocket.close(code=4403, reason="Origin not allowed")
+            return
+        effective_token = extract_customer_token_from_cookies(websocket.cookies)
+    if not effective_token:
+        await websocket.close(code=4003, reason="Missing authentication")
+        return
+
+    customer = _authenticate_customer_socket_token(effective_token)
     if not customer:
         await websocket.close(code=4003, reason="Invalid token")
         return

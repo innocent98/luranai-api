@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Literal, cast
 from uuid import UUID
@@ -10,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.security import CUSTOMER_ACCESS_COOKIE
 from app.db.models.platform_admin import PlatformAdminRole
 from app.db.models.tenant import Tenant
 from app.db.models.user import DeletionStatus, User as UserModel, UserRole
@@ -38,6 +40,27 @@ def extract_token(request: Request) -> str | None:
     if auth_header.startswith("Bearer "):
         return auth_header[7:]
     return None
+
+
+def extract_customer_token(request: Request) -> str | None:
+    """Extract the customer JWT: dedicated cookie, then Bearer header, then the legacy cookie.
+
+    The legacy shared ``access_token`` cookie is read last so sessions issued before the
+    dedicated ``customer_access_token`` cookie existed survive one access-token lifetime;
+    ``get_current_customer`` still rejects any token that is not ``auth_type=customer``.
+    """
+    token = request.cookies.get(CUSTOMER_ACCESS_COOKIE)
+    if token:
+        return token
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:]
+    return request.cookies.get("access_token")
+
+
+def extract_customer_token_from_cookies(cookies: Mapping[str, str]) -> str | None:
+    """Customer JWT from a cookie mapping (WebSocket handshakes have no Request)."""
+    return cookies.get(CUSTOMER_ACCESS_COOKIE) or cookies.get("access_token")
 
 
 def is_token_revoked(jti: str) -> bool:
@@ -166,7 +189,7 @@ async def get_current_customer(
     db: Session = Depends(get_db),
 ) -> CustomerUserResponse:
     """Get current authenticated B2C customer from JWT token."""
-    token = extract_token(request)
+    token = extract_customer_token(request)
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

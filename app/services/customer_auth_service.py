@@ -250,6 +250,17 @@ class CustomerAuthService:
         self.db.refresh(customer)
         return self._create_tokens(customer)
 
+    def _revoke_all_refresh_tokens(self, customer_user_id: UUID) -> None:
+        now = datetime.now(UTC)
+        for token in self.db.execute(
+            select(RefreshToken).where(
+                RefreshToken.user_id == customer_user_id,
+                RefreshToken.user_type == "customer",
+                RefreshToken.revoked_at.is_(None),
+            )
+        ).scalars():
+            token.revoked_at = now
+
     def refresh(self, raw_refresh_token: str) -> dict:
         """Validate refresh token, rotate it, return new access + refresh tokens."""
         token_hash = hashlib.sha256(raw_refresh_token.encode()).hexdigest()
@@ -258,11 +269,13 @@ class CustomerAuthService:
             select(RefreshToken).where(
                 RefreshToken.token_hash == token_hash,
                 RefreshToken.user_type == "customer",
-                RefreshToken.revoked_at.is_(None),
             )
         ).scalar_one_or_none()
 
         if not record or record.expires_at.replace(tzinfo=UTC) < datetime.now(UTC):
+            raise ValueError("Invalid or expired refresh token")
+
+        if record.revoked_at is not None:
             raise ValueError("Invalid or expired refresh token")
 
         # Revoke old refresh token (rotation)
@@ -340,6 +353,7 @@ class CustomerAuthService:
         customer.is_active = True
         if customer.email_verified_at is None:
             customer.email_verified_at = datetime.now(UTC)
+        self._revoke_all_refresh_tokens(customer.id)
         self.db.commit()
         return CustomerActionResponse(message="Password reset successfully.")
 
@@ -373,5 +387,6 @@ class CustomerAuthService:
             raise ValueError("Current password is incorrect")
 
         customer.hashed_password = get_password_hash(payload.new_password)
+        self._revoke_all_refresh_tokens(customer.id)
         self.db.commit()
         return CustomerActionResponse(message="Password updated successfully.")

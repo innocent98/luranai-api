@@ -18,7 +18,7 @@ from jose import JWTError, jwt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import extract_token, is_token_revoked
+from app.api.deps import extract_customer_token, is_token_revoked
 from app.core.config import settings
 from app.db.models.conversation import ConversationSession
 from app.db.models.customer_user import CustomerUser
@@ -39,7 +39,7 @@ def _equal(expected: str | None, supplied: str | None) -> bool:
 
 def optional_customer(request: Request, db: Session) -> CustomerUser | None:
     """The authenticated customer account behind the request, or None (never raises)."""
-    token = extract_token(request)
+    token = extract_customer_token(request)
     if not token:
         return None
     try:

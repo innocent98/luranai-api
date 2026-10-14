@@ -48,15 +48,23 @@ def create_refresh_token() -> tuple[str, str]:
     return raw_token, token_hash
 
 
+# The authenticated customer (B2C) session uses its own cookie names so it never
+# overwrites, or is overwritten by, the tenant dashboard session on the same API host.
+CUSTOMER_ACCESS_COOKIE = "customer_access_token"
+CUSTOMER_REFRESH_COOKIE = "customer_refresh_token"
+
+
 def set_auth_cookies(
     response: Any,
     access_token: str,
     refresh_token: str,
     refresh_path: str = "/api/v1/auth/refresh",
+    access_cookie: str = "access_token",
+    refresh_cookie: str = "refresh_token",
 ) -> None:
     """Set HttpOnly Secure auth cookies on a FastAPI Response."""
     response.set_cookie(
-        key="access_token",
+        key=access_cookie,
         value=access_token,
         httponly=True,
         secure=True,
@@ -65,7 +73,7 @@ def set_auth_cookies(
         path="/",
     )
     response.set_cookie(
-        key="refresh_token",
+        key=refresh_cookie,
         value=refresh_token,
         httponly=True,
         secure=True,
@@ -75,10 +83,15 @@ def set_auth_cookies(
     )
 
 
-def clear_auth_cookies(response: Any, refresh_path: str = "/api/v1/auth/refresh") -> None:
+def clear_auth_cookies(
+    response: Any,
+    refresh_path: str = "/api/v1/auth/refresh",
+    access_cookie: str = "access_token",
+    refresh_cookie: str = "refresh_token",
+) -> None:
     """Clear auth cookies on a FastAPI Response."""
-    response.delete_cookie(key="access_token", path="/")
-    response.delete_cookie(key="refresh_token", path=refresh_path)
+    response.delete_cookie(key=access_cookie, path="/")
+    response.delete_cookie(key=refresh_cookie, path=refresh_path)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

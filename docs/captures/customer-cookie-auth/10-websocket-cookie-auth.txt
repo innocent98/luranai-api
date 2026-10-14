@@ -1,0 +1,6 @@
+1 cookie + Origin=http://localhost:3100 (allowed): CONNECTED; sent {"type":"ping"}; received {"type":"pong","timestamp":"<ts>"}
+2 cookie + Origin=https://evil.example: REJECTED -> InvalidStatus: server rejected WebSocket connection: HTTP 403
+3 cookie, no Origin header: REJECTED -> InvalidStatus: server rejected WebSocket connection: HTTP 403
+4 no cookie, allowed Origin: REJECTED -> InvalidStatus: server rejected WebSocket connection: HTTP 403
+5 garbage cookie, allowed Origin: REJECTED -> InvalidStatus: server rejected WebSocket connection: HTTP 403
+6 same cookie AFTER logout (jti revoked), allowed Origin: REJECTED -> InvalidStatus: server rejected WebSocket connection: HTTP 403

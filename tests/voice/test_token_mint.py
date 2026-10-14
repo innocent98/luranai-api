@@ -406,3 +406,26 @@ def test_mint_rejects_stranger_customer_token_without_explicit_credential(
     resp = pg_client.post("/api/v1/voice/session/token", json=base, headers=hdrs)
     assert resp.status_code == 403, resp.text
     assert resp.json() == {"detail": {"reason": "invalid_customer_credential"}}
+
+
+def test_mint_accepts_owning_customer_by_dedicated_cookie(
+    pg_client, voice_tenant_factory, voice_session_factory, db_session
+):
+    """Browsers authenticate customers with the dedicated cookie, not a Bearer header."""
+    from app.core.security import CUSTOMER_ACCESS_COOKIE
+
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    session = voice_session_factory(tenant.id)
+    token = _customer_headers(db_session, owns_session=session)["Authorization"][7:]
+    base = _payload(tenant.id, session.id)
+    del base["user_identifier"]
+    pg_client.cookies.set(CUSTOMER_ACCESS_COOKIE, token)
+    try:
+        with patch(
+            "app.api.v1.endpoints.voice.ElevenLabsClient.mint_conversation_token",
+            new=AsyncMock(return_value="el-convo-token-abc"),
+        ):
+            resp = pg_client.post("/api/v1/voice/session/token", json=base)
+    finally:
+        pg_client.cookies.clear()
+    assert resp.status_code == 200, resp.text
