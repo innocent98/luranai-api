@@ -270,6 +270,24 @@ class Message(Base, UUIDMixin):
         default=datetime.utcnow,
         comment="When this message was created",
     )
+    reply_to_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+        comment="Message this one quotes (null when not a reply, or once the original is gone)",
+    )
+    reply_to_snapshot: Mapped[dict | None] = mapped_column(
+        EncryptedJSON,
+        nullable=True,
+        comment="Quote taken at send time {sender_type, kind, snippet} — encrypted at rest",
+    )
+
+    @property
+    def reply_to(self) -> dict | None:
+        """Wire shape of the quote; `message_id` is null once the original was deleted."""
+        if not self.reply_to_snapshot:
+            return None
+        return {"message_id": self.reply_to_message_id, **self.reply_to_snapshot}
 
     # Relationships
     session: Mapped["ConversationSession"] = relationship(

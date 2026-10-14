@@ -97,6 +97,12 @@ from app.services.notification_enqueue import (
 from app.services.quote_service import QuoteService
 from app.services.rag_service import RAGService
 from app.services.rating_read_service import session_rating_briefs
+from app.services.reply_to import (
+    ReplySnapshot,
+    frame_reply_to,
+    quote_context,
+    resolve_for_session_id,
+)
 from app.services.tenant_service import TenantService
 from app.services.voice import turn_signal
 from app.services.ticket_service import TicketService
@@ -952,6 +958,10 @@ async def send_message(
     return response
 
 
+def _reply_to_frame(message: Message) -> dict | None:
+    return frame_reply_to(MessageResponse.model_validate(message).reply_to)
+
+
 async def _fanout_customer_images(
     db: Session, session_id: UUID, attachments: list[AttachmentOut]
 ) -> None:
@@ -979,6 +989,7 @@ async def _fanout_customer_images(
                 "customer_label": label,
                 "timestamp": message.created_at.isoformat(),
                 "attachments": attachment_frames(message.attachments),
+                "reply_to": _reply_to_frame(message),
             },
             to_customer=False,
             to_agents=True,
@@ -1050,6 +1061,15 @@ async def _send_message_impl(
     visitor_service = VisitorService(db)
 
     logger.info("Processing chat message")
+
+    # N2 reply-to: validate before anything is persisted or a closed session is reopened.
+    # The quote is queued on the service and attached to the first USER message persisted.
+    reply_snapshot: ReplySnapshot | None = None
+    if message_data.reply_to_message_id:
+        reply_snapshot = resolve_for_session_id(
+            db, message_data.session_id, message_data.reply_to_message_id
+        )
+        conversation_service.queue_reply_to(reply_snapshot)
 
     # Image attachments: an image-only send carries a minimal placeholder so every
     # downstream string-based step (routing, flows, prompt assembly) stays valid.
@@ -2019,7 +2039,9 @@ async def _send_message_impl(
         welcome_triggers = {"start", "hello", "hi", "hey", "welcome", "__init__", "__welcome__"}
         message_lower = effective_message_lower
 
-        if message_lower in welcome_triggers:
+        # A reply is never a bare greeting: skipping this branch stores the USER message
+        # (with its quote) instead of silently dropping it.
+        if message_lower in welcome_triggers and reply_snapshot is None:
             logger.info(
                 f"No flow matched welcome trigger '{message_data.message}', returning default welcome"
             )
@@ -2686,7 +2708,7 @@ async def _send_message_impl(
             logger.info("Generating AI response...")
             prompt_components = rag_service.assemble_prompt(
                 ai_config=tenant_ai_config,
-                user_query=message_data.message,
+                user_query=quote_context(message_data.message, reply_snapshot),
                 retrieved_chunks=retrieved_chunks,
                 conversation_history=conversation_history,
                 company_name=tenant_response.display_name,
@@ -3398,9 +3420,16 @@ async def send_agent_message(
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
+    reply_snapshot = (
+        resolve_for_session_id(db, session_id, message_data.reply_to_message_id)
+        if message_data.reply_to_message_id
+        else None
+    )
+
     # Create message
     message = conversation_service.add_message(
         session_id=session_id,
+        reply_to=reply_snapshot,
         # message_role stores enum NAMES (USER/ASSISTANT/SYSTEM/HUMAN_AGENT) — pass
         # the member, not `.value`. (The old `.value` "workaround" was inert:
         # SQLAlchemy stores the name regardless, which is why the mis-cased
@@ -3436,6 +3465,7 @@ async def send_agent_message(
             "agent_name": current_user.full_name,
             "timestamp": message.created_at.isoformat(),
             "attachments": attachment_frames(attachments),
+            "reply_to": frame_reply_to(message.reply_to),
         },
         to_customer=True,
         to_agents=True,

@@ -1,0 +1,41 @@
+{
+  "note": "Quoting an image message: kind=image, snippet is empty",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "auth": "none (public customer route)",
+    "body": {
+      "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+      "user_identifier": "widget-03da58fca9cf433195319ce51dd4485a",
+      "message": "This photo again?",
+      "reply_to_message_id": "5bcf1dee-ba26-4322-a8e0-274fcdc3a6af"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+      "message": {
+        "role": "user",
+        "content": "This photo again?",
+        "id": "7ccf518a-8450-4d55-90a9-3a850572dc6e",
+        "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [],
+        "reply_to": {
+          "message_id": "5bcf1dee-ba26-4322-a8e0-274fcdc3a6af",
+          "sender_type": "customer",
+          "kind": "image",
+          "snippet": ""
+        },
+        "meta": {},
+        "created_at": "2026-10-14T01:30:26.037169Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}

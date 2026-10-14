@@ -9,6 +9,7 @@ from app.db.models.conversation import MessageRole, SessionStatus
 from app.schemas.explore import SourceMeta
 from app.schemas.presence import CustomerPresence
 from app.schemas.rating import SessionRatingBrief
+from app.schemas.reply_to import ReplyToOut
 from app.schemas.visitor import VisitorIdentitySummary
 
 MAX_ATTACHMENTS_PER_MESSAGE = 3
@@ -73,6 +74,9 @@ class MessageRequest(BaseModel):
         None,
         max_length=MAX_ATTACHMENTS_PER_MESSAGE,
         description="IDs of previously uploaded image attachments to link to this message",
+    )
+    reply_to_message_id: UUID | None = Field(
+        None, description="Message in this session being replied to (requires session_id)"
     )
     session_id: UUID | None = Field(None, description="Existing session ID or null for new")
     tenant_id: UUID | None = Field(None, description="Tenant ID (required for new sessions)")
@@ -146,6 +150,9 @@ class MessageResponse(MessageBase):
     retrieved_chunk_ids: list[UUID] | None = None
     token_count: int | None = None
     attachments: list[AttachmentOut] = Field(default_factory=list)
+    reply_to: ReplyToOut | None = Field(
+        None, description="Quoted message when this is a reply; null (never absent) otherwise"
+    )
     meta: dict | None = Field(
         None,
         description=(

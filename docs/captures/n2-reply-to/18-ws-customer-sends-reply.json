@@ -1,0 +1,24 @@
+{
+  "customer_socket_sent": {
+    "type": "message",
+    "content": "Sending it now",
+    "reply_to_message_id": "887a8f5d-35ba-4a45-9968-647e9ec53950"
+  },
+  "agent_socket_received": [
+    {
+      "type": "customer_message",
+      "message_id": "94a4ece6-bcb0-4bbc-bfb3-0263c1aa68a8",
+      "content": "Sending it now",
+      "customer_label": "Visitor 66645e12",
+      "timestamp": "2026-10-14T01:30:27.447484+00:00",
+      "attachments": [],
+      "reply_to": {
+        "message_id": "887a8f5d-35ba-4a45-9968-647e9ec53950",
+        "sender_type": "agent",
+        "kind": "text",
+        "snippet": "Hi, Sam here. Can you send a photo of the shipping label?"
+      }
+    }
+  ],
+  "customer_socket_received": []
+}

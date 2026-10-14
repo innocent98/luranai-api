@@ -1,0 +1,29 @@
+{
+  "note": null,
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/sessions/66645e12-7da4-481a-a7c8-e19b88dd1308/agent-message",
+    "auth": "agent JWT",
+    "body": {
+      "message": "Thanks, checking now"
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "role": "human_agent",
+      "content": "Thanks, checking now",
+      "id": "e9033751-6f7e-43ac-b026-45271a1c8467",
+      "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+      "retrieved_chunk_ids": null,
+      "token_count": null,
+      "attachments": [],
+      "reply_to": null,
+      "meta": {
+        "agent_id": "10e4365c-3be3-4de0-b31c-04d9cd2ef48b",
+        "agent_name": "Sam Agent"
+      },
+      "created_at": "2026-10-14T01:30:26.301532Z"
+    }
+  }
+}

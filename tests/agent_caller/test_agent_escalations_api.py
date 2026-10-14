@@ -307,3 +307,35 @@ def test_detail_transcript_includes_attachments(client, db, auth_headers, escala
         }
     ]
     assert without_img["attachments"] == []
+
+
+def test_detail_transcript_carries_id_and_reply_to(client, db, auth_headers, escalation):
+    """N2: agent-app transcript rows expose the message id and the quote (null when none)."""
+    first, second = (
+        db.execute(
+            select(Message)
+            .where(Message.session_id == escalation.session_id)
+            .order_by(Message.created_at, Message.id)
+        )
+        .scalars()
+        .all()
+    )
+    second.reply_to_message_id = first.id
+    second.reply_to_snapshot = {
+        "sender_type": "customer",
+        "kind": "text",
+        "snippet": "I want my money back",
+    }
+    db.commit()
+    first_id, second_id = str(first.id), str(second.id)
+    escalation_id = escalation.id
+
+    body = client.get(f"/api/v1/agent/escalations/{escalation_id}", headers=auth_headers).json()
+    rows = {m["id"]: m for m in body["transcript"]}
+    assert rows[first_id]["reply_to"] is None
+    assert rows[second_id]["reply_to"] == {
+        "message_id": first_id,
+        "sender_type": "customer",
+        "kind": "text",
+        "snippet": "I want my money back",
+    }

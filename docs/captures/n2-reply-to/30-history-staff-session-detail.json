@@ -1,0 +1,254 @@
+{
+  "note": "Staff (dashboard) session detail with embedded messages; note customer_label and no user_identifier",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/chat/sessions/66645e12-7da4-481a-a7c8-e19b88dd1308",
+    "auth": "tenant admin JWT",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "My order 1042 has not arrived",
+          "id": "ce7f96a9-3906-4850-b24d-b5db037e0aba",
+          "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": null,
+          "meta": {},
+          "created_at": "2026-10-14T01:30:23.315837Z"
+        },
+        {
+          "role": "assistant",
+          "content": "I'm sorry to hear that. Let me connect you with the team.",
+          "id": "b9d67a4b-25f3-4db2-b952-ae66b85c9cba",
+          "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": null,
+          "meta": {},
+          "created_at": "2026-10-14T01:30:23.349437Z"
+        },
+        {
+          "role": "system",
+          "content": "Sam Agent joined the conversation",
+          "id": "8bdf05eb-f3c5-447b-9f5f-394166ca5c5b",
+          "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": null,
+          "meta": {
+            "event": "agent_joined"
+          },
+          "created_at": "2026-10-14T01:30:23.372901Z"
+        },
+        {
+          "role": "human_agent",
+          "content": "Hi, Sam here. Can you send a photo of the shipping label?",
+          "id": "887a8f5d-35ba-4a45-9968-647e9ec53950",
+          "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": null,
+          "meta": {
+            "agent_name": "Sam Agent"
+          },
+          "created_at": "2026-10-14T01:30:23.394173Z"
+        },
+        {
+          "role": "user",
+          "content": "[image]",
+          "id": "5bcf1dee-ba26-4322-a8e0-274fcdc3a6af",
+          "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [
+            {
+              "id": "0a19a8f3-aaaf-4b11-882a-a45f4154bd7d",
+              "url": "https://res.example.test/placeholder-label.jpg",
+              "content_type": "image/jpeg",
+              "width": 800,
+              "height": 600,
+              "kind": "image",
+              "duration_ms": null,
+              "poster_url": null,
+              "expired": false
+            }
+          ],
+          "reply_to": null,
+          "meta": {},
+          "created_at": "2026-10-14T01:30:23.414960Z"
+        },
+        {
+          "role": "user",
+          "content": "uh my parcel did not come",
+          "id": "1f027138-df8e-4aec-913d-b4d73572b188",
+          "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": null,
+          "meta": {
+            "channel": "voice"
+          },
+          "created_at": "2026-10-14T01:30:23.442700Z"
+        },
+        {
+          "role": "user",
+          "content": "Here is the label, thanks",
+          "id": "5396498b-f7b7-4675-a967-384e4011321e",
+          "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": null,
+          "meta": {},
+          "created_at": "2026-10-14T01:30:25.836347Z"
+        },
+        {
+          "role": "user",
+          "content": "Yes I can send it",
+          "id": "e44d921f-8ced-4d9b-a52b-896f1d240ddb",
+          "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": {
+            "message_id": "887a8f5d-35ba-4a45-9968-647e9ec53950",
+            "sender_type": "agent",
+            "kind": "text",
+            "snippet": "Hi, Sam here. Can you send a photo of the shipping label?"
+          },
+          "meta": {},
+          "created_at": "2026-10-14T01:30:25.935187Z"
+        },
+        {
+          "role": "user",
+          "content": "This photo again?",
+          "id": "7ccf518a-8450-4d55-90a9-3a850572dc6e",
+          "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": {
+            "message_id": "5bcf1dee-ba26-4322-a8e0-274fcdc3a6af",
+            "sender_type": "customer",
+            "kind": "image",
+            "snippet": ""
+          },
+          "meta": {},
+          "created_at": "2026-10-14T01:30:26.037169Z"
+        },
+        {
+          "role": "human_agent",
+          "content": "Thanks, checking now",
+          "id": "e9033751-6f7e-43ac-b026-45271a1c8467",
+          "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": null,
+          "meta": {
+            "agent_id": "10e4365c-3be3-4de0-b31c-04d9cd2ef48b",
+            "agent_name": "Sam Agent"
+          },
+          "created_at": "2026-10-14T01:30:26.301532Z"
+        },
+        {
+          "role": "human_agent",
+          "content": "Got your first message about order 1042",
+          "id": "00c166b8-d34a-4177-9acd-761026d27613",
+          "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": {
+            "message_id": "ce7f96a9-3906-4850-b24d-b5db037e0aba",
+            "sender_type": "customer",
+            "kind": "text",
+            "snippet": "My order 1042 has not arrived"
+          },
+          "meta": {
+            "agent_id": "10e4365c-3be3-4de0-b31c-04d9cd2ef48b",
+            "agent_name": "Sam Agent"
+          },
+          "created_at": "2026-10-14T01:30:26.367160Z"
+        },
+        {
+          "role": "user",
+          "content": "Sending it now",
+          "id": "94a4ece6-bcb0-4bbc-bfb3-0263c1aa68a8",
+          "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": {
+            "message_id": "887a8f5d-35ba-4a45-9968-647e9ec53950",
+            "sender_type": "agent",
+            "kind": "text",
+            "snippet": "Hi, Sam here. Can you send a photo of the shipping label?"
+          },
+          "meta": {},
+          "created_at": "2026-10-14T01:30:27.447484Z"
+        },
+        {
+          "role": "user",
+          "content": "plain message",
+          "id": "861136de-0385-40c7-9906-942c0ddd405f",
+          "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": null,
+          "meta": {},
+          "created_at": "2026-10-14T01:30:28.708363Z"
+        },
+        {
+          "role": "human_agent",
+          "content": "Understood, one moment",
+          "id": "3e1831d0-d0c9-4a2c-be10-57bbf7074fd4",
+          "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": {
+            "message_id": "5bcf1dee-ba26-4322-a8e0-274fcdc3a6af",
+            "sender_type": "customer",
+            "kind": "image",
+            "snippet": ""
+          },
+          "meta": {
+            "agent_id": "10e4365c-3be3-4de0-b31c-04d9cd2ef48b",
+            "agent_name": "Sam Agent"
+          },
+          "created_at": "2026-10-14T01:30:29.160426Z"
+        }
+      ],
+      "ticket_id": "1de6b511-71f1-4f20-be10-fdbac32b63db",
+      "ratings": [],
+      "meta": null,
+      "id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+      "tenant_id": "9fa753dc-fb40-413b-8687-429e5cab8aea",
+      "visitor_id": null,
+      "visitor_session_id": null,
+      "customer_user_id": null,
+      "visitor": null,
+      "status": "escalated",
+      "escalation_reason": null,
+      "escalated_at": "2026-10-14T01:30:23.291969Z",
+      "agent_id": null,
+      "agent_joined_at": null,
+      "last_message_at": "2026-10-14T01:30:29.157330Z",
+      "created_at": "2026-10-14T01:30:23.234640Z",
+      "updated_at": "2026-10-14T01:30:29.135050Z",
+      "customer_label": "Visitor 66645e12"
+    }
+  }
+}

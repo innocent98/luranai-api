@@ -1,0 +1,159 @@
+{
+  "note": "Frames pushed right after connecting. Customer socket gets human-agent messages only; agent socket gets customer + agent messages. Every message frame carries reply_to.",
+  "customer_socket": {
+    "url": "ws://127.0.0.1:8812/api/v1/ws/chat/66645e12-7da4-481a-a7c8-e19b88dd1308?user_identifier=<user_identifier>",
+    "received": [
+      {
+        "type": "agent_message",
+        "message_id": "887a8f5d-35ba-4a45-9968-647e9ec53950",
+        "content": "Hi, Sam here. Can you send a photo of the shipping label?",
+        "agent_name": "Sam Agent",
+        "agent_id": null,
+        "timestamp": "2026-10-14T01:30:23.394173+00:00",
+        "attachments": [],
+        "reply_to": null
+      },
+      {
+        "type": "agent_message",
+        "message_id": "e9033751-6f7e-43ac-b026-45271a1c8467",
+        "content": "Thanks, checking now",
+        "agent_name": "Sam Agent",
+        "agent_id": "10e4365c-3be3-4de0-b31c-04d9cd2ef48b",
+        "timestamp": "2026-10-14T01:30:26.301532+00:00",
+        "attachments": [],
+        "reply_to": null
+      },
+      {
+        "type": "agent_message",
+        "message_id": "00c166b8-d34a-4177-9acd-761026d27613",
+        "content": "Got your first message about order 1042",
+        "agent_name": "Sam Agent",
+        "agent_id": "10e4365c-3be3-4de0-b31c-04d9cd2ef48b",
+        "timestamp": "2026-10-14T01:30:26.367160+00:00",
+        "attachments": [],
+        "reply_to": {
+          "message_id": "ce7f96a9-3906-4850-b24d-b5db037e0aba",
+          "sender_type": "customer",
+          "kind": "text",
+          "snippet": "My order 1042 has not arrived"
+        }
+      }
+    ]
+  },
+  "agent_socket": {
+    "url": "ws://127.0.0.1:8812/api/v1/ws/agent/66645e12-7da4-481a-a7c8-e19b88dd1308?token=<agent JWT>",
+    "received": [
+      {
+        "type": "customer_message",
+        "message_id": "ce7f96a9-3906-4850-b24d-b5db037e0aba",
+        "content": "My order 1042 has not arrived",
+        "customer_label": "Visitor 66645e12",
+        "timestamp": "2026-10-14T01:30:23.315837+00:00",
+        "attachments": [],
+        "reply_to": null
+      },
+      {
+        "type": "agent_message",
+        "message_id": "887a8f5d-35ba-4a45-9968-647e9ec53950",
+        "content": "Hi, Sam here. Can you send a photo of the shipping label?",
+        "agent_name": "Sam Agent",
+        "agent_id": null,
+        "timestamp": "2026-10-14T01:30:23.394173+00:00",
+        "attachments": [],
+        "reply_to": null
+      },
+      {
+        "type": "customer_message",
+        "message_id": "5bcf1dee-ba26-4322-a8e0-274fcdc3a6af",
+        "content": "[image]",
+        "customer_label": "Visitor 66645e12",
+        "timestamp": "2026-10-14T01:30:23.414960+00:00",
+        "attachments": [
+          {
+            "id": "0a19a8f3-aaaf-4b11-882a-a45f4154bd7d",
+            "url": "https://res.example.test/placeholder-label.jpg",
+            "content_type": "image/jpeg",
+            "width": 800,
+            "height": 600,
+            "kind": "image",
+            "duration_ms": null,
+            "poster_url": null,
+            "expired": false
+          }
+        ],
+        "reply_to": null
+      },
+      {
+        "type": "customer_message",
+        "message_id": "1f027138-df8e-4aec-913d-b4d73572b188",
+        "content": "uh my parcel did not come",
+        "customer_label": "Visitor 66645e12",
+        "timestamp": "2026-10-14T01:30:23.442700+00:00",
+        "attachments": [],
+        "reply_to": null
+      },
+      {
+        "type": "customer_message",
+        "message_id": "5396498b-f7b7-4675-a967-384e4011321e",
+        "content": "Here is the label, thanks",
+        "customer_label": "Visitor 66645e12",
+        "timestamp": "2026-10-14T01:30:25.836347+00:00",
+        "attachments": [],
+        "reply_to": null
+      },
+      {
+        "type": "customer_message",
+        "message_id": "e44d921f-8ced-4d9b-a52b-896f1d240ddb",
+        "content": "Yes I can send it",
+        "customer_label": "Visitor 66645e12",
+        "timestamp": "2026-10-14T01:30:25.935187+00:00",
+        "attachments": [],
+        "reply_to": {
+          "message_id": "887a8f5d-35ba-4a45-9968-647e9ec53950",
+          "sender_type": "agent",
+          "kind": "text",
+          "snippet": "Hi, Sam here. Can you send a photo of the shipping label?"
+        }
+      },
+      {
+        "type": "customer_message",
+        "message_id": "7ccf518a-8450-4d55-90a9-3a850572dc6e",
+        "content": "This photo again?",
+        "customer_label": "Visitor 66645e12",
+        "timestamp": "2026-10-14T01:30:26.037169+00:00",
+        "attachments": [],
+        "reply_to": {
+          "message_id": "5bcf1dee-ba26-4322-a8e0-274fcdc3a6af",
+          "sender_type": "customer",
+          "kind": "image",
+          "snippet": ""
+        }
+      },
+      {
+        "type": "agent_message",
+        "message_id": "e9033751-6f7e-43ac-b026-45271a1c8467",
+        "content": "Thanks, checking now",
+        "agent_name": "Sam Agent",
+        "agent_id": "10e4365c-3be3-4de0-b31c-04d9cd2ef48b",
+        "timestamp": "2026-10-14T01:30:26.301532+00:00",
+        "attachments": [],
+        "reply_to": null
+      },
+      {
+        "type": "agent_message",
+        "message_id": "00c166b8-d34a-4177-9acd-761026d27613",
+        "content": "Got your first message about order 1042",
+        "agent_name": "Sam Agent",
+        "agent_id": "10e4365c-3be3-4de0-b31c-04d9cd2ef48b",
+        "timestamp": "2026-10-14T01:30:26.367160+00:00",
+        "attachments": [],
+        "reply_to": {
+          "message_id": "ce7f96a9-3906-4850-b24d-b5db037e0aba",
+          "sender_type": "customer",
+          "kind": "text",
+          "snippet": "My order 1042 has not arrived"
+        }
+      }
+    ]
+  }
+}

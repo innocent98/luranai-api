@@ -1,0 +1,23 @@
+{
+  "note": "A real message id from ANOTHER conversation: identical to not-found (no id probing)",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "auth": "none (public customer route)",
+    "body": {
+      "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+      "user_identifier": "widget-03da58fca9cf433195319ce51dd4485a",
+      "message": "x",
+      "reply_to_message_id": "3b5f0ae4-3df1-4e64-94f6-d4fcb05833ed"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "detail": {
+        "code": "REPLY_TARGET_NOT_FOUND",
+        "message": "The message you are replying to was not found"
+      }
+    }
+  }
+}

@@ -250,6 +250,7 @@ async def send_customer_message(
         MessageRequest(
             message=payload.message,
             attachment_ids=payload.attachment_ids,
+            reply_to_message_id=payload.reply_to_message_id,
             session_id=target_session_id,
             tenant_id=payload.tenant_id,
             user_identifier=current_customer.chat_user_key,

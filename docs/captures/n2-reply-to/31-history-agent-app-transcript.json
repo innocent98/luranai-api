@@ -1,0 +1,176 @@
+{
+  "note": "Agent mobile app: escalation detail transcript (now has id + reply_to per row)",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/agent/escalations/1de6b511-71f1-4f20-be10-fdbac32b63db",
+    "auth": "agent JWT",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "escalation_id": "1de6b511-71f1-4f20-be10-fdbac32b63db",
+      "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+      "ticket_number": "TKT-b44302b3",
+      "customer_name": null,
+      "reason": "Order not arrived",
+      "priority": "normal",
+      "status": "pending",
+      "created_at": "2026-10-14T01:30:23.447700Z",
+      "handled_by": "Sam Agent",
+      "handled_by_user_id": "10e4365c-3be3-4de0-b31c-04d9cd2ef48b",
+      "acknowledged_at": null,
+      "transcript": [
+        {
+          "id": "ce7f96a9-3906-4850-b24d-b5db037e0aba",
+          "role": "user",
+          "content": "My order 1042 has not arrived",
+          "created_at": "2026-10-14T01:30:23.315837Z",
+          "attachments": [],
+          "reply_to": null
+        },
+        {
+          "id": "b9d67a4b-25f3-4db2-b952-ae66b85c9cba",
+          "role": "assistant",
+          "content": "I'm sorry to hear that. Let me connect you with the team.",
+          "created_at": "2026-10-14T01:30:23.349437Z",
+          "attachments": [],
+          "reply_to": null
+        },
+        {
+          "id": "8bdf05eb-f3c5-447b-9f5f-394166ca5c5b",
+          "role": "system",
+          "content": "Sam Agent joined the conversation",
+          "created_at": "2026-10-14T01:30:23.372901Z",
+          "attachments": [],
+          "reply_to": null
+        },
+        {
+          "id": "887a8f5d-35ba-4a45-9968-647e9ec53950",
+          "role": "human_agent",
+          "content": "Hi, Sam here. Can you send a photo of the shipping label?",
+          "created_at": "2026-10-14T01:30:23.394173Z",
+          "attachments": [],
+          "reply_to": null
+        },
+        {
+          "id": "5bcf1dee-ba26-4322-a8e0-274fcdc3a6af",
+          "role": "user",
+          "content": "[image]",
+          "created_at": "2026-10-14T01:30:23.414960Z",
+          "attachments": [
+            {
+              "id": "0a19a8f3-aaaf-4b11-882a-a45f4154bd7d",
+              "url": "https://res.example.test/placeholder-label.jpg",
+              "content_type": "image/jpeg",
+              "width": 800,
+              "height": 600,
+              "kind": "image",
+              "duration_ms": null,
+              "poster_url": null,
+              "expired": false
+            }
+          ],
+          "reply_to": null
+        },
+        {
+          "id": "1f027138-df8e-4aec-913d-b4d73572b188",
+          "role": "user",
+          "content": "uh my parcel did not come",
+          "created_at": "2026-10-14T01:30:23.442700Z",
+          "attachments": [],
+          "reply_to": null
+        },
+        {
+          "id": "5396498b-f7b7-4675-a967-384e4011321e",
+          "role": "user",
+          "content": "Here is the label, thanks",
+          "created_at": "2026-10-14T01:30:25.836347Z",
+          "attachments": [],
+          "reply_to": null
+        },
+        {
+          "id": "e44d921f-8ced-4d9b-a52b-896f1d240ddb",
+          "role": "user",
+          "content": "Yes I can send it",
+          "created_at": "2026-10-14T01:30:25.935187Z",
+          "attachments": [],
+          "reply_to": {
+            "message_id": "887a8f5d-35ba-4a45-9968-647e9ec53950",
+            "sender_type": "agent",
+            "kind": "text",
+            "snippet": "Hi, Sam here. Can you send a photo of the shipping label?"
+          }
+        },
+        {
+          "id": "7ccf518a-8450-4d55-90a9-3a850572dc6e",
+          "role": "user",
+          "content": "This photo again?",
+          "created_at": "2026-10-14T01:30:26.037169Z",
+          "attachments": [],
+          "reply_to": {
+            "message_id": "5bcf1dee-ba26-4322-a8e0-274fcdc3a6af",
+            "sender_type": "customer",
+            "kind": "image",
+            "snippet": ""
+          }
+        },
+        {
+          "id": "e9033751-6f7e-43ac-b026-45271a1c8467",
+          "role": "human_agent",
+          "content": "Thanks, checking now",
+          "created_at": "2026-10-14T01:30:26.301532Z",
+          "attachments": [],
+          "reply_to": null
+        },
+        {
+          "id": "00c166b8-d34a-4177-9acd-761026d27613",
+          "role": "human_agent",
+          "content": "Got your first message about order 1042",
+          "created_at": "2026-10-14T01:30:26.367160Z",
+          "attachments": [],
+          "reply_to": {
+            "message_id": "ce7f96a9-3906-4850-b24d-b5db037e0aba",
+            "sender_type": "customer",
+            "kind": "text",
+            "snippet": "My order 1042 has not arrived"
+          }
+        },
+        {
+          "id": "94a4ece6-bcb0-4bbc-bfb3-0263c1aa68a8",
+          "role": "user",
+          "content": "Sending it now",
+          "created_at": "2026-10-14T01:30:27.447484Z",
+          "attachments": [],
+          "reply_to": {
+            "message_id": "887a8f5d-35ba-4a45-9968-647e9ec53950",
+            "sender_type": "agent",
+            "kind": "text",
+            "snippet": "Hi, Sam here. Can you send a photo of the shipping label?"
+          }
+        },
+        {
+          "id": "861136de-0385-40c7-9906-942c0ddd405f",
+          "role": "user",
+          "content": "plain message",
+          "created_at": "2026-10-14T01:30:28.708363Z",
+          "attachments": [],
+          "reply_to": null
+        },
+        {
+          "id": "3e1831d0-d0c9-4a2c-be10-57bbf7074fd4",
+          "role": "human_agent",
+          "content": "Understood, one moment",
+          "created_at": "2026-10-14T01:30:29.160426Z",
+          "attachments": [],
+          "reply_to": {
+            "message_id": "5bcf1dee-ba26-4322-a8e0-274fcdc3a6af",
+            "sender_type": "customer",
+            "kind": "image",
+            "snippet": ""
+          }
+        }
+      ]
+    }
+  }
+}
