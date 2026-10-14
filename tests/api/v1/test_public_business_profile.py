@@ -35,3 +35,27 @@ def test_public_profile_reflects_allow_file_upload(
 
     assert resp.status_code == 200
     assert resp.json()["allow_file_upload"] is allow_file_upload
+
+
+@pytest.mark.parametrize("listed", [True, False])
+def test_public_profile_reports_real_first_responder_even_when_private(
+    client: TestClient, db: Session, listed: bool
+):
+    """N3 follow-up: a private tenant must not report the schema default 'ai'."""
+    from app.db.models.tenant import TenantAIConfig
+
+    tenant = _make_tenant(db, allow_file_upload=True)
+    tenant.is_publicly_listed = listed
+    db.add(TenantAIConfig(tenant_id=tenant.id, first_responder="human"))
+    db.commit()
+
+    resp = client.get(f"/api/v1/public/business/{tenant.public_slug}")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["is_private"] is (not listed)
+    assert body["first_responder"] == "human"
+    if not listed:
+        # Still redacted: only the mode string is added, nothing descriptive.
+        assert body["description"] is None
+        assert body["widget_greeting_message"] is None

@@ -179,6 +179,9 @@ def get_customer_conversation(
         business_widget_greeting_message=tenant.widget_greeting_message if tenant else None,
         allow_file_upload=tenant.widget_allow_file_upload if tenant else True,
         allow_screen_recording=screen_recording_allowed(db, tenant),
+        first_responder=(
+            (getattr(tenant.ai_config, "first_responder", "ai") or "ai") if tenant else "ai"
+        ),
         conversation=detail,
         has_more_messages=has_more,
     )

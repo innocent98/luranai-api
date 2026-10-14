@@ -383,3 +383,22 @@ def test_customer_send_message_forwards_attachment_ids(client: TestClient, db: S
     assert row.message_id is not None
     user_msg = db.execute(select(Message).where(Message.id == row.message_id)).scalar_one()
     assert user_msg.content == "look at this"
+
+
+def test_customer_conversation_detail_exposes_first_responder(client: TestClient, db: Session):
+    """N3 follow-up: the authed detail carries the tenant's real first_responder."""
+    tenant = _create_tenant(db)
+    customer = _create_customer(db)
+    headers = _customer_headers(customer)
+    session = _create_session(db, tenant, customer, customer_user_id=customer.id)
+
+    # No AI config row -> schema default.
+    r = client.get(f"/api/v1/customer/conversations/{session.id}", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["first_responder"] == "ai"
+
+    db.add(TenantAIConfig(tenant_id=tenant.id, first_responder="human"))
+    db.commit()
+    r = client.get(f"/api/v1/customer/conversations/{session.id}", headers=headers)
+    assert r.status_code == 200
+    assert r.json()["first_responder"] == "human"
