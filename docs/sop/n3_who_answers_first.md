@@ -19,7 +19,7 @@ A tenant with an empty knowledge base still got endless AI clarifying questions 
 | Missed notice (N3-D5) | `app/workers/agent_alerts.py::_post_missed_notice`, only when the conditional UPDATE to MISSED flips exactly one row, so a retried job posts nothing. Persisted via `ConversationService.add_message` (bumps `last_message_at`) and fanned out as a `ticket_missed` frame to the customer only. Email clause omitted (ruling): verified that no customer email exists for agent replies. |
 | Voice | `VoiceGate._voice_enabled_by_tenant` returns false for `human`, reusing denial `voice_disabled` (widget already handles it). |
 | Defaults (N3-D3) | New tenants and company registration create `human`; lazy AI-config creation in the voice-settings PUT applies the migration rule (0 ACTIVE sources -> `human`). |
-| Widget / visitor | `first_responder` added to `PublicWidgetConfigResponse` and the public business profile / bootstrap tenant payload. The minimal private-tenant profile reports the schema default `ai` (documented FE trap; use bootstrap). |
+| Widget / visitor | `first_responder` added to `PublicWidgetConfigResponse` and the public business profile / bootstrap tenant payload. (Follow-up, 2026-10-14: the private-tenant profile now reports the real value; see below.) |
 
 ## What's involved
 - Migration `alembic/versions/n3_first_responder.py` (revision `n3firstresp`, down `mp70attachpos`).
@@ -49,3 +49,13 @@ A tenant with an empty knowledge base still got endless AI clarifying questions 
 - Per-tenant affected count (which tenants the migration flipped) to be reported before the prod promotion.
 - Live staging pass after merge (agent ring on a real device, name-required capture, ticket reopen in Human-only mode).
 - Remaining escalation call sites could adopt `_escalate_to_human` if their ordering constraints are relaxed.
+
+## Follow-up shipped 2026-10-14: real `first_responder` for authed customer views
+Branch `fix/n3-first-responder-customer-payload`. The private-tenant minimal profile on `GET /public/business/{slug}` reported the schema default `ai`, and `GET /customer/conversations/{id}` had no mode, so luran-chat could show Talk (voice) for a human-only tenant (server still refused voice: UX bug only).
+- `visitor_service.get_public_business_profile`: private branch now sets `first_responder` from the tenant AI config. It is a behaviour flag already public via widget config and workspace-id bootstrap, so no new disclosure; all descriptive fields stay redacted.
+- `CustomerConversationDetail.first_responder` (top level, default `ai`) populated in `customer_conversations.get_customer_conversation`. List payload untouched.
+- Tests: `tests/api/v1/test_public_business_profile.py` (listed + private), `tests/api/v1/test_customer_conversations.py`.
+- Captures: `docs/captures/n3-followup/` (local uvicorn, placeholder data); FE guide trap 2/2b updated.
+- Verification: ruff 0.8.6 + black 24.10.0 clean; full suite on Postgres 15 / Redis 7: 1661 passed, 33 skipped.
+- Roll back: revert the PR (additive field; older clients ignore it).
+- Remaining: other private-profile flags (`allow_file_upload`, `collect_*`) are still schema defaults.

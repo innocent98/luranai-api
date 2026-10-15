@@ -163,6 +163,12 @@ class ConversationSession(Base, UUIDMixin, TimestampMixin):
         default=None,
         comment="When the customer last viewed this conversation",
     )
+    customer_last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        default=None,
+        comment="When the customer was last connected (written on offline transition)",
+    )
 
     # Relationships
     messages: Mapped[list["Message"]] = relationship(
@@ -264,6 +270,24 @@ class Message(Base, UUIDMixin):
         default=datetime.utcnow,
         comment="When this message was created",
     )
+    reply_to_message_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        index=True,
+        nullable=True,
+        comment="Message this one quotes (null when not a reply, or once the original is gone)",
+    )
+    reply_to_snapshot: Mapped[dict | None] = mapped_column(
+        EncryptedJSON,
+        nullable=True,
+        comment="Quote taken at send time {sender_type, kind, snippet} — encrypted at rest",
+    )
+
+    @property
+    def reply_to(self) -> dict | None:
+        """Wire shape of the quote; `message_id` is null once the original was deleted."""
+        if not self.reply_to_snapshot:
+            return None
+        return {"message_id": self.reply_to_message_id, **self.reply_to_snapshot}
 
     # Relationships
     session: Mapped["ConversationSession"] = relationship(
@@ -469,3 +493,17 @@ class Ticket(Base, UUIDMixin, TimestampMixin):
 
     def __repr__(self) -> str:
         return f"<Ticket(id={self.id}, ticket_number={self.ticket_number}, status={self.status})>"
+
+
+class TicketNumberCounter(Base):
+    """Per-year high-water mark for the visible `TKT-YYYY-NNNN` ticket number.
+
+    One row per calendar year, advanced atomically by
+    `TicketService._generate_ticket_number`. Replaces COUNT(*)+1, which let two
+    concurrent escalations of different sessions mint the same number.
+    """
+
+    __tablename__ = "ticket_number_counters"
+
+    year: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    last_value: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

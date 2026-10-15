@@ -1,0 +1,37 @@
+{
+  "request": "GET /api/v1/chat/sessions/a6fa6681-93d9-4dac-85e4-bec0d118b6cd",
+  "status": 200,
+  "response": {
+    "messages": [],
+    "ticket_id": "21ab2bd5-4fdf-499f-9bec-1f5d7779c697",
+    "ratings": [],
+    "meta": null,
+    "id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd",
+    "tenant_id": "d80e470b-452f-41c0-a627-5a879df87658",
+    "visitor_id": "1b7a156a-9c5f-479b-b049-d260e11a71e4",
+    "visitor_session_id": null,
+    "customer_user_id": null,
+    "visitor": {
+      "id": "1b7a156a-9c5f-479b-b049-d260e11a71e4",
+      "name": "Ada",
+      "email": "ada8ad2@example.com",
+      "phone": null,
+      "first_seen_at": "2026-10-14T00:05:26.578951Z",
+      "last_seen_at": "2026-10-14T00:05:26.578954Z",
+      "is_blocked": false
+    },
+    "status": "escalated",
+    "escalation_reason": "Refund request",
+    "escalated_at": null,
+    "agent_id": null,
+    "agent_joined_at": null,
+    "last_message_at": "2026-10-14T00:05:26.589964Z",
+    "created_at": "2026-10-14T00:05:26.583134Z",
+    "updated_at": "2026-10-14T00:06:36.435274Z",
+    "customer_label": "Ada",
+    "customer_presence": {
+      "state": "offline",
+      "last_seen_at": "2026-10-14T00:06:05.921693Z"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "note": "Original agent message deleted directly in the DB (no API deletes a single message) to show the ON DELETE SET NULL shape: message_id becomes null, sender_type/kind/snippet survive. FE shows 'Original message unavailable'.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/chat/sessions/66645e12-7da4-481a-a7c8-e19b88dd1308/messages",
+    "auth": "tenant admin JWT"
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "role": "user",
+        "content": "Yes I can send it",
+        "id": "e44d921f-8ced-4d9b-a52b-896f1d240ddb",
+        "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [],
+        "reply_to": {
+          "message_id": null,
+          "sender_type": "agent",
+          "kind": "text",
+          "snippet": "Hi, Sam here. Can you send a photo of the shipping label?"
+        },
+        "meta": {},
+        "created_at": "2026-10-14T01:30:25.935187Z"
+      }
+    ]
+  }
+}

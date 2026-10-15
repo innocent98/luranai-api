@@ -1,0 +1,48 @@
+{
+  "request": "GET /api/v1/agent/escalations",
+  "status": 200,
+  "response": [
+    {
+      "escalation_id": "cf34680e-a7b0-443d-b41f-ed5d18725ba1",
+      "session_id": "096650d2-d572-4466-9e4a-f339749db26c",
+      "ticket_number": "TKT-5D94BA",
+      "customer_name": "Chidi",
+      "reason": "Refund request",
+      "priority": "important",
+      "status": "missed",
+      "created_at": "2026-10-14T00:05:26.648566Z",
+      "customer_presence": {
+        "state": "offline",
+        "last_seen_at": null
+      }
+    },
+    {
+      "escalation_id": "d838ffd7-578e-4605-9e4c-0da827abbc2a",
+      "session_id": "0a6c7960-9767-401b-bb69-add7c5bfb52f",
+      "ticket_number": "TKT-11AC78",
+      "customer_name": "Bola",
+      "reason": "Refund request",
+      "priority": "important",
+      "status": "pending",
+      "created_at": "2026-10-14T00:05:26.607465Z",
+      "customer_presence": {
+        "state": "offline",
+        "last_seen_at": null
+      }
+    },
+    {
+      "escalation_id": "21ab2bd5-4fdf-499f-9bec-1f5d7779c697",
+      "session_id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd",
+      "ticket_number": "TKT-C6C146",
+      "customer_name": "Ada",
+      "reason": "Refund request",
+      "priority": "important",
+      "status": "pending",
+      "created_at": "2026-10-14T00:05:26.594044Z",
+      "customer_presence": {
+        "state": "offline",
+        "last_seen_at": null
+      }
+    }
+  ]
+}

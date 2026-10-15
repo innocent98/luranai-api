@@ -1,0 +1,23 @@
+{
+  "authed_customer_socket_sent": {
+    "type": "message",
+    "content": "Following up on that",
+    "reply_to_message_id": "ce1367d7-257b-4489-8063-f176aa88bb41"
+  },
+  "agent_socket_received": [
+    {
+      "type": "customer_message",
+      "message_id": "d0bf7ea4-32b6-46e4-ad6c-e5d598acfd4c",
+      "content": "Following up on that",
+      "customer_label": "Visitor 0a258ea1",
+      "timestamp": "2026-10-14T01:30:38.430693+00:00",
+      "attachments": [],
+      "reply_to": {
+        "message_id": "ce1367d7-257b-4489-8063-f176aa88bb41",
+        "sender_type": "agent",
+        "kind": "text",
+        "snippet": "Welcome back Ada, how can I help?"
+      }
+    }
+  ]
+}

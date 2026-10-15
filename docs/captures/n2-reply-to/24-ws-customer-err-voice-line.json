@@ -1,0 +1,15 @@
+{
+  "customer_socket_sent": {
+    "type": "message",
+    "content": "rejected",
+    "reply_to_message_id": "1f027138-df8e-4aec-913d-b4d73572b188"
+  },
+  "customer_socket_received": [
+    {
+      "type": "error",
+      "code": "REPLY_TARGET_NOT_QUOTABLE",
+      "message": "This message cannot be replied to"
+    }
+  ],
+  "agent_socket_received": []
+}

@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_db
 from app.api.v1.endpoints.chat import send_message
 from app.core.config import settings
+from app.utils.customer_credential import optional_customer, session_credential_matches
 from app.db.models.conversation import ConversationSession, MessageRole
 from app.db.session import SessionLocal
 from app.schemas.conversation import MessageRequest
@@ -30,7 +31,7 @@ from app.schemas.voice import (
     VoiceTokenRequest,
     VoiceTokenResponse,
 )
-from app.services.conversation_service import ConversationService
+from app.services.conversation_service import ConversationService, voice_channel
 from app.services.rag_service import RAGService
 from app.services.ticket_service import TicketService
 from app.services.voice.auth import verify_elevenlabs_request
@@ -145,6 +146,7 @@ async def _release_reserved_slot(
 )
 async def mint_voice_session_token(
     payload: VoiceTokenRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """Mint a short-lived ElevenLabs WebRTC token, subject to tenant gating.
@@ -172,6 +174,20 @@ async def mint_voice_session_token(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail={"reason": "session_not_found"},
+        )
+
+    # The minted token later writes USER messages through the trusted send_message path,
+    # so minting needs the same customer credential as the public chat message route.
+    if not session_credential_matches(
+        db,
+        session,
+        user_identifier=payload.user_identifier,
+        visitor_token=payload.visitor_token,
+        customer=optional_customer(request, db),
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={"reason": "invalid_customer_credential"},
         )
 
     gate = VoiceGate(db)
@@ -682,14 +698,19 @@ async def _run_pipeline(
     tool_already_invoked: bool = False,
 ) -> _TurnOutcome:
     try:
-        chat_response = await send_message(
-            MessageRequest(
-                message=user_text,
-                session_id=context.luran_session_id,
-                tenant_id=context.tenant_id,
-            ),
-            db,
-        )
+        # Mark the lines this turn persists as voice transcript (not quotable, N2-D2).
+        voice_marker = voice_channel.set(True)
+        try:
+            chat_response = await send_message(
+                MessageRequest(
+                    message=user_text,
+                    session_id=context.luran_session_id,
+                    tenant_id=context.tenant_id,
+                ),
+                db,
+            )
+        finally:
+            voice_channel.reset(voice_marker)
         reply_text = chat_response.message.content
         if chat_response.message.role == MessageRole.USER:
             # ALREADY-ESCALATED session: `send_message` skips generation and
@@ -954,15 +975,16 @@ async def voice_escalate_to_human(
     ticket_service = TicketService(db)
 
     try:
-        existing = ticket_service.get_open_ticket_for_session(context.luran_session_id)
-        if existing is not None:
-            return {"switch_to_text": True, "ticket_id": str(existing.id)}
-
         # TODO(agent-caller): ring the on-call agent app here once it exists
         # (see project_agent_caller_app in memory) — today this only opens a
         # ticket for a human to pick up asynchronously.
+        # escalate_session is a no-op on an already-escalated session, so a
+        # repeated tool call neither restarts the clock nor re-escalates; it
+        # commits, so it must run before the lock is taken.
         ConversationService(db).escalate_session(context.luran_session_id, reason)
-        ticket = ticket_service.create_ticket(
+        # Same per-session lock + live-ticket guard as chat escalation: a repeated
+        # or concurrent tool call reuses the session's open ticket.
+        ticket, _created = ticket_service.get_or_create_live_ticket(
             TicketCreate(
                 tenant_id=context.tenant_id,
                 session_id=context.luran_session_id,

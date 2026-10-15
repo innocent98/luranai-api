@@ -1,0 +1,33 @@
+{
+  "note": "Malformed id is a plain FastAPI 422 validation error (different shape from the coded errors)",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "auth": "none (public customer route)",
+    "body": {
+      "session_id": "66645e12-7da4-481a-a7c8-e19b88dd1308",
+      "user_identifier": "widget-03da58fca9cf433195319ce51dd4485a",
+      "message": "x",
+      "reply_to_message_id": "not-a-uuid"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "detail": [
+        {
+          "type": "uuid_parsing",
+          "loc": [
+            "body",
+            "reply_to_message_id"
+          ],
+          "msg": "Input should be a valid UUID, invalid character: found `n` at 0",
+          "input": "not-a-uuid",
+          "ctx": {
+            "error": "invalid character: found `n` at 0"
+          }
+        }
+      ]
+    }
+  }
+}

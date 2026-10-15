@@ -1,0 +1,98 @@
+{
+  "request": "GET /api/v1/tickets",
+  "status": 200,
+  "response": {
+    "tickets": [
+      {
+        "summary": "Refund request",
+        "priority": "high",
+        "id": "cf34680e-a7b0-443d-b41f-ed5d18725ba1",
+        "tenant_id": "d80e470b-452f-41c0-a627-5a879df87658",
+        "session_id": "096650d2-d572-4466-9e4a-f339749db26c",
+        "ticket_number": "TKT-5D94BA",
+        "status": "missed",
+        "assigned_to": null,
+        "assigned_agent": null,
+        "visitor": {
+          "id": "015767f5-4730-44ba-a1c1-2d75cfa20143",
+          "name": "Chidi",
+          "email": "chidicf1f@example.com",
+          "phone": null,
+          "first_seen_at": "2026-10-14T00:05:26.614126Z",
+          "last_seen_at": "2026-10-14T00:05:26.614129Z",
+          "is_blocked": false
+        },
+        "resolution_notes": null,
+        "resolved_at": null,
+        "rating_request_id": null,
+        "customer_presence": {
+          "state": "offline",
+          "last_seen_at": null
+        },
+        "created_at": "2026-10-14T00:05:26.648566Z",
+        "updated_at": "2026-10-14T00:05:26.648566Z"
+      },
+      {
+        "summary": "Refund request",
+        "priority": "high",
+        "id": "d838ffd7-578e-4605-9e4c-0da827abbc2a",
+        "tenant_id": "d80e470b-452f-41c0-a627-5a879df87658",
+        "session_id": "0a6c7960-9767-401b-bb69-add7c5bfb52f",
+        "ticket_number": "TKT-11AC78",
+        "status": "open",
+        "assigned_to": null,
+        "assigned_agent": null,
+        "visitor": {
+          "id": "7ce314f7-9b6d-45a4-b46c-1444dbf56390",
+          "name": "Bola",
+          "email": "bola7fc1@example.com",
+          "phone": null,
+          "first_seen_at": "2026-10-14T00:05:26.604894Z",
+          "last_seen_at": "2026-10-14T00:05:26.604896Z",
+          "is_blocked": false
+        },
+        "resolution_notes": null,
+        "resolved_at": null,
+        "rating_request_id": null,
+        "customer_presence": {
+          "state": "offline",
+          "last_seen_at": null
+        },
+        "created_at": "2026-10-14T00:05:26.607465Z",
+        "updated_at": "2026-10-14T00:05:26.607465Z"
+      },
+      {
+        "summary": "Refund request",
+        "priority": "high",
+        "id": "21ab2bd5-4fdf-499f-9bec-1f5d7779c697",
+        "tenant_id": "d80e470b-452f-41c0-a627-5a879df87658",
+        "session_id": "a6fa6681-93d9-4dac-85e4-bec0d118b6cd",
+        "ticket_number": "TKT-C6C146",
+        "status": "open",
+        "assigned_to": null,
+        "assigned_agent": null,
+        "visitor": {
+          "id": "1b7a156a-9c5f-479b-b049-d260e11a71e4",
+          "name": "Ada",
+          "email": "ada8ad2@example.com",
+          "phone": null,
+          "first_seen_at": "2026-10-14T00:05:26.578951Z",
+          "last_seen_at": "2026-10-14T00:05:26.578954Z",
+          "is_blocked": false
+        },
+        "resolution_notes": null,
+        "resolved_at": null,
+        "rating_request_id": null,
+        "customer_presence": {
+          "state": "active",
+          "last_seen_at": null
+        },
+        "created_at": "2026-10-14T00:05:26.594044Z",
+        "updated_at": "2026-10-14T00:05:26.594044Z"
+      }
+    ],
+    "total": 3,
+    "page": 1,
+    "page_size": 100
+  }
+}

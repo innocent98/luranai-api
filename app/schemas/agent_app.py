@@ -8,7 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.db.models.agent_device import DevicePlatform
 from app.db.models.user import AvailabilityStatus, UserRole
-from app.schemas.conversation import AttachmentOut
+from app.schemas.conversation import AttachmentOut, ReplyToOut
+from app.schemas.presence import CustomerPresence
 
 
 class DeviceRegisterRequest(BaseModel):
@@ -61,13 +62,16 @@ class EscalationSummary(BaseModel):
     priority: str
     status: str
     created_at: datetime
+    customer_presence: CustomerPresence | None = None  # null = presence unavailable
 
 
 class TranscriptMessage(BaseModel):
+    id: UUID
     role: str
     content: str
     created_at: datetime
     attachments: list[AttachmentOut] = Field(default_factory=list)
+    reply_to: ReplyToOut | None = None
 
 
 class EscalationDetail(EscalationSummary):

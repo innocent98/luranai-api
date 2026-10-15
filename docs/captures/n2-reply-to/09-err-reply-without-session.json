@@ -1,0 +1,23 @@
+{
+  "note": null,
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "auth": "none (public customer route)",
+    "body": {
+      "tenant_id": "9fa753dc-fb40-413b-8687-429e5cab8aea",
+      "user_identifier": "brand-new-visitor",
+      "message": "x",
+      "reply_to_message_id": "887a8f5d-35ba-4a45-9968-647e9ec53950"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "detail": {
+        "code": "REPLY_TARGET_NOT_FOUND",
+        "message": "The message you are replying to was not found"
+      }
+    }
+  }
+}

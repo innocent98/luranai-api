@@ -1,0 +1,14 @@
+{
+  "customer_socket_sent": {
+    "type": "message",
+    "content": "x",
+    "reply_to_message_id": "f80a19c1-915d-4440-b9be-fc5aacd5a2b1"
+  },
+  "customer_socket_received": [
+    {
+      "type": "error",
+      "code": "REPLY_SESSION_CLOSED",
+      "message": "This conversation is closed; replies are disabled"
+    }
+  ]
+}

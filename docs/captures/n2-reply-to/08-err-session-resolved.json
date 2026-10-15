@@ -1,0 +1,23 @@
+{
+  "note": null,
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "auth": "none (public customer route)",
+    "body": {
+      "session_id": "e7f6f18d-a545-4d92-a3e4-f64485446a4a",
+      "user_identifier": "widget-4e8f98fca2ed4aca99c708aafb9a2c9e",
+      "message": "x",
+      "reply_to_message_id": "f80a19c1-915d-4440-b9be-fc5aacd5a2b1"
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "detail": {
+        "code": "REPLY_SESSION_CLOSED",
+        "message": "This conversation is closed; replies are disabled"
+      }
+    }
+  }
+}

@@ -1,0 +1,97 @@
+{
+  "note": "Authed customer inbox detail",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/customer/conversations/0a258ea1-13f4-403a-99c0-931453fabf9f",
+    "auth": "customer JWT",
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "business_name": "Acme Support",
+      "business_slug": null,
+      "business_logo_url": null,
+      "business_description": null,
+      "business_widget_primary_color": "#2563eb",
+      "business_widget_accent_color": "#10b981",
+      "business_widget_greeting_message": "Hi! How can we help you today?",
+      "allow_file_upload": true,
+      "allow_screen_recording": true,
+      "conversation": {
+        "messages": [
+          {
+            "role": "human_agent",
+            "content": "Welcome back Ada, how can I help?",
+            "id": "ce1367d7-257b-4489-8063-f176aa88bb41",
+            "session_id": "0a258ea1-13f4-403a-99c0-931453fabf9f",
+            "retrieved_chunk_ids": null,
+            "token_count": null,
+            "attachments": [],
+            "reply_to": null,
+            "meta": {
+              "agent_name": "Sam Agent"
+            },
+            "created_at": "2026-10-14T01:30:23.586170Z"
+          },
+          {
+            "role": "user",
+            "content": "I need help with my invoice",
+            "id": "8fb7ccba-8744-40a8-8272-b1860dfcb86c",
+            "session_id": "0a258ea1-13f4-403a-99c0-931453fabf9f",
+            "retrieved_chunk_ids": null,
+            "token_count": null,
+            "attachments": [],
+            "reply_to": {
+              "message_id": "ce1367d7-257b-4489-8063-f176aa88bb41",
+              "sender_type": "agent",
+              "kind": "text",
+              "snippet": "Welcome back Ada, how can I help?"
+            },
+            "meta": {},
+            "created_at": "2026-10-14T01:30:26.528492Z"
+          },
+          {
+            "role": "user",
+            "content": "Following up on that",
+            "id": "d0bf7ea4-32b6-46e4-ad6c-e5d598acfd4c",
+            "session_id": "0a258ea1-13f4-403a-99c0-931453fabf9f",
+            "retrieved_chunk_ids": null,
+            "token_count": null,
+            "attachments": [],
+            "reply_to": {
+              "message_id": "ce1367d7-257b-4489-8063-f176aa88bb41",
+              "sender_type": "agent",
+              "kind": "text",
+              "snippet": "Welcome back Ada, how can I help?"
+            },
+            "meta": {},
+            "created_at": "2026-10-14T01:30:38.430693Z"
+          }
+        ],
+        "ticket_id": null,
+        "ratings": [],
+        "meta": {
+          "contact_name": "Ada Customer",
+          "contact_email": "ada_b44302b3@example.com"
+        },
+        "id": "0a258ea1-13f4-403a-99c0-931453fabf9f",
+        "tenant_id": "9fa753dc-fb40-413b-8687-429e5cab8aea",
+        "visitor_id": null,
+        "visitor_session_id": null,
+        "customer_user_id": "1585f6ca-eb31-4063-b7df-6235a87ff72e",
+        "visitor": null,
+        "status": "escalated",
+        "escalation_reason": null,
+        "escalated_at": null,
+        "agent_id": null,
+        "agent_joined_at": null,
+        "last_message_at": "2026-10-14T01:30:38.427253Z",
+        "created_at": "2026-10-14T01:30:23.526325Z",
+        "updated_at": "2026-10-14T01:30:38.402922Z",
+        "user_identifier": "cb-8bEfjFITnAgi2JXdRRYl44-4umd2G"
+      },
+      "has_more_messages": false
+    }
+  }
+}

@@ -179,6 +179,9 @@ def get_customer_conversation(
         business_widget_greeting_message=tenant.widget_greeting_message if tenant else None,
         allow_file_upload=tenant.widget_allow_file_upload if tenant else True,
         allow_screen_recording=screen_recording_allowed(db, tenant),
+        first_responder=(
+            (getattr(tenant.ai_config, "first_responder", "ai") or "ai") if tenant else "ai"
+        ),
         conversation=detail,
         has_more_messages=has_more,
     )
@@ -247,18 +250,19 @@ async def send_customer_message(
         MessageRequest(
             message=payload.message,
             attachment_ids=payload.attachment_ids,
+            reply_to_message_id=payload.reply_to_message_id,
             session_id=target_session_id,
             tenant_id=payload.tenant_id,
             user_identifier=current_customer.chat_user_key,
             metadata={
-                **(payload.metadata or {}),
-                "customer_user_id": str(current_customer.id),
+                **{k: v for k, v in (payload.metadata or {}).items() if k != "customer_user_id"},
                 "customer_name": current_customer.full_name,
                 "customer_email": current_customer.email,
                 "source": "customer_dashboard",
             },
         ),
         db=db,
+        authed_customer_id=current_customer.id,
     )
     conversation_service.assign_customer_to_session(chat_response.session_id, current_customer.id)
     return chat_response

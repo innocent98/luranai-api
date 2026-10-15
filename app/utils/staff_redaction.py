@@ -4,6 +4,8 @@ Customer bearer credentials: the N4 `rating_token`, the visitor's `public_token`
 (and the `visitor_token` / `visitor_session_token` copies the widget stores in
 session meta) and the raw `user_identifier` (customer socket auth = session_id +
 user_identifier). Staff get a non-secret `customer_label` instead.
+
+Message meta drops the known token keys (block-list); session meta is an allow-list.
 """
 
 from uuid import UUID
@@ -13,7 +15,25 @@ from sqlalchemy.orm import Session
 from app.schemas.conversation import MessageResponse
 
 STAFF_REDACTED_META_KEYS = frozenset({"rating_token"})
-STAFF_REDACTED_SESSION_META_KEYS = frozenset({"visitor_token", "visitor_session_token"})
+# Session meta is client-supplied and grows with every integration, so staff see only an
+# allow-list of descriptive context. Anything else (current or future credentials, internal
+# ids, flow state) is dropped by default.
+STAFF_VISIBLE_SESSION_META_KEYS = frozenset(
+    {
+        "source",
+        "entry_point",
+        "page_url",
+        "referrer_url",
+        "locale",
+        "user_agent",
+        "contact_name",
+        "contact_email",
+        "customer_name",
+        "customer_email",
+        "rag_only_mode",
+    }
+)
+_SCALARS = (str, int, float, bool, type(None))
 
 
 def _without(meta: dict | None, keys: frozenset[str]) -> dict | None:
@@ -27,7 +47,13 @@ def redact_staff_meta(meta: dict | None) -> dict | None:
 
 
 def redact_staff_session_meta(meta: dict | None) -> dict | None:
-    return _without(meta, STAFF_REDACTED_META_KEYS | STAFF_REDACTED_SESSION_META_KEYS)
+    if not meta:
+        return meta
+    return {
+        k: v
+        for k, v in meta.items()
+        if k in STAFF_VISIBLE_SESSION_META_KEYS and isinstance(v, _SCALARS)
+    }
 
 
 def redact_staff_messages(messages: list[MessageResponse]) -> list[MessageResponse]:

@@ -1,0 +1,21 @@
+{
+  "https://www.python.org/": {
+    "status": 200,
+    "html_bytes": 53443,
+    "final_url": "https://www.python.org/",
+    "routes": {
+      "continue_root": 6,
+      "abort": 5,
+      "fulfill_crosshost": 5
+    }
+  },
+  "https://en.wikipedia.org/wiki/Main_Page": {
+    "status": 200,
+    "html_bytes": 413713,
+    "final_url": "https://en.wikipedia.org/wiki/Main_Page",
+    "routes": {
+      "continue_root": 10,
+      "abort": 31
+    }
+  }
+}

@@ -64,7 +64,7 @@ def exposed(db, tenant, agent):
         "entry_point": "widget",
         "visitor_token": VISITOR_TOKEN,
         "visitor_session_token": VISITOR_SESSION_TOKEN,
-        "page": "/pricing",
+        "page_url": "/pricing",
     }
     db.add(Message(session_id=session.id, role=MessageRole.USER, content="help me"))
     db.commit()
@@ -97,7 +97,7 @@ def test_admin_session_detail_hides_credentials(client, exposed, admin):
     assert body["visitor"]["id"] == str(visitor.id)
     assert body["visitor"]["name"] == "Ada Customer"
     assert body["customer_label"] == "Ada Customer"
-    assert body["meta"]["page"] == "/pricing"  # non-secret meta survives
+    assert body["meta"]["page_url"] == "/pricing"  # allow-listed meta survives
     assert "visitor_token" not in body["meta"]
     assert [m["content"] for m in body["messages"]] == ["help me"]
 
@@ -261,19 +261,28 @@ def test_customer_ws_live_message_fanout_to_agents_hides_user_identifier(
 ):
     env = agent_ws_env
     fanout = AsyncMock()
+
+    def message_calls():
+        # The socket also fans out a customer_presence frame on connect; this test is
+        # about the customer_message frame only.
+        return [
+            c for c in fanout.await_args_list if c.kwargs["message"]["type"] == "customer_message"
+        ]
+
     with patch.object(connection_manager, "fanout_event", fanout):
         url = f"/api/v1/ws/chat/{env.session_id}?user_identifier={env.user_identifier}"
         with TestClient(app) as customer_client:
             with customer_client.websocket_connect(url) as ws:
                 ws.send_json({"type": "message", "content": "ping from customer"})
                 for _ in range(50):
-                    if fanout.await_count:
+                    if message_calls():
                         break
                     ws.send_json({"type": "ping"})
                     ws.receive_json()
-    assert fanout.await_count == 1
-    frame = fanout.await_args.kwargs["message"]
-    assert fanout.await_args.kwargs["to_agents"] is True
+    assert len(message_calls()) == 1
+    call = message_calls()[0]
+    frame = call.kwargs["message"]
+    assert call.kwargs["to_agents"] is True
     assert frame["type"] == "customer_message"
     assert "user_identifier" not in frame
     assert env.user_identifier not in str(frame)

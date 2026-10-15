@@ -3,12 +3,20 @@
 from uuid import UUID
 
 from sqlalchemy import case, desc, func, literal, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
-from app.db.models.conversation import ConversationSession, Ticket, TicketStatus
+from app.db.models.conversation import (
+    ConversationSession,
+    Ticket,
+    TicketNumberCounter,
+    TicketStatus,
+)
 from app.db.models.tenant import TenantCapabilities
 from app.db.models.user import User
 from app.db.models.visitor import Visitor
+from app.services.agent_alert_service import AgentAlertService
 from app.schemas.ticket import (
     AssignedAgent,
     TicketAssign,
@@ -103,19 +111,29 @@ class TicketService:
         """
         Generate a unique ticket number.
 
+        The per-year counter row is advanced with one atomic upsert, so two
+        concurrent escalations (even of different sessions) can never read the
+        same value: the second blocks on the row lock until the first
+        transaction ends, then increments past it. A rollback also rolls the
+        increment back, so numbers stay gapless.
+
         Returns:
             Ticket number in format TKT-YYYY-NNNN
         """
-        # Get count of tickets created this year
         current_year = utcnow_naive().year
-        year_prefix = f"TKT-{current_year}-"
-
-        stmt = select(func.count(Ticket.id)).where(Ticket.ticket_number.startswith(year_prefix))
-        count = self.db.execute(stmt).scalar()
-
-        # Generate next number
-        next_number = (count or 0) + 1
-        return f"{year_prefix}{next_number:04d}"
+        insert = pg_insert if self.db.get_bind().dialect.name == "postgresql" else sqlite_insert
+        counters = TicketNumberCounter.__table__
+        stmt = (
+            insert(counters)
+            .values(year=current_year, last_value=1)
+            .on_conflict_do_update(
+                index_elements=[counters.c.year],
+                set_={"last_value": counters.c.last_value + 1},
+            )
+            .returning(counters.c.last_value)
+        )
+        next_number = self.db.execute(stmt).scalar_one()
+        return f"TKT-{current_year}-{next_number:04d}"
 
     def create_ticket(self, ticket_data: TicketCreate) -> TicketResponse:
         """
@@ -227,6 +245,35 @@ class TicketService:
             .where(ConversationSession.id == session_id)
             .with_for_update()
         )
+
+    def get_or_create_live_ticket(self, ticket_data: TicketCreate) -> tuple[TicketResponse, bool]:
+        """Create a ticket unless the session already has a live one.
+
+        The single implementation of the escalation guard, shared by chat, voice
+        and manual `POST /tickets`: lock the session row, re-check for a live
+        ticket under the lock, then reuse / reopen / create. A MISSED,
+        still-unassigned ticket is reopened to OPEN and its ring bookkeeping
+        reset (nothing else ever re-rings it); the caller rings it.
+
+        Returns:
+            (ticket, should_ring) - True for a new ticket and for a just-reopened
+            MISSED one; False for any other reuse.
+        """
+        try:
+            self.lock_session_for_escalation(ticket_data.session_id)
+            existing = self.get_open_ticket_for_session(ticket_data.session_id)
+            if existing is not None:
+                if existing.status == TicketStatus.MISSED and existing.assigned_to is None:
+                    reopened = self.reopen_missed_ticket(existing.id)
+                    if reopened is not None:
+                        AgentAlertService(self.db).reset_ring(reopened.id)
+                        return reopened, True
+                self.db.commit()  # nothing to write; just release the row lock
+                return existing, False
+            return self.create_ticket(ticket_data), True
+        except Exception:
+            self.db.rollback()  # never leave the session row locked
+            raise
 
     def get_open_ticket_for_session(self, session_id: UUID) -> TicketResponse | None:
         """

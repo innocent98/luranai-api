@@ -15,6 +15,7 @@ from fastapi import (
     Form,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     status,
 )
@@ -71,7 +72,6 @@ from app.schemas.visitor import VisitorEnrichmentUpdate
 from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.sales.intent import is_trigger_intent
-from app.services.agent_alert_service import AgentAlertService
 from app.schemas.agent_app import AcknowledgeLost
 from app.services.conversation_service import (
     ConversationService,
@@ -97,6 +97,12 @@ from app.services.notification_enqueue import (
 from app.services.quote_service import QuoteService
 from app.services.rag_service import RAGService
 from app.services.rating_read_service import session_rating_briefs
+from app.services.reply_to import (
+    ReplySnapshot,
+    frame_reply_to,
+    quote_context,
+    resolve_for_session_id,
+)
 from app.services.tenant_service import TenantService
 from app.services.voice import turn_signal
 from app.services.ticket_service import TicketService
@@ -106,9 +112,48 @@ from app.utils.email import send_ticket_escalation_email
 from app.services.image_moderation import moderate_image
 from app.utils.cloudinary_client import cloudinary_manager
 from app.utils.http_rate_limiter import chat_rate_limit, chat_upload_rate_limit
+from starlette.concurrency import run_in_threadpool
+
+from app.services.customer_presence import read_presence, read_presence_many
+from app.utils.customer_credential import (
+    invalid_credential,
+    optional_customer,
+    session_credential_matches,
+)
 from app.utils.staff_redaction import redact_staff_messages, staff_customer_label
 
 router = APIRouter()
+
+
+def require_customer_credential(
+    db: Session,
+    request: Request,
+    session: ConversationSession,
+    *,
+    user_identifier: str | None = None,
+    visitor_token: str | None = None,
+) -> None:
+    """Customer credential check for the media paths (upload, video sign/register).
+
+    A supplied (explicit) credential must match. A request with none is let through only while
+    `CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL` is off, because live clients still send just
+    the session id on these paths.
+    """
+    # Only an explicit credential counts as "supplied": a signed-in customer's cookie rides
+    # along on every call (credentials: 'include'), including on someone else's guest page.
+    explicit = bool(user_identifier or visitor_token)
+    if not explicit and not settings.CHAT_MEDIA_REQUIRE_CUSTOMER_CREDENTIAL:
+        return
+    customer = optional_customer(request, db)
+    if not session_credential_matches(
+        db,
+        session,
+        user_identifier=user_identifier,
+        visitor_token=visitor_token,
+        customer=customer,
+    ):
+        raise invalid_credential()
+
 
 _CHAT_UPLOAD_MAX_MB = 10
 _CHAT_UPLOAD_MAX_BYTES = _CHAT_UPLOAD_MAX_MB * 1024 * 1024
@@ -210,8 +255,11 @@ def _upload_response(attachment: MessageAttachment) -> dict:
     dependencies=[Depends(chat_upload_rate_limit)],
 )
 async def upload_chat_image(
+    request: Request,
     session_id: UUID = Form(...),
     file: UploadFile = File(..., description="Image (JPEG, PNG, GIF, WebP), max 10MB"),
+    user_identifier: str | None = Form(None, max_length=255),
+    visitor_token: str | None = Form(None, max_length=255),
     db: Session = Depends(get_db),
 ):
     """Public customer image upload: validate, moderate, then store (unlinked)."""
@@ -220,6 +268,9 @@ async def upload_chat_image(
     ).scalar_one_or_none()
     if not session:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+    require_customer_credential(
+        db, request, session, user_identifier=user_identifier, visitor_token=visitor_token
+    )
 
     tenant = db.execute(select(Tenant).where(Tenant.id == session.tenant_id)).scalar_one_or_none()
     if not tenant or not tenant.widget_allow_file_upload:
@@ -548,19 +599,10 @@ def _resolve_bootstrapped_visitor_context(
     return visitor.id, visitor_session_id
 
 
-def _resolve_customer_user_id(metadata: dict[str, Any] | None) -> UUID | None:
-    """Resolve authenticated customer ID from trusted wrapper metadata."""
-    if not isinstance(metadata, dict):
-        return None
-
-    raw_customer_user_id = metadata.get("customer_user_id")
-    if not isinstance(raw_customer_user_id, str) or not raw_customer_user_id.strip():
-        return None
-
-    try:
-        return UUID(raw_customer_user_id)
-    except (ValueError, TypeError):
-        return None
+def _without_customer_user_id(metadata: dict[str, Any] | None) -> dict[str, Any]:
+    """Client metadata minus `customer_user_id`: that binding comes only from an
+    authenticated customer token, never from a caller-supplied field."""
+    return {k: v for k, v in (metadata or {}).items() if k != "customer_user_id"}
 
 
 def _persist_contact_email_to_visitor(
@@ -736,24 +778,9 @@ def _get_or_create_escalation_ticket(
         just-reopened MISSED one; False for any other reuse (already OPEN or
         IN_PROGRESS, and therefore already ringing or already being handled).
     """
-    # Row lock first, then the check: two concurrent escalations of one session
-    # would otherwise both see "no open ticket" and both create one. The lock is
-    # released by the commit inside create/reopen, or explicitly below.
-    try:
-        ticket_service.lock_session_for_escalation(session_id)
-        existing = ticket_service.get_open_ticket_for_session(session_id)
-        if existing is not None:
-            if existing.status == TicketStatus.MISSED and existing.assigned_to is None:
-                reopened = ticket_service.reopen_missed_ticket(existing.id)
-                if reopened is not None:
-                    AgentAlertService(ticket_service.db).reset_ring(reopened.id)
-                    return reopened, True
-            ticket_service.db.commit()  # nothing to write; just release the row lock
-            return existing, False
-        return ticket_service.create_ticket(ticket_data), True
-    except Exception:
-        ticket_service.db.rollback()  # never leave the session row locked
-        raise
+    # Lock + re-check + reuse/reopen/create live in TicketService so chat, voice and
+    # manual POST /tickets share one implementation.
+    return ticket_service.get_or_create_live_ticket(ticket_data)
 
 
 async def _escalate_to_human(
@@ -861,14 +888,12 @@ async def create_session(
         session_data.tenant_id,
         session_data.metadata,
     )
-    customer_user_id = _resolve_customer_user_id(session_data.metadata)
     session_create = ConversationSessionCreate(
         tenant_id=session_data.tenant_id,
         user_identifier=session_data.user_identifier,
         visitor_id=visitor_id,
         visitor_session_id=visitor_session_id,
-        customer_user_id=customer_user_id,
-        meta=session_data.metadata or {},
+        meta=_without_customer_user_id(session_data.metadata),
     )
 
     session = conversation_service.create_session(session_create)
@@ -882,13 +907,43 @@ async def create_session(
     status_code=status.HTTP_200_OK,
     dependencies=[Depends(chat_rate_limit)],
 )
-async def send_message(
+async def post_chat_message(
     message_data: MessageRequest,
     db: Session = Depends(get_db),
 ):
-    """Send a customer message; surfaces any linked image attachments on the response."""
+    """Public customer message. Posting into an existing session needs its credential."""
+    if message_data.session_id:
+        session = db.get(ConversationSession, message_data.session_id)
+        if session is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Session not found")
+        visitor_token = (message_data.metadata or {}).get("visitor_token")
+        if not session_credential_matches(
+            db,
+            session,
+            user_identifier=message_data.user_identifier,
+            visitor_token=visitor_token if isinstance(visitor_token, str) else None,
+        ):
+            raise invalid_credential()
+    message_data.metadata = _without_customer_user_id(message_data.metadata) or None
+    return await send_message(message_data, db)
+
+
+async def send_message(
+    message_data: MessageRequest,
+    db: Session,
+    *,
+    authed_customer_id: UUID | None = None,
+):
+    """Send a customer message; surfaces any linked image attachments on the response.
+
+    Trusted entry point: the caller has already authenticated the customer (the public
+    route above, the customer-token route, or a voice token). `authed_customer_id` is
+    the only way a session gets bound to a customer account.
+    """
     linked_attachments: list[AttachmentOut] = []
-    response = await _send_message_impl(message_data, db, linked_attachments)
+    response = await _send_message_impl(
+        message_data, db, linked_attachments, authed_customer_id=authed_customer_id
+    )
     if (
         message_data.attachment_ids
         and not linked_attachments
@@ -901,6 +956,10 @@ async def send_message(
         response.user_message_attachments = linked_attachments
         await _fanout_customer_images(db, response.session_id, linked_attachments)
     return response
+
+
+def _reply_to_frame(message: Message) -> dict | None:
+    return frame_reply_to(MessageResponse.model_validate(message).reply_to)
 
 
 async def _fanout_customer_images(
@@ -930,6 +989,7 @@ async def _fanout_customer_images(
                 "customer_label": label,
                 "timestamp": message.created_at.isoformat(),
                 "attachments": attachment_frames(message.attachments),
+                "reply_to": _reply_to_frame(message),
             },
             to_customer=False,
             to_agents=True,
@@ -973,6 +1033,7 @@ async def _send_message_impl(
     message_data: MessageRequest,
     db: Session,
     linked_attachments: list[AttachmentOut],
+    authed_customer_id: UUID | None = None,
 ):
     """
     Send a message to the AI assistant and get a response.
@@ -1001,6 +1062,15 @@ async def _send_message_impl(
 
     logger.info("Processing chat message")
 
+    # N2 reply-to: validate before anything is persisted or a closed session is reopened.
+    # The quote is queued on the service and attached to the first USER message persisted.
+    reply_snapshot: ReplySnapshot | None = None
+    if message_data.reply_to_message_id:
+        reply_snapshot = resolve_for_session_id(
+            db, message_data.session_id, message_data.reply_to_message_id
+        )
+        conversation_service.queue_reply_to(reply_snapshot)
+
     # Image attachments: an image-only send carries a minimal placeholder so every
     # downstream string-based step (routing, flows, prompt assembly) stays valid.
     if not (message_data.message and message_data.message.strip()):
@@ -1022,7 +1092,7 @@ async def _send_message_impl(
             message_data.tenant_id,
             message_data.metadata,
         )
-        customer_user_id = _resolve_customer_user_id(message_data.metadata)
+        customer_user_id = authed_customer_id
 
         # If this public/browser visitor already has an active or escalated thread,
         # continue that thread instead of opening a parallel conversation.
@@ -1096,7 +1166,7 @@ async def _send_message_impl(
                 visitor_id=visitor_id,
                 visitor_session_id=visitor_session_id,
                 customer_user_id=customer_user_id,
-                meta=message_data.metadata or {},
+                meta=_without_customer_user_id(message_data.metadata),
             )
             session = conversation_service.create_session(session_create)
             session_id = session.id
@@ -1969,7 +2039,9 @@ async def _send_message_impl(
         welcome_triggers = {"start", "hello", "hi", "hey", "welcome", "__init__", "__welcome__"}
         message_lower = effective_message_lower
 
-        if message_lower in welcome_triggers:
+        # A reply is never a bare greeting: skipping this branch stores the USER message
+        # (with its quote) instead of silently dropping it.
+        if message_lower in welcome_triggers and reply_snapshot is None:
             logger.info(
                 f"No flow matched welcome trigger '{message_data.message}', returning default welcome"
             )
@@ -2636,7 +2708,7 @@ async def _send_message_impl(
             logger.info("Generating AI response...")
             prompt_components = rag_service.assemble_prompt(
                 ai_config=tenant_ai_config,
-                user_query=message_data.message,
+                user_query=quote_context(message_data.message, reply_snapshot),
                 retrieved_chunks=retrieved_chunks,
                 conversation_history=conversation_history,
                 company_name=tenant_response.display_name,
@@ -3087,7 +3159,7 @@ def get_session(
 
     session.messages = redact_staff_messages(session.messages)
     session.ratings = session_rating_briefs(db, session_id)
-    return ConversationService.to_staff_session(session)
+    return ConversationService.to_staff_session(session, read_presence(db, session_id))
 
 
 @router.get(
@@ -3123,7 +3195,8 @@ def list_tenant_sessions(
         tenant_id, status=status_filter, limit=limit
     )
 
-    return [ConversationService.to_staff_session(s) for s in sessions]
+    presence = read_presence_many(db, [s.id for s in sessions])
+    return [ConversationService.to_staff_session(s, presence.get(s.id)) for s in sessions]
 
 
 @router.get(
@@ -3255,7 +3328,9 @@ async def agent_takeover(
 
     logger.info("Agent took over session")
 
-    return ConversationService.to_staff_session(updated_session)
+    # Sync Redis I/O must not run on the event loop.
+    presence = await run_in_threadpool(read_presence, db, updated_session.id)
+    return ConversationService.to_staff_session(updated_session, presence)
 
 
 @router.post(
@@ -3345,9 +3420,16 @@ async def send_agent_message(
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
+    reply_snapshot = (
+        resolve_for_session_id(db, session_id, message_data.reply_to_message_id)
+        if message_data.reply_to_message_id
+        else None
+    )
+
     # Create message
     message = conversation_service.add_message(
         session_id=session_id,
+        reply_to=reply_snapshot,
         # message_role stores enum NAMES (USER/ASSISTANT/SYSTEM/HUMAN_AGENT) — pass
         # the member, not `.value`. (The old `.value` "workaround" was inert:
         # SQLAlchemy stores the name regardless, which is why the mis-cased
@@ -3383,6 +3465,7 @@ async def send_agent_message(
             "agent_name": current_user.full_name,
             "timestamp": message.created_at.isoformat(),
             "attachments": attachment_frames(attachments),
+            "reply_to": frame_reply_to(message.reply_to),
         },
         to_customer=True,
         to_agents=True,

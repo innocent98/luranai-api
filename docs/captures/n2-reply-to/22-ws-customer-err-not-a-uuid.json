@@ -1,0 +1,15 @@
+{
+  "customer_socket_sent": {
+    "type": "message",
+    "content": "rejected",
+    "reply_to_message_id": "nope"
+  },
+  "customer_socket_received": [
+    {
+      "type": "error",
+      "code": "REPLY_TARGET_NOT_FOUND",
+      "message": "The message you are replying to was not found"
+    }
+  ],
+  "agent_socket_received": []
+}

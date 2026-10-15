@@ -1,0 +1,14 @@
+{
+  "agent_socket_sent": {
+    "type": "message",
+    "content": "rejected",
+    "reply_to_message_id": "00000000-0000-4000-8000-000000000001"
+  },
+  "agent_socket_received": [
+    {
+      "type": "error",
+      "code": "REPLY_TARGET_NOT_FOUND",
+      "message": "The message you are replying to was not found"
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 # Follow-up: spine-wide SSRF DNS-rebinding hardening (outbound webhooks)
 
 **Date:** 2026-06-30
-**Status:** OPEN — deferred follow-up (decided during Stage 3 Slice 5e final review)
+**Status:** RESOLVED 2026-10-14 — implemented in `fix/ssrf-pinned-outbound` via `app/utils/pinned_http.py` (see `docs/sop/ssrf_pinned_outbound.md`). Original record below. Note: `send_slack_notification` had no gate at all (not only a TOCTOU-prone one); it is now pinned and fail-closed. Review follow-up (same PR): IPv4-first with per-IP connect fallback, response byte cap + total deadline, DNS failure kept retryable, per-hop connections, https->http redirect refused, and the auditor's Chromium route handler no longer continues cross-host requests by name.
 **Severity:** Important (security, defense-in-depth) — not a merge blocker for 5e
 **Owner:** unassigned
 

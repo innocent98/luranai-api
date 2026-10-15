@@ -3,7 +3,6 @@
 import logging
 import uuid
 
-import httpx
 from sqlalchemy import select
 
 from app.core.config import settings
@@ -15,7 +14,7 @@ from app.db.models.notification_log import NotificationLog, NotifEvent, NotifSta
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.services.email_service import EmailService
 from app.services.quote_pdf_service import render_quote_pdf
-from app.utils.network_security import ensure_safe_outbound_url
+from app.utils.pinned_http import ResponseRejectedError, UnsafeOutboundURLError, apinned_request
 
 logger = logging.getLogger(__name__)
 
@@ -252,8 +251,21 @@ async def send_slack_notification(ctx, notification_log_id: str) -> None:
 
         dashboard_url = f"{settings.FRONTEND_URL}/sales/leads"
         try:
-            with httpx.Client(timeout=10) as client:
-                resp = client.post(url, json=_slack_blocks(log.title, log.body, dashboard_url))
+            resp = await apinned_request(
+                "POST", url, json=_slack_blocks(log.title, log.body, dashboard_url), timeout=10
+            )
+        except UnsafeOutboundURLError:
+            log.status = NotifStatus.FAILED
+            log.error = "blocked webhook host"
+            db.commit()
+            return
+        except ResponseRejectedError:
+            # The endpoint answered with something we refuse to buffer: retrying
+            # would get the same answer, so fail permanently (no ARQ retry).
+            log.status = NotifStatus.FAILED
+            log.error = "response rejected"
+            db.commit()
+            return
         except Exception as exc:  # network / timeout — transient, retry
             log.status = NotifStatus.FAILED
             log.error = f"slack network error: {type(exc).__name__}"
@@ -361,18 +373,21 @@ async def sync_lead_to_crm(ctx, notification_log_id: str) -> None:
             db.commit()
             return
 
+        payload = _crm_payload(lead)
         try:
-            ensure_safe_outbound_url(url)
-        except ValueError:
+            resp = await apinned_request("POST", url, json=payload, timeout=10)
+        except UnsafeOutboundURLError:
             log.status = NotifStatus.FAILED
             log.error = "blocked webhook host"
             db.commit()
             return
-
-        payload = _crm_payload(lead)
-        try:
-            with httpx.Client(timeout=10) as client:
-                resp = client.post(url, json=payload)
+        except ResponseRejectedError:
+            # The endpoint answered with something we refuse to buffer: retrying
+            # would get the same answer, so fail permanently (no ARQ retry).
+            log.status = NotifStatus.FAILED
+            log.error = "response rejected"
+            db.commit()
+            return
         except Exception as exc:  # network / timeout — transient, retry
             log.status = NotifStatus.FAILED
             log.error = f"crm network error: {type(exc).__name__}"

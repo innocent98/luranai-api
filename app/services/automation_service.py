@@ -31,6 +31,11 @@ from app.db.models.tenant import TenantCapabilities
 from app.schemas.automation import TenantActionCreate, TenantActionUpdate
 from app.services.action_success import SuccessConditionError, evaluate_success_condition
 from app.utils.network_security import resolve_and_validate_host
+from app.utils.pinned_http import aread_capped, build_pinned_request
+
+
+# Upper bound on a tenant action's buffered response body (wire and decoded).
+ACTION_RESPONSE_MAX_BYTES = 5 * 1024 * 1024
 
 
 @dataclass
@@ -573,34 +578,14 @@ class AutomationService:
         original Host header and TLS SNI/cert hostname. Prevents DNS rebinding
         between validation and connection.
         """
-        parsed = urlparse(url)
-        original_host = parsed.hostname or ""
-        # Build Host from hostname (+ port) only — never include userinfo,
-        # which parsed.netloc would carry (user:pass@host) and leak/malform.
-        host_for_header = original_host
-        if ":" in original_host:  # IPv6 literal
-            host_for_header = f"[{original_host}]"
-        host_header = f"{host_for_header}:{parsed.port}" if parsed.port else host_for_header
-
-        # If the host is allowlisted, resolve_and_validate_host returns the
-        # hostname unchanged — connect by hostname, no pinning needed.
-        connect_host = safe_ip if safe_ip != original_host else original_host
-        pinned_url = httpx.URL(url).copy_with(host=connect_host)
-
-        request_headers = dict(headers or {})
-        request_headers["Host"] = host_header
-
-        request = httpx.Request(
-            method=method,
-            url=pinned_url,
-            headers=request_headers,
-            params=query if query else None,
+        return build_pinned_request(
+            method,
+            url,
+            safe_ip,
+            headers=headers,
+            params=query,
             json=body if method in {"POST", "PUT", "PATCH", "DELETE"} else None,
         )
-        if connect_host != original_host:
-            # Validate the TLS cert against the real hostname, not the IP.
-            request.extensions["sni_hostname"] = original_host
-        return request
 
     def _apply_auth_headers(self, headers: dict, auth_type: str, auth_config: dict) -> dict:
         result = dict(headers or {})
@@ -692,7 +677,9 @@ class AutomationService:
             async with httpx.AsyncClient(
                 timeout=action.timeout_seconds, follow_redirects=False
             ) as client:
-                response = await client.send(request)
+                response = await aread_capped(
+                    await client.send(request, stream=True), ACTION_RESPONSE_MAX_BYTES
+                )
             latency_ms = int((perf_counter() - started) * 1000)
             return _AttemptOutcome(
                 kind="response",

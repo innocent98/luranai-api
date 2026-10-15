@@ -116,6 +116,7 @@ def test_human_first_contact_capture_keeps_name_from_request_metadata(client, db
             "/api/v1/chat/message",
             json={
                 "session_id": str(sid),
+                "user_identifier": img._identifier(sid),
                 "message": "help",
                 "metadata": {"contact_name": "Ada Lovelace"},
             },

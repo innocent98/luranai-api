@@ -1,0 +1,17 @@
+{
+  "customer_socket_sent": {
+    "type": "message",
+    "content": "plain message"
+  },
+  "agent_socket_received": [
+    {
+      "type": "customer_message",
+      "message_id": "861136de-0385-40c7-9906-942c0ddd405f",
+      "content": "plain message",
+      "customer_label": "Visitor 66645e12",
+      "timestamp": "2026-10-14T01:30:28.708363+00:00",
+      "attachments": [],
+      "reply_to": null
+    }
+  ]
+}
