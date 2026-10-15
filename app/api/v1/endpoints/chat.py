@@ -965,17 +965,25 @@ def _reply_to_frame(message: Message) -> dict | None:
 async def _fanout_customer_images(
     db: Session, session_id: UUID, attachments: list[AttachmentOut]
 ) -> None:
-    """Push the customer's image message to watching agents (text goes via the WS path).
+    """Push the customer's image message to watching agents."""
+    await _fanout_customer_message(
+        db,
+        session_id,
+        select(Message)
+        .join(MessageAttachment, MessageAttachment.message_id == Message.id)
+        .where(MessageAttachment.id == attachments[0].id),
+    )
 
-    Best-effort: the message is already persisted, so a fanout failure must not fail the send.
+
+async def _fanout_customer_message(db: Session, session_id: UUID, query) -> None:  # type: ignore[no-untyped-def]
+    """Push one persisted customer message (selected by `query`) to watching agents.
+
+    REST sends need this: the widget uses the socket once escalated, but the signed-in customer
+    chat (and the widget while its socket is down) send over REST. Best-effort: the message is
+    already persisted, so a fanout failure must not fail the send.
     """
     try:
-        message = db.execute(
-            select(Message)
-            .join(MessageAttachment, MessageAttachment.message_id == Message.id)
-            .where(MessageAttachment.id == attachments[0].id)
-            .options(selectinload(Message.attachments))
-        ).scalar_one_or_none()
+        message = db.execute(query.options(selectinload(Message.attachments))).scalar_one_or_none()
         session = db.get(ConversationSession, session_id)
         if message is None or session is None:
             return
@@ -995,7 +1003,7 @@ async def _fanout_customer_images(
             to_agents=True,
         )
     except Exception:
-        logger.exception("Failed to fan out customer image message to agents")
+        logger.exception("Failed to fan out customer message to agents")
 
 
 def _fallback_link_attachments(
@@ -1459,6 +1467,11 @@ async def _send_message_impl(
             role=MessageRole.USER,
             content=(message_data.message or "").strip() or IMAGE_ONLY_PLACEHOLDER,
         )
+        if not message_data.attachment_ids:
+            # Messages with attachments are fanned out by send_message once they're linked.
+            await _fanout_customer_message(
+                db, session_id, select(Message).where(Message.id == user_message.id)
+            )
         return ChatResponse(
             session_id=session_id,
             message=user_message,
