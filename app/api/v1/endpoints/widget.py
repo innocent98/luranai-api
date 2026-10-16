@@ -317,14 +317,16 @@ def get_install_code(
         )
 
     # Generate installation code
+    # The loader starts on Luran.init(); it is loaded without async/defer so
+    # `Luran` exists by the time the second tag runs.
     html_snippet = f"""<!-- Luran Widget Integration -->
+<script src="https://cdn.luranai.com/widget/v1/widget.js"></script>
 <script>
-  window.luranSettings = {{
+  Luran.init({{
     tenantId: '{tenant.id}',
     apiKey: 'YOUR_PUBLIC_API_KEY_HERE'  // Get from API Keys page
-  }};
+  }});
 </script>
-<script src="https://cdn.luranai.com/widget/v1/widget.js" async defer></script>
 <!-- End Luran Widget -->"""
 
     instructions = """Installation Instructions:
@@ -349,7 +351,7 @@ def get_install_code(
    - Click the floating chat button
    - Start a conversation
 
-Note: The widget loads asynchronously and won't affect your page load speed."""
+Note: The loader is a small script (about 10 KB) placed at the end of the page, so it does not delay your content."""
 
     return WidgetInstallCodeResponse(
         html_snippet=html_snippet,
