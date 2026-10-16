@@ -47,7 +47,7 @@ def create_subscription_plans(db):
             "max_nodes_per_flow": 0,
             "can_use_webhooks": False,
             "max_webhooks_per_flow": 0,
-            "max_audit_pages_per_crawl": 50,
+            "max_audit_pages_per_crawl": 20,
             "max_audits_per_month": 2,
             "features": [
                 "2 knowledge sources",
@@ -71,7 +71,7 @@ def create_subscription_plans(db):
             "monthly_price_kobo": 900000,  # ₦9,000/month
             "annual_price_kobo": 9000000,  # ₦90,000/year
             "can_access_analytics": True,
-            "max_knowledge_sources": 15,
+            "max_knowledge_sources": 20,
             "can_use_url_sources": True,
             "max_knowledge_mb": 50,
             "max_conversations_per_month": 2000,
@@ -85,10 +85,10 @@ def create_subscription_plans(db):
             "max_nodes_per_flow": 20,
             "can_use_webhooks": False,
             "max_webhooks_per_flow": 0,
-            "max_audit_pages_per_crawl": 200,
+            "max_audit_pages_per_crawl": 100,
             "max_audits_per_month": 5,
             "features": [
-                "15 knowledge sources",
+                "20 knowledge sources",
                 "50MB storage",
                 "2,000 conversations/month",
                 "3 team members",
@@ -151,7 +151,7 @@ def create_subscription_plans(db):
             "monthly_price_kobo": 8000000,  # ₦80,000/month
             "annual_price_kobo": 80000000,  # ₦800,000/year
             "can_access_analytics": True,
-            "max_knowledge_sources": 50,
+            "max_knowledge_sources": 100,
             "can_use_url_sources": True,
             "max_knowledge_mb": 500,
             "max_conversations_per_month": 25000,
@@ -168,7 +168,7 @@ def create_subscription_plans(db):
             "max_audit_pages_per_crawl": 500,
             "max_audits_per_month": 30,
             "features": [
-                "50 knowledge sources",
+                "100 knowledge sources",
                 "500MB storage",
                 "25,000 conversations/month",
                 "20 team members",
