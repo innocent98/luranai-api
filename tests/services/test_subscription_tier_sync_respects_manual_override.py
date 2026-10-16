@@ -135,14 +135,14 @@ def test_manual_override_is_overwritten_by_downgrade_tier_sync(db_session):
     assert overridden.max_knowledge_sources == 500
     assert overridden.override_flags == {"max_knowledge_sources": True}
 
-    # The tenant downgrades to lite (default 15 -- distinct from both the
+    # The tenant downgrades to lite (default 20 -- distinct from both the
     # manual override of 500 and professional's 50).
     SubscriptionService(db_session)._update_capabilities_for_tier(
         tenant.id, "lite", respect_overrides=False
     )
 
     synced = _fetch_capabilities(db_session, tenant.id)
-    assert synced.max_knowledge_sources == 15, (
+    assert synced.max_knowledge_sources == 20, (
         "downgrade must land the tenant on the new tier's real limit, not the "
         "manual override (500) and not the old tier's value (50)"
     )
