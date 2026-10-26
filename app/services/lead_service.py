@@ -255,6 +255,67 @@ class LeadService:
             .first()
         )
 
+    def get_meeting(self, tenant_id: UUID, lead: Lead) -> dict | None:
+        """Return this lead's booked meeting details, or None if no meeting booked."""
+        from app.db.models.meeting import Meeting
+
+        meeting = None
+        if getattr(lead, "meeting_id", None):
+            meeting = (
+                self.db.query(Meeting)
+                .filter(Meeting.tenant_id == tenant_id, Meeting.id == lead.meeting_id)
+                .one_or_none()
+            )
+        if meeting is None:
+            meeting = (
+                self.db.query(Meeting)
+                .filter(Meeting.tenant_id == tenant_id, Meeting.lead_id == lead.id)
+                .order_by(Meeting.created_at.desc())
+                .first()
+            )
+        if meeting is None:
+            return None
+
+        return {
+            "id": str(meeting.id),
+            "scheduled_at": meeting.scheduled_at.isoformat() if meeting.scheduled_at else None,
+            "duration_min": meeting.duration_min,
+            "visitor_timezone": meeting.visitor_timezone,
+            "use_case": meeting.use_case,
+            "status": meeting.status.value if hasattr(meeting.status, "value") else str(meeting.status),
+            "created_at": meeting.created_at.isoformat() if meeting.created_at else None,
+        }
+
+    def get_quote(self, tenant_id: UUID, lead: Lead) -> dict | None:
+        """Return this lead's quote details, or None if no quote generated."""
+        from app.db.models.quote import Quote
+
+        quote = None
+        if getattr(lead, "quote_id", None):
+            quote = (
+                self.db.query(Quote)
+                .filter(Quote.tenant_id == tenant_id, Quote.id == lead.quote_id)
+                .one_or_none()
+            )
+        if quote is None:
+            quote = (
+                self.db.query(Quote)
+                .filter(Quote.tenant_id == tenant_id, Quote.lead_id == lead.id)
+                .order_by(Quote.created_at.desc())
+                .first()
+            )
+        if quote is None:
+            return None
+
+        return {
+            "id": str(quote.id),
+            "currency": quote.currency,
+            "line_items": quote.line_items or [],
+            "total": quote.total,
+            "status": quote.status.value if hasattr(quote.status, "value") else str(quote.status),
+            "created_at": quote.created_at.isoformat() if quote.created_at else None,
+        }
+
     # ------------------------------------------------------------------
     # set_status
     # ------------------------------------------------------------------
