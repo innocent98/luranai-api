@@ -13,14 +13,14 @@ from uuid import UUID
 
 from fastapi import HTTPException
 from loguru import logger
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.channels import identity
 from app.core.config import settings
 from app.db.models.conversation import ConversationSession, MessageRole, SessionStatus
-from app.db.models.tenant import TenantCapabilities
+from app.db.models.tenant import Tenant, TenantCapabilities
 from app.db.models.visitor import Visitor, VisitorSource
 from app.db.models.whatsapp import (
     WhatsAppChat,
@@ -36,7 +36,7 @@ from app.services.conversation_service import (
     message_channel,
     new_session_attribution,
 )
-from app.utils.datetime import ensure_utc_aware, utcnow_aware
+from app.utils.datetime import ensure_utc_aware, utcnow_aware, utcnow_naive
 
 # Fixed fallback for anything that is not text (media is out of scope for the demo slice).
 OTHER_KIND_REPLY = (
@@ -219,6 +219,39 @@ def _ensure_session(
     return db.get(ConversationSession, created.id)  # type: ignore[return-value]
 
 
+def _plan_blocks_conversation(db: Session, conn: WhatsAppConnection, *, new_session: bool) -> bool:
+    """The plan checks `send_message` applies before it will talk to a customer, for the paths
+    that persist without going through it: an inactive subscription / expired trial blocks every
+    message, and the monthly conversation cap blocks creating a NEW conversation. Read-only."""
+    tenant = db.get(Tenant, conn.tenant_id)
+    if tenant is None:
+        return True
+    if tenant.subscription_status in {"trial_expired", "canceled", "past_due"}:
+        return True
+    if tenant.subscription_status in {"trialing", "trial"}:
+        ends = ensure_utc_aware(tenant.trial_ends_at)
+        if ends is not None and utcnow_aware() > ends:
+            return True
+    if not new_session:
+        return False
+    caps = db.execute(
+        select(TenantCapabilities).where(TenantCapabilities.tenant_id == conn.tenant_id)
+    ).scalar_one_or_none()
+    limit = caps.max_conversations_per_month if caps is not None else None
+    if limit is None:
+        return False
+    month_start = utcnow_naive().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    used = db.execute(
+        select(func.count())
+        .select_from(ConversationSession)
+        .where(
+            ConversationSession.tenant_id == conn.tenant_id,
+            ConversationSession.created_at >= month_start,
+        )
+    ).scalar_one()
+    return used >= limit
+
+
 def _tenant_may_use(db: Session, tenant_id: UUID) -> bool:
     caps = db.execute(
         select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant_id)
@@ -257,6 +290,14 @@ async def handle_inbound(db: Session, conn: WhatsAppConnection, event: dict) -> 
 
         if event["kind"] != "text" or not text:
             silent = paused or not conn.ai_enabled  # no automatic replies while a human owns it
+            if _plan_blocks_conversation(
+                db, conn, new_session=_usable_session(db, conn, chat) is None
+            ):
+                # Same rule as a text message that gets HTTP 402: store only into an existing
+                # conversation, never open one, say nothing to the customer, alert the tenant.
+                return await _plan_limit(
+                    db, conn, chat, UNSUPPORTED_MEDIA_PLACEHOLDER, f"wa_{chat.contact_hmac[:24]}"
+                )
             if not silent:
                 # Enqueue first: the send is idempotent on its key, so an arq retry after a
                 # storage failure cannot double-send, and a failed enqueue stores nothing.
@@ -333,6 +374,8 @@ async def _store_without_ai(
     message_model,  # type: ignore[no-untyped-def]
 ) -> str:
     """Owner pause / AI disabled: persist the customer's message and show it to agents."""
+    if _plan_blocks_conversation(db, conn, new_session=_usable_session(db, conn, chat) is None):
+        return await _plan_limit(db, conn, chat, text, user_identifier)
     session = _ensure_session(db, conn, chat, user_identifier)
     channel = message_channel.set("whatsapp")
     try:

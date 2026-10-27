@@ -228,6 +228,50 @@ async def test_plan_limit_402_stores_sends_nothing_and_alerts_debounced(
     assert queue.sends == []
 
 
+async def test_non_text_at_the_conversation_cap_opens_nothing_and_says_nothing(
+    db, fake_sidecar, queue, llm
+):
+    """A photo must not be a way around the cap: no new conversation, no reply, tenant alerted."""
+    from app.db.models.tenant import TenantCapabilities
+
+    tenant = make_tenant(db, max_conversations=0)  # cap already reached
+    conn = connect(db, fake_sidecar, tenant)
+    out = await handle_event(db, inbound(conn, kind="other", text=""))
+    assert out == "plan_limit"
+    assert queue.sends == [] and llm.calls == 0
+    db.expire_all()
+    assert db.execute(select(ConversationSession)).scalars().all() == []
+    assert db.get(WhatsAppConnection, conn.id).last_alert_at is not None
+    caps = db.execute(
+        select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant.id)
+    ).scalar_one()
+    assert caps.max_conversations_per_month == 0
+
+
+async def test_expired_subscription_blocks_non_text_and_the_paused_store_path(
+    db, fake_sidecar, queue, llm
+):
+    tenant = make_tenant(db)
+    conn = connect(db, fake_sidecar, tenant)
+    await handle_event(db, inbound(conn))  # a conversation exists
+    queue.sends.clear()
+    from app.db.models.tenant import Tenant
+
+    db.get(Tenant, tenant.id).subscription_status = "canceled"
+    conn_row = db.get(WhatsAppConnection, conn.id)
+    conn_row.ai_enabled = False  # the store-only path
+    db.commit()
+    session_id = _chat(db, conn).session_id
+    before = len(_messages(db, session_id))
+    assert await handle_event(db, inbound(conn, text="hi")) == "plan_limit"
+    assert await handle_event(db, inbound(conn, kind="other", text="")) == "plan_limit"
+    assert queue.sends == []
+    # `_plan_limit` appends to the EXISTING conversation (never opens one); the fallback reply is not recorded.
+    after = _messages(db, session_id)
+    assert len(after) == before + 2
+    assert all(m.role != MessageRole.ASSISTANT for m in after[before:])
+
+
 async def test_plan_limit_stores_the_message_when_a_conversation_exists(
     db, fake_sidecar, queue, llm
 ):
