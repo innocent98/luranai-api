@@ -18,9 +18,10 @@ Status: PROPOSAL for Adebayo's decision. Nothing here is built. Evidence is read
 | Team | 13 admins, 1 support agent in total |
 
 ## 2. What it means
+**Caveat from Adebayo (2026-10-28): Luran has not fully launched.** The prod numbers above are pre-launch (internal tests, a few early signups, no marketing), so they are NOT evidence of a failing funnel or of low willingness to pay, and signups at about 1.6 a month are not a market signal. What still stands: the defects below are real and would hit every launch-day tenant, and no paying customer exists yet, so restructuring gates now is still cheap. Read items 2 and 3 as launch-readiness risks, not as conversion findings.
 1. **Nobody is near any limit.** Peak is 17 conversations in a month against Lite's 2,000. Plan limits do not shape behaviour at today's scale.
-2. **The funnel breaks before value.** No trial tenant reached a knowledge base. Known contributors (all documented): the install snippet never started the widget until 2026-10-16; text KB upload stores no vectors; short documents fail silently; tenants created before a KB default to "human first" so the AI is silent. Causality is plausible, not proven.
-3. **There is no price evidence at all.** Zero payments means ₦9k, ₦40k and ₦80k are untested hypotheses. D-Zero's published ₦40k Starter (WhatsApp only) shows the market ceiling is higher than Lite.
+2. **Launch-readiness risk: the path to value has traps.** No trial tenant reached a knowledge base. Known contributors (all documented): the install snippet never started the widget until 2026-10-16; text KB upload stores no vectors; short documents fail silently; tenants created before a KB default to "human first" so the AI is silent. Causality is plausible, not proven.
+3. **There is no price evidence yet (pre-launch).** Zero payments means ₦9k, ₦40k and ₦80k are untested hypotheses. D-Zero's published ₦40k Starter (WhatsApp only) shows the market ceiling is higher than Lite.
 4. **Now is the cheapest moment to add gates.** No paying customer can be harmed; the one Growth override keeps everything.
 
 ## 3. Proposed tier matrix (hypothesis, validate before launch)
@@ -64,7 +65,7 @@ Why Lite ₦15k (approved by Adebayo 2026-10-28): it now includes WhatsApp, whic
 4. Pricing page, docs, plan strings, SOP/FE guide: 0.5
 Total about 4 agent-days. **Do activation first** (section 6): gates change nothing while nobody reaches value.
 
-## 6. Do first: activation (cheaper than gating, evidence says it is the bottleneck)
+## 6. Do first: activation fixes (launch readiness; cheaper than gating)
 1. Onboarding checklist in the dashboard: install the widget (verify it actually loads), upload a first KB, send a test message; show "AI is silent because Who answers first = human".
 2. Fix the KB traps: index text uploads, reject short documents with a clear message, chunk guidance.
 3. Call the 4 expired-trial tenants that had conversations (contact details are NOT in this doc; Adebayo pulls them): why did they stop, what would they pay for.
