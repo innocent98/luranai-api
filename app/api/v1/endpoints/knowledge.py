@@ -5,7 +5,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_tenant_admin, get_db, verify_tenant_access
+from app.api.deps import (
+    get_current_tenant_admin,
+    get_db,
+    verify_subscription_active,
+    verify_tenant_access,
+)
 from app.api.v1.endpoints.knowledge_upload import router as upload_router
 from app.db.models.knowledge import SourceStatus
 from app.schemas.knowledge import (
@@ -16,6 +21,8 @@ from app.schemas.knowledge import (
 )
 from app.schemas.user import UserResponse
 from app.services.knowledge_service import KnowledgeService
+from app.utils.http_rate_limiter import upload_rate_limit
+from app.utils.knowledge_failures import KnowledgeError
 
 router = APIRouter()
 
@@ -168,17 +175,20 @@ def get_source_chunks(
     "/upload",
     response_model=KnowledgeSourceResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(upload_rate_limit)],
 )
 async def upload_document(
     upload_request: DocumentUploadRequest,
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_tenant_admin),
+    _subscription_check: None = Depends(verify_subscription_active),
 ):
     """
     Upload and process a document.
 
     This endpoint orchestrates the full document ingestion pipeline:
-    1. Validates document content
+    1. Validates document content (422 `document_too_short` / `no_text_extracted`, before any
+       source is created)
     2. Chunks the text into overlapping segments
     3. Generates embeddings for each chunk
     4. Stores chunks in PostgreSQL
@@ -200,6 +210,9 @@ async def upload_document(
 
     knowledge_service = KnowledgeService(db)
 
+    # Same plan-cap guard as the file and URL uploads (FAILED/INACTIVE sources do not count).
+    knowledge_service.check_knowledge_source_limit(upload_request.tenant_id, source_category="file")
+
     try:
         # Process document through ingestion pipeline
         source = await knowledge_service.process_document(
@@ -213,6 +226,8 @@ async def upload_document(
 
         return source
 
+    except KnowledgeError:
+        raise  # rendered as the flat `{code, message}` body by the app-level handler
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Document processing failed: {str(e)}"

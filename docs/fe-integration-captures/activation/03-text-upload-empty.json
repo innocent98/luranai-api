@@ -1,0 +1,24 @@
+{
+  "scenario": "text-upload-empty",
+  "note": "Whitespace only: same code.",
+  "request": {
+    "method": "POST",
+    "path": "/knowledge/upload",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+      "document_name": "x",
+      "document_text": "   "
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "document_too_short",
+      "message": "This document is too short. Add at least 20 characters of text so the AI has something to answer from.",
+      "min_chars": 20
+    }
+  }
+}

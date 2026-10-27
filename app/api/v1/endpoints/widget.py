@@ -27,6 +27,7 @@ from app.schemas.widget import (
 )
 from app.services.api_key_service import APIKeyService
 from app.services.screen_recording.gating import screen_recording_allowed
+from app.services.widget_seen_service import record_widget_seen
 from app.services.visit_analytics_service import VisitAnalyticsService
 
 router = APIRouter()
@@ -427,6 +428,9 @@ def get_public_widget_config(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="API key does not belong to this tenant",
         )
+
+    # Remember that the widget is live on a customer site (hostname only, throttled)
+    record_widget_seen(db, tenant, request.headers.get("origin"), request.headers.get("referer"))
 
     # Track chat widget visit for platform analytics
     request_host = request.client.host if request and request.client else "unknown"

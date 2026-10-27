@@ -1,0 +1,37 @@
+{
+  "scenario": "job-failed-document-too-short",
+  "note": "Job status exposes failure_reason; no source was created.",
+  "request": {
+    "method": "GET",
+    "path": "/jobs/935b22d4-f4a8-49db-a20f-e35107f42565",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "job_type": "document_ingestion",
+      "total_items": null,
+      "id": "935b22d4-f4a8-49db-a20f-e35107f42565",
+      "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+      "status": "failed",
+      "processed_items": 0,
+      "failed_items": 0,
+      "progress_percent": 0,
+      "result_data": {
+        "failure_code": "document_too_short"
+      },
+      "error_message": "This document is too short. Add at least 20 characters of text so the AI has something to answer from.",
+      "created_at": "2026-10-27T22:30:41.582215",
+      "started_at": "2026-10-27T22:30:41.817468",
+      "completed_at": "2026-10-27T22:30:41.828906",
+      "created_by": "a6e88c8d-0a1f-4e33-b9a6-015271a404f5",
+      "failure_reason": {
+        "code": "document_too_short",
+        "message": "This document is too short. Add at least 20 characters of text so the AI has something to answer from."
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "scenario": "whatsapp-consent",
+  "note": "New approved copy and version.",
+  "request": {
+    "method": "GET",
+    "path": "/whatsapp/consent",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "version": "2026-10-28-draft2",
+      "text": "Luran connects your WhatsApp number as a linked device so it can answer customers who message you. WhatsApp can change its policies, restrict access, or disconnect the linked device. Luran replies only to customers who message you first. You can keep using WhatsApp on your phone or WhatsApp Web at the same time: when you type a reply yourself, the AI pauses on that chat for a while. You can disconnect at any time."
+    }
+  }
+}

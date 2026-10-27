@@ -1,0 +1,51 @@
+{
+  "scenario": "onboarding-widget-seen",
+  "note": "widget.done, hostname only.",
+  "request": {
+    "method": "GET",
+    "path": "/tenant/onboarding",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "steps": [
+        {
+          "key": "knowledge",
+          "done": true,
+          "detail": {
+            "sources_active": 2,
+            "sources_processing": 0,
+            "sources_failed": 0
+          }
+        },
+        {
+          "key": "widget",
+          "done": true,
+          "detail": {
+            "first_seen_at": "2026-10-27T22:30:48.680287Z",
+            "last_seen_at": "2026-10-27T22:30:48.680287Z",
+            "last_seen_host": "demo-bakery.example.com"
+          }
+        },
+        {
+          "key": "test_conversation",
+          "done": false,
+          "detail": {
+            "conversations": 0
+          }
+        }
+      ],
+      "ai": {
+        "first_responder": "ai_with_handoff",
+        "will_answer": true,
+        "blocker": null
+      },
+      "completed": 2,
+      "total": 3
+    }
+  }
+}

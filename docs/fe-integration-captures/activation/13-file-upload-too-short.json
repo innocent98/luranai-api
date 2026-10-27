@@ -1,0 +1,29 @@
+{
+  "scenario": "file-upload-too-short",
+  "note": "A readable but too-short file is accepted (extraction is fine) and fails in the worker.",
+  "request": {
+    "method": "POST",
+    "path": "/knowledge/upload-file",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "multipart_file": {
+        "file": "tiny.txt"
+      },
+      "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+      "source_type": "faq"
+    }
+  },
+  "response": {
+    "status": 202,
+    "body": {
+      "job_id": "935b22d4-f4a8-49db-a20f-e35107f42565",
+      "status": "queued",
+      "message": "Document upload queued for processing. Check status via provided URL or connect to WebSocket.",
+      "check_status_url": "/api/v1/jobs/935b22d4-f4a8-49db-a20f-e35107f42565",
+      "estimated_chunks": 1,
+      "estimated_time_seconds": 6
+    }
+  }
+}

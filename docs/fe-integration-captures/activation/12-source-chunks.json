@@ -1,0 +1,93 @@
+{
+  "scenario": "source-chunks",
+  "note": "The four topical chunks.",
+  "request": {
+    "method": "GET",
+    "path": "/knowledge/sources/7c07e66a-a7b4-4ab4-a968-a44108aa7f0e/chunks",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "content": "Opening hours\nWe are open Monday to Saturday from 7am to 6pm, and on Sundays from 8am to 2pm.",
+        "meta": {
+          "token_count": 30,
+          "source_name": "bakery-faq",
+          "source_type": "faq"
+        },
+        "visibility": "public",
+        "language": "en",
+        "id": "15d2a9e5-efb3-4ad3-b2b2-0c7a78f153fa",
+        "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+        "source_id": "7c07e66a-a7b4-4ab4-a968-a44108aa7f0e",
+        "chunk_index": 0,
+        "vector_id": "decbe5d6-10a1-451a-9e5e-eeaf94bc4719",
+        "version": 1,
+        "is_active": true,
+        "created_at": "2026-10-27T22:30:39.735147Z",
+        "updated_at": "2026-10-27T22:30:39.735147Z"
+      },
+      {
+        "content": "Delivery\nWe deliver within 10km of the shop. Delivery costs 1,500 naira and takes about 45 minutes.",
+        "meta": {
+          "token_count": 27,
+          "source_name": "bakery-faq",
+          "source_type": "faq"
+        },
+        "visibility": "public",
+        "language": "en",
+        "id": "d735d1fb-a036-463a-9ca6-b155c34e0c09",
+        "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+        "source_id": "7c07e66a-a7b4-4ab4-a968-a44108aa7f0e",
+        "chunk_index": 1,
+        "vector_id": "5bacaf74-4d03-4194-905a-8cbbd32a7539",
+        "version": 1,
+        "is_active": true,
+        "created_at": "2026-10-27T22:30:39.742371Z",
+        "updated_at": "2026-10-27T22:30:39.742371Z"
+      },
+      {
+        "content": "Prices\nA loaf of bread is 1,200 naira. Birthday cakes start at 15,000 naira and need two days' notice.",
+        "meta": {
+          "token_count": 31,
+          "source_name": "bakery-faq",
+          "source_type": "faq"
+        },
+        "visibility": "public",
+        "language": "en",
+        "id": "d4d98730-2505-4a2f-bc5d-3142dd9fc1e0",
+        "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+        "source_id": "7c07e66a-a7b4-4ab4-a968-a44108aa7f0e",
+        "chunk_index": 2,
+        "vector_id": "a9ce9947-92bc-45e9-937d-07a4042c410a",
+        "version": 1,
+        "is_active": true,
+        "created_at": "2026-10-27T22:30:40.368231Z",
+        "updated_at": "2026-10-27T22:30:40.368231Z"
+      },
+      {
+        "content": "Returns\nIf your order is wrong, tell us within 24 hours and we will replace it or refund you.",
+        "meta": {
+          "token_count": 23,
+          "source_name": "bakery-faq",
+          "source_type": "faq"
+        },
+        "visibility": "public",
+        "language": "en",
+        "id": "2e7a31d9-8794-491b-a332-6ebc25b6d84f",
+        "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+        "source_id": "7c07e66a-a7b4-4ab4-a968-a44108aa7f0e",
+        "chunk_index": 3,
+        "vector_id": "632ca9fd-ace9-44b3-9b2b-a35251202382",
+        "version": 1,
+        "is_active": true,
+        "created_at": "2026-10-27T22:30:40.776288Z",
+        "updated_at": "2026-10-27T22:30:40.776288Z"
+      }
+    ]
+  }
+}

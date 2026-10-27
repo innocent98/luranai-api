@@ -1,0 +1,51 @@
+{
+  "scenario": "onboarding-ai-will-answer",
+  "note": "blocker is null once knowledge is indexed and the AI answers first.",
+  "request": {
+    "method": "GET",
+    "path": "/tenant/onboarding",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "steps": [
+        {
+          "key": "knowledge",
+          "done": true,
+          "detail": {
+            "sources_active": 1,
+            "sources_processing": 0,
+            "sources_failed": 0
+          }
+        },
+        {
+          "key": "widget",
+          "done": false,
+          "detail": {
+            "first_seen_at": null,
+            "last_seen_at": null,
+            "last_seen_host": null
+          }
+        },
+        {
+          "key": "test_conversation",
+          "done": false,
+          "detail": {
+            "conversations": 0
+          }
+        }
+      ],
+      "ai": {
+        "first_responder": "ai_with_handoff",
+        "will_answer": true,
+        "blocker": null
+      },
+      "completed": 1,
+      "total": 3
+    }
+  }
+}

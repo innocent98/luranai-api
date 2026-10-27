@@ -8,6 +8,7 @@ from qdrant_client.models import (
     Distance,
     FieldCondition,
     Filter,
+    MatchAny,
     MatchValue,
     PointStruct,
     SearchParams,
@@ -30,30 +31,35 @@ class QdrantManager:
         self.collection_name = settings.QDRANT_COLLECTION_NAME
         self.dimension = settings.EMBEDDING_DIMENSION
 
+    def _collection_exists(self) -> bool:
+        collections = self.client.get_collections().collections
+        return self.collection_name in [c.name for c in collections]
+
     def ensure_collection(self) -> bool:
         """
-        Ensure the collection exists, create if it doesn't.
+        Ensure the collection exists, create if it doesn't. Safe to call before every ingestion
+        and from several workers at once.
 
         Returns:
-            True if collection was created or already exists
+            True if collection was created or already exists, False if the store is unreachable
         """
         try:
-            # Check if collection exists
-            collections = self.client.get_collections().collections
-            collection_names = [c.name for c in collections]
-
-            if self.collection_name in collection_names:
-                logger.info(f"Collection '{self.collection_name}' already exists")
+            if self._collection_exists():
                 return True
 
-            # Create collection
-            self.client.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=VectorParams(
-                    size=self.dimension,
-                    distance=Distance.COSINE,
-                ),
-            )
+            try:
+                self.client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=VectorParams(
+                        size=self.dimension,
+                        distance=Distance.COSINE,
+                    ),
+                )
+            except Exception:
+                # Another process may have created it between the check and the create.
+                if self._collection_exists():
+                    return True
+                raise
 
             logger.info(f"Created collection '{self.collection_name}'")
             return True
@@ -318,6 +324,43 @@ class QdrantManager:
             # Log as warning, not error, since deletion failures don't affect DB state
             logger.warning(f"Failed to delete vectors for source {source_id}: {e}")
             return False
+
+    def count_searchable_vectors(self, tenant_id: UUID, source_ids: list[UUID]) -> int | None:
+        """
+        Count vectors the AI could actually retrieve for these sources: same tenant, active,
+        ACTIVE source, PUBLIC visibility as `search()`.
+
+        Returns:
+            The count, or None when the store cannot be queried (so callers can tell
+            "nothing indexed" from "could not check").
+        """
+        if not source_ids:
+            return 0
+        try:
+            if not self._collection_exists():
+                return 0
+            search_filter = self.build_search_filter(
+                tenant_id=tenant_id,
+                is_active=True,
+                source_status="ACTIVE",
+                visibility_level="PUBLIC",
+            )
+            search_filter.must.append(  # type: ignore[union-attr]
+                FieldCondition(
+                    key="source_id",
+                    match=MatchAny(any=[str(sid) for sid in source_ids]),
+                )
+            )
+            return int(
+                self.client.count(
+                    collection_name=self.collection_name,
+                    count_filter=search_filter,
+                    exact=True,
+                ).count
+            )
+        except Exception as e:
+            logger.warning(f"Could not count searchable vectors for tenant {tenant_id}: {e}")
+            return None
 
     def count_vectors(self, tenant_id: UUID | None = None) -> int:
         """

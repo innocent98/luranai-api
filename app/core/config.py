@@ -247,6 +247,10 @@ class Settings(BaseSettings):
     # Optional explicit allowlist for automation outbound hosts (comma-separated).
     # Use with caution; empty by default for safer SSRF posture.
     AUTOMATION_OUTBOUND_HOST_ALLOWLIST: str = ""
+    # Widget-install tracking ignores Luran's own origins (dashboard, preview, docs). The hosts of
+    # FRONTEND_URL / CUSTOMER_FRONTEND_URL / FRONTEND_DOC_URL are always ignored; list extra
+    # hostnames here, comma-separated. A leading "*." matches any subdomain.
+    WIDGET_SEEN_IGNORED_HOSTS: str = ""
 
     # Account deletion (Google Play / GDPR right-to-erasure)
     # Cancellable grace period between a verified deletion request and purge.
@@ -387,6 +391,21 @@ class Settings(BaseSettings):
             for item in self.AUTOMATION_OUTBOUND_HOST_ALLOWLIST.split(",")
             if item.strip()
         }
+
+    def get_widget_seen_ignored_hosts(self) -> set[str]:
+        """Hostnames (or `*.suffix` patterns) whose widget loads are not customer installs."""
+        from urllib.parse import urlparse
+
+        hosts = {
+            item.strip().lower()
+            for item in self.WIDGET_SEEN_IGNORED_HOSTS.split(",")
+            if item.strip()
+        }
+        for url in (self.FRONTEND_URL, self.CUSTOMER_FRONTEND_URL, self.FRONTEND_DOC_URL):
+            host = urlparse(url).hostname if url else None
+            if host:
+                hosts.add(host.lower())
+        return hosts
 
     model_config = SettingsConfigDict(
         case_sensitive=True,

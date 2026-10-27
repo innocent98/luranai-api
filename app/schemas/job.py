@@ -3,9 +3,11 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.db.models.job import JobStatus, JobType
+from app.schemas.knowledge import FailureReasonOut
+from app.utils.knowledge_failures import failure_message
 
 
 class JobBase(BaseModel):
@@ -59,6 +61,15 @@ class JobResponse(JobBase):
     created_by: UUID | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def failure_reason(self) -> FailureReasonOut | None:
+        """Why a FAILED ingestion job failed: `{code, message}`; null otherwise."""
+        code = (self.result_data or {}).get("failure_code")
+        if self.status != JobStatus.FAILED or not code:
+            return None
+        return FailureReasonOut(code=code, message=failure_message(code) or "")
 
 
 class JobListResponse(BaseModel):

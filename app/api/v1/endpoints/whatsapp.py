@@ -28,7 +28,7 @@ router = APIRouter()
 
 @router.get("/consent", response_model=ConsentOut)
 def get_consent(current_user: UserResponse = Depends(get_current_tenant_admin)):
-    """Current consent text. The text is a DRAFT until Adebayo approves the wording."""
+    """Current consent text and its version (send the version back when creating a connection)."""
     return ConsentOut(version=CONSENT_VERSION, text=CONSENT_TEXT)
 
 

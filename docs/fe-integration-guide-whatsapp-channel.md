@@ -16,7 +16,7 @@ A tenant admin connects **a WhatsApp number they own** to Luran. They type the n
 Things the user can do and should be told:
 - **Keep using their phone / WhatsApp Web alongside the AI.** When the owner types a reply from their phone, the AI goes quiet on that chat for **2 hours** (default) and the owner's message appears in the transcript. Say this on the connect screen: it is a selling point.
 - Use an **aged business number** that is only used for business. Fresh numbers get restricted quickly. (Copy suggestion, not a backend rule.)
-- This is an **unofficial** link (like WhatsApp Web): WhatsApp can restrict a number. The consent text says so; show it verbatim and send back its `version`.
+- Show the consent text verbatim and send back its `version`. Do **not** add your own "unofficial" or "not affiliated" wording on this screen (product decision; liability wording lives in the Terms of Service).
 
 Gating: the tenant needs the **platform grant** (`can_use_whatsapp` + `max_whatsapp_numbers`, set by a Luran platform admin) and the global switch `WHATSAPP_ENABLED` must be on. Otherwise every create call returns `403 whatsapp_not_enabled`: show an "ask Luran to enable WhatsApp" state, not an error.
 
@@ -40,22 +40,22 @@ Gating: the tenant needs the **platform grant** (`can_use_whatsapp` + `max_whats
 All under `/api/v1`, `Authorization: Bearer <token>`, **tenant admin only** (`get_current_tenant_admin`), always scoped to the caller's tenant.
 
 ### 3.1 `GET /whatsapp/consent`
-Capture `01-consent.json`. Response **200**:
+**Updated 2026-10-28** (activation track). Live capture `docs/fe-integration-captures/activation/36-whatsapp-consent.json` (the older `whatsapp-channel/01-consent.json` shows the superseded draft1 text). Response **200**:
 ```json
 {
-  "version": "2026-10-27-draft1",
-  "text": "DRAFT - wording pending approval.\nLuran connects your WhatsApp number as a linked device (like WhatsApp Web), which is not an official WhatsApp integration. WhatsApp may restrict or ban a number that is used this way, and Luran is not liable for that or for any resulting loss of the number. We recommend an aged business number that you use only for business. Luran only replies to customers who message you first. You can keep using WhatsApp on your phone or WhatsApp Web at the same time: when you type a reply yourself, the AI pauses on that chat for a while. You can disconnect at any time."
+  "version": "2026-10-28-draft2",
+  "text": "Luran connects your WhatsApp number as a linked device so it can answer customers who message you. WhatsApp can change its policies, restrict access, or disconnect the linked device. Luran replies only to customers who message you first. You can keep using WhatsApp on your phone or WhatsApp Web at the same time: when you type a reply yourself, the AI pauses on that chat for a while. You can disconnect at any time."
 }
 ```
-**The text is a DRAFT** (it says so) until Adebayo approves the wording; the `version` changes whenever the text does. Always fetch it, render `text` verbatim next to the checkbox, and echo `version` back on create. A stale version is rejected (3.2).
+The text is the approved copy (no draft marker); the `version` changes whenever the text does. Always fetch it, render `text` verbatim next to the checkbox, and echo `version` back; a stale version is rejected (below).
 
 ### 3.2 `POST /whatsapp/connections`
-Request (capture `08-create-201.json`):
+Request (shape from capture `08-create-201.json`; `consent.version` updated to the current `2026-10-28-draft2`, the capture itself was recorded with draft1):
 ```json
 {
   "phone_number": "2348000000001",
   "label": "Main line",
-  "consent": {"version": "2026-10-27-draft1", "accepted": true}
+  "consent": {"version": "2026-10-28-draft2", "accepted": true}
 }
 ```
 Response **201**:
@@ -74,7 +74,7 @@ Errors (all captured, exact strings):
 | Status | `code` | `message` | Capture | What to show |
 |---|---|---|---|---|
 | 403 | `whatsapp_not_enabled` | `WhatsApp is not enabled for this account.` | 02 | "Ask Luran to enable WhatsApp" |
-| 422 | `consent_required` | `Accept the current WhatsApp terms (version 2026-10-27-draft1) to continue.` | 05 (missing), 06 (stale version) | Re-fetch consent, re-ask. Also returned when `accepted` is false |
+| 422 | `consent_required` | `Accept the current WhatsApp terms (version 2026-10-28-draft2) to continue.` (built from the current version; captures 05/06 pre-date the change and show `2026-10-27-draft1`) | 05 (missing), 06 (stale version) | Re-fetch consent, re-ask. Also returned when `accepted` is false |
 | 422 | `invalid_phone` | `Enter the number as digits with country code and no '+', e.g. 2348012345678.` | 07 | Inline field error |
 | 409 | `number_in_use` | `This number is already connected to a Luran account.` | 14 | Do not reveal which account |
 | 409 | `connection_limit` | `Your plan allows 2 WhatsApp number(s).` | 16 | Number reflects the grant |

@@ -1,0 +1,55 @@
+{
+  "scenario": "chat-first-message",
+  "note": "A real customer message answered from the knowledge base.",
+  "request": {
+    "method": "POST",
+    "path": "/chat/message",
+    "headers": {},
+    "body": {
+      "message": "What time do you open?",
+      "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+      "user_identifier": "visitor-demo-001"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "71327e7e-1315-4c26-912f-eefb8e348557",
+      "message": {
+        "role": "assistant",
+        "content": "We open at 7am Monday through Saturday, and at 8am on Sundays.",
+        "id": "9f723fa4-eabf-4475-bb30-0a61dbd36d52",
+        "session_id": "71327e7e-1315-4c26-912f-eefb8e348557",
+        "retrieved_chunk_ids": [
+          "1865a465-ea09-455c-85f7-5a750198f92a",
+          "54208bd9-8ce3-4ef2-a187-5c7a0fa158b6"
+        ],
+        "token_count": 544,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "chunks_used": 2,
+          "avg_similarity": 0.494,
+          "retrieval_hit": true,
+          "escalation_action": "no_escalation",
+          "response_quality": {
+            "is_substantial": true,
+            "has_uncertainty": false,
+            "word_count": 12,
+            "char_count": 62
+          },
+          "token_breakdown": {
+            "prompt_tokens": 194,
+            "completion_tokens": 350,
+            "total_tokens": 544
+          }
+        },
+        "created_at": "2026-10-27T22:31:00.423875Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}

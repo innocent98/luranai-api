@@ -1,0 +1,25 @@
+{
+  "scenario": "file-upload-no-text",
+  "note": "Nothing readable at all (e.g. a scanned PDF): rejected immediately, no job.",
+  "request": {
+    "method": "POST",
+    "path": "/knowledge/upload-file",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "multipart_file": {
+        "file": "scan.txt"
+      },
+      "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+      "source_type": "faq"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "no_text_extracted",
+      "message": "We could not find any readable text in this document. If it is a scanned PDF or an image, upload a text version or paste the text instead."
+    }
+  }
+}

@@ -12,12 +12,27 @@ from app.core.config import settings
 from app.db.models.job import JobStatus, ProcessingJob
 from app.db.models.knowledge import SourceStatus, SourceType
 from app.db.session import SessionLocal
+from app.services.knowledge_indexing import embed_and_store_chunk
 from app.services.knowledge_service import KnowledgeService
-from app.utils.embedding import embedding_service
+from app.utils.embedding import embedding_service  # noqa: F401 - patched by tests
+from app.utils.knowledge_failures import (
+    FailureCode,
+    KnowledgeError,
+    check_document_text,
+    failure_message,
+)
 
 
 def _set_attr(obj: object, name: str, value: object) -> None:
     setattr(obj, name, value)
+
+
+def _failure_reason_payload(job: ProcessingJob) -> dict | None:
+    """`{code, message}` for a FAILED job that recorded a failure code, else None."""
+    code = (cast(dict[str, Any], job.result_data or {})).get("failure_code")
+    if job.status != JobStatus.FAILED or not code:
+        return None
+    return {"code": code, "message": failure_message(code)}
 
 
 async def broadcast_job_status(job_id: UUID, update: dict):
@@ -62,6 +77,9 @@ async def process_document_ingestion(
     db: Session = SessionLocal()
     job_uuid = UUID(job_id)
     job: ProcessingJob | None = None
+    # The source this job is working on, so any failure can mark it FAILED (a source left
+    # PROCESSING would keep counting toward the plan's cap forever).
+    source_in_flight: UUID | None = None
 
     try:
         # Get job from database
@@ -105,10 +123,18 @@ async def process_document_ingestion(
         # Initialize knowledge service
         knowledge_service = KnowledgeService(db)
 
+        existing_source_id_str = input_data.get("knowledge_source_id")
+        if existing_source_id_str:
+            source_in_flight = UUID(str(existing_source_id_str))
+
+        # Too short / nothing readable: fail with a reason the tenant can act on, before any
+        # source is created (an audit import's pre-created source is marked FAILED below).
+        problem = check_document_text(document_text)
+        if problem:
+            raise KnowledgeError(problem)
+
         # Step 1: Create (or reuse) source and chunk text (fast, no API calls)
         logger.info(f"Creating source and chunking document: {document_name}")
-
-        existing_source_id_str = input_data.get("knowledge_source_id")
 
         if existing_source_id_str:
             # Auditor-import path: import_entries already created a KnowledgeSource
@@ -136,6 +162,7 @@ async def process_document_ingestion(
                 source_url=source_url,
                 file_size_bytes=file_size_bytes,
             )
+        source_in_flight = source.id
 
         # Update job with total chunks
         # Query chunks directly as DB objects (not Pydantic models) so we can update them
@@ -172,35 +199,31 @@ async def process_document_ingestion(
         from app.utils.qdrant_client import qdrant_manager
 
         if not qdrant_manager.ensure_collection():
-            raise RuntimeError("Failed to ensure Qdrant collection exists")
+            raise KnowledgeError(FailureCode.VECTOR_STORE_UNAVAILABLE)
 
         # Step 2: Generate embeddings with rate limiting
         successful_chunks = []
         failed_chunks = []
+        failure_codes: list[FailureCode] = []
 
         for i, chunk in enumerate(chunks):
             try:
-                # Generate embedding (rate limiting handled by embedding service)
-                embedding = await embedding_service.generate_embedding(chunk.content)
+                # Embed + store (rate limiting handled by the embedding service). The vector id
+                # is the chunk UUID: Qdrant accepts only UUIDs or integers as point ids.
+                vector_id = str(chunk.id)
+                failure = await embed_and_store_chunk(
+                    tenant_id=tenant_id,
+                    source_id=source.id,
+                    source_name=source.name,
+                    source_type=source_type.value,
+                    version=source.version,
+                    chunk_id=chunk.id,
+                    chunk_index=chunk.chunk_index,
+                    content=chunk.content,
+                    vector_id=vector_id,
+                )
 
-                if embedding:
-                    # Store in Qdrant
-                    from app.utils.qdrant_client import qdrant_manager
-
-                    # Use chunk UUID as vector_id (Qdrant requires UUID or integer)
-                    vector_id = str(chunk.id)
-                    qdrant_manager.upsert_vector(
-                        vector_id=vector_id,
-                        embedding=embedding,
-                        tenant_id=tenant_id,
-                        chunk_id=chunk.id,
-                        source_id=source.id,
-                        content=chunk.content,
-                        metadata={
-                            "chunk_index": chunk.chunk_index,
-                        },
-                    )
-
+                if failure is None:
                     # Update chunk with vector_id
                     _set_attr(chunk, "vector_id", vector_id)
                     successful_chunks.append(chunk.id)
@@ -208,7 +231,10 @@ async def process_document_ingestion(
                     logger.debug(f"✓ Embedded chunk {i+1}/{len(chunks)}")
                 else:
                     failed_chunks.append(chunk.id)
-                    logger.warning(f"✗ Failed to embed chunk {i+1}/{len(chunks)}")
+                    failure_codes.append(failure)
+                    # No vector exists for it: keep it out of the source's chunk count.
+                    _set_attr(chunk, "is_active", False)
+                    logger.warning(f"✗ Failed to index chunk {i+1}/{len(chunks)}: {failure.value}")
 
                 # Update job progress
                 _set_attr(job, "processed_items", i + 1)
@@ -230,6 +256,7 @@ async def process_document_ingestion(
 
             except Exception as e:
                 failed_chunks.append(chunk.id)
+                failure_codes.append(FailureCode.EMBEDDING_FAILED)
                 logger.error(f"Error processing chunk {i+1}: {e}")
 
                 # Continue with next chunk (don't fail entire job)
@@ -247,8 +274,15 @@ async def process_document_ingestion(
 
         if len(successful_chunks) > 0:
             _set_attr(db_source, "status", SourceStatus.ACTIVE)
+            _set_attr(db_source, "failure_code", None)
             # Recompute chunk_count from actual chunks to prevent drift
             knowledge_service.recompute_chunk_count(source.id)
+            db.commit()
+            # Re-uploading the same content replaces the older copy instead of doubling it.
+            if source.version > 1:
+                knowledge_service.deactivate_old_versions(
+                    tenant_id, source.content_hash, source.version
+                )
             _set_attr(job, "status", JobStatus.COMPLETED)
             _set_attr(
                 job,
@@ -264,10 +298,13 @@ async def process_document_ingestion(
                 f"✓ Job {job_id} completed: {len(successful_chunks)}/{len(chunks)} chunks processed"
             )
         else:
+            failure = failure_codes[0] if failure_codes else FailureCode.EMBEDDING_FAILED
             _set_attr(db_source, "status", SourceStatus.FAILED)
+            _set_attr(db_source, "failure_code", failure.value)
             _set_attr(job, "status", JobStatus.FAILED)
-            _set_attr(job, "error_message", "All chunks failed to embed")
-            logger.error(f"✗ Job {job_id} failed: No chunks successfully embedded")
+            _set_attr(job, "error_message", failure_message(failure.value))
+            _set_attr(job, "result_data", {"failure_code": failure.value})
+            logger.error(f"✗ Job {job_id} failed: {failure.value}")
 
         _set_attr(job, "completed_at", datetime.now(UTC))
         _set_attr(job, "failed_items", len(failed_chunks))
@@ -286,6 +323,7 @@ async def process_document_ingestion(
                 "total_items": len(chunks),
                 "result_data": job.result_data,
                 "error_message": job.error_message,
+                "failure_reason": _failure_reason_payload(job),
                 "message": (
                     "Processing complete!"
                     if job.status == JobStatus.COMPLETED
@@ -304,8 +342,38 @@ async def process_document_ingestion(
             "chunks_failed": len(failed_chunks),
         }
 
+    except KnowledgeError as e:
+        logger.warning(f"Job {job_id} failed: {e.code}")
+
+        if source_in_flight:
+            KnowledgeService(db).fail_source_and_cleanup(source_in_flight, e.failure)
+
+        if job:
+            _set_attr(job, "status", JobStatus.FAILED)
+            _set_attr(job, "error_message", e.message)
+            _set_attr(job, "result_data", {"failure_code": e.code})
+            _set_attr(job, "completed_at", datetime.now(UTC))
+            db.commit()
+
+            await broadcast_job_status(
+                job_uuid,
+                {
+                    "job_id": job_id,
+                    "status": "failed",
+                    "error_message": e.message,
+                    "failure_reason": {"code": e.code, "message": e.message},
+                    "message": "Processing failed",
+                },
+            )
+            await send_job_completion_email(job, db)
+
+        return {"success": False, "error": e.message, "failure_code": e.code}
+
     except Exception as e:
         logger.error(f"Critical error in job {job_id}: {e}", exc_info=True)
+
+        if source_in_flight:
+            KnowledgeService(db).fail_source_and_cleanup(source_in_flight, None)
 
         # Mark job as failed
         if job:

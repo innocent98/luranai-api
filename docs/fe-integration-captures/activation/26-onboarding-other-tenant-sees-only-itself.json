@@ -1,0 +1,51 @@
+{
+  "scenario": "onboarding-other-tenant-sees-only-itself",
+  "note": "Tenant B, same moment: zeros. Tenant A's activity is invisible to B.",
+  "request": {
+    "method": "GET",
+    "path": "/tenant/onboarding",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "steps": [
+        {
+          "key": "knowledge",
+          "done": false,
+          "detail": {
+            "sources_active": 0,
+            "sources_processing": 0,
+            "sources_failed": 0
+          }
+        },
+        {
+          "key": "widget",
+          "done": false,
+          "detail": {
+            "first_seen_at": null,
+            "last_seen_at": null,
+            "last_seen_host": null
+          }
+        },
+        {
+          "key": "test_conversation",
+          "done": false,
+          "detail": {
+            "conversations": 0
+          }
+        }
+      ],
+      "ai": {
+        "first_responder": "human",
+        "will_answer": false,
+        "blocker": "no_knowledge"
+      },
+      "completed": 0,
+      "total": 3
+    }
+  }
+}

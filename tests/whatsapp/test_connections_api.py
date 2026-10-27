@@ -28,12 +28,38 @@ def _create(client, body=None):
     return client.post("/api/v1/whatsapp/connections", json=body or consent_body())
 
 
-def test_consent_is_versioned_and_marked_draft(client, db, wa_settings):
+APPROVED_CONSENT_TEXT = (
+    "Luran connects your WhatsApp number as a linked device so it can answer customers who "
+    "message you. WhatsApp can change its policies, restrict access, or disconnect the linked "
+    "device. Luran replies only to customers who message you first. You can keep using WhatsApp "
+    "on your phone or WhatsApp Web at the same time: when you type a reply yourself, the AI "
+    "pauses on that chat for a while. You can disconnect at any time."
+)
+
+
+def test_consent_is_versioned_and_is_the_approved_copy(client, db, wa_settings):
     login_admin(make_tenant(db))
     r = client.get("/api/v1/whatsapp/consent")
     assert r.status_code == 200
+    assert r.json() == {"version": "2026-10-28-draft2", "text": APPROVED_CONSENT_TEXT}
     assert r.json()["version"] == CONSENT_VERSION
-    assert "DRAFT" in r.json()["text"]
+
+
+def test_consent_copy_has_no_fear_framing_or_draft_marker(client, db, wa_settings):
+    """Product decision: liability wording lives in the Terms of Service, not on this screen."""
+    login_admin(make_tenant(db))
+    text = client.get("/api/v1/whatsapp/consent").json()["text"].lower()
+    for banned in ("unofficial", "not affiliated", "not an official", "draft", "ban", "liable"):
+        assert banned not in text
+
+
+def test_previous_consent_version_is_rejected(client, db, wa_settings, fake_sidecar):
+    login_admin(make_tenant(db))
+    body = consent_body()
+    body["consent"]["version"] = "2026-10-27-draft1"
+    r = _create(client, body)
+    assert r.status_code == 422
+    assert r.json()["code"] == "consent_required"
 
 
 def test_create_returns_pairing_code_once_and_never_stores_or_logs_it(

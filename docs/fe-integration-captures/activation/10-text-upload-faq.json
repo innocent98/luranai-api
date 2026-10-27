@@ -1,0 +1,39 @@
+{
+  "scenario": "text-upload-faq",
+  "note": "A multi-topic FAQ is split per topic (chunk_count 4), every chunk indexed.",
+  "request": {
+    "method": "POST",
+    "path": "/knowledge/upload",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+      "document_name": "bakery-faq",
+      "document_text": "Opening hours\nWe are open Monday to Saturday from 7am to 6pm, and on Sundays from 8am to 2pm.\n\nDelivery\nWe deliver within 10km of the shop. Delivery costs 1,500 naira and takes about 45 minutes.\n\nPrices\nA loaf of bread is 1,200 naira. Birthday cakes start at 15,000 naira and need two days' notice.\n\nReturns\nIf your order is wrong, tell us within 24 hours and we will replace it or refund you.\n",
+      "source_type": "faq"
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "name": "bakery-faq",
+      "source_type": "faq",
+      "meta": {},
+      "id": "7c07e66a-a7b4-4ab4-a968-a44108aa7f0e",
+      "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+      "file_url": null,
+      "content_hash": "a88ffdfc6497e65c73a00b4e7815d57a1a60b3e993093915082e1f61317bb39e",
+      "version": 1,
+      "status": "active",
+      "chunk_count": 4,
+      "uploaded_by": "a6e88c8d-0a1f-4e33-b9a6-015271a404f5",
+      "source_category": "file",
+      "source_url": null,
+      "file_size_bytes": null,
+      "created_at": "2026-10-27T22:30:39.730708Z",
+      "updated_at": "2026-10-27T22:30:41.541211Z",
+      "failure_reason": null
+    }
+  }
+}

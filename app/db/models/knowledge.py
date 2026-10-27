@@ -131,6 +131,11 @@ class KnowledgeSource(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         comment="User ID who uploaded this source",
     )
+    failure_code: Mapped[str | None] = mapped_column(
+        String(40),
+        nullable=True,
+        comment="Why processing failed (app.utils.knowledge_failures.FailureCode); NULL otherwise",
+    )
 
     # Relationships
     chunks: Mapped[list["KnowledgeChunk"]] = relationship(

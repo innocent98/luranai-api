@@ -118,7 +118,8 @@ def test_upgrade_matches_models_and_downgrade_reverses(scratch_db):
         }
     assert "whatsapp" in labels
 
-    command.downgrade(cfg, "-1")
+    # Back to wa10's own parent (not "-1": later migrations may sit on top of wa10).
+    command.downgrade(cfg, "pf10planfeatures")
     insp = inspect(scratch_db)
     assert not [t for t in TABLES if insp.has_table(t)]
     assert "can_use_whatsapp" not in {c["name"] for c in insp.get_columns("tenant_capabilities")}

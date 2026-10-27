@@ -1,6 +1,7 @@
 """Knowledge service for managing documents and knowledge chunks."""
 
 import hashlib
+import uuid as _uuid
 from typing import Any
 from uuid import UUID
 
@@ -25,6 +26,7 @@ from app.schemas.knowledge import (
     KnowledgeSourceResponse,
     KnowledgeSourceUpdate,
 )
+from app.utils.knowledge_failures import FailureCode, KnowledgeError, check_document_text
 
 
 class KnowledgeService:
@@ -66,26 +68,19 @@ class KnowledgeService:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                # Step 1: Query for existing duplicate with row lock
-                stmt = (
-                    select(KnowledgeSource)
-                    .where(
+                # Step 1+2: next version for this (tenant, content). Count EVERY prior row,
+                # including FAILED and INACTIVE ones: the unique key is
+                # (tenant, content_hash, version), so reusing a number held by a failed or
+                # deleted source fails, and several rows may share the hash (retries).
+                latest = self.db.execute(
+                    select(func.max(KnowledgeSource.version)).where(
                         and_(
                             KnowledgeSource.tenant_id == source_data.tenant_id,
                             KnowledgeSource.content_hash == source_data.content_hash,
-                            KnowledgeSource.status != SourceStatus.INACTIVE,
                         )
                     )
-                    .with_for_update()
-                )
-
-                existing = self.db.execute(stmt).scalar_one_or_none()
-
-                # Step 2: Decide version
-                if existing:
-                    version = existing.version + 1
-                else:
-                    version = 1
+                ).scalar()
+                version = (latest or 0) + 1
 
                 # Step 3: Create and commit
                 db_source = KnowledgeSource(
@@ -204,18 +199,24 @@ class KnowledgeService:
             raise ValueError("Knowledge source not found")
 
         source.status = SourceStatus.ACTIVE
+        source.failure_code = None
 
         self.db.commit()
         self.db.refresh(source)
 
         return KnowledgeSourceResponse.model_validate(source)
 
-    def mark_source_failed(self, source_id: UUID) -> KnowledgeSourceResponse:
+    def mark_source_failed(
+        self, source_id: UUID, failure_code: FailureCode | None = None
+    ) -> KnowledgeSourceResponse:
         """
         Mark a source as failed during processing.
 
+        FAILED sources never count toward the plan's source cap.
+
         Args:
             source_id: Source UUID
+            failure_code: Why it failed (shown to the tenant as `failure_reason`)
 
         Returns:
             Updated source response
@@ -230,11 +231,40 @@ class KnowledgeService:
             raise ValueError("Knowledge source not found")
 
         source.status = SourceStatus.FAILED
+        source.failure_code = failure_code.value if failure_code else None
 
         self.db.commit()
         self.db.refresh(source)
 
         return KnowledgeSourceResponse.model_validate(source)
+
+    def fail_source_and_cleanup(self, source_id: UUID, failure_code: FailureCode | None) -> None:
+        """
+        Mark a source FAILED and remove anything half-written for it, so a failed upload leaves
+        no searchable fragments. Best effort: never raises (callers are already handling an error).
+        """
+        for attempt in (1, 2):
+            try:
+                self.mark_source_failed(source_id, failure_code)
+                for chunk in self.db.execute(
+                    select(KnowledgeChunk).where(KnowledgeChunk.source_id == source_id)
+                ).scalars():
+                    chunk.is_active = False
+                self.db.commit()
+                break
+            except Exception as e:  # noqa: BLE001
+                # The session may be in a failed transaction (the error being handled):
+                # clear it once and retry before giving up.
+                self.db.rollback()
+                if attempt == 2:
+                    logger.error(f"Could not mark source {source_id} failed: {e}")
+                    return
+        try:
+            from app.utils.qdrant_client import qdrant_manager
+
+            qdrant_manager.delete_by_source_id(source_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(f"Could not remove vectors of failed source {source_id}: {e}")
 
     def deactivate_old_versions(
         self, tenant_id: UUID, content_hash: str, current_version: int
@@ -272,6 +302,14 @@ class KnowledgeService:
                 chunk.is_active = False
 
         self.db.commit()
+
+        # The retired copies' vectors would keep taking retrieval slots (their chunks are
+        # filtered out afterwards), so remove them. Best effort.
+        if old_sources:
+            from app.utils.qdrant_client import qdrant_manager
+
+            for source in old_sources:
+                qdrant_manager.delete_by_source_id(source.id)
 
     def create_chunk(self, chunk_data: KnowledgeChunkCreate) -> KnowledgeChunkResponse:
         """
@@ -633,6 +671,10 @@ class KnowledgeService:
 
         logger.info(f"Creating source and chunks (without embeddings) for '{document_name}'")
 
+        problem = check_document_text(document_text)
+        if problem:
+            raise KnowledgeError(problem)  # nothing created yet: no source row to clean up
+
         source = None  # Initialize to avoid UnboundLocalError in except block
 
         try:
@@ -669,8 +711,7 @@ class KnowledgeService:
 
             if not chunks_data:
                 logger.warning("No chunks created from document")
-                self.mark_source_failed(source.id)
-                raise ValueError("No chunks could be created from document text")
+                raise KnowledgeError(FailureCode.NO_TEXT_EXTRACTED)
 
             # Step 4: Create chunk records (without embeddings)
             for i, chunk_data in enumerate(chunks_data):
@@ -679,7 +720,8 @@ class KnowledgeService:
                     source_id=source.id,
                     content=chunk_data["content"],
                     chunk_index=i,
-                    vector_id=None,  # Will be set by background worker
+                    # Placeholder (also a valid Qdrant id); the worker sets the real one.
+                    vector_id=str(_uuid.uuid4()),
                     meta=chunk_data.get("metadata", {}),
                     visibility=ChunkVisibility.PUBLIC,
                     language="en",
@@ -691,6 +733,11 @@ class KnowledgeService:
 
             return source
 
+        except KnowledgeError as e:
+            logger.error(f"Error creating source and chunks: {e}")
+            if source:
+                self.mark_source_failed(source.id, e.failure)
+            raise
         except Exception as e:
             logger.error(f"Error creating source and chunks: {e}")
             if source:
@@ -718,8 +765,6 @@ class KnowledgeService:
         remains PROCESSING after this call; the caller (process_document_ingestion)
         transitions it to ACTIVE/FAILED after embedding.
         """
-        import uuid as _uuid
-
         from app.utils.chunking import text_chunker
 
         stmt = select(KnowledgeSource).where(KnowledgeSource.id == source_id)
@@ -742,12 +787,10 @@ class KnowledgeService:
 
         if not chunks_data:
             logger.warning("No chunks created from document")
-            self.mark_source_failed(source_id)
-            raise ValueError("No chunks could be created from document text")
+            self.mark_source_failed(source_id, FailureCode.NO_TEXT_EXTRACTED)
+            raise KnowledgeError(FailureCode.NO_TEXT_EXTRACTED)
 
         for i, chunk_data in enumerate(chunks_data):
-            from app.schemas.knowledge import KnowledgeChunkCreate
-
             # Provisional vector_id satisfies the NOT NULL DB constraint; the
             # worker overwrites it with the real Qdrant point ID after embedding.
             provisional_vector_id = str(_uuid.uuid4())
@@ -804,12 +847,18 @@ class KnowledgeService:
         Raises:
             Exception: If processing fails
         """
+        from app.services.knowledge_indexing import embed_and_store_chunk
         from app.utils.chunking import text_chunker
-        from app.utils.embedding import embedding_service
         from app.utils.qdrant_client import qdrant_manager
 
         logger.info(f"Starting document processing for '{document_name}' (tenant: {tenant_id})")
 
+        # Reject before any source exists, so a too-short paste leaves nothing behind.
+        problem = check_document_text(document_text)
+        if problem:
+            raise KnowledgeError(problem)
+
+        source = None
         try:
             # Step 1: Compute content hash for versioning
             content_hash = self._compute_content_hash(document_text)
@@ -831,7 +880,6 @@ class KnowledgeService:
             logger.info(f"Created knowledge source: {source.id} (version {source.version})")
 
             # Step 3: Chunk the document text
-            logger.info("Chunking document text...")
             chunks_data = text_chunker.chunk_text(
                 text=document_text,
                 metadata={
@@ -841,77 +889,54 @@ class KnowledgeService:
                 },
             )
             logger.info(f"Created {len(chunks_data)} chunks")
-
             if not chunks_data:
-                logger.warning("No chunks created from document")
-                self.mark_source_failed(source.id)
-                raise ValueError("No chunks could be created from document text")
+                raise KnowledgeError(FailureCode.NO_TEXT_EXTRACTED)
 
-            # Step 4: Generate embeddings for all chunks
-            logger.info("Generating embeddings...")
-            chunk_texts = [chunk["content"] for chunk in chunks_data]
-            embeddings = await embedding_service.generate_batch_embeddings(
-                texts=chunk_texts, task_type="retrieval_document"
-            )
+            # Step 4: Make sure the collection exists (idempotent), then embed + index each chunk
+            if not qdrant_manager.ensure_collection():
+                raise KnowledgeError(FailureCode.VECTOR_STORE_UNAVAILABLE)
 
-            # Check for failed embeddings
-            failed_count = sum(1 for emb in embeddings if emb is None)
-            if failed_count > 0:
-                logger.warning(f"{failed_count} embeddings failed to generate")
-
-            # Step 5: Store chunks in PostgreSQL and Qdrant
-            logger.info("Storing chunks in database and vector store...")
-            created_chunks = []
-
-            for i, (chunk_data, embedding) in enumerate(zip(chunks_data, embeddings, strict=False)):
-                if embedding is None:
-                    logger.warning(f"Skipping chunk {i} due to failed embedding")
-                    continue
-
-                # Generate unique vector ID
-                vector_id = f"{source.id}_{i}"
-
-                # Create chunk in PostgreSQL
-                chunk_create = KnowledgeChunkCreate(
+            for i, chunk_data in enumerate(chunks_data):
+                # The row's vector_id IS the Qdrant point id, so it must be a UUID.
+                vector_id = str(_uuid.uuid4())
+                created_chunk = self.create_chunk(
+                    KnowledgeChunkCreate(
+                        tenant_id=tenant_id,
+                        source_id=source.id,
+                        content=chunk_data["content"],
+                        chunk_index=i,
+                        vector_id=vector_id,
+                        meta={
+                            "token_count": chunk_data.get("token_count"),
+                            **chunk_data.get("metadata", {}),
+                        },
+                        visibility=ChunkVisibility.PUBLIC,
+                        language="en",
+                        version=source.version,
+                    )
+                )
+                failure = await embed_and_store_chunk(
                     tenant_id=tenant_id,
                     source_id=source.id,
-                    content=chunk_data["content"],
-                    chunk_index=i,
-                    vector_id=vector_id,
-                    meta={
-                        "token_count": chunk_data.get("token_count"),
-                        **chunk_data.get("metadata", {}),
-                    },
-                    visibility=ChunkVisibility.PUBLIC,
-                    language="en",
+                    source_name=document_name,
+                    source_type=source_type.value,
                     version=source.version,
-                )
-                created_chunk = self.create_chunk(chunk_create)
-                created_chunks.append(created_chunk)
-
-                # Store vector in Qdrant
-                qdrant_manager.upsert_vector(
-                    vector_id=vector_id,
-                    embedding=embedding,
-                    tenant_id=tenant_id,
                     chunk_id=created_chunk.id,
-                    source_id=source.id,
+                    chunk_index=i,
                     content=chunk_data["content"],
-                    metadata={
-                        "chunk_index": i,
-                        "source_name": document_name,
-                        "source_type": source_type.value,
-                        "version": source.version,
-                    },
+                    vector_id=vector_id,
                 )
+                if failure:
+                    # All-or-nothing: a document with missing pieces would answer wrongly.
+                    raise KnowledgeError(failure)
 
-            logger.info(f"Successfully stored {len(created_chunks)} chunks")
+            logger.info(f"Indexed {len(chunks_data)} chunks")
 
-            # Step 6: Mark source as active
+            # Step 5: Mark source as active
             self.mark_source_active(source.id)
             logger.info(f"Document processing complete for '{document_name}'")
 
-            # Step 7: Deactivate old versions if this is a new version
+            # Step 6: Deactivate old versions if this is a new version
             if source.version > 1:
                 logger.info(f"Deactivating old versions (version < {source.version})")
                 self.deactivate_old_versions(tenant_id, content_hash, source.version)
@@ -922,14 +947,15 @@ class KnowledgeService:
                 raise ValueError("Failed to refresh source after processing")
             return refreshed_source
 
+        except KnowledgeError as e:
+            logger.error(f"Document '{document_name}' failed: {e.code}")
+            if source:
+                self.fail_source_and_cleanup(source.id, e.failure)
+            raise
         except Exception as e:
             logger.error(f"Error processing document '{document_name}': {e}")
-            # Mark source as failed if it was created
-            try:
-                if "source" in locals() and source:
-                    self.mark_source_failed(source.id)
-            except Exception:
-                pass
+            if source:
+                self.fail_source_and_cleanup(source.id, None)
             raise
 
     async def reprocess_source(self, source_id: UUID) -> KnowledgeSourceResponse:
