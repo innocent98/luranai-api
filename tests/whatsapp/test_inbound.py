@@ -6,7 +6,7 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.db.models.conversation import (
     ConversationSession,
@@ -17,7 +17,11 @@ from app.db.models.conversation import (
 from app.db.models.visitor import Visitor
 from app.db.models.whatsapp import WhatsAppChat, WhatsAppConnection, WhatsAppInboundMessage
 from app.services import whatsapp_inbound
-from app.services.whatsapp_inbound import OTHER_KIND_REPLY, handle_event
+from app.services.whatsapp_inbound import (
+    OTHER_KIND_REPLY,
+    UNSUPPORTED_MEDIA_PLACEHOLDER,
+    handle_event,
+)
 from app.utils.datetime import utcnow_aware
 from tests.whatsapp.conftest import connect, inbound, make_tenant, owner_typed
 
@@ -119,6 +123,14 @@ async def test_non_text_gets_the_fixed_reply_and_never_the_ai(db, conn, queue, l
     out = await handle_event(db, inbound(conn, kind="other", text=""))
     assert out == "other_kind_reply" and llm.calls == 0
     assert [s["text"] for s in queue.sends] == [OTHER_KIND_REPLY]
+    # The transcript is complete: a stand-in for the media, then the fixed reply that was sent.
+    msgs = _messages(db, _chat(db, conn).session_id)
+    assert [(m.role, m.content) for m in msgs] == [
+        (MessageRole.USER, UNSUPPORTED_MEDIA_PLACEHOLDER),
+        (MessageRole.ASSISTANT, OTHER_KIND_REPLY),
+    ]
+    assert msgs[1].meta["source"] == "whatsapp_media_fallback"
+    assert db.get(ConversationSession, msgs[0].session_id).source == "whatsapp"
 
 
 async def test_non_text_is_silent_when_ai_is_off(db, conn, queue, llm):
@@ -126,6 +138,26 @@ async def test_non_text_is_silent_when_ai_is_off(db, conn, queue, llm):
     db.commit()
     out = await handle_event(db, inbound(conn, kind="other", text=""))
     assert out == "stored_other_while_paused" and queue.sends == []
+    # Nothing is sent, but agents still see that media arrived (and no fake reply is recorded).
+    msgs = _messages(db, _chat(db, conn).session_id)
+    assert [(m.role, m.content) for m in msgs] == [
+        (MessageRole.USER, UNSUPPORTED_MEDIA_PLACEHOLDER)
+    ]
+
+
+async def test_non_text_retry_does_not_double_send(db, conn, queue, llm):
+    ev = inbound(conn, kind="other", text="")
+    await handle_event(db, ev)
+    # What a failed turn does before arq retries: forget the dedupe row.
+    db.execute(
+        delete(WhatsAppInboundMessage).where(
+            WhatsAppInboundMessage.provider_message_id == ev["message_id"]
+        )
+    )
+    db.commit()
+    await handle_event(db, ev)
+    # Both attempts used the same idempotency key, so the queue sees one logical send.
+    assert {s["key"] for s in queue.sends} == {f"other:{ev['message_id']}"}
 
 
 async def test_unknown_session_key_is_dropped(db, conn, queue, llm):
@@ -194,6 +226,50 @@ async def test_plan_limit_402_stores_sends_nothing_and_alerts_debounced(
     db.expire_all()
     assert db.get(WhatsAppConnection, conn.id).last_alert_at == first_alert  # debounced
     assert queue.sends == []
+
+
+async def test_non_text_at_the_conversation_cap_opens_nothing_and_says_nothing(
+    db, fake_sidecar, queue, llm
+):
+    """A photo must not be a way around the cap: no new conversation, no reply, tenant alerted."""
+    from app.db.models.tenant import TenantCapabilities
+
+    tenant = make_tenant(db, max_conversations=0)  # cap already reached
+    conn = connect(db, fake_sidecar, tenant)
+    out = await handle_event(db, inbound(conn, kind="other", text=""))
+    assert out == "plan_limit"
+    assert queue.sends == [] and llm.calls == 0
+    db.expire_all()
+    assert db.execute(select(ConversationSession)).scalars().all() == []
+    assert db.get(WhatsAppConnection, conn.id).last_alert_at is not None
+    caps = db.execute(
+        select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant.id)
+    ).scalar_one()
+    assert caps.max_conversations_per_month == 0
+
+
+async def test_expired_subscription_blocks_non_text_and_the_paused_store_path(
+    db, fake_sidecar, queue, llm
+):
+    tenant = make_tenant(db)
+    conn = connect(db, fake_sidecar, tenant)
+    await handle_event(db, inbound(conn))  # a conversation exists
+    queue.sends.clear()
+    from app.db.models.tenant import Tenant
+
+    db.get(Tenant, tenant.id).subscription_status = "canceled"
+    conn_row = db.get(WhatsAppConnection, conn.id)
+    conn_row.ai_enabled = False  # the store-only path
+    db.commit()
+    session_id = _chat(db, conn).session_id
+    before = len(_messages(db, session_id))
+    assert await handle_event(db, inbound(conn, text="hi")) == "plan_limit"
+    assert await handle_event(db, inbound(conn, kind="other", text="")) == "plan_limit"
+    assert queue.sends == []
+    # `_plan_limit` appends to the EXISTING conversation (never opens one); the fallback reply is not recorded.
+    after = _messages(db, session_id)
+    assert len(after) == before + 2
+    assert all(m.role != MessageRole.ASSISTANT for m in after[before:])
 
 
 async def test_plan_limit_stores_the_message_when_a_conversation_exists(
