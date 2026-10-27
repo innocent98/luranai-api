@@ -1,0 +1,19 @@
+{
+  "scenario": "get-unknown-id-404",
+  "note": "",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/whatsapp/connections/d60b62b7-9338-400e-9447-f18cb8da1463",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "code": "not_found",
+      "message": "WhatsApp connection not found"
+    }
+  }
+}

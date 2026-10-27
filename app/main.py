@@ -2,6 +2,7 @@ import time
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.v1.api import api_router
@@ -9,6 +10,7 @@ from app.core.config import settings
 from app.core.logger import log
 from app.core.websocket import connection_manager
 from app.services.customer_presence import presence_tracker
+from app.services.whatsapp_service import WhatsAppError
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
@@ -97,6 +99,15 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # Logging middleware
 app.add_middleware(LoggingMiddleware)
+
+
+@app.exception_handler(WhatsAppError)
+async def whatsapp_error_handler(request: Request, exc: WhatsAppError) -> JSONResponse:
+    """WhatsApp endpoints return the contract's flat `{code, message}` error body."""
+    return JSONResponse(
+        status_code=exc.status_code, content={"code": exc.code, "message": exc.message}
+    )
+
 
 # Include API router
 app.include_router(api_router, prefix=settings.API_V1_STR)

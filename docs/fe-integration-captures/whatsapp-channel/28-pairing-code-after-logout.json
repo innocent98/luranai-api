@@ -1,0 +1,19 @@
+{
+  "scenario": "pairing-code-after-logout",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections/801152e2-0db2-42bf-946d-a3219009ff90/pairing-code",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "pairing_code": "FAKE9493",
+      "expires_in_s": 180
+    }
+  }
+}

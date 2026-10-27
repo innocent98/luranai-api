@@ -30,6 +30,7 @@ from app.db.models.deletion_request import DeletionRequest, DeletionScope
 from app.db.models.user import DeletionStatus
 from app.db.session import SessionLocal
 from app.services.account_purge_service import AccountPurgeService
+from app.services.whatsapp_service import logout_tenant_connections
 
 
 async def purge_due_deletion_requests(ctx: dict) -> dict[str, Any]:
@@ -86,6 +87,9 @@ async def purge_due_deletion_requests(ctx: dict) -> dict[str, Any]:
                 if request.scope == DeletionScope.SELF_USER:
                     purge_service.purge_user(request.user_id)
                 else:
+                    # Unlink any live WhatsApp sessions first (best effort): once the rows are
+                    # gone nobody could log the number out of the sidecar any more.
+                    await logout_tenant_connections(db, request.tenant_id)
                     purge_service.purge_tenant(request.tenant_id)
 
                 # AccountPurgeService already flips this request's status to

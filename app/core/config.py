@@ -321,6 +321,25 @@ class Settings(BaseSettings):
     # Platform-wide simultaneous voice sessions (EL plan cap ~20 Pro / ~40 Business).
     VOICE_MAX_CONCURRENT_SESSIONS: int = 20
 
+    # --- WhatsApp channel (linked-device sidecar) ----------------------------
+    # Global kill switch: off by default; a tenant additionally needs the
+    # `can_use_whatsapp` capability granted by hand (platform admin).
+    WHATSAPP_ENABLED: bool = False
+    WHATSAPP_SIDECAR_URL: str = ""
+    WHATSAPP_SIDECAR_TOKEN: str = ""
+    WHATSAPP_SIDECAR_TIMEOUT_S: float = 10.0
+    # Signed sidecar -> backend webhook. `_PREVIOUS` is accepted during rotation.
+    WHATSAPP_WEBHOOK_SECRET: str = ""
+    WHATSAPP_WEBHOOK_SECRET_PREVIOUS: str = ""
+    # Pepper for the contact / phone HMAC lookup keys (NOT the unsalted
+    # `hash_for_lookup`: phone numbers are low entropy and brute-forceable).
+    WHATSAPP_CONTACT_PEPPER: str = ""
+    # Platform-wide simultaneous linked sessions; checked before calling the
+    # sidecar (the VPS is 8 GB total, per-session RAM beyond one is unmeasured).
+    WHATSAPP_MAX_CONNECTIONS: int = 3
+    # Owner typed from the phone/WhatsApp Web: AI stays silent this long.
+    WHATSAPP_OWNER_PAUSE_MINUTES: int = 120
+
     def get_trial_expiry_reminder_days(self) -> list[int]:
         """Parse and validate reminder windows from env setting."""
         try:
