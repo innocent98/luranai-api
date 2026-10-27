@@ -1,5 +1,5 @@
 # Luran WhatsApp sidecar. Build context: ./whatsapp-sidecar
-FROM node:20-slim
+FROM node:22.23.4-slim
 
 ENV NODE_ENV=production \
     NPM_CONFIG_UPDATE_NOTIFIER=false

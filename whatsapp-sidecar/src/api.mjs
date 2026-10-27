@@ -1,6 +1,7 @@
 // Internal HTTP API. Bearer auth with constant-time compare. Bind to the compose network only (never published).
 // Bodies, session keys in errors and pairing codes are never logged.
 import http from 'node:http'
+import { errName } from './log.mjs'
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { ApiError } from './session.mjs'
 import { SessionManager } from './manager.mjs'
@@ -80,7 +81,7 @@ export function createApi({ manager, token, log }) {
     if (!bearerOk(req.headers.authorization, token)) return send(res, 401, { error: 'unauthorized' })
     try { await route(req, res) } catch (e) {
       if (e instanceof ApiError) return send(res, e.status, { error: e.code, ...e.extra })
-      log.error({ err: e.message }, 'unhandled api error')
+      log.error({ err: errName(e) }, 'unhandled api error')
       send(res, 500, { error: 'internal' })
     }
   })

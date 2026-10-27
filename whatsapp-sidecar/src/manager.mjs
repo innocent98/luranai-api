@@ -1,4 +1,5 @@
 // Owns every Session in the process: capacity guard, create/lookup/delete, staggered boot restore, graceful shutdown.
+import { errName } from './log.mjs'
 import { deriveSessionKey, open, seal } from './crypto.mjs'
 import { ApiError, Session } from './session.mjs'
 
@@ -129,7 +130,7 @@ export class SessionManager {
         first = false
         if (this.shuttingDown) return
         if (this.rssMb() >= this.d.cfg.rssRefuseMb) { s._setStatus('failed', { code: 503 }); continue }
-        await s.restore().catch((e) => this.d.log.error({ session: s.key, err: e.message }, 'restore failed'))
+        await s.restore().catch((e) => this.d.log.error({ session: s.key, err: errName(e) }, 'restore failed'))
       }
     })()
     return { total: rows.length, restoring: toRestore.length }

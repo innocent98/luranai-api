@@ -1,6 +1,7 @@
 // Encrypted, batched replacement for Baileys' useMultiFileAuthState, backed by an AuthDb.
 // Writes are write-behind: key updates are visible immediately (pending map + LRU) and flushed in one transaction
 // every `flushMs` (the spike's file store wrote 7,661 files in 10 minutes). After wipe()/close() nothing can write again.
+import { errName } from './log.mjs'
 import { BufferJSON, initAuthCreds, proto } from '@whiskeysockets/baileys'
 import { deriveSessionKey, open, seal } from './crypto.mjs'
 
@@ -41,7 +42,7 @@ export async function openAuthState({ db, sessionKey, masterHex, log, flushMs = 
     } catch (e) {
       for (const [k, v] of batch) if (!pending.has(k)) pending.set(k, v)   // keep newer values, retry the rest
       failures++
-      log?.warn({ err: e.message, pending: pending.size, failures }, 'auth flush failed; will retry')
+      log?.warn({ err: errName(e), pending: pending.size, failures }, 'auth flush failed; will retry')
       schedule(Math.min(30000, 1000 * 2 ** Math.min(failures, 5)))
       throw e
     }

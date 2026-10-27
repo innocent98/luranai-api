@@ -6,7 +6,7 @@ import { loadConfig } from './config.mjs'
 import { PgAuthDb } from './db.mjs'
 import { RedisLeaseBackend } from './lease.mjs'
 import { RedisCounter } from './limiter.mjs'
-import { makeLogger } from './log.mjs'
+import { errName, makeLogger } from './log.mjs'
 import { SessionManager } from './manager.mjs'
 import { currentVersion, makeBaileysSocket, newMessageId } from './wa.mjs'
 import { WebhookDelivery } from './webhook.mjs'
@@ -42,7 +42,7 @@ const manager = new SessionManager({
 const server = createApi({ manager, token: cfg.token, log })
 server.listen(cfg.port, cfg.host, () => log.info({ host: cfg.host, port: cfg.port, maxSessions: cfg.maxSessions }, 'sidecar listening'))
 manager.startSweeper()
-manager.restoreAll().then((r) => log.info(r, 'restore scheduled')).catch((e) => log.error({ err: e.message }, 'restore failed'))
+manager.restoreAll().then((r) => log.info(r, 'restore scheduled')).catch((e) => log.error({ err: errName(e) }, 'restore failed'))
 
 let closing = false
 const shutdown = async (sig) => {
@@ -59,5 +59,5 @@ const shutdown = async (sig) => {
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'))
 process.on('SIGINT', () => shutdown('SIGINT'))
-process.on('unhandledRejection', (e) => log.error({ err: e?.message }, 'unhandled rejection'))
-process.on('uncaughtException', (e) => { log.error({ err: e?.message }, 'uncaught exception'); process.exit(1) })
+process.on('unhandledRejection', (e) => log.error({ err: errName(e) }, 'unhandled rejection'))
+process.on('uncaughtException', (e) => { log.error({ err: errName(e) }, 'uncaught exception'); process.exit(1) })

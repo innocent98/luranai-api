@@ -1,6 +1,9 @@
 // Logging with PII hygiene: never log message text, phone numbers or pairing codes. Only masked identifiers.
 import pino from 'pino'
 
+// Error messages from Baileys/pg/undici can embed identifiers: log class and code only, never the message.
+export const errName = (e) => `${e?.constructor?.name || 'Error'}${e?.code ? `:${e.code}` : ''}`
+
 export const mask = (v) => {
   const s = String(v ?? '')
   if (!s) return s

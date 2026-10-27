@@ -3,7 +3,7 @@
 import { chatHash, deriveSessionKey } from './crypto.mjs'
 import { randomBytes } from 'node:crypto'
 import { Lease, LeaseHeldElsewhere, LeaseUnavailable } from './lease.mjs'
-import { mask } from './log.mjs'
+import { errName, mask } from './log.mjs'
 import { BoundedMap, BoundedSet, parseMessage, resolvePhoneDigits, userPart, isOneToOneJid } from './messages.mjs'
 import { TokenBucket, DailyCap } from './limiter.mjs'
 import { backoffMs, classifyDisconnect, isRegistered } from './status.mjs'
@@ -12,8 +12,6 @@ export class ApiError extends Error {
   constructor(status, code, extra = {}) { super(code); this.status = status; this.code = code; this.extra = extra }
 }
 class FatalAuthError extends Error {}
-// Baileys/pg error messages can embed identifiers: log the class and code only.
-const errName = (e) => `${e?.constructor?.name || 'Error'}${e?.code ? `:${e.code}` : ''}`
 
 const OWNER_EVENT_MAX_AGE_S = 900
 const SEND_WARMUP_MS = 3000          // after (re)connect, hold sends briefly: no burst the moment the socket opens

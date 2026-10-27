@@ -3,7 +3,7 @@
 Branch `feature/whatsapp-sidecar` (PR to `develop`, not merged by this track). Code: `whatsapp-sidecar/`. Compose override: `docker-compose.whatsapp.yml`. CI job: `whatsapp-sidecar` in `.github/workflows/ci.yml`. Evidence it grew from: `docs/sop/whatsapp_pairing_spike.md` and `spikes/whatsapp/` (kept untouched except a README pointer). Build plan: `docs/superpowers/plans/2026-10-27-whatsapp-channel-backend.md` section 8.
 
 ## What shipped
-The keepable version of the spike: one Node 20 process that holds many WhatsApp linked-device sessions (one Baileys `7.0.0-rc14` socket per `session_key`), links a number through an 8-character pairing code, forwards inbound 1:1 text and owner activity to the Luran backend as signed webhooks, and sends replies back under strict ban-risk rules. It is a **service with an internal API**, not user-facing.
+The keepable version of the spike: one Node 22 process that holds many WhatsApp linked-device sessions (one Baileys `7.0.0-rc14` socket per `session_key`), links a number through an 8-character pairing code, forwards inbound 1:1 text and owner activity to the Luran backend as signed webhooks, and sends replies back under strict ban-risk rules. It is a **service with an internal API**, not user-facing.
 
 **Verified:** fake-socket unit suite + real Postgres/Redis integration suite (96 tests), image build, container boot/health/SIGTERM. **NOT verified:** anything against real WhatsApp servers through this multi-session code (no live pairing was done in this track), and multi-session RAM. See "Proven vs not proven".
 
@@ -52,7 +52,7 @@ Receivers must dedupe on `id` (retries repeat it) and accept the current and pre
 | `src/api.mjs`, `src/config.mjs` | HTTP API; env validation (token/secret >= 32 chars, master key >= 32 bytes hex) |
 | `src/auth-state.mjs`, `src/db.mjs`, `src/crypto.mjs` | encrypted batched store (`whatsapp_sidecar.sessions`, `auth_blobs`, `inbound_chats`) |
 | `src/lease.mjs`, `src/limiter.mjs`, `src/status.mjs`, `src/messages.mjs`, `src/webhook.mjs`, `src/sign.mjs`, `src/wa.mjs`, `src/log.mjs` | lease, pacing, disconnect mapping, message classification, delivery, signing, the single Baileys construction point, log redaction |
-| `whatsapp-sidecar/Dockerfile`, `.dockerignore`, `.env.example` | node:20-slim, `npm ci --ignore-scripts --omit=dev`, runs as uid 1000, HEALTHCHECK on `/health`; variable names only |
+| `whatsapp-sidecar/Dockerfile`, `.dockerignore`, `.env.example` | node:22.23.4-slim (Node 20 is end-of-life and unpatched for CVE-2026-111497, the Brotli decoder RCE; pin >= 22.23.4), `npm ci --ignore-scripts --omit=dev`, runs as uid 1000, HEALTHCHECK on `/health`; variable names only |
 | `docker-compose.whatsapp.yml` | override: `mem_limit 512m` (`WHATSAPP_SIDECAR_MEM_LIMIT`), `restart: unless-stopped`, `stop_grace_period 20s`, **no `ports:`**, direct `db:5432` (not pgbouncer: transaction pooling breaks the advisory lock), Redis db `/1` |
 | `.github/workflows/ci.yml` | new job `whatsapp-sidecar` (service Postgres + Redis; `npm ci --ignore-scripts`, `npm test`, `npm audit signatures`); other jobs untouched |
 | Migrations / backend | none. `docker-compose.yml` and `docker-compose.prod.yml` untouched |
@@ -96,7 +96,7 @@ One Opus review (read-only) of credential store, lease, webhook signing and API 
 | 6 | Low | N concurrent `pairing-code` calls on `logged_out` sessions bypassed `MAX_SESSIONS`; | A pairing session counts as active; slot taken synchronously |
 | 7 | Low | `create` accepted non-string `session_key`/`phone_digits` | `typeof` checks |
 | 8 | Low | `close()` bypassed the write queue; `saveCreds` could wait the full 1 s; `_park` flushed without proving the lease | `close()` flushes via the queue then refuses writes; earlier timers win; `_park` flushes only if the lease verifies, else drops |
-| - | Hardening | Baileys error messages can embed JIDs | Socket-layer errors are logged by class/code only |
+| - | Hardening | Baileys/pg/undici error messages can embed JIDs | Every logged error goes through `errName()` (class + code only) in session, manager, api, auth-state and index |
 
 **Accepted / open (documented, not fixed here):**
 - *(5, Medium)* The sidecar uses the main Postgres user and the shared Redis. A compromised Baileys parse path could reach the backend database; a compromised backend could rewrite `inbound_chats` or delete `wa:daily:*` keys to reopen the reply window / reset the daily cap. **Before beta:** dedicated Postgres role scoped to schema `whatsapp_sidecar`, and a dedicated Redis (also see lease eviction below).
