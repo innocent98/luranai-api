@@ -62,6 +62,10 @@ class TextChunker:
 
     # A block of text this small (tokens) is a heading or fragment, not a topic of its own.
     MIN_UNIT_TOKENS = 12
+    # Past this many atoms the document is big enough that per-paragraph chunks would multiply
+    # embedding calls (one tenant's upload shares the embedding rate limit with every tenant's
+    # chat), so small pieces are packed to about half a chunk instead of 12 tokens.
+    LARGE_DOCUMENT_ATOMS = 300
     # Blocks shorter than this and without sentence punctuation read as headings/questions.
     HEADING_MAX_CHARS = 120
     _QUESTION_LINE = re.compile(r"^\s*(?:q|question)\s*[:.)]", re.IGNORECASE)
@@ -148,6 +152,11 @@ class TextChunker:
             for packed in self._pack_sentences(self._split_oversize(unit)):
                 atoms.append((packed["content"], packed["token_count"], False))
 
+        min_unit = (
+            self.MIN_UNIT_TOKENS
+            if len(atoms) <= self.LARGE_DOCUMENT_ATOMS
+            else self.chunk_size // 2
+        )
         merged: list[tuple[str, int]] = []
         buf: list[str] = []
         buf_tokens = 0
@@ -166,14 +175,14 @@ class TextChunker:
                 continue
             buf.append(content)
             buf_tokens += tokens
-            if buf_tokens >= self.MIN_UNIT_TOKENS:
+            if buf_tokens >= min_unit:
                 flush()
         flush()
 
         # A tiny tail (e.g. "Thanks!") rides along with the chunk before it when it fits.
         if (
             len(merged) > 1
-            and merged[-1][1] < self.MIN_UNIT_TOKENS
+            and merged[-1][1] < min_unit
             and merged[-2][1] + merged[-1][1] <= self.chunk_size
         ):
             (prev, prev_tokens), (last, last_tokens) = merged[-2], merged[-1]

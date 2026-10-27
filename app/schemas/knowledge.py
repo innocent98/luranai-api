@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.db.models.knowledge import ChunkVisibility, SourceStatus, SourceType
-from app.utils.knowledge_failures import failure_message
+from app.utils.knowledge_failures import MAX_DOCUMENT_CHARS, failure_message
 
 
 class FailureReasonOut(BaseModel):
@@ -56,7 +56,11 @@ class DocumentUploadRequest(BaseModel):
     document_name: str = Field(..., min_length=1, max_length=500, description="Document filename")
     # Length is validated by the endpoint (422 `document_too_short`), not here, so the error
     # body has the same flat shape as every other upload failure.
-    document_text: str = Field(..., description="Full document text content")
+    document_text: str = Field(
+        ...,
+        max_length=MAX_DOCUMENT_CHARS,
+        description="Full document text content",
+    )
     source_type: SourceType = Field(default=SourceType.HELP_DOC, description="Type of document")
     metadata: dict | None = Field(None, description="Additional document metadata")
 

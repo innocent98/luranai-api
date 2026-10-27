@@ -13,6 +13,21 @@ from tests.knowledge.vector_fixtures import vector_count
 
 UPLOAD = "/api/v1/knowledge/upload"
 
+
+def _admin_with_caps(db):
+    """A tenant admin whose plan allows knowledge uploads (the endpoint enforces the plan)."""
+    from app.db.models.tenant import TenantCapabilities
+
+    user, token = _make_tenant_user(db)
+    db.add(
+        TenantCapabilities(
+            tenant_id=user.tenant_id, can_upload_knowledge=True, max_knowledge_sources=10
+        )
+    )
+    db.commit()
+    return user, token
+
+
 FAQ = (
     "Opening hours\nWe are open Monday to Saturday from 7am to 6pm.\n\n"
     "Delivery\nWe deliver within 10km of the shop for 1,500 naira.\n\n"
@@ -75,7 +90,7 @@ async def test_short_document_is_indexed_not_rejected(db, vector_store, fake_emb
 
 
 def test_api_text_upload_end_to_end(client, db, vector_store, fake_embeddings):
-    user, token = _make_tenant_user(db)
+    user, token = _admin_with_caps(db)
     r = client.post(
         UPLOAD,
         json={"tenant_id": str(user.tenant_id), "document_name": "faq", "document_text": FAQ},
@@ -92,7 +107,7 @@ def test_api_text_upload_end_to_end(client, db, vector_store, fake_embeddings):
 def test_api_text_upload_below_minimum_is_422_and_creates_no_source(
     client, db, vector_store, fake_embeddings, text
 ):
-    user, token = _make_tenant_user(db)
+    user, token = _admin_with_caps(db)
     r = client.post(
         UPLOAD,
         json={"tenant_id": str(user.tenant_id), "document_name": "x", "document_text": text},
@@ -114,7 +129,7 @@ def test_api_text_upload_below_minimum_is_422_and_creates_no_source(
 def test_api_text_upload_without_letters_is_no_text_extracted(
     client, db, vector_store, fake_embeddings
 ):
-    user, token = _make_tenant_user(db)
+    user, token = _admin_with_caps(db)
     r = client.post(
         UPLOAD,
         json={"tenant_id": str(user.tenant_id), "document_name": "x", "document_text": "-" * 40},
@@ -128,7 +143,7 @@ def test_api_embedding_failure_marks_source_failed_with_reason(
     client, db, vector_store, fake_embeddings
 ):
     fake_embeddings["fail"] = True
-    user, token = _make_tenant_user(db)
+    user, token = _admin_with_caps(db)
     tid = user.tenant_id
     r = client.post(
         UPLOAD,
@@ -156,7 +171,7 @@ def test_api_vector_store_down_marks_source_failed_with_reason(
 
     monkeypatch.setattr(qdrant_manager.client, "get_collections", _boom)
     monkeypatch.setattr(qdrant_manager.client, "upsert", _boom)
-    user, token = _make_tenant_user(db)
+    user, token = _admin_with_caps(db)
     tid = user.tenant_id
     r = client.post(
         UPLOAD,

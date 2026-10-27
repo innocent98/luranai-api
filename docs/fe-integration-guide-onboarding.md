@@ -448,7 +448,7 @@ Upload failures use a **flat** body, `{ "code": "...", "message": "..." }` (plus
 
 | HTTP | `code` | When | Source row created? |
 |---|---|---|---|
-| 422 | `document_too_short` | Text upload under 20 characters (after trimming) | **No** |
+| 422 | `document_too_short` | Text upload under 20 characters (after trimming). Checked after the plan-cap check, so a tenant at its cap sees the 403 first | **No** |
 | 422 | `no_text_extracted` | Text with no letters or digits; or a file with nothing readable (e.g. scanned PDF) | **No** |
 | 502 | `embedding_failed` | Text upload; the embeddings provider failed | Yes, as `failed` |
 | 503 | `vector_store_unavailable` | Text upload; the vector store was unreachable or rejected the write | Yes, as `failed` |
@@ -686,7 +686,7 @@ Show `failure_reason.message` next to a delete/retry action. Retrying means uplo
   }
 }
 ```
-**Not changed:** `POST /knowledge/upload` (text) does not call the plan-cap check (confirmed by reading the endpoint; I did not probe it live with a full tenant); only the file and URL endpoints do. Do not rely on the text endpoint to enforce limits.
+**Text upload is now guarded like the file upload** (security review finding; added after the live run, so **[NOT LIVE]**, covered by `tests/knowledge/test_text_upload_guards.py`): `POST /knowledge/upload` now applies the same plan-cap check (403 with the same `detail` object as above, `can_upload_knowledge` false is also 403), the subscription check (**402** when the trial has expired or the subscription is inactive, same as file uploads), the per-user upload rate limit (429), and a 10 MB cap on `document_text` (over it is FastAPI's standard 422 `{"detail": [...]}` validation error, **not** the flat `{code, message}` shape). A tenant that was uploading pasted text past its plan, or after expiry, will now see these errors; show them like the file-upload ones. The responses of the successful text uploads captured above are unchanged by this. Storage (MB) limits are still not checked on the text endpoint.
 
 ### 3.6 Behaviour changes the FE will notice
 
@@ -785,7 +785,8 @@ Product rule: no "unofficial", "not affiliated" or fear wording on this screen; 
 4. **`key` is the step id**, but the API key header and other `key` fields elsewhere are unrelated.
 5. **Datetimes**: onboarding uses `Z`-suffixed ISO strings; job fields (`created_at`, `started_at`, `completed_at`) have **no** timezone suffix (see capture 14/16). Treat job times as UTC.
 6. **`failure_reason` exists on jobs and sources**, but `result_data.failure_code` on a failed job is the same code in raw form; use `failure_reason`.
-7. **Failed sources stay in the list** (status `failed`); they are tombstones with an explanation, not errors to hide.
+7. **`last_seen_host` is reported by the visitor's browser** (`Origin`/`Referer`) and the public API key is public, so anyone holding it can make a tenant show any valid hostname. Label it "reported by the browser"; never use it for access decisions or show it as verified. `localhost` and IP-literal hosts are recorded as-is.
+8. **Failed sources stay in the list** (status `failed`); they are tombstones with an explanation, not errors to hide.
 
 ---
 
@@ -807,7 +808,8 @@ Product rule: no "unofficial", "not affiliated" or fear wording on this screen; 
 | Job `failure_reason` over WebSocket | NOT live |
 | URL upload (`/knowledge/upload-url`) failure codes | NOT live (same worker code as files) |
 | Real scanned PDF / DOCX extraction edge cases | NOT live (a symbols-only `.txt` stood in) |
-| Failed sources not counted toward the cap | verified live (35) + unit tests |
+| Failed sources not counted toward the cap | verified live (35, file path) + unit tests |
+| Text upload plan cap / 402 expiry / 10 MB limit (added after review) | unit tests only (`test_text_upload_guards.py`); NOT re-captured live |
 | Re-upload of identical content replaces the old copy (file and text paths) | verified live in the DB during the run (old version `inactive`) + unit tests; not a separate capture |
 | Real chat answered from uploaded FAQ; conversation step | verified live (24, 25) |
 | WhatsApp consent text/version | verified live (36); old-version 422 NOT live (unit test) |

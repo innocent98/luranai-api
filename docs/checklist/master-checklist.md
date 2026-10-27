@@ -24,7 +24,7 @@ Why: 2026-10-27 prod aggregates: 13 tenants, 0 payments, 0 of 12 trials ever upl
 - [x] Widget-seen tracking on the public config fetch (hostname only, 10-minute throttle, ignore list `WIDGET_SEEN_IGNORED_HOSTS`)
 - [x] Migration `act10onboarding` (single head, `lock_timeout`, up/down proven on scratch Postgres)
 - [x] Tenant isolation tests + live proof (tenant B sees zeros; B cannot upload into A)
-- [x] Opus security review of the new endpoint and what widget-seen stores (see SOP)
+- [x] Opus security review of the new endpoint and what widget-seen stores (see SOP): no isolation break; text-upload guards added after it (cap, subscription, rate limit, 10 MB)
 
 ### C. Consent copy
 - [x] Approved copy + `CONSENT_VERSION` `2026-10-28-draft2`; tests updated
@@ -38,7 +38,7 @@ Why: 2026-10-27 prod aggregates: 13 tenants, 0 payments, 0 of 12 trials ever upl
 
 ### Deferred follow-ups (Activation)
 - [ ] Repair legacy sources (ACTIVE, rows but no vectors) by re-embedding from `knowledge_chunks.content`, if any exist in prod
-- [ ] Text upload (`POST /knowledge/upload`) does not enforce the plan cap or storage limit (file/URL do)
+- [ ] Text upload now has the cap/subscription/rate-limit guards but no storage-MB check; a hard per-source chunk cap or separate query-embedding limiter would remove the remaining shared-limiter risk
 - [ ] Reaper for sources stuck in PROCESSING after a hard-killed worker
 - [ ] Route the text upload through the job queue (it embeds inside the request)
 - [ ] Align `KnowledgeChunk.vector_id` model nullability with the database

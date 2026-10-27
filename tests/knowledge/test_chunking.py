@@ -75,3 +75,13 @@ def test_long_paragraph_is_still_split_by_size():
     chunks = _contents(para)
     assert len(chunks) > 1
     assert all(c for c in chunks)
+
+
+def test_large_document_of_short_paragraphs_does_not_explode_the_chunk_count():
+    """Review finding: every 12+ token paragraph used to become its own chunk (embedding call)."""
+    paragraphs = [
+        f"Item {i}: the shop sells product number {i} for {i} naira." for i in range(2000)
+    ]
+    chunks = _contents("\n\n".join(paragraphs))
+    assert len(chunks) < 400
+    assert "product number 1999" in chunks[-1]  # nothing dropped

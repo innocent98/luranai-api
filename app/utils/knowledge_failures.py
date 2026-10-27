@@ -9,6 +9,8 @@ from dataclasses import dataclass
 
 # Anything shorter than this (after trimming) cannot be answered from; reject it up front.
 MIN_DOCUMENT_CHARS = 20
+# Pasted text is capped at the same 10 MB as file uploads (one character is >= 1 byte).
+MAX_DOCUMENT_CHARS = 10 * 1024 * 1024
 
 
 class FailureCode(str, enum.Enum):

@@ -64,7 +64,7 @@ Limits of the eval: one synthetic FAQ, cosine only (it skips the keyword re-rank
 * **Migration**: `alembic heads` = one head `act10onboarding`; on a scratch Postgres 15 DB `upgrade head` -> columns exist and nullable -> `downgrade -1` (all four columns gone, back at `wa10whatsapp`) -> `upgrade head` again.
 * **Live end to end** (local Postgres 15, Qdrant 1.16.2, the real arq worker, real OpenAI embeddings and chat model; 36 captures): text upload indexes (4 chunks for the FAQ), short doc works, 422s create no source, file job failure carries `failure_reason`, Qdrant stopped -> 503 + FAILED source + onboarding stays honest, invalid OpenAI key -> 502, widget host-only + dashboard origin ignored + throttle, a real chat answered from the uploaded FAQ ("We open at 7am Monday through Saturday..."), tenant B sees only zeros, B cannot upload into A.
 * **Not proven live**: widget update after the 10-minute window (unit tests only); the old-consent-version 422; WebSocket `failure_reason`; URL uploads; real scanned PDFs; `embedding_failed` / `vector_store_unavailable` as *job* failures (unit tests only); behaviour on staging/prod; any load or concurrency test; the dashboard UI.
-* **Opus review** of the security-relevant parts: see "Security review" below.
+* **Opus review** of the security-relevant parts: see "Security review" below. Fixes made after it (text-upload guards, large-document chunk bound) are covered by unit tests only and were **not** re-run against the live stack.
 
 ## Findings during the live run
 1. **Re-uploading identical content crashed** (fixed, `f917ed8`): `create_source` computed the next version from non-inactive rows and read them with `scalar_one_or_none()`, so the third upload of the same text (a retry after failures, the activation path itself) raised `MultipleResultsFound` (500), and re-uploading after a delete hit `uq_knowledge_source_tenant_hash_version`. Versions now continue from the highest prior row of any status. The worker path now retires the previous version (it never did, leaving two ACTIVE copies), and retired versions' vectors are deleted so they stop taking retrieval slots.
@@ -79,11 +79,20 @@ Limits of the eval: one synthetic FAQ, cosine only (it skips the keyword re-rank
 
 ## Follow-ups
 * One-off repair for legacy sources: ACTIVE with chunk rows but no vectors (old text endpoint). Chunk text is in Postgres, so vectors could be rebuilt from `knowledge_chunks.content` without the original file. Worth doing only if any such prod rows exist (check with the onboarding query or a Qdrant count by source).
-* `POST /knowledge/upload` (text) never enforced the plan cap or storage limit; the file/URL endpoints do. Decide whether it should (pricing/entitlement decision, out of scope here).
+* `POST /knowledge/upload` (text) now enforces the plan cap, subscription and rate limit (review fix) but still has no storage-MB check and does not record `file_size_bytes`; add both if storage limits matter for pasted text.
 * A source stuck in PROCESSING by a hard-killed worker (SIGKILL, host crash) still counts toward the cap; add a reaper for PROCESSING older than N minutes.
 * The text endpoint embeds synchronously inside the request; a very large paste could hit proxy timeouts. Consider routing it through the job queue like files.
 * Fix the `KnowledgeChunk.vector_id` nullability drift in the model.
 * Make the deactivated-version vector cleanup and the cap check for the text endpoint part of a single "replace document" flow if the dashboard adds one.
 
 ## Security review
-See the section appended below after the Opus review.
+One Opus read-only review of the new endpoint, widget-seen storage, failure plumbing and consent change (nothing was run by the reviewer).
+
+| # | Severity | Finding | Outcome |
+|---|---|---|---|
+| 1 | MEDIUM | `POST /knowledge/upload` had no plan-cap, subscription, rate-limit or size guard; this change made it actually index, so it became an uncapped, unpaid way to add knowledge (every chunk an embedding call) | **Fixed**: same cap check, `verify_subscription_active`, `upload_rate_limit` as the file endpoint, plus a 10 MB `max_length`; `tests/knowledge/test_text_upload_guards.py` |
+| 2 | LOW | Widget-seen data can be faked by anyone holding the (public) API key via a crafted `Origin`; `localhost`/IP hosts are accepted | **Accepted, documented**: only affects the tenant's own checklist and display; guide tells the FE to label it "reported by the browser". Not filtered: a developer testing on localhost is arguably real progress (product call) |
+| 3 | LOW (plausible) | Per-paragraph chunks could multiply embedding calls ~20x for a huge document of short paragraphs, sharing the Redis embedding limiter with chat queries | **Mitigated**: above 300 atoms small pieces are packed to about half a chunk (test: 2000 short paragraphs -> under 400 chunks, nothing dropped). A hard per-source chunk cap or a separate limiter for query embeddings is still a follow-up |
+| 4 | LOW (pre-existing) | Raw exception text reaches the client / job `error_message` / WebSocket on unexpected failures | Not changed (outside this change); the new `KnowledgeError` paths use fixed messages |
+
+No tenant-isolation break found in: the onboarding endpoint (tenant from the user row, every query filtered, the Qdrant count filter built from that tenant's own source ids), widget-seen (key must belong to the tenant before any write; host stored as a validated bare hostname, safe to render; race-safe throttle; wildcard ignore entries cannot be bypassed by `evil-x`), or the failure/cleanup/versioning code (all ids passed to `delete_by_source_id` come from tenant-scoped queries; version numbers are scoped to tenant + hash). Consent enforcement is unchanged (strict version equality). Reviewer's non-security note: the new consent copy drops the ban-risk and liability disclosure and the version string still says `draft2`; this is the product decision recorded in the brief (liability wording moves to the Terms of Service).
