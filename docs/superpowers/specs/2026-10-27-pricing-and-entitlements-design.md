@@ -44,8 +44,11 @@ Principle: gate what costs Luran money per use or what larger or more sophistica
 | AI actions in chat | 2 | 2 | 15 | 40 |
 | Lookup chains, webhook flow nodes | no | no | yes | yes |
 | Analytics | no | yes | yes | yes |
+| Website audits per month (existing limits) | 2 | 5 | 15 | 30 |
+| Pages per audit crawl (existing limits) | 20 | 100 | 500 | 500 |
 | Voice | parked | parked | parked | add when launched |
-Why Lite ₦15k: it now includes WhatsApp, which is the headline value; ₦15k to ₦40k (2.7x) is explained by real capability gates (close the sale, integrate, record, more seats). Raise Lite only for NEW signups. Validate with 5 customer calls (see section 6).
+Audits keep their current numbers: they are already plan-gated by count and enforced (`max_audits_per_month`, `max_audit_pages_per_crawl`), so this proposal does not change them.
+Why Lite ₦15k (approved by Adebayo 2026-10-28): it now includes WhatsApp, which is the headline value; ₦15k to ₦40k (2.7x) is explained by real capability gates (close the sale, integrate, record, more seats). Raise Lite only for NEW signups. Validate with 5 customer calls (see section 6).
 
 ## 4. Mechanism and grandfathering
 - Today limits live in two places (`subscription_plans` and `tenant_capabilities`) and drifted once (plan strings, 2026-10-16). Prefer ONE entitlements source: plan row -> resolved entitlements (plan defaults + `override_flags` + promo grants), cached per tenant. New flags: `can_use_sales_close` (booking + quotes), `can_use_crm_notifications`, `can_export_ratings`, plus plan-driven values for the existing `can_use_screen_recording`, `can_use_ai_chat_automation`, `max_whatsapp_numbers`.
@@ -69,4 +72,9 @@ Total about 4 agent-days. **Do activation first** (section 6): gates change noth
 5. Reconsider the 30-day clock: 10 trials expired, 6 never started; consider starting the clock at first KB upload.
 
 ## 7. Decisions needed from Adebayo
-(a) Lite price change to ₦15,000 for new signups. (b) Approve the matrix, especially putting booking, quotes, CRM and recording at Professional. (c) Activation first, gating second? (d) Who is the Growth override tenant. (e) WhatsApp conversation definition (24 h window).
+(a) ~~Lite price change to ₦15,000 for new signups~~ approved 2026-10-28. (b) Approve the matrix, especially putting booking, quotes, CRM and recording at Professional. (c) Activation first, gating second? (d) Who is the Growth override tenant. (e) WhatsApp conversation definition (24 h window).
+
+## 8. Trial length and the referral program (2026-10-28 discussion)
+- Trial 7 vs 30 days: evidence says the clock is not the constraint (0 of 12 trial tenants uploaded a KB; 6 of 10 expired never had a conversation), so a 7-day trial would only expire the same non-activation sooner. Recommended: keep 30 days until activation is fixed and there are 20+ signups to measure; then test a shorter default with an extension earned by activation (first indexed KB plus first real conversation). Revisit with data, not intuition.
+- Referral program (next after the current work): marketers earn a one-off commission (proposed ₦5,000) only when a referred tenant becomes a PAYING tenant. Design points to settle in its own brainstorm: attribution (referral code or link, cookie window, self-referral blocking), payable event (first cleared payment plus a refund window), payout method and tax handling, fraud limits, marketer dashboard, whether the amount varies by plan (₦5,000 is about a third of one month of Lite at ₦15,000 and under 3% of a year of it).
+
