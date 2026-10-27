@@ -277,6 +277,12 @@ async def process_document_ingestion(
             _set_attr(db_source, "failure_code", None)
             # Recompute chunk_count from actual chunks to prevent drift
             knowledge_service.recompute_chunk_count(source.id)
+            db.commit()
+            # Re-uploading the same content replaces the older copy instead of doubling it.
+            if source.version > 1:
+                knowledge_service.deactivate_old_versions(
+                    tenant_id, source.content_hash, source.version
+                )
             _set_attr(job, "status", JobStatus.COMPLETED)
             _set_attr(
                 job,

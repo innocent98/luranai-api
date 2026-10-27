@@ -68,26 +68,19 @@ class KnowledgeService:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                # Step 1: Query for existing duplicate with row lock
-                stmt = (
-                    select(KnowledgeSource)
-                    .where(
+                # Step 1+2: next version for this (tenant, content). Count EVERY prior row,
+                # including FAILED and INACTIVE ones: the unique key is
+                # (tenant, content_hash, version), so reusing a number held by a failed or
+                # deleted source fails, and several rows may share the hash (retries).
+                latest = self.db.execute(
+                    select(func.max(KnowledgeSource.version)).where(
                         and_(
                             KnowledgeSource.tenant_id == source_data.tenant_id,
                             KnowledgeSource.content_hash == source_data.content_hash,
-                            KnowledgeSource.status != SourceStatus.INACTIVE,
                         )
                     )
-                    .with_for_update()
-                )
-
-                existing = self.db.execute(stmt).scalar_one_or_none()
-
-                # Step 2: Decide version
-                if existing:
-                    version = existing.version + 1
-                else:
-                    version = 1
+                ).scalar()
+                version = (latest or 0) + 1
 
                 # Step 3: Create and commit
                 db_source = KnowledgeSource(
@@ -309,6 +302,14 @@ class KnowledgeService:
                 chunk.is_active = False
 
         self.db.commit()
+
+        # The retired copies' vectors would keep taking retrieval slots (their chunks are
+        # filtered out afterwards), so remove them. Best effort.
+        if old_sources:
+            from app.utils.qdrant_client import qdrant_manager
+
+            for source in old_sources:
+                qdrant_manager.delete_by_source_id(source.id)
 
     def create_chunk(self, chunk_data: KnowledgeChunkCreate) -> KnowledgeChunkResponse:
         """
