@@ -4,6 +4,8 @@ Thin Node sidecar on `@whiskeysockets/baileys` **7.0.0-rc14 (exact pin, `--ignor
 "enter number -> 8-char pairing code -> linked -> inbound webhook -> reply" flow. Results and evidence:
 `docs/sop/whatsapp_pairing_spike.md`. Production design: `docs/superpowers/plans/2026-10-27-whatsapp-channel-backend.md`.
 
+> **Superseded for production use by [`whatsapp-sidecar/`](../../whatsapp-sidecar/README.md)** (multi-session, Postgres auth store, Redis lease, capacity guard). This directory stays as the evidence record of the live spike.
+
 Never wired into `app/`, `docker-compose*.yml` or CI. Do not deploy.
 
 | File | Purpose |
