@@ -61,7 +61,7 @@ async def test_ai_reply_is_enqueued_and_source_whatsapp_is_persisted(db, conn, q
     sent = queue.sends[0]
     assert sent["text"] == "We open 9am to 5pm, Monday to Friday."
     assert sent["chat_id"] == chat.id and sent["connection_id"] == conn.id
-    assert sent["key"].startswith("ai:")
+    assert sent["key"].startswith("ai:") and sent["guard"] is True  # re-checked at send time
 
 
 async def test_contact_ref_is_encrypted_and_lookup_key_peppered(db, conn, queue, llm):
@@ -119,6 +119,13 @@ async def test_non_text_gets_the_fixed_reply_and_never_the_ai(db, conn, queue, l
     out = await handle_event(db, inbound(conn, kind="other", text=""))
     assert out == "other_kind_reply" and llm.calls == 0
     assert [s["text"] for s in queue.sends] == [OTHER_KIND_REPLY]
+
+
+async def test_non_text_is_silent_when_ai_is_off(db, conn, queue, llm):
+    db.get(WhatsAppConnection, conn.id).ai_enabled = False
+    db.commit()
+    out = await handle_event(db, inbound(conn, kind="other", text=""))
+    assert out == "stored_other_while_paused" and queue.sends == []
 
 
 async def test_unknown_session_key_is_dropped(db, conn, queue, llm):

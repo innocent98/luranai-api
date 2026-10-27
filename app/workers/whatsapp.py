@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import secrets
 from uuid import UUID
 
 from arq import Retry
@@ -17,8 +18,10 @@ from app.services.whatsapp_outbound import RetrySend, send_text
 
 _CHAT_LOCK_TTL_S = 120
 # A busy chat (the previous message's AI turn is still running) is waited for in-job for up to
-# ~90 s before falling back to an arq retry, so a quick second message is not burned on retries.
-_LOCK_WAIT_TRIES = 45
+# ~20 s, by at most _MAX_WAITERS_PER_CHAT jobs per chat (a spammer must not pin the worker
+# slots); everything else falls back to an arq retry (the event job has a 30-try budget).
+_LOCK_WAIT_TRIES = 10
+_MAX_WAITERS_PER_CHAT = 2
 _LOCK_POLL_S = 2.0
 
 
@@ -33,12 +36,22 @@ async def _lock_chat(ctx: dict, event: dict):  # type: ignore[no-untyped-def]
     # Hash the chat ref: it can be a phone-number JID and must not sit in a Redis key in clear.
     digest = hashlib.sha256(str(ref).encode()).hexdigest()[:32]
     key = f"wa:chatlock:{event['session_key']}:{digest}"
-    for attempt in range(_LOCK_WAIT_TRIES):
-        if await redis.set(key, "1", ex=_CHAT_LOCK_TTL_S, nx=True):
-            return key
-        if attempt < _LOCK_WAIT_TRIES - 1:
+    token = secrets.token_hex(8)
+    if await redis.set(key, token, ex=_CHAT_LOCK_TTL_S, nx=True):
+        return key, token
+    waiters_key = f"{key}:waiters"
+    if await redis.incr(waiters_key) > _MAX_WAITERS_PER_CHAT:
+        await redis.decr(waiters_key)
+        raise Retry(defer=10)
+    await redis.expire(waiters_key, _CHAT_LOCK_TTL_S)
+    try:
+        for _ in range(_LOCK_WAIT_TRIES):
             await asyncio.sleep(_LOCK_POLL_S)
-    raise Retry(defer=5)
+            if await redis.set(key, token, ex=_CHAT_LOCK_TTL_S, nx=True):
+                return key, token
+    finally:
+        await redis.decr(waiters_key)
+    raise Retry(defer=10)
 
 
 async def process_whatsapp_event(ctx: dict, payload: dict | str) -> str:
@@ -53,10 +66,19 @@ async def process_whatsapp_event(ctx: dict, payload: dict | str) -> str:
     finally:
         db.close()
         if key:
-            await ctx["redis"].delete(key)
+            # Compare-and-delete: after a TTL expiry the lock may belong to another job now.
+            redis = ctx["redis"]
+            lock_key, token = key
+            current = await redis.get(lock_key)
+            if isinstance(current, bytes):
+                current = current.decode()
+            if current == token:
+                await redis.delete(lock_key)
 
 
-async def send_whatsapp_message(ctx: dict, connection_id: str, chat_id: str, text: str) -> str:
+async def send_whatsapp_message(
+    ctx: dict, connection_id: str, chat_id: str, text: str, guard: bool = False
+) -> str:
     db = SessionLocal()
     try:
         return await send_text(
@@ -65,6 +87,7 @@ async def send_whatsapp_message(ctx: dict, connection_id: str, chat_id: str, tex
             UUID(chat_id),
             try_decrypt_field(text),  # sealed by whatsapp_enqueue.enqueue_send
             int(ctx.get("job_try", 1)),
+            guard,
         )
     except RetrySend as exc:
         raise Retry(defer=exc.defer_s) from None

@@ -8,6 +8,7 @@ stored, logged or put in an exception message.
 from __future__ import annotations
 
 import secrets
+from datetime import timedelta
 from dataclasses import dataclass
 from uuid import UUID
 
@@ -57,6 +58,10 @@ CONSENT_TEXT = (
     "your phone or WhatsApp Web at the same time: when you type a reply yourself, the AI "
     "pauses on that chat for a while. You can disconnect at any time."
 )
+
+
+# An unpaired connection older than this is discarded when the next one is created.
+STALE_PAIRING_AFTER = timedelta(minutes=15)
 
 
 class WhatsAppError(Exception):
@@ -133,6 +138,33 @@ class WhatsAppService:
             # Serialise capacity/limit checks + insert across workers (released at commit).
             self.db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": 7_300_001})
 
+    async def _expire_stale_pairings(self) -> None:
+        """Free numbers/slots held by pairing attempts nobody finished (codes live 3 minutes).
+
+        Without this, anyone registering a number they cannot pair would block it (and one
+        of the few global slots) forever.
+        """
+        cutoff = utcnow_aware() - STALE_PAIRING_AFTER
+        stale = list(
+            self.db.execute(
+                select(WhatsAppConnection).where(
+                    WhatsAppConnection.status == WhatsAppStatus.AWAITING_PAIR.value,
+                    WhatsAppConnection.last_connected_at.is_(None),
+                    WhatsAppConnection.updated_at < cutoff,
+                )
+            ).scalars()
+        )
+        for conn in stale:
+            try:
+                await get_adapter(conn.provider).delete_session(conn.session_key)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("stale pairing sidecar cleanup failed: {}", type(exc).__name__)
+                continue  # keep the row so the sidecar session is not orphaned
+            self.db.delete(conn)
+        if stale:
+            self.db.commit()
+            self._lock_capacity()
+
     def _live_count(self) -> int:
         return int(
             self.db.execute(
@@ -177,9 +209,9 @@ class WhatsAppService:
         # Each create is a pairing attempt (WhatsApp notifies the target number's owner):
         # cap it per tenant and per target number across all tenants, not only per IP.
         await enforce_identifier_limit(whatsapp_create_rate_limiter, f"tenant:{tenant_id}")
-        await enforce_identifier_limit(whatsapp_phone_rate_limiter, phone_key)
 
         self._lock_capacity()
+        await self._expire_stale_pairings()
 
         if self.db.execute(
             select(WhatsAppConnection.id).where(WhatsAppConnection.phone_hmac == phone_key)
@@ -204,6 +236,10 @@ class WhatsAppService:
                 "capacity_exceeded",
                 "WhatsApp is at capacity right now. Please try again later.",
             )
+
+        # Only attempts that will really reach the sidecar spend the per-number budget, so
+        # probing a number that is already in use cannot lock its real owner out.
+        await enforce_identifier_limit(whatsapp_phone_rate_limiter, phone_key)
 
         conn = WhatsAppConnection(
             tenant_id=tenant_id,
@@ -284,9 +320,9 @@ class WhatsAppService:
             raise WhatsAppError(
                 502, "sidecar_unavailable", "Could not reach WhatsApp. Please try again."
             ) from None
-        if conn.status == WhatsAppStatus.LOGGED_OUT.value:
-            conn.status = WhatsAppStatus.AWAITING_PAIR.value
-            self.db.commit()
+        conn.status = WhatsAppStatus.AWAITING_PAIR.value
+        conn.updated_at = utcnow_aware()  # a fresh code keeps the pairing attempt alive
+        self.db.commit()
         return pairing
 
     # ------------------------------------------------------------------ patch / delete
@@ -338,9 +374,7 @@ async def logout_tenant_connections(db: Session, tenant_id: UUID) -> int:
     Never raises: a purge must not be blocked by an unreachable sidecar. Returns how many
     sessions were logged out.
     """
-    if not settings.WHATSAPP_ENABLED:
-        return 0
-    done = 0
+    done = 0  # deliberately NOT gated on the kill switch: the sessions must still be unlinked
     for conn in WhatsAppService(db).list_for_tenant(tenant_id):
         try:
             await get_adapter(conn.provider).delete_session(conn.session_key)

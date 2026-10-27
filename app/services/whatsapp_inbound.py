@@ -221,7 +221,7 @@ def _tenant_may_use(db: Session, tenant_id: UUID) -> bool:
 
 
 async def _enqueue_reply(conn: WhatsAppConnection, chat: WhatsAppChat, text: str, key: str) -> None:
-    await whatsapp_enqueue.enqueue_send(conn.id, chat.id, text, key)
+    await whatsapp_enqueue.enqueue_send(conn.id, chat.id, text, key, guard=True)
 
 
 # --------------------------------------------------------------------------- inbound
@@ -250,8 +250,8 @@ async def handle_inbound(db: Session, conn: WhatsAppConnection, event: dict) -> 
         text = (event.get("text") or "").strip()
 
         if event["kind"] != "text" or not text:
-            if paused:
-                return "stored_other_while_paused"
+            if paused or not conn.ai_enabled:
+                return "stored_other_while_paused"  # no automatic replies while a human owns it
             await _enqueue_reply(conn, chat, OTHER_KIND_REPLY, f"other:{message_id}")
             return "other_kind_reply"
 

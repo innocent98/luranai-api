@@ -15,7 +15,7 @@ import time
 
 SIGNATURE_HEADER = "X-Luran-Signature"
 REPLAY_WINDOW_S = 300
-_HEADER = re.compile(r"^t=(\d+),v1=([0-9a-f]{64})$")
+_HEADER = re.compile(r"^t=([0-9]{1,12}),v1=([0-9a-f]{64})$", re.ASCII)
 
 
 def sign(secret: str, raw_body: bytes, ts: int | None = None) -> str:

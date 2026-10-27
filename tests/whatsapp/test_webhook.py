@@ -168,3 +168,11 @@ def test_signing_roundtrip_matches_the_sidecar_format():
     assert signing.verify(["s3cret"], raw, header, now=1_700_000_100)
     assert not signing.verify(["s3cret"], raw, header, now=1_700_000_400)
     assert not signing.verify(["", "other"], raw, header, now=1_700_000_100)
+
+
+def test_absurd_timestamp_digits_are_a_clean_401_not_a_500(client, queue, conn):
+    header = "t=" + "9" * 5000 + ",v1=" + "a" * 64
+    r = client.post(URL, content=b"{}", headers={signing.SIGNATURE_HEADER: header})
+    assert r.status_code == 401
+    # non-ASCII (Arabic-Indic) digits must not match \\d either
+    assert not signing.verify(["s"], b"{}", "t=\u0661\u0662,v1=" + "a" * 64)

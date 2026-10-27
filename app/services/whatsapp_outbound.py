@@ -20,8 +20,9 @@ from app.channels.base import (
     SidecarUnavailable,
 )
 from app.channels.registry import get_adapter
-from app.core.config import settings
+from app.utils.datetime import ensure_utc_aware, utcnow_aware
 from app.db.models.whatsapp import WhatsAppChat, WhatsAppConnection, WhatsAppStatus
+from app.services.whatsapp_inbound import _tenant_may_use
 
 MAX_SEND_TRIES = 5
 _BACKOFF_S = (5, 15, 45, 120)
@@ -38,15 +39,23 @@ def backoff_seconds(job_try: int) -> int:
 
 
 async def send_text(
-    db: Session, connection_id: UUID, chat_id: UUID, text: str, job_try: int
+    db: Session, connection_id: UUID, chat_id: UUID, text: str, job_try: int, guard: bool = False
 ) -> str:
     """Returns an outcome label; raises RetrySend for transient failures."""
     conn = db.get(WhatsAppConnection, connection_id)
     chat = db.get(WhatsAppChat, chat_id)
     if conn is None or chat is None or chat.connection_id != conn.id:
         return "dropped_missing"
-    if not settings.WHATSAPP_ENABLED:
+    if not _tenant_may_use(db, conn.tenant_id):  # kill switch or revoked grant
         return "dropped_disabled"
+    if guard:
+        # Automatic replies (AI / fixed fallback) were queued earlier: re-check the conditions
+        # that may have changed meanwhile (the owner took over, or AI was switched off).
+        human_until = ensure_utc_aware(chat.human_until)
+        if human_until is not None and human_until > utcnow_aware():
+            return "dropped_paused"
+        if not conn.ai_enabled:
+            return "dropped_ai_disabled"
     if conn.status != WhatsAppStatus.CONNECTED.value:
         # Hard stop: sending on a half-linked session risks the number. Never retried.
         logger.warning("whatsapp send skipped: connection {} is {}", conn.id, conn.status)

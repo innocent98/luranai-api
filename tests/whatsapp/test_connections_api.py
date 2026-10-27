@@ -383,3 +383,56 @@ def test_pairing_code_regeneration_is_rate_limited_per_connection(
     cid = _create(client).json()["id"]
     url = f"/api/v1/whatsapp/connections/{cid}/pairing-code"
     assert [client.post(url).status_code for _ in range(3)] == [200, 200, 429]
+
+
+def test_unpaired_attempts_expire_and_free_the_number_and_slot(
+    client, db, wa_settings, fake_sidecar, monkeypatch
+):
+    from datetime import timedelta
+
+    from app.utils.datetime import utcnow_aware
+
+    monkeypatch.setattr(wa_settings, "WHATSAPP_MAX_CONNECTIONS", 1)
+    login_admin(make_tenant(db, max_numbers=1))
+    cid = _create(client, consent_body(PHONE_A)).json()["id"]
+    # inside the window the number and the only slot are held
+    login_admin(make_tenant(db, max_numbers=1))
+    assert _create(client, consent_body(PHONE_A)).json()["code"] == "number_in_use"
+    row = db.get(WhatsAppConnection, UUID(cid))
+    row.updated_at = utcnow_aware() - timedelta(minutes=30)
+    db.commit()
+    r = _create(client, consent_body(PHONE_A))  # another tenant can now take it
+    assert r.status_code == 201, r.text
+    assert db.get(WhatsAppConnection, UUID(cid)) is None
+    assert len(fake_sidecar.sessions) == 1  # the stale sidecar session was logged out
+
+
+def test_probing_an_in_use_number_does_not_spend_its_per_number_budget(
+    client, db, wa_settings, fake_sidecar, monkeypatch
+):
+    from app.services import whatsapp_service as svc
+
+    counter = _Counter({"http_whatsapp_phone": 1})
+    monkeypatch.setattr(svc, "enforce_identifier_limit", counter)
+    login_admin(make_tenant(db, max_numbers=3))
+    assert _create(client, consent_body(PHONE_A)).status_code == 201
+    login_admin(make_tenant(db, max_numbers=3))
+    for _ in range(3):
+        assert _create(client, consent_body(PHONE_A)).json()["code"] == "number_in_use"
+    assert (
+        counter.hits[
+            (
+                "http_whatsapp_phone",
+                next(i for (p, i) in counter.hits if p == "http_whatsapp_phone"),
+            )
+        ]
+        == 1
+    )
+
+
+def test_sidecar_client_refuses_to_run_without_a_token(
+    client, db, wa_settings, fake_sidecar, monkeypatch
+):
+    monkeypatch.setattr(wa_settings, "WHATSAPP_SIDECAR_TOKEN", "")
+    login_admin(make_tenant(db))
+    assert _create(client).json()["code"] == "sidecar_unavailable"

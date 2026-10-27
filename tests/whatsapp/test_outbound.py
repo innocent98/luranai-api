@@ -106,6 +106,39 @@ async def test_rate_cap_and_outage_retry_with_backoff_then_give_up(db, conn, fak
     assert await send_text(db, conn.id, chat.id, "x", MAX_SEND_TRIES) == "dropped_gave_up"
 
 
+async def test_guarded_replies_are_dropped_if_the_owner_took_over_or_ai_went_off(
+    db, conn, fake_sidecar
+):
+    from datetime import timedelta
+
+    chat = _chat(db, conn)
+    chat.human_until = utcnow_aware() + timedelta(minutes=30)  # owner typed while the AI thought
+    db.commit()
+    assert (
+        await send_text(db, conn.id, chat.id, "stale AI answer", 1, guard=True) == "dropped_paused"
+    )
+    # agent / ticket frames are not guarded: a human wrote them
+    assert await send_text(db, conn.id, chat.id, "agent says hi", 1, guard=False) == "sent"
+    chat.human_until = None
+    db.get(type(conn), conn.id).ai_enabled = False
+    db.commit()
+    assert await send_text(db, conn.id, chat.id, "x", 1, guard=True) == "dropped_ai_disabled"
+    assert [m["text"] for m in fake_sidecar.sent] == ["agent says hi"]
+
+
+async def test_revoked_grant_stops_sending(db, conn, fake_sidecar):
+    from app.db.models.tenant import TenantCapabilities
+    from sqlalchemy import select as _select
+
+    chat = _chat(db, conn)
+    caps = db.execute(
+        _select(TenantCapabilities).where(TenantCapabilities.tenant_id == conn.tenant_id)
+    ).scalar_one()
+    caps.can_use_whatsapp = False
+    db.commit()
+    assert await send_text(db, conn.id, chat.id, "x", 1) == "dropped_disabled"
+
+
 async def test_kill_switch_stops_sending(db, conn, fake_sidecar, wa_settings, monkeypatch):
     chat = _chat(db, conn)
     monkeypatch.setattr(wa_settings, "WHATSAPP_ENABLED", False)

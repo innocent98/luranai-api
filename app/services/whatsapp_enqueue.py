@@ -38,7 +38,9 @@ async def enqueue_event(event: dict) -> None:
         await redis.close()
 
 
-async def enqueue_send(connection_id: UUID, chat_id: UUID, text: str, key: str) -> None:
+async def enqueue_send(
+    connection_id: UUID, chat_id: UUID, text: str, key: str, guard: bool = False
+) -> None:
     """Queue one outbound text. `key` is the idempotency key (becomes the arq job id)."""
     redis = await _pool()
     try:
@@ -47,6 +49,7 @@ async def enqueue_send(connection_id: UUID, chat_id: UUID, text: str, key: str) 
             str(connection_id),
             str(chat_id),
             encrypt_field(text),  # reply text is chat content too: sealed at rest in Redis
+            guard,  # True for automatic replies: re-check pause / ai_enabled at send time
             _job_id=f"wa_send:{key}",
         )
     finally:

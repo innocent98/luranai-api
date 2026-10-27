@@ -30,6 +30,8 @@ Customers already write to businesses on WhatsApp; tenants asked for the AI to a
 | Abuse limits: each create / pairing code makes WhatsApp notify the target number's owner, so they are limited per tenant (10 per 10 min), per target number across tenants (5 per day, keyed by the peppered hash) and per connection (5 codes per 10 min), plus per IP on the pairing route. Pairing codes also require the grant to still be active, and re-pairing a `logged_out` connection re-runs the capacity guard | |
 | arq job arguments carry chat text and Redis keeps them for 24 h, so the webhook event and the reply text are Fernet-sealed (`encrypt_field`) before `enqueue_job` and opened in the job | |
 | Errors are the contract's flat `{code, message}` (a registered `WhatsAppError` handler), **not** FastAPI's `{"detail": …}`; auth failures still use `{"detail": "…"}` | Matches contract B literally; call it out to the FE |
+| Automatic replies (AI, non-text fallback) carry `guard=True` and are re-checked at send time (owner pause, `ai_enabled`, grant); a reply queued before the owner took over is dropped (`dropped_paused`). Agent/ticket frames are not guarded | Found by the Opus review |
+| Chat lock: random token with compare-and-delete, hashed chat ref in the key, up to 2 jobs per chat wait ~20 s in-job, others bounce with an arq retry (event job budget 30 tries) | Bounded worker-slot use by a spamming chat |
 | `DELETE` fails closed: if the sidecar is unreachable the row is kept and the call is `502` | Deleting the row would orphan a live linked session nobody can unlink |
 
 ## What's involved
@@ -53,7 +55,8 @@ Customers already write to businesses on WhatsApp; tenants asked for the AI to a
 ## Follow-ups
 - Per-tenant contact exclusion list (beta task T15) so the AI never answers personal contacts.
 - Email/in-app alerts for plan-limit and disconnect (currently logged only).
-- Sweeper for abandoned `awaiting_pair` rows (they count against the capacity guard until the tenant deletes them).
+- Unpaired `awaiting_pair` rows older than 15 min are discarded lazily (and logged out at the sidecar) when the next connection is created; there is no background sweeper, so they hold a capacity slot until then.
+- Opus review leftovers (all LOW): `whatsapp_inbound_messages` is never pruned (add a 7-day purge cron); pause-only chat rows keep an encrypted `contact_ref` forever; consent version is not re-checked on re-pair after a version bump; tenant purge with the sidecar down deletes the rows anyway (no tombstone to retry the logout); a failure after `send_message` persisted makes arq re-run the turn (duplicate LLM turn).
 - Status ordering: webhook `session.status` events are applied in arrival order; there is no per-event sequence guard.
 - Pause/AI-off paths create conversations without the monthly-limit check.
 - `from_ref` vs `to_ref` must be the same namespace for one chat (the owner-pause lookup keys on it): confirm with the real sidecar.

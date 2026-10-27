@@ -28,7 +28,8 @@ Docs: spike `docs/sop/whatsapp_pairing_spike.md`; plan `docs/superpowers/plans/2
 - [x] Account purge deletes WhatsApp rows; sidecar sessions logged out (best effort) before a tenant purge
 - [x] Fake sidecar (`tests/fakes/fake_sidecar.py`) + live capture harness; FE guide with live captures; SOP
 - [ ] Live end-to-end against the REAL sidecar and a real phone (lead + Adebayo)
-- [ ] Opus-class review fixes merged / lead merge
+- [x] Opus security review of the backend slice done; HIGH/MEDIUM findings fixed (see SOP); LOW leftovers listed as follow-ups
+- [ ] Lead merge
 - [ ] Adebayo approves the consent wording (text is a DRAFT; bump `CONSENT_VERSION` when it changes)
 
 ### Remaining build tasks (plan section 11)
@@ -54,7 +55,7 @@ Docs: spike `docs/sop/whatsapp_pairing_spike.md`; plan `docs/superpowers/plans/2
 - [ ] Reconcile all earlier modules into this checklist
 
 ## Deferred follow-ups (WhatsApp)
-- [ ] Sweeper for stale `awaiting_pair` rows (they count against the capacity guard)
+- [ ] Background sweeper for stale `awaiting_pair` rows (today they are expired lazily on the next create); 7-day purge of `whatsapp_inbound_messages`
 - [ ] Plan-limit / disconnect emails (currently logged only)
 - [ ] Pause/AI-off paths skip the monthly conversation-limit check
 - [ ] Confirm with the real sidecar that `to_ref` (owner message) and `from_ref` (customer) are the same id for a chat

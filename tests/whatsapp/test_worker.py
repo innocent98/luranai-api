@@ -31,10 +31,26 @@ class _NoCloseSession:
 
 class FakeRedis:
     def __init__(self, free: bool = True):
-        self.free, self.deleted = free, []
+        self.free, self.deleted, self.values = free, [], {}
 
     async def set(self, key, value, ex=None, nx=False):
+        if self.free:
+            self.values[key] = value
         return self.free
+
+    async def get(self, key):
+        return self.values.get(key)
+
+    async def incr(self, key):
+        self.values[key] = self.values.get(key, 0) + 1
+        return self.values[key]
+
+    async def decr(self, key):
+        self.values[key] = self.values.get(key, 0) - 1
+        return self.values[key]
+
+    async def expire(self, key, seconds):
+        return True
 
     async def delete(self, key):
         self.deleted.append(key)
@@ -92,7 +108,7 @@ async def test_worker_registers_both_jobs_with_their_own_try_budget():
     by_name = {
         getattr(f, "name", getattr(f, "__name__", None)): f for f in WorkerSettings.functions
     }
-    assert by_name["process_whatsapp_event"].max_tries == 10
+    assert by_name["process_whatsapp_event"].max_tries == 30
     assert by_name["send_whatsapp_message"].max_tries == 5
 
 
@@ -175,8 +191,43 @@ async def test_event_job_waits_for_a_busy_chat_instead_of_burning_retries(
 
         async def set(self, key, value, ex=None, nx=False):
             self.calls += 1
-            return self.calls >= 4  # the previous turn finishes after three polls
+            if self.calls >= 4:  # the previous turn finishes after three polls
+                self.values[key] = value
+                return True
+            return False
 
     redis = BusyThenFree()
     assert await jobs.process_whatsapp_event({"redis": redis}, inbound(conn)) == "ai_reply"
     assert redis.calls == 4 and len(redis.deleted) == 1
+
+
+async def test_chat_lock_is_only_deleted_by_its_owner(db, fake_sidecar, queue, llm, monkeypatch):
+    monkeypatch.setattr(jobs, "SessionLocal", lambda: _NoCloseSession(db))
+    conn = connect(db, fake_sidecar, make_tenant(db))
+
+    class Stolen(FakeRedis):
+        async def get(self, key):
+            return "someone-elses-token"  # TTL expired mid-turn and another job took the lock
+
+    redis = Stolen(free=True)
+    await jobs.process_whatsapp_event({"redis": redis}, inbound(conn))
+    assert redis.deleted == []
+
+
+async def test_a_chat_spammer_cannot_pin_more_than_two_worker_slots(
+    db, fake_sidecar, queue, llm, monkeypatch
+):
+    monkeypatch.setattr(jobs, "SessionLocal", lambda: _NoCloseSession(db))
+    monkeypatch.setattr(jobs, "_LOCK_POLL_S", 0)
+    monkeypatch.setattr(jobs, "_LOCK_WAIT_TRIES", 1)
+    conn = connect(db, fake_sidecar, make_tenant(db))
+    redis = FakeRedis(free=False)
+    ev = inbound(conn)
+    for _ in range(2):  # two waiters give up after their short wait -> arq retry
+        with pytest.raises(Retry):
+            await jobs.process_whatsapp_event({"redis": redis}, ev)
+    key = next(k for k in redis.values if k.endswith(":waiters"))
+    redis.values[key] = 2  # two jobs are currently waiting
+    with pytest.raises(Retry):
+        await jobs.process_whatsapp_event({"redis": redis}, ev)
+    assert redis.values[key] == 2  # the third bounced immediately without waiting or counting

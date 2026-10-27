@@ -41,8 +41,8 @@ class LinkedDeviceAdapter:
         self._transport = transport
 
     def _client(self) -> httpx.AsyncClient:
-        if not settings.WHATSAPP_SIDECAR_URL:
-            raise SidecarUnavailable("WHATSAPP_SIDECAR_URL is not configured")
+        if not settings.WHATSAPP_SIDECAR_URL or not settings.WHATSAPP_SIDECAR_TOKEN:
+            raise SidecarUnavailable("sidecar url/token is not configured")
         return httpx.AsyncClient(
             base_url=settings.WHATSAPP_SIDECAR_URL.rstrip("/"),
             headers={"Authorization": f"Bearer {settings.WHATSAPP_SIDECAR_TOKEN}"},

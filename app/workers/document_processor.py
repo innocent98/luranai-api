@@ -1246,7 +1246,7 @@ class WorkerSettings:
     functions = [
         process_document_ingestion,
         # Per-function try budgets: chat-lock contention + send backoff outlast the global 3.
-        arq_func(process_whatsapp_event, max_tries=10),
+        arq_func(process_whatsapp_event, max_tries=30),
         arq_func(send_whatsapp_message, max_tries=MAX_SEND_TRIES),
         run_website_audit,
         send_rep_alert,

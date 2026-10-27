@@ -73,9 +73,17 @@ def queue(monkeypatch):
             raise RuntimeError("redis down")
         q.events.append(event)
 
-    async def enqueue_send(connection_id: UUID, chat_id: UUID, text: str, key: str) -> None:
+    async def enqueue_send(
+        connection_id: UUID, chat_id: UUID, text: str, key: str, guard: bool = False
+    ) -> None:
         q.sends.append(
-            {"connection_id": connection_id, "chat_id": chat_id, "text": text, "key": key}
+            {
+                "connection_id": connection_id,
+                "chat_id": chat_id,
+                "text": text,
+                "key": key,
+                "guard": guard,
+            }
         )
 
     monkeypatch.setattr(whatsapp_enqueue, "enqueue_event", enqueue_event)
