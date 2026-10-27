@@ -6,7 +6,7 @@ from datetime import timedelta
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.db.models.conversation import (
     ConversationSession,
@@ -17,7 +17,11 @@ from app.db.models.conversation import (
 from app.db.models.visitor import Visitor
 from app.db.models.whatsapp import WhatsAppChat, WhatsAppConnection, WhatsAppInboundMessage
 from app.services import whatsapp_inbound
-from app.services.whatsapp_inbound import OTHER_KIND_REPLY, handle_event
+from app.services.whatsapp_inbound import (
+    OTHER_KIND_REPLY,
+    UNSUPPORTED_MEDIA_PLACEHOLDER,
+    handle_event,
+)
 from app.utils.datetime import utcnow_aware
 from tests.whatsapp.conftest import connect, inbound, make_tenant, owner_typed
 
@@ -119,6 +123,14 @@ async def test_non_text_gets_the_fixed_reply_and_never_the_ai(db, conn, queue, l
     out = await handle_event(db, inbound(conn, kind="other", text=""))
     assert out == "other_kind_reply" and llm.calls == 0
     assert [s["text"] for s in queue.sends] == [OTHER_KIND_REPLY]
+    # The transcript is complete: a stand-in for the media, then the fixed reply that was sent.
+    msgs = _messages(db, _chat(db, conn).session_id)
+    assert [(m.role, m.content) for m in msgs] == [
+        (MessageRole.USER, UNSUPPORTED_MEDIA_PLACEHOLDER),
+        (MessageRole.ASSISTANT, OTHER_KIND_REPLY),
+    ]
+    assert msgs[1].meta["source"] == "whatsapp_media_fallback"
+    assert db.get(ConversationSession, msgs[0].session_id).source == "whatsapp"
 
 
 async def test_non_text_is_silent_when_ai_is_off(db, conn, queue, llm):
@@ -126,6 +138,26 @@ async def test_non_text_is_silent_when_ai_is_off(db, conn, queue, llm):
     db.commit()
     out = await handle_event(db, inbound(conn, kind="other", text=""))
     assert out == "stored_other_while_paused" and queue.sends == []
+    # Nothing is sent, but agents still see that media arrived (and no fake reply is recorded).
+    msgs = _messages(db, _chat(db, conn).session_id)
+    assert [(m.role, m.content) for m in msgs] == [
+        (MessageRole.USER, UNSUPPORTED_MEDIA_PLACEHOLDER)
+    ]
+
+
+async def test_non_text_retry_does_not_double_send(db, conn, queue, llm):
+    ev = inbound(conn, kind="other", text="")
+    await handle_event(db, ev)
+    # What a failed turn does before arq retries: forget the dedupe row.
+    db.execute(
+        delete(WhatsAppInboundMessage).where(
+            WhatsAppInboundMessage.provider_message_id == ev["message_id"]
+        )
+    )
+    db.commit()
+    await handle_event(db, ev)
+    # Both attempts used the same idempotency key, so the queue sees one logical send.
+    assert {s["key"] for s in queue.sends} == {f"other:{ev['message_id']}"}
 
 
 async def test_unknown_session_key_is_dropped(db, conn, queue, llm):

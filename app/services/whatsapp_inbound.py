@@ -42,6 +42,12 @@ from app.utils.datetime import ensure_utc_aware, utcnow_aware
 OTHER_KIND_REPLY = (
     "Sorry, I can only read text messages for now. Please type your question and I'll help."
 )
+# Transcript stand-in for a photo / voice note / file: the bytes are not read in this slice, but agents
+# must see that something arrived (and that the customer was told to type instead).
+UNSUPPORTED_MEDIA_PLACEHOLDER = (
+    "[The customer sent a photo, voice note or file. Media is not supported on WhatsApp yet, "
+    "so Luran could not read it.]"
+)
 PLAN_ALERT_DEBOUNCE = timedelta(hours=6)
 
 _USABLE_SESSION = (SessionStatus.ACTIVE, SessionStatus.ESCALATED, SessionStatus.ABANDONED)
@@ -250,10 +256,23 @@ async def handle_inbound(db: Session, conn: WhatsAppConnection, event: dict) -> 
         text = (event.get("text") or "").strip()
 
         if event["kind"] != "text" or not text:
-            if paused or not conn.ai_enabled:
-                return "stored_other_while_paused"  # no automatic replies while a human owns it
-            await _enqueue_reply(conn, chat, OTHER_KIND_REPLY, f"other:{message_id}")
-            return "other_kind_reply"
+            silent = paused or not conn.ai_enabled  # no automatic replies while a human owns it
+            if not silent:
+                # Enqueue first: the send is idempotent on its key, so an arq retry after a
+                # storage failure cannot double-send, and a failed enqueue stores nothing.
+                await _enqueue_reply(conn, chat, OTHER_KIND_REPLY, f"other:{message_id}")
+            _ensure_visitor(db, conn, chat, event.get("push_name"))
+            db.commit()
+            await _store_non_text(
+                db,
+                conn,
+                chat,
+                f"wa_{chat.contact_hmac[:24]}",
+                not silent,
+                _fanout_customer_message,
+                Message,
+            )
+            return "stored_other_while_paused" if silent else "other_kind_reply"
 
         visitor = _ensure_visitor(db, conn, chat, event.get("push_name"))
         db.commit()
@@ -324,6 +343,37 @@ async def _store_without_ai(
         message_channel.reset(channel)
     await fanout(db, session.id, select(message_model).where(message_model.id == msg.id))
     return "stored_owner_paused" if paused else "stored_ai_disabled"
+
+
+async def _store_non_text(
+    db: Session,
+    conn: WhatsAppConnection,
+    chat: WhatsAppChat,
+    user_identifier: str,
+    replied: bool,
+    fanout,  # type: ignore[no-untyped-def]
+    message_model,  # type: ignore[no-untyped-def]
+) -> None:
+    """Persist what happened to a non-text message so the transcript is complete: a stand-in for
+    the customer's media, plus the fixed reply when one was sent. Agents are shown the customer side.
+    """
+    session = _ensure_session(db, conn, chat, user_identifier)
+    channel = message_channel.set("whatsapp")
+    try:
+        service = ConversationService(db)
+        msg = service.add_message(
+            session_id=session.id, role=MessageRole.USER, content=UNSUPPORTED_MEDIA_PLACEHOLDER
+        )
+        if replied:
+            service.add_message(
+                session_id=session.id,
+                role=MessageRole.ASSISTANT,
+                content=OTHER_KIND_REPLY,
+                meta={"source": "whatsapp_media_fallback"},
+            )
+    finally:
+        message_channel.reset(channel)
+    await fanout(db, session.id, select(message_model).where(message_model.id == msg.id))
 
 
 async def _plan_limit(
