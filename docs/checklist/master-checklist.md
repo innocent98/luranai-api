@@ -1,9 +1,48 @@
 # Luran backend — master build checklist
 
 Legend: `[x]` done and verified, `[ ]` not done. Status per module: DONE / IN PROGRESS / PLANNED.
-**Scope note:** this file was created on 2026-10-27 by the WhatsApp spike. It currently maps only the WhatsApp module. Earlier modules (chat, flows, voice, tickets, billing, etc.) are tracked in `docs/sop/` and `docs/superpowers/plans/` and are **not yet reconciled here**; do that in a dedicated pass rather than guessing status.
+**Scope note:** this file was created on 2026-10-27 by the WhatsApp spike. It currently maps the WhatsApp module and the Activation module. Earlier modules (chat, flows, voice, tickets, billing, etc.) are tracked in `docs/sop/` and `docs/superpowers/plans/` and are **not yet reconciled here**; do that in a dedicated pass rather than guessing status.
+
+Snapshot (Activation module): backend A/B/C built and verified locally (full suite, live end-to-end run); PR open, not merged; dashboard UI and staging verification not done.
 
 Snapshot (WhatsApp module): spike DONE; build plan DONE; backend demo slice DONE (PR open, not merged, 2026-10-27); sidecar and dashboard tracks in flight; live end-to-end with a real phone NOT done.
+
+## Activation (signup -> first value) — IN PROGRESS (backend built, PR open to `develop`, not merged; dashboard track in flight)
+Why: 2026-10-27 prod aggregates: 13 tenants, 0 payments, 0 of 12 trials ever uploaded a KB, 6 of 10 expired trials never had a conversation. Docs: SOP `docs/sop/activation_onboarding_backend.md`; FE guide `docs/fe-integration-guide-onboarding.md`; captures `docs/fe-integration-captures/activation/`. Branch `feature/activation-onboarding-backend`.
+
+### A. Knowledge upload traps (each reproduced with a failing test first)
+- [x] Text upload wrote rows but no vectors: root causes found and fixed (invalid `<uuid>_<n>` point ids, collection never ensured, swallowed `upsert_vector` failure); text path and worker now share `embed_and_store_chunk`
+- [x] Short documents work (any text >= 20 chars becomes a chunk; the old chunker dropped the only/final chunk under 60 tokens); below 20 chars -> 422 `document_too_short` before any source exists
+- [x] Chunking quality: per-topic chunks (paragraph / Q&A / heading), tiny pieces merged, nothing dropped; threshold 0.35 unchanged. Eval (`scripts/kb_retrieval_eval.py`, real embeddings): 3/8 -> 8/8 and 7/8 -> 8/8 questions answered. Existing KBs untouched (re-index = delete + re-upload)
+- [x] Qdrant collection ensured idempotently (race-tolerant) before every ingestion
+- [x] FAILED/INACTIVE sources never count toward the cap (pinned by tests); worker crash no longer leaves a PROCESSING source holding a slot
+- [x] `failure_reason {code,message}` on sources and job status; `no_text_extracted`, `embedding_failed` (502), `vector_store_unavailable` (503)
+- [x] Re-uploading identical content no longer crashes (found by the live run) and replaces the older copy on both paths
+
+### B. Onboarding status and widget-seen
+- [x] `GET /api/v1/tenant/onboarding` (knowledge verified against the vector store, widget, test conversation, `ai.blocker` precedence)
+- [x] Widget-seen tracking on the public config fetch (hostname only, 10-minute throttle, ignore list `WIDGET_SEEN_IGNORED_HOSTS`)
+- [x] Migration `act10onboarding` (single head, `lock_timeout`, up/down proven on scratch Postgres)
+- [x] Tenant isolation tests + live proof (tenant B sees zeros; B cannot upload into A)
+- [x] Opus security review of the new endpoint and what widget-seen stores (see SOP)
+
+### C. Consent copy
+- [x] Approved copy + `CONSENT_VERSION` `2026-10-28-draft2`; tests updated
+
+### Delivery
+- [x] FE integration guide with live captures (36) and an honest verification table
+- [x] Local CI parity (ruff 0.8.6, black 24.10.0, full pytest, SQLite regression job)
+- [ ] PR merged to `develop` (lead, after review)
+- [ ] Dashboard activation UI against this contract (separate session)
+- [ ] Verified on staging (nothing here has run on staging or prod)
+
+### Deferred follow-ups (Activation)
+- [ ] Repair legacy sources (ACTIVE, rows but no vectors) by re-embedding from `knowledge_chunks.content`, if any exist in prod
+- [ ] Text upload (`POST /knowledge/upload`) does not enforce the plan cap or storage limit (file/URL do)
+- [ ] Reaper for sources stuck in PROCESSING after a hard-killed worker
+- [ ] Route the text upload through the job queue (it embeds inside the request)
+- [ ] Align `KnowledgeChunk.vector_id` model nullability with the database
+- [ ] Widget-seen: add any dashboard/preview hostnames to `WIDGET_SEEN_IGNORED_HOSTS` in each environment
 
 ## WhatsApp channel (quick connect) — IN PROGRESS (spike + plan merged; backend demo slice built, awaiting merge; sidecar + dashboard in flight)
 Docs: spike `docs/sop/whatsapp_pairing_spike.md`; plan `docs/superpowers/plans/2026-10-27-whatsapp-channel-backend.md`; option B memo `docs/whatsapp-option-b-decision-memo.md`.
@@ -30,7 +69,7 @@ Docs: spike `docs/sop/whatsapp_pairing_spike.md`; plan `docs/superpowers/plans/2
 - [x] Live end-to-end against the REAL sidecar and a real phone, run locally 2026-10-27 (SOP `docs/sop/whatsapp_live_e2e.md`); NOT yet on staging (sidecar not deployed there)
 - [x] Opus security review of the backend slice done; HIGH/MEDIUM findings fixed (see SOP); LOW leftovers listed as follow-ups
 - [x] Lead merge (luranai-api #153, `31ce21b`, 2026-10-27)
-- [ ] Adebayo approves the consent wording (text is a DRAFT; bump `CONSENT_VERSION` when it changes)
+- [x] Consent wording replaced 2026-10-28 with the copy Adebayo specified (`CONSENT_VERSION` `2026-10-28-draft2`; no "unofficial"/fear wording; old version rejected). The version string still says `draft2`; bump it whenever the text changes (activation track, PR open)
 
 ### Sidecar demo slice (branch `feature/whatsapp-sidecar`, text only) — built 2026-10-27
 - [ ] T3 Sidecar (multi-session, PG encrypted store, lease, restore, signed events, compose, CI job) — **built, PR open `feature/whatsapp-sidecar`; fake-socket + real Postgres/Redis tests green; NOT yet proven live** (SOP `docs/sop/whatsapp_sidecar.md`)
