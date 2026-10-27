@@ -3,9 +3,17 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.db.models.knowledge import ChunkVisibility, SourceStatus, SourceType
+from app.utils.knowledge_failures import failure_message
+
+
+class FailureReasonOut(BaseModel):
+    """A machine-readable code plus a message that is safe to show the tenant."""
+
+    code: str
+    message: str
 
 
 # Base schemas
@@ -46,7 +54,9 @@ class DocumentUploadRequest(BaseModel):
 
     tenant_id: UUID = Field(..., description="Tenant ID")
     document_name: str = Field(..., min_length=1, max_length=500, description="Document filename")
-    document_text: str = Field(..., min_length=10, description="Full document text content")
+    # Length is validated by the endpoint (422 `document_too_short`), not here, so the error
+    # body has the same flat shape as every other upload failure.
+    document_text: str = Field(..., description="Full document text content")
     source_type: SourceType = Field(default=SourceType.HELP_DOC, description="Type of document")
     metadata: dict | None = Field(None, description="Additional document metadata")
 
@@ -118,6 +128,17 @@ class KnowledgeSourceResponse(KnowledgeSourceBase):
     file_size_bytes: int | None
     created_at: datetime
     updated_at: datetime
+    failure_code: str | None = Field(default=None, exclude=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def failure_reason(self) -> "FailureReasonOut | None":
+        """Why a FAILED source failed: `{code, message}`; null for every other source."""
+        if not self.failure_code:
+            return None
+        return FailureReasonOut(
+            code=self.failure_code, message=failure_message(self.failure_code) or ""
+        )
 
 
 class KnowledgeSourceDetailResponse(KnowledgeSourceResponse):

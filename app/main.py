@@ -11,6 +11,7 @@ from app.core.logger import log
 from app.core.websocket import connection_manager
 from app.services.customer_presence import presence_tracker
 from app.services.whatsapp_service import WhatsAppError
+from app.utils.knowledge_failures import KnowledgeError
 
 
 class LoggingMiddleware(BaseHTTPMiddleware):
@@ -107,6 +108,12 @@ async def whatsapp_error_handler(request: Request, exc: WhatsAppError) -> JSONRe
     return JSONResponse(
         status_code=exc.status_code, content={"code": exc.code, "message": exc.message}
     )
+
+
+@app.exception_handler(KnowledgeError)
+async def knowledge_error_handler(request: Request, exc: KnowledgeError) -> JSONResponse:
+    """Knowledge uploads return the flat `{code, message[, min_chars]}` error body."""
+    return JSONResponse(status_code=exc.status_code, content=exc.body())
 
 
 # Include API router

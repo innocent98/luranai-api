@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_db
 from app.db.models.tenant import TenantAIConfig
+from app.schemas.onboarding import OnboardingStatus
 from app.schemas.tenant import (
     CuratedVoiceResponse,
     TenantAIConfigResponse,
@@ -20,6 +21,7 @@ from app.schemas.tenant import (
 )
 from app.schemas.user import UserResponse
 from app.services.first_responder import default_first_responder
+from app.services.onboarding_service import get_onboarding_status
 from app.services.tenant_service import TenantService
 from app.services.voice.metering import VoiceMeter
 from app.services.voice.voices import CURATED_VOICES, is_curated_voice_id
@@ -27,6 +29,18 @@ from app.services.voice.voices import CURATED_VOICES, is_curated_voice_id
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get("/onboarding", response_model=OnboardingStatus, status_code=status.HTTP_200_OK)
+def get_my_onboarding(
+    db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_tenant_admin),
+):
+    """
+    Activation checklist for the caller's own tenant: knowledge indexed, widget seen on a
+    site, a real test conversation, and whether the AI will answer (or what blocks it).
+    """
+    return get_onboarding_status(db, current_user.tenant_id)
 
 
 @router.get("", response_model=TenantResponse, status_code=status.HTTP_200_OK)

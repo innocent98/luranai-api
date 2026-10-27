@@ -60,13 +60,73 @@ class TextChunker:
         # Filter out empty strings
         return [s.strip() for s in sentences if s.strip()]
 
+    # A block of text this small (tokens) is a heading or fragment, not a topic of its own.
+    MIN_UNIT_TOKENS = 12
+    # Blocks shorter than this and without sentence punctuation read as headings/questions.
+    HEADING_MAX_CHARS = 120
+    _QUESTION_LINE = re.compile(r"^\s*(?:q|question)\s*[:.)]", re.IGNORECASE)
+
+    def _split_into_units(self, text: str) -> list[str]:
+        """Split text into topical units: blank-line blocks, with Q&A and headings kept whole."""
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        blocks = [b.strip() for b in re.split(r"\n\s*\n", text) if b.strip()]
+
+        # A block holding several "Q:" lines (no blank line between them) is split per question.
+        expanded: list[str] = []
+        for block in blocks:
+            lines = block.split("\n")
+            question_at = [i for i, ln in enumerate(lines) if self._QUESTION_LINE.match(ln)]
+            if len(question_at) < 2:
+                expanded.append(block)
+                continue
+            bounds = question_at + [len(lines)]
+            if question_at[0] > 0:
+                expanded.append("\n".join(lines[: question_at[0]]).strip())
+            for a, b in zip(bounds, bounds[1:], strict=False):
+                expanded.append("\n".join(lines[a:b]).strip())
+        blocks = [b for b in expanded if b]
+
+        units: list[str] = []
+        i = 0
+        while i < len(blocks):
+            block = blocks[i]
+            nxt = blocks[i + 1] if i + 1 < len(blocks) else None
+            if nxt is not None and self._is_heading_like(block) and not self._is_heading_like(nxt):
+                units.append(f"{block}\n{nxt}")
+                i += 2
+            else:
+                units.append(block)
+                i += 1
+        return units
+
+    def _is_heading_like(self, block: str) -> bool:
+        """A single short line that does not end like a sentence: a title or a question."""
+        if "\n" in block or len(block) > self.HEADING_MAX_CHARS:
+            return False
+        return not block.rstrip().endswith((".", "!", ";"))
+
+    def _split_oversize(self, unit: str) -> list[str]:
+        """Break a unit larger than `chunk_size` along line, then sentence, boundaries."""
+        pieces: list[str] = []
+        for line in unit.split("\n"):
+            line = line.strip()
+            if line:
+                pieces.extend(self._split_by_sentences(line))
+        return pieces
+
     def chunk_text(
         self,
         text: str,
         metadata: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """
-        Split text into overlapping chunks with metadata.
+        Split text into topical chunks with metadata.
+
+        Paragraphs / Q&A pairs / headed sections become their own chunk so a short question
+        matches one topic instead of a blend of several. Pieces too small to stand alone are
+        merged with a neighbour, units larger than `chunk_size` are packed by sentence with
+        overlap, and nothing is dropped for being short: any non-empty text yields at least
+        one chunk.
 
         Args:
             text: Input text to chunk
@@ -78,9 +138,63 @@ class TextChunker:
         if not text or not text.strip():
             return []
 
-        # Split into sentences
-        sentences = self._split_by_sentences(text)
+        # Atoms: (content, tokens, mergeable). Oversize pieces are never merged with neighbours.
+        atoms: list[tuple[str, int, bool]] = []
+        for unit in self._split_into_units(text):
+            tokens = self._estimate_token_count(unit)
+            if tokens <= self.chunk_size:
+                atoms.append((unit, tokens, True))
+                continue
+            for packed in self._pack_sentences(self._split_oversize(unit)):
+                atoms.append((packed["content"], packed["token_count"], False))
 
+        merged: list[tuple[str, int]] = []
+        buf: list[str] = []
+        buf_tokens = 0
+
+        def flush() -> None:
+            nonlocal buf, buf_tokens
+            if buf:
+                merged.append(("\n\n".join(buf), buf_tokens))
+            buf, buf_tokens = [], 0
+
+        for content, tokens, mergeable in atoms:
+            if buf and (not mergeable or buf_tokens + tokens > self.chunk_size):
+                flush()
+            if not mergeable:
+                merged.append((content, tokens))
+                continue
+            buf.append(content)
+            buf_tokens += tokens
+            if buf_tokens >= self.MIN_UNIT_TOKENS:
+                flush()
+        flush()
+
+        # A tiny tail (e.g. "Thanks!") rides along with the chunk before it when it fits.
+        if (
+            len(merged) > 1
+            and merged[-1][1] < self.MIN_UNIT_TOKENS
+            and merged[-2][1] + merged[-1][1] <= self.chunk_size
+        ):
+            (prev, prev_tokens), (last, last_tokens) = merged[-2], merged[-1]
+            merged[-2:] = [(f"{prev}\n\n{last}", prev_tokens + last_tokens)]
+
+        return [
+            {
+                "content": content,
+                "chunk_index": idx,
+                "token_count": tokens,
+                "metadata": dict(metadata or {}),
+            }
+            for idx, (content, tokens) in enumerate(merged)
+        ]
+
+    def _pack_sentences(
+        self,
+        sentences: list[str],
+        metadata: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Pack pre-split sentences into overlapping chunks of at most ~`chunk_size` tokens."""
         if not sentences:
             return []
 
@@ -193,7 +307,7 @@ class TextChunker:
                 current_token_count += sentence_tokens
 
         # Add final chunk if it meets minimum size
-        if current_chunk and current_token_count >= self.min_chunk_size:
+        if current_chunk:
             chunk_content = " ".join(current_chunk)
             chunks.append(
                 {

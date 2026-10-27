@@ -47,17 +47,16 @@ from app.utils.http_rate_limiter import (
     whatsapp_phone_rate_limiter,
 )
 
-# DRAFT: wording is NOT approved. Adebayo must approve the final text before any real
-# tenant sees it; bump CONSENT_VERSION whenever the text changes (old versions are rejected).
-CONSENT_VERSION = "2026-10-27-draft1"
+# The text a tenant accepts before connecting a number. Bump CONSENT_VERSION whenever the text
+# changes (connections created with an older version are rejected). Product decision: no
+# "unofficial" / "not affiliated" / fear framing on this customer-facing screen; liability wording
+# belongs in the Terms of Service.
+CONSENT_VERSION = "2026-10-28-draft2"
 CONSENT_TEXT = (
-    "DRAFT - wording pending approval.\n"
-    "Luran connects your WhatsApp number as a linked device (like WhatsApp Web), which is not "
-    "an official WhatsApp integration. WhatsApp may restrict or ban a number that is used this "
-    "way, and Luran is not liable for that or for any resulting loss of the number. We "
-    "recommend an aged business number that you use only for business. "
-    "Luran only replies to customers who message you first. You can keep using WhatsApp on "
-    "your phone or WhatsApp Web at the same time: when you type a reply yourself, the AI "
+    "Luran connects your WhatsApp number as a linked device so it can answer customers who "
+    "message you. WhatsApp can change its policies, restrict access, or disconnect the linked "
+    "device. Luran replies only to customers who message you first. You can keep using WhatsApp "
+    "on your phone or WhatsApp Web at the same time: when you type a reply yourself, the AI "
     "pauses on that chat for a while. You can disconnect at any time."
 )
 

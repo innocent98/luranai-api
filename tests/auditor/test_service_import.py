@@ -373,7 +373,7 @@ async def test_import_worker_path_single_source(db):
         ),
         patch(
             "app.utils.qdrant_client.qdrant_manager.upsert_vector",
-            return_value=None,
+            return_value=True,
         ),
         patch(
             "app.workers.document_processor.send_job_completion_email",

@@ -16,6 +16,7 @@ from app.schemas.knowledge import (
 )
 from app.schemas.user import UserResponse
 from app.services.knowledge_service import KnowledgeService
+from app.utils.knowledge_failures import KnowledgeError
 
 router = APIRouter()
 
@@ -178,7 +179,8 @@ async def upload_document(
     Upload and process a document.
 
     This endpoint orchestrates the full document ingestion pipeline:
-    1. Validates document content
+    1. Validates document content (422 `document_too_short` / `no_text_extracted`, before any
+       source is created)
     2. Chunks the text into overlapping segments
     3. Generates embeddings for each chunk
     4. Stores chunks in PostgreSQL
@@ -213,6 +215,8 @@ async def upload_document(
 
         return source
 
+    except KnowledgeError:
+        raise  # rendered as the flat `{code, message}` body by the app-level handler
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail=f"Document processing failed: {str(e)}"

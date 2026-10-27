@@ -168,6 +168,23 @@ class Tenant(Base, UUIDMixin, TimestampMixin):
         comment="Tenant's own on/off for customer screen recordings (grant: TenantCapabilities)",
     )
 
+    # Widget install tracking (set when the public widget config is fetched; hostname only)
+    widget_first_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="First time the embedded widget fetched its config from a customer site",
+    )
+    widget_last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Last recorded widget config fetch (written at most once per 10 minutes)",
+    )
+    widget_last_seen_host: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Hostname (no scheme, port, path or query) of the site that last loaded the widget",
+    )
+
     # Subscription & Trial Tracking
     subscription_tier: Mapped[str] = mapped_column(
         String(50),
