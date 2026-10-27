@@ -367,7 +367,9 @@ async def handle_outbound_external(db: Session, conn: WhatsAppConnection, event:
         chat, created = _get_or_create_chat(db, conn, event["to_ref"])
         chat.human_until = now + timedelta(minutes=settings.WHATSAPP_OWNER_PAUSE_MINUTES)
         db.commit()
-        if created:
+        if created or chat.last_inbound_at is None:
+            # The contact never wrote to the AI (also on the owner's 2nd, 3rd... message to them):
+            # keep only the pause, never the text.
             return "paused_no_transcript"
 
         text = (event.get("text") or "").strip()

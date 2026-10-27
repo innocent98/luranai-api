@@ -42,6 +42,7 @@ from app.utils.http_rate_limiter import (
     enforce_identifier_limit,
     whatsapp_create_rate_limiter,
     whatsapp_pairing_conn_rate_limiter,
+    whatsapp_phone_pairing_global_rate_limiter,
     whatsapp_phone_pairing_rate_limiter,
     whatsapp_phone_rate_limiter,
 )
@@ -299,6 +300,7 @@ class WhatsAppService:
         await enforce_identifier_limit(
             whatsapp_phone_pairing_rate_limiter, f"{tenant_id}:{conn.phone_hmac}"
         )
+        await enforce_identifier_limit(whatsapp_phone_pairing_global_rate_limiter, conn.phone_hmac)
         if conn.status == WhatsAppStatus.LOGGED_OUT.value:
             # Re-pairing makes the session live again, so the capacity guard applies.
             self._lock_capacity()

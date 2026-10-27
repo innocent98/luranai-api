@@ -452,15 +452,12 @@ def test_new_codes_do_not_extend_an_unpaired_attempt_and_spend_the_number_budget
     login_admin(make_tenant(db))
     cid = _create(client, consent_body(PHONE_A)).json()["id"]
     assert client.post(f"/api/v1/whatsapp/connections/{cid}/pairing-code").status_code == 200
-    assert (
-        counter.hits[
-            (
-                "http_whatsapp_phone",
-                next(i for (p, i) in counter.hits if p == "http_whatsapp_phone"),
-            )
-        ]
-        == 2
-    )
+    # codes charge the tenant-scoped and the global per-number pairing budgets, never the
+    # cross-tenant create budget (victim lockout)
+    total = lambda prefix: sum(v for (p, _), v in counter.hits.items() if p == prefix)  # noqa: E731
+    assert total("http_whatsapp_phone") == 1  # only the create
+    assert total("http_whatsapp_phone_pairing") == 1
+    assert total("http_whatsapp_phone_pairing_global") == 1
     db.get(WhatsAppConnection, UUID(cid)).created_at = utcnow_aware() - timedelta(minutes=45)
     db.commit()
     client.post(f"/api/v1/whatsapp/connections/{cid}/pairing-code")  # refreshing does not save it

@@ -303,6 +303,14 @@ async def test_owner_message_to_a_contact_never_seen_only_pauses_no_transcript(
     assert llm.calls == 0
 
 
+async def test_repeated_owner_messages_to_a_stranger_still_store_nothing(db, conn, queue, llm):
+    for i in range(3):
+        out = await handle_event(db, owner_typed(conn, ref="777@lid", text=f"personal {i}"))
+        assert out == "paused_no_transcript"
+    assert db.execute(select(Message)).first() is None
+    assert db.execute(select(ConversationSession)).first() is None
+
+
 async def test_owner_message_replay_is_deduped(db, conn, queue, llm):
     await handle_event(db, inbound(conn))
     ev = owner_typed(conn, mid="OWN-1")

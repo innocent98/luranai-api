@@ -173,6 +173,12 @@ whatsapp_phone_pairing_rate_limiter = RedisRateLimiter(
     max_calls=10,
     window_seconds=86400,
 )
+# ...but one number still has a hard ceiling of codes per day across ALL tenants.
+whatsapp_phone_pairing_global_rate_limiter = RedisRateLimiter(
+    key_prefix="http_whatsapp_phone_pairing_global",
+    max_calls=20,
+    window_seconds=86400,
+)
 whatsapp_pairing_conn_rate_limiter = RedisRateLimiter(
     key_prefix="http_whatsapp_pairing_conn",
     max_calls=5,
