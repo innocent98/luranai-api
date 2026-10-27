@@ -20,7 +20,19 @@ Docs: spike `docs/sop/whatsapp_pairing_spike.md`; plan `docs/superpowers/plans/2
 ### Build tasks (plan section 11)
 - [ ] T1 Channel abstraction
 - [ ] T2 Migration + models + enums + capability columns
-- [ ] T3 Sidecar (multi-session, PG encrypted store, lease, restore, signed events, compose, CI job)
+- [ ] T3 Sidecar (multi-session, PG encrypted store, lease, restore, signed events, compose, CI job) — **built, PR open `feature/whatsapp-sidecar`; fake-socket + real Postgres/Redis tests green; NOT yet proven live** (SOP `docs/sop/whatsapp_sidecar.md`)
+  - [x] Multi-session manager, one Baileys socket per `session_key`, exact pin 7.0.0-rc14, `npm ci --ignore-scripts`
+  - [x] AES-256-GCM auth store in Postgres (`whatsapp_sidecar` schema), per-session HKDF key, AAD-bound rows, batched write-behind, wipe on logout
+  - [x] Redis single-writer lease (token, heartbeat, fail closed, no wipe without a confirmed 401 under lease)
+  - [x] Staggered, capped boot restore; graceful SIGTERM (flush, close, release)
+  - [x] Reply-only sends (24 h window, persisted), read receipt + composing + jittered delay, token bucket + daily cap, serialised
+  - [x] Owner detection: `message.outbound_external` for fromMe messages not sent via `/send`
+  - [x] Signed webhooks (ordered, retried, idempotent delivery id), no text/phone/code in logs
+  - [x] Capacity guard (`MAX_SESSIONS`, `RSS_REFUSE_MB`) + `GET /health`
+  - [x] Dockerfile (node 20 slim, non-root), `docker-compose.whatsapp.yml` (512m, no published port), CI job `whatsapp-sidecar`
+  - [x] Opus security review of store, lease, webhook signing, API auth
+  - [ ] Live pairing through the new multi-session code (lead arranges with Adebayo holding the phone)
+  - [ ] N-session RAM soak (`whatsapp-sidecar/scripts/soak.mjs` is a skeleton)
 - [ ] T4 Connection endpoints + consent + gating
 - [ ] T5 Inbound webhook + dedupe + arq bridge + session rotation
 - [ ] T6 Structured-message text renderer
@@ -43,6 +55,8 @@ Docs: spike `docs/sop/whatsapp_pairing_spike.md`; plan `docs/superpowers/plans/2
 - [ ] Reconcile all earlier modules into this checklist
 
 ## Deferred follow-ups (WhatsApp)
+- [ ] Sidecar: purge long-dormant `logged_out` session rows; persist the daily send counter beyond Redis; second Baileys-version re-vet on every bump
+- [ ] Sidecar: images/media in and out (text only in this slice)
 - [ ] Run Evolution or WAHA once live for the fallback record
 - [ ] Decide LID <-> phone identity model before schema freeze
 - [ ] Tier-driven `max_whatsapp_numbers` on `subscription_plans` (phase 2 after beta)
