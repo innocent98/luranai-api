@@ -25,6 +25,13 @@ const MAX_PER_MIN = Number(env('MAX_SENDS_PER_MIN', 6))
 for (const [k, v] of Object.entries({ SPIKE_TEST_NUMBER: TEST_NUMBER, SPIKE_AUTH_KEY: AUTH_KEY, SPIKE_WEBHOOK_SECRET: SECRET, SPIKE_API_TOKEN: TOKEN })) {
   if (!v) { console.error(`missing env ${k}`); process.exit(2) }
 }
+// Message ids come from the remote sender: never use one as a path without validating it.
+const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/
+const mediaPath = (id) => {
+  if (!SAFE_ID.test(id)) return null
+  const base = path.resolve(MEDIA_DIR), dest = path.resolve(base, id)
+  return path.dirname(dest) === base ? dest : null
+}
 const mask = (n) => (n ? `+${String(n).slice(0, 3)}***${String(n).slice(-3)}` : n)
 const log = pino({ level: 'info', redact: ['*.number', '*.to', '*.from'] })
 const baileysLog = pino({ level: 'silent' })
@@ -35,8 +42,9 @@ let authWipe = null
 const S = { status: 'idle', since: Date.now(), history: [], pairing: null, lastDisconnect: null }
 const seen = new Set()          // inbound message-id dedupe
 const inboundChats = new Set()  // reply-only allowlist: JIDs that wrote to us
-const consented = new Set()     // spike: JIDs the operator confirmed are their own phone (POST /allow-last)
-let lastInbound = null
+const consented = new Set()     // spike: JIDs the operator confirmed are their own phone (POST /allow {messageId})
+const inboundById = new Map()  // messageId -> jid, so the operator names the exact message to consent to (no 'last inbound' race)
+const MAX_MEDIA_BYTES = 10 * 1048576
 const sendTimes = []
 const setStatus = (status, extra = {}) => {
   S.history.push({ status, at: new Date().toISOString(), ...extra })
@@ -63,16 +71,20 @@ async function onMessages({ messages, type }) {
   for (const msg of messages) {
     const jid = msg.key.remoteJid || ''
     if (msg.key.fromMe || !jid.endsWith('@s.whatsapp.net') && !jid.endsWith('@lid')) continue // 1:1 only, no groups/status
+    if (!msg.key.id || !SAFE_ID.test(msg.key.id)) { log.warn('dropping message with unexpected id format'); continue }
     if (seen.has(msg.key.id)) continue
     seen.add(msg.key.id)
-    inboundChats.add(jid); lastInbound = jid
+    inboundChats.add(jid); inboundById.set(msg.key.id, jid)
+    if (inboundById.size > 500) inboundById.delete(inboundById.keys().next().value)
     const m = msg.message || {}
     const ev = { type: 'message.inbound', messageId: msg.key.id, from: jid, fromMasked: mask(jid.split('@')[0]), kind: 'other', text: textOf(m) }
-    if (m.imageMessage) {
+    if (m.imageMessage && Number(m.imageMessage.fileLength || 0) > MAX_MEDIA_BYTES) {
+      ev.kind = 'other'; ev.skipped = 'media_too_large'   // size cap enforced before any download
+    } else if (m.imageMessage) {
       ev.kind = 'image'; ev.mime = m.imageMessage.mimetype
       const buf = await downloadMediaMessage(msg, 'buffer', {}, { logger: baileysLog, reuploadRequest: sock.updateMediaMessage })
       await fs.mkdir(MEDIA_DIR, { recursive: true, mode: 0o700 })
-      await fs.writeFile(path.join(MEDIA_DIR, msg.key.id), buf, { mode: 0o600 })
+      await fs.writeFile(mediaPath(msg.key.id), buf, { mode: 0o600, flag: 'wx' })
       ev.bytes = buf.length; ev.sha256 = createHash('sha256').update(buf).digest('hex'); ev.mediaUrl = `/media/${msg.key.id}`
     } else if (m.conversation || m.extendedTextMessage) ev.kind = 'text'
     log.info({ kind: ev.kind, from: ev.fromMasked, bytes: ev.bytes }, 'inbound')
@@ -162,16 +174,20 @@ http.createServer(async (req, res) => {
       const mu = process.memoryUsage()
       return ok(res, 200, { status: S.status, sinceMs: Date.now() - S.since, rssMB: +(mu.rss / 1048576).toFixed(1), heapMB: +(mu.heapUsed / 1048576).toFixed(1), lastDisconnect: S.lastDisconnect, history: S.history.slice(-12) })
     }
-    if (req.method === 'POST' && req.url === '/allow-last') {
-      if (!lastInbound) return ok(res, 409, { error: 'no inbound yet' })
-      consented.add(lastInbound); return ok(res, 200, { allowed: mask(lastInbound.split('@')[0]) })
+    if (req.method === 'POST' && req.url === '/allow') {
+      const { messageId } = await readJson(req)
+      const jid = inboundById.get(String(messageId || ''))
+      if (!jid) return ok(res, 404, { error: 'unknown inbound messageId' })
+      consented.add(jid); return ok(res, 200, { allowed: mask(jid.split('@')[0]) })
     }
     if (req.method === 'POST' && req.url === '/send') {
       const { to, text } = await readJson(req)
       return ok(res, 200, await sendText(to, String(text || '')))
     }
     if (req.method === 'GET' && req.url?.startsWith('/media/')) {
-      const id = path.basename(req.url); const buf = await fs.readFile(path.join(MEDIA_DIR, id))
+      const file = mediaPath(path.basename(req.url))
+      if (!file) return ok(res, 400, { error: 'bad media id' })
+      const buf = await fs.readFile(file)
       res.writeHead(200, { 'content-type': 'application/octet-stream' }); return res.end(buf)
     }
     ok(res, 404, { error: 'not found' })

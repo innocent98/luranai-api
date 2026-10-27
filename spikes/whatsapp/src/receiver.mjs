@@ -8,7 +8,7 @@ const SIDECAR = process.env.SIDECAR_URL || 'http://127.0.0.1:8787'
 if (!SECRET || !TOKEN) { console.error('missing env'); process.exit(2) }
 const seen = new Set()
 await fs.mkdir('captures', { recursive: true })
-const rec = (o) => fs.appendFile('captures/events.jsonl', JSON.stringify(o) + '\n')
+const rec = (o) => fs.appendFile('captures/events.jsonl', JSON.stringify(o) + '\n', { mode: 0o600 })
 
 http.createServer((req, res) => {
   let raw = ''
@@ -21,8 +21,8 @@ http.createServer((req, res) => {
     seen.add(ev.id)
     res.writeHead(200); res.end('ok')
     // metadata only: never store the sender JID, only the masked form
-    const { from, mediaUrl, ...safe } = ev
-    await rec({ ...safe, hmac: 'verified' })
+    const { from, mediaUrl, text, ...safe } = ev   // never persist message text or the sender id
+    await rec({ ...safe, textLength: (text || '').length, hmac: 'verified' })
     if (ev.type === 'message.inbound' && ev.kind !== 'other') {
       const reply = ev.kind === 'image' ? `Got your image (${ev.bytes} bytes, sha256 ${ev.sha256.slice(0, 8)}). Luran spike receiver here.` : `Echo from Luran spike: ${ev.text}`
       try {

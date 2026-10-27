@@ -8,7 +8,7 @@ Never wired into `app/`, `docker-compose*.yml` or CI. Do not deploy.
 
 | File | Purpose |
 |---|---|
-| `src/server.mjs` | Sidecar: `/pair`, `/status`, `/send`, `/media/:id`, `/allow-last`. Binds 127.0.0.1, bearer-token auth |
+| `src/server.mjs` | Sidecar: `/pair`, `/status`, `/send`, `/media/:id`, `/allow`. Binds 127.0.0.1, bearer-token auth |
 | `src/crypto-store.mjs` | AES-256-GCM encrypted-at-rest replacement for Baileys' file auth store |
 | `src/sign.mjs` | Webhook signing: HMAC-SHA256 over `{ts}.{body}`, 5 min replay window |
 | `src/receiver.mjs` | Stand-in for the Luran backend (verify, dedupe, log metadata, auto-reply) |
@@ -18,7 +18,8 @@ Never wired into `app/`, `docker-compose*.yml` or CI. Do not deploy.
 ## Safety rails baked in
 - Env-only secrets (`SPIKE_AUTH_KEY`, `SPIKE_WEBHOOK_SECRET`, `SPIKE_API_TOKEN`, `SPIKE_TEST_NUMBER`); none are in the repo.
 - `/pair` refuses any number except `SPIKE_TEST_NUMBER`.
-- `/send` is reply-only (the chat must have messaged us) AND needs an explicit operator consent (`/allow-last`).
+- `/send` is reply-only (the chat must have messaged us) AND needs explicit operator consent for that exact inbound message (`POST /allow {messageId}`).
+- Media ids are validated before use as filenames; media over 10 MB is not downloaded; the receiver never records message text.
 - Per-minute send cap and a human-like composing delay.
 - Auth state lives outside the repo (`AUTH_DIR`); `.gitignore` blocks `.auth/`, `.media/`, `*.env`.
 
