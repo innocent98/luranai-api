@@ -166,6 +166,13 @@ whatsapp_phone_rate_limiter = RedisRateLimiter(
     max_calls=5,
     window_seconds=86400,
 )
+# New codes for one tenant's own connection to one number: keyed (tenant, number) so a tenant
+# can never spend the cross-tenant per-number create budget above (victim lockout).
+whatsapp_phone_pairing_rate_limiter = RedisRateLimiter(
+    key_prefix="http_whatsapp_phone_pairing",
+    max_calls=10,
+    window_seconds=86400,
+)
 whatsapp_pairing_conn_rate_limiter = RedisRateLimiter(
     key_prefix="http_whatsapp_pairing_conn",
     max_calls=5,
