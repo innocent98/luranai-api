@@ -3,10 +3,16 @@
 from fastapi import APIRouter, Depends, Header, Request, status
 from fastapi.responses import JSONResponse
 from loguru import logger
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.channels import signing as whatsapp_signing
+from app.core.config import settings
+from app.schemas.whatsapp import WebhookEvent
+from app.services import whatsapp_enqueue
 from app.services.paystack_service import PaystackService
+from app.services.whatsapp_inbound import get_connection_by_session_key
 from app.services.webhook_handler_service import WebhookHandlerService
 from app.utils.http_rate_limiter import webhook_rate_limit
 
@@ -132,3 +138,52 @@ async def webhook_health():
         "status": "ok",
         "message": "Webhook endpoint is configured and ready to receive events",
     }
+
+
+MAX_WHATSAPP_WEBHOOK_BYTES = 256 * 1024
+
+
+@router.post(
+    "/whatsapp/linked",
+    status_code=status.HTTP_200_OK,
+    summary="WhatsApp linked-device sidecar webhook",
+    description="Signed sidecar events (session.status, message.inbound, "
+    "message.outbound_external). Header `X-Luran-Signature: t=<unix>,v1=<hmac>`.",
+)
+async def whatsapp_linked_webhook(
+    request: Request,
+    x_luran_signature: str | None = Header(None, alias=whatsapp_signing.SIGNATURE_HEADER),
+    db: Session = Depends(get_db),
+):
+    """Verify, validate, resolve the tenant server-side, enqueue, answer 200 fast.
+
+    Authenticated only by the HMAC (no IP rate limit: a bad signature costs one HMAC). The
+    event never names a tenant: `session_key` is looked up here and again in the job.
+    Nothing derived from the signature (expected or received) is ever logged.
+    """
+    raw = await request.body()
+    if len(raw) > MAX_WHATSAPP_WEBHOOK_BYTES:
+        return JSONResponse(status_code=413, content={"error": "payload_too_large"})
+
+    secrets = [settings.WHATSAPP_WEBHOOK_SECRET, settings.WHATSAPP_WEBHOOK_SECRET_PREVIOUS]
+    if not settings.WHATSAPP_ENABLED or not any(secrets):
+        return JSONResponse(status_code=503, content={"error": "whatsapp_disabled"})
+    if not whatsapp_signing.verify(secrets, raw, x_luran_signature):
+        logger.warning("Invalid WhatsApp webhook signature")
+        return JSONResponse(status_code=401, content={"error": "invalid_signature"})
+
+    try:
+        event = TypeAdapter(WebhookEvent).validate_json(raw)
+    except ValidationError:
+        return JSONResponse(status_code=400, content={"error": "invalid_event"})
+
+    if get_connection_by_session_key(db, event.session_key) is None:
+        # Unknown session (deleted connection, stale sidecar): acknowledge, do nothing.
+        return {"status": "ignored"}
+
+    try:
+        await whatsapp_enqueue.enqueue_event(event.model_dump(mode="json"))
+    except Exception:  # noqa: BLE001
+        logger.exception("whatsapp webhook enqueue failed")
+        return JSONResponse(status_code=503, content={"error": "queue_unavailable"})
+    return {"status": "accepted"}

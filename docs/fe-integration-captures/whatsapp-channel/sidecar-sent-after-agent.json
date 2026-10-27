@@ -1,0 +1,19 @@
+{
+  "fake_sidecar_received": [
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432100@lid",
+      "text": "[stubbed AI] Our opening hours are 9am to 5pm, Monday to Friday."
+    },
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432100@lid",
+      "text": "Sorry, I can only read text messages for now. Please type your question and I'll help."
+    },
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432100@lid",
+      "text": "Hi Ada, our price list is on its way."
+    }
+  ]
+}

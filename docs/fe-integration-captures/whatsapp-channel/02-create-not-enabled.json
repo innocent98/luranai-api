@@ -1,0 +1,26 @@
+{
+  "scenario": "create-not-enabled",
+  "note": "Tenant has not been granted WhatsApp yet.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "phone_number": "2348000000001",
+      "label": "Main line",
+      "consent": {
+        "version": "2026-10-27-draft1",
+        "accepted": true
+      }
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "code": "whatsapp_not_enabled",
+      "message": "WhatsApp is not enabled for this account."
+    }
+  }
+}

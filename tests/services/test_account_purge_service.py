@@ -63,6 +63,7 @@ from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
 from app.db.models.user import DeletionStatus, User, UserRole
 from app.db.models.visit_analytics import DailyVisit
+from app.db.models.whatsapp import WhatsAppChat, WhatsAppConnection, WhatsAppInboundMessage
 from app.db.models.visitor import Visitor, VisitorSession, VisitorSource
 from app.services.account_purge_service import AccountPurgeService
 from app.utils.datetime import utcnow_aware
@@ -935,6 +936,33 @@ def _seed_every_tenant_scoped_table(db_session, tenant: Tenant, agent: User) -> 
         created_from=VisitorSource.WIDGET,
     )
     _add(visitor, "visitors")
+    wa_connection = WhatsAppConnection(
+        tenant_id=tenant.id,
+        status="connected",
+        phone_e164="2348000000001",
+        phone_hmac=uuid4().hex + uuid4().hex,
+        session_key=f"sk_{uuid4().hex}",
+        consent_version="v",
+        consent_accepted_at=utcnow_aware(),
+    )
+    _add(wa_connection, "whatsapp_connections")
+    _add(
+        WhatsAppChat(
+            tenant_id=tenant.id,
+            connection_id=wa_connection.id,
+            contact_hmac=uuid4().hex + uuid4().hex,
+            contact_ref="198765432100@lid",
+            visitor_id=visitor.id,
+        ),
+        "whatsapp_chats",
+    )
+    db_session.add(
+        WhatsAppInboundMessage(
+            connection_id=wa_connection.id,
+            provider_message_id="PURGE-GUARD",
+            received_at=utcnow_aware(),
+        )
+    )
     _add(
         VisitorSession(
             visitor_id=visitor.id,
@@ -1187,3 +1215,12 @@ def test_purge_tenant_completeness_guard_zero_pii_bearing_rows_survive(db_sessio
         .where(User.tenant_id == tenant.id, User.deletion_status != DeletionStatus.PURGED)
     ).scalar_one()
     assert remaining_active == 0
+    # whatsapp_inbound_messages has no tenant_id (so the schema-discovered loop skips it)
+    assert (
+        db_session.execute(
+            select(func.count())
+            .select_from(WhatsAppInboundMessage)
+            .where(WhatsAppInboundMessage.provider_message_id == "PURGE-GUARD")
+        ).scalar_one()
+        == 0
+    )

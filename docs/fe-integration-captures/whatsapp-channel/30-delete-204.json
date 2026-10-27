@@ -1,0 +1,16 @@
+{
+  "scenario": "delete-204",
+  "note": "",
+  "request": {
+    "method": "DELETE",
+    "path": "/api/v1/whatsapp/connections/2fd1dab1-0990-4f1c-b41c-5c35976daa46",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 204,
+    "body": null
+  }
+}

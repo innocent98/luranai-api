@@ -77,6 +77,7 @@ from app.services.conversation_service import (
     ConversationService,
     attachment_frames,
     emit_agent_joined,
+    new_session_attribution,
 )
 from app.services.chat_automation_orchestrator import ChatAutomationOrchestrator
 from app.services.first_responder import (
@@ -581,7 +582,11 @@ def _resolve_bootstrapped_visitor_context(
     entry_point = metadata.get("entry_point")
     if not isinstance(visitor_token, str) or not visitor_token.strip():
         return None, None
-    if entry_point not in {VisitorSource.WIDGET.value, VisitorSource.SUPPORT_PAGE.value}:
+    if entry_point not in {
+        VisitorSource.WIDGET.value,
+        VisitorSource.SUPPORT_PAGE.value,
+        VisitorSource.WHATSAPP.value,
+    }:
         return None, None
 
     visitor = visitor_service.get_visitor_by_token(tenant_id, visitor_token.strip())
@@ -1168,6 +1173,7 @@ async def _send_message_impl(
                     )
 
             # Convert to ConversationSessionCreate
+            attribution = new_session_attribution.get()
             session_create = ConversationSessionCreate(
                 tenant_id=message_data.tenant_id,
                 user_identifier=message_data.user_identifier,
@@ -1175,6 +1181,8 @@ async def _send_message_impl(
                 visitor_session_id=visitor_session_id,
                 customer_user_id=customer_user_id,
                 meta=_without_customer_user_id(message_data.metadata),
+                source=attribution[0] if attribution else None,
+                source_meta=attribution[1] if attribution else None,
             )
             session = conversation_service.create_session(session_create)
             session_id = session.id

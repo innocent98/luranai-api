@@ -1236,8 +1236,18 @@ class WorkerSettings:
         clear_agent_alert,
     )
 
+    from app.workers.whatsapp import (  # type: ignore[misc]
+        process_whatsapp_event,
+        send_whatsapp_message,
+    )
+    from arq import func as arq_func  # type: ignore[misc]
+    from app.services.whatsapp_outbound import MAX_SEND_TRIES  # type: ignore[misc]
+
     functions = [
         process_document_ingestion,
+        # Per-function try budgets: chat-lock contention + send backoff outlast the global 3.
+        arq_func(process_whatsapp_event, max_tries=10),
+        arq_func(send_whatsapp_message, max_tries=MAX_SEND_TRIES),
         run_website_audit,
         send_rep_alert,
         send_slack_notification,

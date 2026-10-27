@@ -154,6 +154,13 @@ team_management_rate_limiter = RedisRateLimiter(
     window_seconds=60,
 )
 
+# WhatsApp pairing-code (re)generation: each code is a live pairing attempt on a real number
+whatsapp_pairing_rate_limiter = RedisRateLimiter(
+    key_prefix="http_whatsapp_pairing",
+    max_calls=5,
+    window_seconds=600,
+)
+
 _last_rate_limiter_error_log_at = 0.0
 
 
@@ -243,6 +250,7 @@ resend_verification_rate_limit = create_rate_limit_dependency(
     resend_verification_rate_limiter, "ip"
 )
 webhook_rate_limit = create_rate_limit_dependency(webhook_rate_limiter, "ip")
+whatsapp_pairing_rate_limit = create_rate_limit_dependency(whatsapp_pairing_rate_limiter, "ip")
 # Public (unauthenticated) chat image upload: key by IP, not user.
 chat_upload_rate_limit = create_rate_limit_dependency(upload_rate_limiter, "ip")
 # Public screen-recording endpoints (separate buckets so videos never consume image uploads).

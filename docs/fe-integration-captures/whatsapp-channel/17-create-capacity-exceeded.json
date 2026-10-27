@@ -1,0 +1,26 @@
+{
+  "scenario": "create-capacity-exceeded",
+  "note": "Backend cap WHATSAPP_MAX_CONNECTIONS=2 and two sessions are live.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "phone_number": "2348000000009",
+      "label": "Main line",
+      "consent": {
+        "version": "2026-10-27-draft1",
+        "accepted": true
+      }
+    }
+  },
+  "response": {
+    "status": 503,
+    "body": {
+      "code": "capacity_exceeded",
+      "message": "WhatsApp is at capacity right now. Please try again later."
+    }
+  }
+}

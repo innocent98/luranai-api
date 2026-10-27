@@ -38,6 +38,7 @@ from app.api.v1.endpoints import (
     voice,
     webhooks,
     websocket,
+    whatsapp,
     widget,
 )
 from app.api.v1.endpoints.platform import analytics as platform_analytics
@@ -314,3 +315,6 @@ api_router.include_router(notifications.router, prefix="/notifications", tags=["
 
 # Public widget meeting booking endpoints (Stage 3 Slice 3)
 api_router.include_router(meetings.router, prefix="/chat", tags=["meetings"])
+
+# WhatsApp channel (linked-device sidecar) dashboard API
+api_router.include_router(whatsapp.router, prefix="/whatsapp", tags=["whatsapp"])

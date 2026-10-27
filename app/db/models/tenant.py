@@ -476,6 +476,20 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         comment="Maximum automation executions allowed per month (null = unlimited)",
     )
+    can_use_whatsapp: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default="false",
+        comment="Can link WhatsApp numbers (grant-only, set by a platform admin)",
+    )
+    max_whatsapp_numbers: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False,
+        server_default="0",
+        comment="How many WhatsApp numbers the tenant may link (grant-only)",
+    )
     can_use_ai_chat_automation: Mapped[bool] = mapped_column(
         Boolean,
         default=False,

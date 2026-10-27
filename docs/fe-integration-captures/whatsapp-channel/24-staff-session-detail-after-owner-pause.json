@@ -1,0 +1,124 @@
+{
+  "scenario": "staff-session-detail-after-owner-pause",
+  "note": "HUMAN_AGENT message with meta.source=owner_phone; the paused customer message is stored; no AI reply.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/chat/sessions/55ec21f8-37f6-45e4-afe5-02b7bc019a4d",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "What are your opening hours?",
+          "id": "224bec86-c954-43ef-ae22-45a4bf143d03",
+          "session_id": "55ec21f8-37f6-45e4-afe5-02b7bc019a4d",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": null,
+          "meta": {
+            "channel": "whatsapp"
+          },
+          "created_at": "2026-10-27T18:16:58.985479Z"
+        },
+        {
+          "role": "assistant",
+          "content": "[stubbed AI] Our opening hours are 9am to 5pm, Monday to Friday.",
+          "id": "8c545187-496b-46b3-adea-7471ca5dbe1e",
+          "session_id": "55ec21f8-37f6-45e4-afe5-02b7bc019a4d",
+          "retrieved_chunk_ids": [],
+          "token_count": 30,
+          "attachments": [],
+          "reply_to": null,
+          "meta": {
+            "chunks_used": 0,
+            "avg_similarity": 0.0,
+            "retrieval_hit": false,
+            "escalation_action": "no_escalation",
+            "response_quality": {
+              "is_substantial": true,
+              "has_uncertainty": false,
+              "word_count": 12,
+              "char_count": 64
+            },
+            "token_breakdown": {
+              "prompt_tokens": 138,
+              "completion_tokens": -108,
+              "total_tokens": 30
+            },
+            "channel": "whatsapp"
+          },
+          "created_at": "2026-10-27T18:16:59.301104Z"
+        },
+        {
+          "role": "human_agent",
+          "content": "Hi Ada, it's the owner. I'll take it from here.",
+          "id": "0f04ec01-428b-42db-a390-348d1c1118d2",
+          "session_id": "55ec21f8-37f6-45e4-afe5-02b7bc019a4d",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": null,
+          "meta": {
+            "source": "owner_phone"
+          },
+          "created_at": "2026-10-27T18:17:01.346297Z"
+        },
+        {
+          "role": "user",
+          "content": "Great, can you send the price list?",
+          "id": "dcc80204-8622-4572-8fef-083c2cbd156b",
+          "session_id": "55ec21f8-37f6-45e4-afe5-02b7bc019a4d",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [],
+          "reply_to": null,
+          "meta": {
+            "channel": "whatsapp"
+          },
+          "created_at": "2026-10-27T18:17:01.852863Z"
+        }
+      ],
+      "ticket_id": null,
+      "ratings": [],
+      "meta": {
+        "entry_point": "whatsapp",
+        "contact_name": "Ada"
+      },
+      "id": "55ec21f8-37f6-45e4-afe5-02b7bc019a4d",
+      "tenant_id": "849750b3-cfc9-47b9-9545-d5c856befa47",
+      "visitor_id": "681e524d-a347-444d-8293-636a62e93c8b",
+      "visitor_session_id": null,
+      "customer_user_id": null,
+      "visitor": {
+        "id": "681e524d-a347-444d-8293-636a62e93c8b",
+        "name": "Ada",
+        "email": null,
+        "phone": null,
+        "first_seen_at": "2026-10-27T18:16:58.917276Z",
+        "last_seen_at": "2026-10-27T18:16:58.917276Z",
+        "is_blocked": false
+      },
+      "source": "whatsapp",
+      "status": "active",
+      "escalation_reason": null,
+      "escalated_at": null,
+      "agent_id": null,
+      "agent_joined_at": null,
+      "last_message_at": "2026-10-27T18:17:01.850485Z",
+      "created_at": "2026-10-27T18:16:58.924148Z",
+      "updated_at": "2026-10-27T18:17:01.846324Z",
+      "customer_label": "Ada",
+      "customer_presence": {
+        "state": "offline",
+        "last_seen_at": null
+      }
+    }
+  }
+}

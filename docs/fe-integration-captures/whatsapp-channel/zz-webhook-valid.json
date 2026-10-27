@@ -1,0 +1,23 @@
+{
+  "scenario": "webhook-valid",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/webhooks/whatsapp/linked",
+    "headers": {
+      "X-Luran-Signature": "<redacted-signature-placeholder>"
+    },
+    "body": {
+      "id": "x",
+      "at": "x",
+      "session_key": "<session-key-placeholder>",
+      "type": "session.status",
+      "status": "connected"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "accepted"
+    }
+  }
+}
