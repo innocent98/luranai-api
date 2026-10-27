@@ -39,13 +39,14 @@ class TestTenantCategory:
 
 
 class TestConversationSource:
-    def test_all_six_values_are_defined(self):
+    def test_all_seven_values_are_defined(self):
         expected = {
             "widget",
             "explore_personal",
             "explore_browse",
             "explore_search",
             "direct",
+            "whatsapp",
             "unknown",
         }
         assert {s.value for s in ConversationSource} == expected

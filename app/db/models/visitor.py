@@ -23,6 +23,7 @@ class VisitorSource(str, enum.Enum):
 
     WIDGET = "widget"
     SUPPORT_PAGE = "support_page"
+    WHATSAPP = "whatsapp"
 
 
 class DeviceType(str, enum.Enum):

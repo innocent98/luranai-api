@@ -1,0 +1,32 @@
+{
+  "scenario": "agent-message",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/sessions/55ec21f8-37f6-45e4-afe5-02b7bc019a4d/agent-message",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "message": "Hi Ada, our price list is on its way."
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "role": "human_agent",
+      "content": "Hi Ada, our price list is on its way.",
+      "id": "a168e16d-df2b-4a7d-b1ca-a9b048c1c825",
+      "session_id": "55ec21f8-37f6-45e4-afe5-02b7bc019a4d",
+      "retrieved_chunk_ids": null,
+      "token_count": null,
+      "attachments": [],
+      "reply_to": null,
+      "meta": {
+        "agent_id": "6baa0dd1-e168-4c31-ac08-be41264dedc1",
+        "agent_name": "Alpha Owner"
+      },
+      "created_at": "2026-10-27T18:17:03.656665Z"
+    }
+  }
+}

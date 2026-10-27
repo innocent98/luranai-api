@@ -45,6 +45,8 @@ def test_valid_source_persists(db, tenant):
         "search_query_present": None,
         "position": 4,
         "page": None,
+        "channel_connection_id": None,
+        "provider": None,
     }
 
 

@@ -173,6 +173,12 @@ class TenantCapabilitiesBase(BaseModel):
     can_use_screen_recording: bool = Field(
         default=True, description="Platform grant for customer screen recordings"
     )
+    can_use_whatsapp: bool = Field(
+        default=False, description="Whether the tenant may link WhatsApp numbers (grant-only)"
+    )
+    max_whatsapp_numbers: int = Field(
+        default=0, ge=0, description="How many WhatsApp numbers the tenant may link"
+    )
 
 
 # Create schemas
@@ -269,6 +275,8 @@ class TenantCapabilitiesUpdate(BaseModel):
     can_use_voice: bool | None = None
     max_voice_minutes_per_month: int | None = Field(None, ge=0)
     can_use_screen_recording: bool | None = None
+    can_use_whatsapp: bool | None = None
+    max_whatsapp_numbers: int | None = Field(None, ge=0)
 
 
 # Response schemas

@@ -318,6 +318,11 @@ class ConnectionManager:
         """
         Deliver event to local sockets and publish to Redis so all workers fan out.
         """
+        # WhatsApp: forward customer-facing frames of WhatsApp conversations. Runs here, once
+        # at the originating worker; `_deliver_event_local` re-fires on every worker.
+        from app.services.whatsapp_dispatch import maybe_forward
+
+        await maybe_forward(session_id, message, to_customer)
         await self._deliver_event_local(
             session_id=session_id,
             message=message,

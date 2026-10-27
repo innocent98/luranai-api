@@ -1,0 +1,44 @@
+{
+  "scenario": "platform-grant-alpha",
+  "note": "",
+  "request": {
+    "method": "PUT",
+    "path": "/api/v1/platform/tenants/849750b3-cfc9-47b9-9545-d5c856befa47/capabilities",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "can_use_whatsapp": true,
+      "max_whatsapp_numbers": 2
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "can_create_tickets": true,
+      "can_access_analytics": false,
+      "can_upload_knowledge": true,
+      "max_knowledge_mb": 10,
+      "max_conversations_per_month": 200,
+      "max_knowledge_sources": 2,
+      "can_use_url_sources": false,
+      "max_team_members": 1,
+      "max_automation_actions": 2,
+      "max_automation_executions_per_month": 100,
+      "can_use_ai_chat_automation": true,
+      "can_use_lookup_chains": false,
+      "can_use_webhooks": false,
+      "max_flows": 1,
+      "max_webhooks_per_flow": 0,
+      "can_use_voice": false,
+      "max_voice_minutes_per_month": null,
+      "can_use_screen_recording": true,
+      "can_use_whatsapp": true,
+      "max_whatsapp_numbers": 2,
+      "id": "97bc0911-2049-4989-a35c-660da8f8a2c4",
+      "tenant_id": "849750b3-cfc9-47b9-9545-d5c856befa47",
+      "created_at": "2026-10-27T18:16:54.368464Z",
+      "updated_at": "2026-10-27T18:16:56.713368Z"
+    }
+  }
+}

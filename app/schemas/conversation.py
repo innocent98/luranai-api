@@ -179,6 +179,10 @@ class _SessionFields(BaseModel):
     visitor_session_id: UUID | None = None
     customer_user_id: UUID | None = None
     visitor: VisitorIdentitySummary | None = None
+    source: str | None = Field(
+        None,
+        description="Where the conversation started (widget, whatsapp, ...); null for older rows",
+    )
     status: SessionStatus
     escalation_reason: str | None = None
     escalated_at: datetime | None = None

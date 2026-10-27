@@ -28,6 +28,7 @@ class ConversationSource(str, Enum):
     EXPLORE_BROWSE = "explore_browse"
     EXPLORE_SEARCH = "explore_search"
     DIRECT = "direct"
+    WHATSAPP = "whatsapp"
     UNKNOWN = "unknown"
 
 
@@ -40,6 +41,8 @@ class SourceMeta(BaseModel):
     search_query_present: bool | None = None
     position: int | None = None
     page: int | None = None
+    channel_connection_id: str | None = None
+    provider: str | None = None
 
 
 class PersonalBusinessRelationship(BaseModel):

@@ -41,6 +41,14 @@ from app.utils.staff_redaction import customer_label, redact_staff_session_meta
 # `meta["channel"] == "voice"` (transcript lines are not quotable, spec N2-D2).
 voice_channel: ContextVar[bool] = ContextVar("voice_channel", default=False)
 
+# Set by the WhatsApp inbound job around `send_message` so (a) a session created during that
+# turn is written with `source="whatsapp"` + `source_meta` (it is never written otherwise) and
+# (b) the messages it persists are tagged `meta["channel"] == "whatsapp"`.
+new_session_attribution: ContextVar[tuple[str, dict] | None] = ContextVar(
+    "new_session_attribution", default=None
+)
+message_channel: ContextVar[str | None] = ContextVar("message_channel", default=None)
+
 
 class ConversationService:
     """Service for conversation and message management."""
@@ -409,6 +417,8 @@ class ConversationService:
         message_meta = meta or {}
         if voice_channel.get() and role in (MessageRole.USER, MessageRole.ASSISTANT):
             message_meta = {**message_meta, "channel": "voice"}
+        elif message_channel.get() and role in (MessageRole.USER, MessageRole.ASSISTANT):
+            message_meta = {**message_meta, "channel": message_channel.get()}
 
         # Create message
         db_message = Message(

@@ -1,0 +1,24 @@
+{
+  "scenario": "get-awaiting-pair",
+  "note": "",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/whatsapp/connections/801152e2-0db2-42bf-946d-a3219009ff90",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "801152e2-0db2-42bf-946d-a3219009ff90",
+      "label": "Main line",
+      "status": "awaiting_pair",
+      "phone_masked": "+234\u2022\u2022\u2022\u2022\u2022\u20220001",
+      "ai_enabled": true,
+      "last_connected_at": null,
+      "last_disconnect_reason": null
+    }
+  }
+}

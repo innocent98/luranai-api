@@ -1,0 +1,26 @@
+{
+  "scenario": "create-number-in-use-other-tenant",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "phone_number": "2348000000001",
+      "label": "Main line",
+      "consent": {
+        "version": "2026-10-27-draft1",
+        "accepted": true
+      }
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "code": "number_in_use",
+      "message": "This number is already connected to a Luran account."
+    }
+  }
+}

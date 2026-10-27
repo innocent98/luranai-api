@@ -247,6 +247,11 @@ from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
 from app.db.models.user import DeletionStatus, User
 from app.db.models.visit_analytics import DailyVisit
+from app.db.models.whatsapp import (
+    WhatsAppChat,
+    WhatsAppConnection,
+    WhatsAppInboundMessage,
+)
 from app.db.models.visitor import Visitor, VisitorSession
 from app.utils.cloudinary_client import cloudinary_manager
 
@@ -303,6 +308,19 @@ class AccountPurgeService:
         # FKs also cascade at the DB level (ondelete="CASCADE"), but
         # deleting explicitly keeps this auditable and still correct even
         # if a future migration ever drops that constraint. ---
+        # WhatsApp: contact refs are PII. Ledger and chats go before the connection, and all
+        # of them before visitors/sessions (chats reference both).
+        connection_ids = select(WhatsAppConnection.id).where(
+            WhatsAppConnection.tenant_id == tenant_id
+        )
+        self.db.execute(
+            delete(WhatsAppInboundMessage).where(
+                WhatsAppInboundMessage.connection_id.in_(connection_ids)
+            )
+        )
+        self.db.execute(delete(WhatsAppChat).where(WhatsAppChat.tenant_id == tenant_id))
+        self.db.execute(delete(WhatsAppConnection).where(WhatsAppConnection.tenant_id == tenant_id))
+
         self.db.execute(delete(SessionRating).where(SessionRating.tenant_id == tenant_id))
         # session_ratings.rating_request_id -> rating_requests is SET NULL; ratings go first.
         self.db.execute(delete(RatingRequest).where(RatingRequest.tenant_id == tenant_id))

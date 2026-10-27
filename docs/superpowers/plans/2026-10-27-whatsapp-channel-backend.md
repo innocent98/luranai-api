@@ -9,6 +9,20 @@
 **Tech stack:** FastAPI + SQLAlchemy 2 + Alembic + arq (this repo); Node 20 + Baileys 7.0.0-rc14 pinned (new `whatsapp-sidecar/` service); Next.js (`luran-dashboard`, separate repo).
 
 ---
+## Agreed amendments (Adebayo, 2026-10-27)
+Source of truth: `docs/specs/2026-10-27-whatsapp-demo-contract.md` (workspace copy). These override anything below that disagrees.
+
+| # | Amendment | Effect on this plan |
+|---|---|---|
+| a | **Owner-types-from-phone pause is in the demo scope** (contract section O). The sidecar emits `message.outbound_external` for a `fromMe` message it did not send through `/send`; the backend sets `whatsapp_chats.human_until = now + WHATSAPP_OWNER_PAUSE_MINUTES` (default 120), stores the owner text as a HUMAN_AGENT message with `meta.source = "owner_phone"`, and while paused stores inbound messages without invoking the AI or auto-replying. A new owner message extends the pause. | Adds `human_until` to `whatsapp_chats` (section 2) and a pause check in the section 4 bridge. |
+| b | **Capacity guard is in the demo scope** (contract section C). The production VPS has 8 GB total, likely shared with staging, and RAM per session beyond one is unmeasured. Backend `WHATSAPP_MAX_CONNECTIONS` (global, default 3) is checked before calling the sidecar; sidecar `MAX_SESSIONS` / `RSS_REFUSE_MB` 503s also map through; both reach the dashboard as HTTP 503 `capacity_exceeded`. | First-class requirement in T4; boot restore is staggered and capped by `MAX_SESSIONS` (section 8). |
+| c | **Mark inbound as read before replying**, then composing presence and a jittered delay (sidecar `readMessages`). | Section 6 sender behaviour; lives in the sidecar, the backend only calls `/send`. |
+| d | **Number guidance:** recommend an **aged business number used only for business**; fresh numbers are banned quickly. Replaces the "dedicated number" wording in section 9. A **per-tenant contact exclusion list** (so the AI never answers personal contacts) is added to the **beta** task list (new task T15, 1.0 agent-day, depends on T5). It is **not** in the demo. | Section 9 copy; section 11 table; Section 12 risk 1 mitigation. |
+| e | **The owner can keep using the phone or WhatsApp Web alongside the AI.** This is a selling point of option A (linked device) and must be reflected in the connect-screen copy. The owner pause (a) is what makes it safe. | Section 9 copy; consent text mentions it. |
+
+Demo-slice scope for the backend track (text only): sections 1-4 and 6-7 minus media, renderer, rating prompt, tiers and option B.
+
+---
 ## 0. Code facts this plan builds on (re-verified in this worktree, base `origin/develop` = `1ac84d2`)
 | Fact | Where | Consequence |
 |---|---|---|
@@ -113,7 +127,7 @@ Phase 1 (beta): `can_use_whatsapp` + `max_whatsapp_numbers` on **`tenant_capabil
 - Disconnect alerts: on `logged_out`/`failed`, flip the row, enqueue `send_whatsapp_disconnect_alert` (email to tenant admins + in-app; debounce 1/6 h; not for deliberate disconnects).
 
 ## 9. Dashboard (`luran-dashboard`, separate repo + PR)
-Channels -> WhatsApp: (1) not connected card with option A/B explainer; (2) connect form: dedicated-number guidance, **risk consent checkbox with version-stamped text** (unofficial, possible suspension, reply-only, Luran not liable for the number); (3) code screen: large grouped code, 3-minute countdown, the three phone steps (WhatsApp > Linked devices > Link a device > *Link with phone number instead*), regenerate; polls `GET /whatsapp/connections/{id}` every 2 s while `pairing`, 15 s after; (4) connected view: status pill, last seen, AI on/off, first responder, rate-cap info, disconnect; (5) logged-out banner with reconnect; (6) plan-gate upsell. FE contract goes in `docs/fe-integration-guide-whatsapp-channel.md` from **captured live responses** (workspace rule), including the "pairing code returned once" and "status `logged_out` needs a new code" UX instructions.
+Channels -> WhatsApp: (1) not connected card with option A/B explainer; (2) connect form: aged-business-number guidance (amendment d) and a note that the owner can keep using the phone/WhatsApp Web alongside the AI (amendment e), **risk consent checkbox with version-stamped text** (unofficial, possible suspension, reply-only, Luran not liable for the number); (3) code screen: large grouped code, 3-minute countdown, the three phone steps (WhatsApp > Linked devices > Link a device > *Link with phone number instead*), regenerate; polls `GET /whatsapp/connections/{id}` every 2 s while `pairing`, 15 s after; (4) connected view: status pill, last seen, AI on/off, first responder, rate-cap info, disconnect; (5) logged-out banner with reconnect; (6) plan-gate upsell. FE contract goes in `docs/fe-integration-guide-whatsapp-channel.md` from **captured live responses** (workspace rule), including the "pairing code returned once" and "status `logged_out` needs a new code" UX instructions.
 
 ## 10. Tests (CI parity)
 Unit/integration at `tests/channels/`, `tests/api/v1/test_whatsapp_*`, `tests/migrations/test_whatsapp_channel.py`: signature (valid/tamper/stale/wrong secret/rotation), dedupe on replay, cross-tenant isolation (tenant A cannot read/patch/delete B; webhook for an unknown session key is dropped), consent version enforcement, capability and count gating, 402 path, reply-only guard, rate cap, rotation, renderer table, fanout hook fires once with two workers, `source='whatsapp'` actually persisted. Before every push run exactly what CI runs through Poetry: `poetry run ruff check app/`, `poetry run black --check app/`, `poetry run pytest tests/` (confirm the Black version equals `poetry.lock`), plus manual `alembic upgrade head` / `downgrade -1` and `alembic heads` = 1.
@@ -136,6 +150,7 @@ Effort = agent-days (Sonnet implements; incl. tests). Model: Sonnet implements a
 | T11 | Live-captured FE guide, SOP, checklist update | 1.0 | T4-T9 | C |
 | T12 | Soak: N-session RAM, 24 h stability, deploy-restore drill | 1.0 | T3 | A |
 | T13 | Opus security review + fixes | 1.0 | T3-T7 | review |
+| T15 | Per-tenant contact exclusion list (AI never answers listed/personal contacts); beta only, **not in the demo** | 1.0 | T5 | B |
 | T14 | **Option B adapter** (Cloud API client, Embedded Signup callback, webhook verify, templates, window): starts only after Meta Tech Provider approval | 4.0 | approval | later |
 Total beta (T1-T13) ~ 20.5 agent-days; with 3 parallel tracks this is the 5-7 working days below.
 
@@ -151,7 +166,7 @@ Everything T1-T13. Suggested waves:
 **Max 3 agents at once.** T6/T7/T8 touch different files (renderer, sender/hook, media) but all touch `chat.py` or `core/websocket.py` lightly: sequence the `chat.py` edits (T5 first, T8 second) to avoid conflicts.
 
 ## 12. Risks (ranked)
-1. **WhatsApp bans/restricts numbers** (option A, ToS). Mitigations in `docs/sop/whatsapp_pairing_spike.md`; consent + dedicated number + reply-only; can't be fully removed.
+1. **WhatsApp bans/restricts numbers** (option A, ToS). Mitigations in `docs/sop/whatsapp_pairing_spike.md`; consent + aged business number + reply-only + contact exclusion list (T15); can't be fully removed.
 2. **Capacity unknown** beyond one session (RAM per extra session not measured); VPS size unknown. Soak is T12; do not promise numbers before it.
 3. **Duplicate-process logout** (observed conflict signature): lease is mandatory.
 4. **Supply chain** of an unofficial library (rc, new Rust/WASM dep): pinned lockfile, `--ignore-scripts`, provenance check per bump, egress-restricted container, no secrets beyond its own key.
