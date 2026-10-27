@@ -11,6 +11,7 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys'
 import { useEncryptedAuthState } from './crypto-store.mjs'
 import { sign } from './sign.mjs'
+import { MediaTooLarge, declaredLength, readCapped } from './media.mjs'
 
 const env = (k, d) => process.env[k] ?? d
 const PORT = Number(env('PORT', 8787))
@@ -78,14 +79,23 @@ async function onMessages({ messages, type }) {
     if (inboundById.size > 500) inboundById.delete(inboundById.keys().next().value)
     const m = msg.message || {}
     const ev = { type: 'message.inbound', messageId: msg.key.id, from: jid, fromMasked: mask(jid.split('@')[0]), kind: 'other', text: textOf(m) }
-    if (m.imageMessage && Number(m.imageMessage.fileLength || 0) > MAX_MEDIA_BYTES) {
+    if (m.imageMessage && declaredLength(m.imageMessage.fileLength) > MAX_MEDIA_BYTES) {
       ev.kind = 'other'; ev.skipped = 'media_too_large'   // size cap enforced before any download
     } else if (m.imageMessage) {
       ev.kind = 'image'; ev.mime = m.imageMessage.mimetype
-      const buf = await downloadMediaMessage(msg, 'buffer', {}, { logger: baileysLog, reuploadRequest: sock.updateMediaMessage })
-      await fs.mkdir(MEDIA_DIR, { recursive: true, mode: 0o700 })
-      await fs.writeFile(mediaPath(msg.key.id), buf, { mode: 0o600, flag: 'wx' })
-      ev.bytes = buf.length; ev.sha256 = createHash('sha256').update(buf).digest('hex'); ev.mediaUrl = `/media/${msg.key.id}`
+      let buf
+      try {
+        const stream = await downloadMediaMessage(msg, 'stream', {}, { logger: baileysLog, reuploadRequest: sock.updateMediaMessage })
+        buf = await readCapped(stream, MAX_MEDIA_BYTES)   // cap enforced on received bytes
+      } catch (e) {
+        if (!(e instanceof MediaTooLarge)) throw e
+        ev.kind = 'other'; ev.skipped = 'media_too_large'
+      }
+      if (buf) {
+        await fs.mkdir(MEDIA_DIR, { recursive: true, mode: 0o700 })
+        await fs.writeFile(mediaPath(msg.key.id), buf, { mode: 0o600, flag: 'wx' })
+        ev.bytes = buf.length; ev.sha256 = createHash('sha256').update(buf).digest('hex'); ev.mediaUrl = `/media/${msg.key.id}`
+      }
     } else if (m.conversation || m.extendedTextMessage) ev.kind = 'text'
     log.info({ kind: ev.kind, from: ev.fromMasked, bytes: ev.bytes }, 'inbound')
     deliver(ev)
