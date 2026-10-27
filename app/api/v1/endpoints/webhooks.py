@@ -161,9 +161,17 @@ async def whatsapp_linked_webhook(
     event never names a tenant: `session_key` is looked up here and again in the job.
     Nothing derived from the signature (expected or received) is ever logged.
     """
-    raw = await request.body()
-    if len(raw) > MAX_WHATSAPP_WEBHOOK_BYTES:
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_WHATSAPP_WEBHOOK_BYTES:
         return JSONResponse(status_code=413, content={"error": "payload_too_large"})
+    chunks: list[bytes] = []
+    received = 0
+    async for chunk in request.stream():  # stop reading as soon as the cap is passed
+        received += len(chunk)
+        if received > MAX_WHATSAPP_WEBHOOK_BYTES:
+            return JSONResponse(status_code=413, content={"error": "payload_too_large"})
+        chunks.append(chunk)
+    raw = b"".join(chunks)
 
     secrets = [settings.WHATSAPP_WEBHOOK_SECRET, settings.WHATSAPP_WEBHOOK_SECRET_PREVIOUS]
     if not settings.WHATSAPP_ENABLED or not any(secrets):

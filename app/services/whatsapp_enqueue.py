@@ -5,12 +5,14 @@ Tests monkeypatch these two functions to capture or run jobs inline.
 
 from __future__ import annotations
 
+import json
 from uuid import UUID
 
 from arq import create_pool
 from arq.connections import RedisSettings
 
 from app.core.config import settings
+from app.core.encryption import encrypt_field
 
 
 async def _pool():  # type: ignore[no-untyped-def]
@@ -20,10 +22,18 @@ async def _pool():  # type: ignore[no-untyped-def]
 
 
 async def enqueue_event(event: dict) -> None:
-    """Queue a validated sidecar webhook event. The delivery id is the job id (replay-safe)."""
+    """Queue a validated sidecar webhook event. The delivery id is the job id (replay-safe).
+
+    The event carries customer message text, and arq keeps job arguments in Redis (24 h of
+    results), so the whole event is Fernet-sealed: Redis never holds plaintext chat content.
+    """
     redis = await _pool()
     try:
-        await redis.enqueue_job("process_whatsapp_event", event, _job_id=f"wa_evt:{event['id']}")
+        await redis.enqueue_job(
+            "process_whatsapp_event",
+            encrypt_field(json.dumps(event)),
+            _job_id=f"wa_evt:{event['id']}",
+        )
     finally:
         await redis.close()
 
@@ -36,7 +46,7 @@ async def enqueue_send(connection_id: UUID, chat_id: UUID, text: str, key: str) 
             "send_whatsapp_message",
             str(connection_id),
             str(chat_id),
-            text,
+            encrypt_field(text),  # reply text is chat content too: sealed at rest in Redis
             _job_id=f"wa_send:{key}",
         )
     finally:

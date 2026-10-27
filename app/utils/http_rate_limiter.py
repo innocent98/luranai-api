@@ -154,6 +154,24 @@ team_management_rate_limiter = RedisRateLimiter(
     window_seconds=60,
 )
 
+# WhatsApp: creating a connection triggers a pairing attempt (WhatsApp notifies the number's
+# owner), so it is limited per tenant, and per target phone across ALL tenants, not just per IP.
+whatsapp_create_rate_limiter = RedisRateLimiter(
+    key_prefix="http_whatsapp_create",
+    max_calls=10,
+    window_seconds=600,
+)
+whatsapp_phone_rate_limiter = RedisRateLimiter(
+    key_prefix="http_whatsapp_phone",
+    max_calls=5,
+    window_seconds=86400,
+)
+whatsapp_pairing_conn_rate_limiter = RedisRateLimiter(
+    key_prefix="http_whatsapp_pairing_conn",
+    max_calls=5,
+    window_seconds=600,
+)
+
 # WhatsApp pairing-code (re)generation: each code is a live pairing attempt on a real number
 whatsapp_pairing_rate_limiter = RedisRateLimiter(
     key_prefix="http_whatsapp_pairing",
@@ -290,3 +308,34 @@ platform_analytics_rate_limit = create_rate_limit_dependency(
     platform_analytics_rate_limiter, "user"
 )
 team_management_rate_limit = create_rate_limit_dependency(team_management_rate_limiter, "user")
+
+
+async def enforce_identifier_limit(limiter: RedisRateLimiter, identifier: str) -> None:
+    """Rate limit on an arbitrary key (tenant id, phone hash, ...) instead of the caller IP.
+
+    Same contract as `check_rate_limit`: 429 when exceeded, fail-open on Redis errors unless
+    RATE_LIMIT_FAIL_OPEN is off.
+    """
+    try:
+        usage = await limiter.get_current_usage(identifier)
+        if usage["calls"] >= limiter.max_calls:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={
+                    "error": "Rate limit exceeded",
+                    "limit": limiter.max_calls,
+                    "window_seconds": limiter.window_seconds,
+                    "retry_after_seconds": limiter.window_seconds,
+                },
+                headers={"Retry-After": str(limiter.window_seconds)},
+            )
+        await limiter.acquire(identifier)
+    except HTTPException:
+        raise
+    except Exception:
+        if settings.RATE_LIMIT_FAIL_OPEN:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Rate limiting temporarily unavailable",
+        ) from None

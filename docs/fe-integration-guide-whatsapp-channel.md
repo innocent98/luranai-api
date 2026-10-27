@@ -117,7 +117,9 @@ Only valid while `status` is `awaiting_pair` or `logged_out`. Otherwise **409** 
 ```json
 {"code": "not_pairable", "message": "This connection can only be paired while it is waiting."}
 ```
-After a successful call on a `logged_out` connection the status goes back to `awaiting_pair` (captures 28, 29). Rate limit: 5 calls per 10 minutes per IP (`429`, standard rate-limit body). **NOT LIVE:** the 429 body for this route.
+After a successful call on a `logged_out` connection the status goes back to `awaiting_pair` (captures 28, 29).
+
+Other errors on this route: `403 whatsapp_not_enabled` if the grant was revoked, and `503 capacity_exceeded` when re-pairing a `logged_out` connection while the platform is at capacity (re-pairing makes it live again). **Rate limits** (HTTP `429` with the app's standard rate-limit body `{"detail": {"error": "Rate limit exceeded", "limit": …, "window_seconds": …, "retry_after_seconds": …}}` and a `Retry-After` header): 5 codes per 10 minutes per connection and per IP. Creating connections is limited to 10 per 10 minutes per tenant and 5 per day per phone number across all tenants (each create makes WhatsApp notify that number's owner). Show a "try again later" message using `retry_after_seconds`. **NOT LIVE:** the 429 responses for these routes (unit-tested with an in-memory counter and against real Redis for the limiter itself; their exact body is the shared rate-limit shape, not captured here).
 
 ### 3.5 `PATCH /whatsapp/connections/{id}`
 Request (capture 26): `{"ai_enabled": false, "label": "Support line"}`. Both fields optional; unknown fields are rejected with 422. Response **200**: the connection object (3.3). With `ai_enabled: false` the number stays linked, customer messages are stored and shown to agents, and the AI does not answer.

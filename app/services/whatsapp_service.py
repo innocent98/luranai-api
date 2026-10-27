@@ -37,6 +37,12 @@ from app.db.models.whatsapp import (
     WhatsAppStatus,
 )
 from app.utils.datetime import utcnow_aware
+from app.utils.http_rate_limiter import (
+    enforce_identifier_limit,
+    whatsapp_create_rate_limiter,
+    whatsapp_pairing_conn_rate_limiter,
+    whatsapp_phone_rate_limiter,
+)
 
 # DRAFT: wording is NOT approved. Adebayo must approve the final text before any real
 # tenant sees it; bump CONSENT_VERSION whenever the text changes (old versions are rejected).
@@ -122,6 +128,11 @@ class WhatsAppService:
             )
         return caps
 
+    def _lock_capacity(self) -> None:
+        if self.db.get_bind().dialect.name == "postgresql":
+            # Serialise capacity/limit checks + insert across workers (released at commit).
+            self.db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": 7_300_001})
+
     def _live_count(self) -> int:
         return int(
             self.db.execute(
@@ -163,9 +174,12 @@ class WhatsAppService:
                 503, "whatsapp_misconfigured", "WhatsApp is temporarily unavailable."
             ) from None
 
-        if self.db.get_bind().dialect.name == "postgresql":
-            # Serialise capacity/limit checks + insert across workers (released at commit).
-            self.db.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": 7_300_001})
+        # Each create is a pairing attempt (WhatsApp notifies the target number's owner):
+        # cap it per tenant and per target number across all tenants, not only per IP.
+        await enforce_identifier_limit(whatsapp_create_rate_limiter, f"tenant:{tenant_id}")
+        await enforce_identifier_limit(whatsapp_phone_rate_limiter, phone_key)
+
+        self._lock_capacity()
 
         if self.db.execute(
             select(WhatsAppConnection.id).where(WhatsAppConnection.phone_hmac == phone_key)
@@ -237,15 +251,22 @@ class WhatsAppService:
 
     # ------------------------------------------------------------------ pairing
     async def new_pairing_code(self, tenant_id: UUID, connection_id: UUID) -> PairingResult:
-        if not settings.WHATSAPP_ENABLED:
-            raise WhatsAppError(
-                403, "whatsapp_not_enabled", "WhatsApp is not enabled for this account."
-            )
+        self._require_enabled(tenant_id)  # a revoked grant must not keep minting codes
         conn = self.get_for_tenant(tenant_id, connection_id)
         if conn.status not in (WhatsAppStatus.AWAITING_PAIR.value, WhatsAppStatus.LOGGED_OUT.value):
             raise WhatsAppError(
                 409, "not_pairable", "This connection can only be paired while it is waiting."
             )
+        await enforce_identifier_limit(whatsapp_pairing_conn_rate_limiter, str(conn.id))
+        if conn.status == WhatsAppStatus.LOGGED_OUT.value:
+            # Re-pairing makes the session live again, so the capacity guard applies.
+            self._lock_capacity()
+            if self._live_count() >= settings.WHATSAPP_MAX_CONNECTIONS:
+                raise WhatsAppError(
+                    503,
+                    "capacity_exceeded",
+                    "WhatsApp is at capacity right now. Please try again later.",
+                )
         try:
             pairing = await get_adapter(conn.provider).new_pairing_code(conn.session_key)
         except NotPairable:

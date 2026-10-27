@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 from uuid import UUID
 
 from arq import Retry
 from loguru import logger
 
+from app.core.encryption import try_decrypt_field
 from app.db.session import SessionLocal
 from app.services import whatsapp_inbound
 from app.services.whatsapp_outbound import RetrySend, send_text
 
 _CHAT_LOCK_TTL_S = 120
+# A busy chat (the previous message's AI turn is still running) is waited for in-job for up to
+# ~90 s before falling back to an arq retry, so a quick second message is not burned on retries.
+_LOCK_WAIT_TRIES = 45
+_LOCK_POLL_S = 2.0
 
 
 async def _lock_chat(ctx: dict, event: dict):  # type: ignore[no-untyped-def]
@@ -22,14 +30,20 @@ async def _lock_chat(ctx: dict, event: dict):  # type: ignore[no-untyped-def]
     ref = event.get("from_ref") or event.get("to_ref")
     if not ref:
         return None
-    key = f"wa:chatlock:{event['session_key']}:{ref}"
-    got = await redis.set(key, "1", ex=_CHAT_LOCK_TTL_S, nx=True)
-    if not got:
-        raise Retry(defer=2)
-    return key
+    # Hash the chat ref: it can be a phone-number JID and must not sit in a Redis key in clear.
+    digest = hashlib.sha256(str(ref).encode()).hexdigest()[:32]
+    key = f"wa:chatlock:{event['session_key']}:{digest}"
+    for attempt in range(_LOCK_WAIT_TRIES):
+        if await redis.set(key, "1", ex=_CHAT_LOCK_TTL_S, nx=True):
+            return key
+        if attempt < _LOCK_WAIT_TRIES - 1:
+            await asyncio.sleep(_LOCK_POLL_S)
+    raise Retry(defer=5)
 
 
-async def process_whatsapp_event(ctx: dict, event: dict) -> str:
+async def process_whatsapp_event(ctx: dict, payload: dict | str) -> str:
+    """`payload` is the Fernet-sealed JSON event (a plain dict is accepted for tests)."""
+    event = payload if isinstance(payload, dict) else json.loads(try_decrypt_field(payload))
     key = await _lock_chat(ctx, event)
     db = SessionLocal()
     try:
@@ -46,7 +60,11 @@ async def send_whatsapp_message(ctx: dict, connection_id: str, chat_id: str, tex
     db = SessionLocal()
     try:
         return await send_text(
-            db, UUID(connection_id), UUID(chat_id), text, int(ctx.get("job_try", 1))
+            db,
+            UUID(connection_id),
+            UUID(chat_id),
+            try_decrypt_field(text),  # sealed by whatsapp_enqueue.enqueue_send
+            int(ctx.get("job_try", 1)),
         )
     except RetrySend as exc:
         raise Retry(defer=exc.defer_s) from None

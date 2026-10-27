@@ -15,6 +15,7 @@ from app.services.whatsapp_service import CONSENT_VERSION
 from tests.whatsapp.conftest import (
     PHONE_A,
     PHONE_B,
+    PHONE_C,
     consent_body,
     login_admin,
     make_tenant,
@@ -306,3 +307,79 @@ def test_adapter_registry_cloud_api_slot_is_a_stub():
         getattr(get_adapter("cloud_api"), "send")  # noqa: B009
     with pytest.raises(ValueError):
         get_adapter("nope")
+
+
+def test_revoked_grant_cannot_mint_new_pairing_codes(client, db, wa_settings, fake_sidecar):
+    from app.db.models.tenant import TenantCapabilities
+
+    tenant = make_tenant(db)
+    login_admin(tenant)
+    cid = _create(client).json()["id"]
+    caps = db.execute(
+        select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant.id)
+    ).scalar_one()
+    caps.can_use_whatsapp = False
+    db.commit()
+    r = client.post(f"/api/v1/whatsapp/connections/{cid}/pairing-code")
+    assert (r.status_code, r.json()["code"]) == (403, "whatsapp_not_enabled")
+
+
+def test_repairing_a_logged_out_connection_respects_the_capacity_guard(
+    client, db, wa_settings, fake_sidecar, monkeypatch
+):
+    monkeypatch.setattr(wa_settings, "WHATSAPP_MAX_CONNECTIONS", 1)
+    login_admin(make_tenant(db, max_numbers=3))
+    first = _create(client, consent_body(PHONE_A)).json()["id"]
+    db.get(WhatsAppConnection, UUID(first)).status = "logged_out"  # frees its slot
+    db.commit()
+    assert _create(client, consent_body(PHONE_B)).status_code == 201  # takes the only slot
+    r = client.post(f"/api/v1/whatsapp/connections/{first}/pairing-code")
+    assert (r.status_code, r.json()["code"]) == (503, "capacity_exceeded")
+
+
+class _Counter:
+    """In-memory stand-in for `enforce_identifier_limit` (the real one needs one event loop)."""
+
+    def __init__(self, limits):
+        self.limits, self.hits = limits, {}
+
+    async def __call__(self, limiter, identifier):
+        from fastapi import HTTPException
+
+        key = (limiter.key_prefix, identifier)
+        self.hits[key] = self.hits.get(key, 0) + 1
+        if self.hits[key] > self.limits.get(limiter.key_prefix, 10**6):
+            raise HTTPException(status_code=429, detail={"error": "Rate limit exceeded"})
+
+
+def test_create_is_rate_limited_per_tenant_and_per_target_number(
+    client, db, wa_settings, fake_sidecar, monkeypatch
+):
+    from app.services import whatsapp_service as svc
+
+    counter = _Counter({"http_whatsapp_phone": 1, "http_whatsapp_create": 3})
+    monkeypatch.setattr(svc, "enforce_identifier_limit", counter)
+    login_admin(make_tenant(db, max_numbers=5))
+    first = _create(client, consent_body(PHONE_A))
+    assert first.status_code == 201
+    client.delete(f"/api/v1/whatsapp/connections/{first.json()['id']}")
+    # same target number again: a tenant cannot make WhatsApp ping one number repeatedly
+    assert _create(client, consent_body(PHONE_A)).status_code == 429
+    assert _create(client, consent_body(PHONE_B)).status_code == 201
+    assert _create(client, consent_body(PHONE_C)).status_code == 429  # 4th create for the tenant
+    # the phone limiter is keyed by the peppered hash, never the raw number
+    assert not any(PHONE_A in ident for (_, ident) in counter.hits)
+    assert any(prefix == "http_whatsapp_create" for (prefix, _) in counter.hits)
+
+
+def test_pairing_code_regeneration_is_rate_limited_per_connection(
+    client, db, wa_settings, fake_sidecar, monkeypatch
+):
+    from app.services import whatsapp_service as svc
+
+    counter = _Counter({"http_whatsapp_pairing_conn": 2})
+    monkeypatch.setattr(svc, "enforce_identifier_limit", counter)
+    login_admin(make_tenant(db))
+    cid = _create(client).json()["id"]
+    url = f"/api/v1/whatsapp/connections/{cid}/pairing-code"
+    assert [client.post(url).status_code for _ in range(3)] == [200, 200, 429]

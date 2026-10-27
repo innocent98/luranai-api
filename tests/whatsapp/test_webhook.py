@@ -132,6 +132,15 @@ def test_queue_outage_is_503_so_the_sidecar_retries(client, queue, conn):
     assert _post(client, inbound(conn)).status_code == 503
 
 
+def test_oversize_declared_length_is_rejected_before_reading(client, queue, conn):
+    r = client.post(
+        URL,
+        content=b"{}",
+        headers={"Content-Length": str(10 * 1024 * 1024), signing.SIGNATURE_HEADER: "x"},
+    )
+    assert r.status_code == 413 or r.status_code >= 400  # h11 may reject the mismatch itself
+
+
 def test_oversize_body_is_413(client, queue, conn):
     assert (
         _post(client, {}, raw=b"x" * (256 * 1024 + 1), header="t=1,v1=" + "0" * 64).status_code
