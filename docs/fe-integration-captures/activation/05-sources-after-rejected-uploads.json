@@ -1,0 +1,16 @@
+{
+  "scenario": "sources-after-rejected-uploads",
+  "note": "Rejected uploads left no source behind.",
+  "request": {
+    "method": "GET",
+    "path": "/knowledge/tenants/3c60c339-7a7b-4c34-966b-a108c6e3694b/sources",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": []
+  }
+}

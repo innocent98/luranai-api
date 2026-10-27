@@ -1,0 +1,37 @@
+{
+  "scenario": "job-completed",
+  "note": "Completed job: result_data, failure_reason null.",
+  "request": {
+    "method": "GET",
+    "path": "/jobs/e80145b5-2e38-41b7-90ab-420d376cee23",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "job_type": "document_ingestion",
+      "total_items": 4,
+      "id": "e80145b5-2e38-41b7-90ab-420d376cee23",
+      "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+      "status": "completed",
+      "processed_items": 4,
+      "failed_items": 0,
+      "progress_percent": 100,
+      "result_data": {
+        "source_id": "be8de611-9392-408a-bf74-d4beccea51df",
+        "source_name": "menu.txt",
+        "chunks_created": 4,
+        "chunks_failed": 0
+      },
+      "error_message": null,
+      "created_at": "2026-10-27T22:30:42.636355",
+      "started_at": "2026-10-27T22:30:42.816149",
+      "completed_at": "2026-10-27T22:30:47.690461",
+      "created_by": "a6e88c8d-0a1f-4e33-b9a6-015271a404f5",
+      "failure_reason": null
+    }
+  }
+}

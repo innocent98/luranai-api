@@ -1,0 +1,29 @@
+{
+  "scenario": "file-upload-ok",
+  "note": "A normal file.",
+  "request": {
+    "method": "POST",
+    "path": "/knowledge/upload-file",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "multipart_file": {
+        "file": "menu.txt"
+      },
+      "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+      "source_type": "faq"
+    }
+  },
+  "response": {
+    "status": 202,
+    "body": {
+      "job_id": "e80145b5-2e38-41b7-90ab-420d376cee23",
+      "status": "queued",
+      "message": "Document upload queued for processing. Check status via provided URL or connect to WebSocket.",
+      "check_status_url": "/api/v1/jobs/e80145b5-2e38-41b7-90ab-420d376cee23",
+      "estimated_chunks": 1,
+      "estimated_time_seconds": 6
+    }
+  }
+}
