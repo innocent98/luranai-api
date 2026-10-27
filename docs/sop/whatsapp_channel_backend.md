@@ -55,7 +55,7 @@ Customers already write to businesses on WhatsApp; tenants asked for the AI to a
 ## Follow-ups
 - Per-tenant contact exclusion list (beta task T15) so the AI never answers personal contacts.
 - Email/in-app alerts for plan-limit and disconnect (currently logged only).
-- Unpaired `awaiting_pair` rows older than 15 min are discarded lazily (and logged out at the sidecar) when the next connection is created; there is no background sweeper, so they hold a capacity slot until then.
+- Unpaired `awaiting_pair` rows older than 30 min (from creation; new codes do not extend it) are discarded lazily (and logged out at the sidecar) when the next connection is created; there is no background sweeper, so they hold a capacity slot until then.
 - Opus review leftovers (all LOW): `whatsapp_inbound_messages` is never pruned (add a 7-day purge cron); pause-only chat rows keep an encrypted `contact_ref` forever; consent version is not re-checked on re-pair after a version bump; tenant purge with the sidecar down deletes the rows anyway (no tombstone to retry the logout); a failure after `send_message` persisted makes arq re-run the turn (duplicate LLM turn).
 - Status ordering: webhook `session.status` events are applied in arrival order; there is no per-event sequence guard.
 - Pause/AI-off paths create conversations without the monthly-limit check.

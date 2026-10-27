@@ -61,7 +61,7 @@ CONSENT_TEXT = (
 
 
 # An unpaired connection older than this is discarded when the next one is created.
-STALE_PAIRING_AFTER = timedelta(minutes=15)
+STALE_PAIRING_AFTER = timedelta(minutes=30)  # absolute, from created_at: new codes never extend it
 
 
 class WhatsAppError(Exception):
@@ -150,7 +150,7 @@ class WhatsAppService:
                 select(WhatsAppConnection).where(
                     WhatsAppConnection.status == WhatsAppStatus.AWAITING_PAIR.value,
                     WhatsAppConnection.last_connected_at.is_(None),
-                    WhatsAppConnection.updated_at < cutoff,
+                    WhatsAppConnection.created_at < cutoff,
                 )
             ).scalars()
         )
@@ -294,6 +294,8 @@ class WhatsAppService:
                 409, "not_pairable", "This connection can only be paired while it is waiting."
             )
         await enforce_identifier_limit(whatsapp_pairing_conn_rate_limiter, str(conn.id))
+        # every code reaches the number's owner, so the per-number budget applies here too
+        await enforce_identifier_limit(whatsapp_phone_rate_limiter, conn.phone_hmac)
         if conn.status == WhatsAppStatus.LOGGED_OUT.value:
             # Re-pairing makes the session live again, so the capacity guard applies.
             self._lock_capacity()
@@ -321,7 +323,6 @@ class WhatsAppService:
                 502, "sidecar_unavailable", "Could not reach WhatsApp. Please try again."
             ) from None
         conn.status = WhatsAppStatus.AWAITING_PAIR.value
-        conn.updated_at = utcnow_aware()  # a fresh code keeps the pairing attempt alive
         self.db.commit()
         return pairing
 

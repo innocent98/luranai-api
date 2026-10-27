@@ -399,7 +399,7 @@ def test_unpaired_attempts_expire_and_free_the_number_and_slot(
     login_admin(make_tenant(db, max_numbers=1))
     assert _create(client, consent_body(PHONE_A)).json()["code"] == "number_in_use"
     row = db.get(WhatsAppConnection, UUID(cid))
-    row.updated_at = utcnow_aware() - timedelta(minutes=30)
+    row.created_at = utcnow_aware() - timedelta(minutes=45)
     db.commit()
     r = _create(client, consent_body(PHONE_A))  # another tenant can now take it
     assert r.status_code == 201, r.text
@@ -436,3 +436,33 @@ def test_sidecar_client_refuses_to_run_without_a_token(
     monkeypatch.setattr(wa_settings, "WHATSAPP_SIDECAR_TOKEN", "")
     login_admin(make_tenant(db))
     assert _create(client).json()["code"] == "sidecar_unavailable"
+
+
+def test_new_codes_do_not_extend_an_unpaired_attempt_and_spend_the_number_budget(
+    client, db, wa_settings, fake_sidecar, monkeypatch
+):
+    from datetime import timedelta
+
+    from app.services import whatsapp_service as svc
+    from app.utils.datetime import utcnow_aware
+
+    counter = _Counter({})
+    monkeypatch.setattr(svc, "enforce_identifier_limit", counter)
+    monkeypatch.setattr(wa_settings, "WHATSAPP_MAX_CONNECTIONS", 1)
+    login_admin(make_tenant(db))
+    cid = _create(client, consent_body(PHONE_A)).json()["id"]
+    assert client.post(f"/api/v1/whatsapp/connections/{cid}/pairing-code").status_code == 200
+    assert (
+        counter.hits[
+            (
+                "http_whatsapp_phone",
+                next(i for (p, i) in counter.hits if p == "http_whatsapp_phone"),
+            )
+        ]
+        == 2
+    )
+    db.get(WhatsAppConnection, UUID(cid)).created_at = utcnow_aware() - timedelta(minutes=45)
+    db.commit()
+    client.post(f"/api/v1/whatsapp/connections/{cid}/pairing-code")  # refreshing does not save it
+    login_admin(make_tenant(db))
+    assert _create(client, consent_body(PHONE_A)).status_code == 201  # squatter's hold is gone
