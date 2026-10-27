@@ -1,0 +1,13 @@
+{
+  "name": "luran-whatsapp-spike",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated spike: Baileys pairing-code sidecar. NOT part of the production app.",
+  "scripts": { "start": "node src/server.mjs", "receiver": "node src/receiver.mjs", "test": "node --test test/*.test.mjs" },
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc14",
+    "pino": "9.14.0"
+  }
+}

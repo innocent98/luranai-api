@@ -1,0 +1,24 @@
+{"id": "b4e385a3-b6b8-4dbb-a435-de0cb85db724", "at": "2026-10-27T16:51:34.032Z", "type": "session.status", "status": "connecting", "registered": false, "hmac": "verified"}
+{"id": "0f679e8e-1003-4d30-b2a4-71bcbadfc1f7", "at": "2026-10-27T16:51:35.463Z", "type": "session.status", "status": "awaiting_pair", "codeMs": 23, "hmac": "verified"}
+{"id": "badceb60-5496-4048-adb7-ae065a814176", "at": "2026-10-27T16:52:30.380Z", "type": "session.status", "status": "reconnecting", "code": 515, "hmac": "verified"}
+{"id": "5ace7d32-b88f-4532-ab55-0775ba48c8a4", "at": "2026-10-27T16:52:30.839Z", "type": "session.status", "status": "connecting", "registered": true, "hmac": "verified"}
+{"id": "325a791d-7ae4-478c-9135-3283c0422acf", "at": "2026-10-27T16:52:35.502Z", "type": "session.status", "status": "connected", "registered": true, "hmac": "verified"}
+{"id": "eeff2868-308a-405c-a101-b768bb41b55b", "at": "2026-10-27T16:53:07.081Z", "type": "session.status", "status": "connecting", "registered": true, "hmac": "verified"}
+{"id": "47215de2-445f-49df-9eae-0cbf90b1cffc", "at": "2026-10-27T16:53:09.245Z", "type": "session.status", "status": "connected", "registered": true, "hmac": "verified"}
+{"id": "3f799720-0ffa-442f-90bc-fffee931badb", "at": "2026-10-27T16:54:43.813Z", "type": "message.inbound", "messageId": "A5C4C4AE7AB3C1B6A3508FFCF63616D9", "fromMasked": "<redacted-sender-id>", "kind": "image", "text": "Hey you, this is a test message and a photo", "mime": "image/jpeg", "bytes": 74825, "sha256": "73f650f7711082546eb8c40743818d5d39bc83c103de05e2448b4d607063d6de", "hmac": "verified"}
+{"at": "2026-10-27T16:54:43.830Z", "reply": 403}
+{"id": "5cbd39bc-30ef-4f27-acf8-4052c91af6d2", "at": "2026-10-27T16:57:57.919Z", "type": "message.inbound", "messageId": "A5E6A7C106EC362F107F208A74F32228", "fromMasked": "<redacted-sender-id>", "kind": "image", "text": "", "mime": "image/jpeg", "bytes": 74825, "sha256": "73f650f7711082546eb8c40743818d5d39bc83c103de05e2448b4d607063d6de", "hmac": "verified"}
+{"at": "2026-10-27T16:57:57.923Z", "reply": 403}
+{"id": "d573faa0-1406-44d2-bf85-41e5fc6ceb30", "at": "2026-10-27T16:58:08.581Z", "type": "message.inbound", "messageId": "A509B5A057E71996CEAE3FB762670FA8", "fromMasked": "<redacted-sender-id>", "kind": "image", "text": "", "mime": "image/jpeg", "bytes": 74825, "sha256": "73f650f7711082546eb8c40743818d5d39bc83c103de05e2448b4d607063d6de", "hmac": "verified"}
+{"at": "2026-10-27T16:58:08.587Z", "reply": 403}
+{"id": "06552c02-df6b-456d-856b-d265e4d72b47", "at": "2026-10-27T16:58:11.457Z", "type": "message.inbound", "messageId": "A5F0B7A6407793A916F8EEC7AE0D98AE", "fromMasked": "<redacted-sender-id>", "kind": "text", "text": "Hey you, this is a test message and a photo", "hmac": "verified"}
+{"at": "2026-10-27T16:58:11.463Z", "reply": 403}
+{"id": "3d719546-be13-49dc-9675-7f3ab8de63af", "at": "2026-10-27T16:58:45.646Z", "type": "message.inbound", "messageId": "A52BB24C9B5E9C3CF72C7AF0E3884F67", "fromMasked": "<redacted-sender-id>", "kind": "text", "text": "Ping", "hmac": "verified"}
+{"at": "2026-10-27T16:58:50.588Z", "reply": 200}
+{"id": "e7981f88-95f7-4ae9-9538-6db6afa45713", "at": "2026-10-27T16:59:09.771Z", "type": "session.status", "status": "connecting", "registered": true, "hmac": "verified"}
+{"id": "c4dc86fa-544d-4b4d-9c4c-4873f31de9ab", "at": "2026-10-27T16:59:11.929Z", "type": "session.status", "status": "connected", "registered": true, "hmac": "verified"}
+{"id": "24f61863-a49d-4edd-9ea5-ac0ca153d587", "at": "2026-10-27T16:59:33.861Z", "type": "session.status", "status": "connecting", "registered": true, "hmac": "verified"}
+{"id": "fa5341a7-e7e6-4ac0-a631-4de0adc4921e", "at": "2026-10-27T16:59:36.027Z", "type": "session.status", "status": "connected", "registered": true, "hmac": "verified"}
+{"id": "99e17e76-dac1-4bd0-9c8b-203c1e932824", "at": "2026-10-27T16:59:57.942Z", "type": "session.status", "status": "connecting", "registered": true, "hmac": "verified"}
+{"id": "cf41b857-93fe-40e7-b057-88a6d392be24", "at": "2026-10-27T17:00:00.184Z", "type": "session.status", "status": "connected", "registered": true, "hmac": "verified"}
+{"id": "1a5bcf68-d91f-4f16-bfd7-45947dbf945d", "at": "2026-10-27T17:05:24.102Z", "type": "session.status", "status": "logged_out", "code": 401, "hmac": "verified"}
