@@ -27,7 +27,7 @@ Docs: spike `docs/sop/whatsapp_pairing_spike.md`; plan `docs/superpowers/plans/2
 - [x] Owner-types-from-phone pause (amendment a) and capacity guard (amendment b)
 - [x] Account purge deletes WhatsApp rows; sidecar sessions logged out (best effort) before a tenant purge
 - [x] Fake sidecar (`tests/fakes/fake_sidecar.py`) + live capture harness; FE guide with live captures; SOP
-- [ ] Live end-to-end against the REAL sidecar and a real phone (lead + Adebayo)
+- [x] Live end-to-end against the REAL sidecar and a real phone, run locally 2026-10-27 (SOP `docs/sop/whatsapp_live_e2e.md`); NOT yet on staging (sidecar not deployed there)
 - [x] Opus security review of the backend slice done; HIGH/MEDIUM findings fixed (see SOP); LOW leftovers listed as follow-ups
 - [x] Lead merge (luranai-api #153, `31ce21b`, 2026-10-27)
 - [ ] Adebayo approves the consent wording (text is a DRAFT; bump `CONSENT_VERSION` when it changes)
@@ -44,7 +44,7 @@ Docs: spike `docs/sop/whatsapp_pairing_spike.md`; plan `docs/superpowers/plans/2
   - [x] Capacity guard (`MAX_SESSIONS`, `RSS_REFUSE_MB`) + `GET /health`
   - [x] Dockerfile (node 22.23.4 slim, non-root), `docker-compose.whatsapp.yml` (512m, no published port), CI job `whatsapp-sidecar`
   - [x] Opus security review of store, lease, webhook signing, API auth
-  - [ ] Live pairing through the new multi-session code (lead arranges with Adebayo holding the phone)
+  - [x] Live pairing through the new multi-session code (2026-10-27, local, one session; pair, KB answer, photo fallback, owner pause, unlink all proven)
   - [ ] N-session RAM soak (`whatsapp-sidecar/scripts/soak.mjs` is a skeleton)
 
 ### Remaining build tasks (plan section 11)
@@ -74,7 +74,14 @@ Docs: spike `docs/sop/whatsapp_pairing_spike.md`; plan `docs/superpowers/plans/2
 - [ ] Background sweeper for stale `awaiting_pair` rows (today they are expired lazily on the next create); 7-day purge of `whatsapp_inbound_messages`
 - [ ] Plan-limit / disconnect emails (currently logged only)
 - [ ] Pause/AI-off paths skip the monthly conversation-limit check
-- [ ] Confirm with the real sidecar that `to_ref` (owner message) and `from_ref` (customer) are the same id for a chat
+- [x] Confirm with the real sidecar that `to_ref` (owner message) and `from_ref` (customer) are the same id for a chat (confirmed live 2026-10-27, one chat)
 - [ ] Run Evolution or WAHA once live for the fallback record
 - [ ] Decide LID <-> phone identity model before schema freeze
 - [ ] Tier-driven `max_whatsapp_numbers` on `subscription_plans` (phase 2 after beta)
+- [ ] Connect page: warn when the tenant's 'Who answers first' is human (0-KB default) or the KB is empty; the AI stays silent otherwise and nothing says why. Per-connection first-responder override is still unbuilt
+- [ ] KB: `POST /knowledge/upload` (text) stores rows but never writes vectors; short documents fail in the chunker ("No chunks could be created") with no tenant-facing message; one long multi-topic chunk scores under the 0.35 retrieval cutoff
+- [ ] WhatsApp: the fixed 'please type' fallback reply is sent but not stored in the transcript
+- [ ] WhatsApp: no alert to the Luran team while the AI is owner-paused; conversation list has no WhatsApp badge and shows the sender's WhatsApp name as 'Anonymous visitor'
+- [ ] Deploy the sidecar to staging (separate compose override today; needs secrets, Postgres schema, RAM budget check). Staging API container sat at 90% of its 500 MiB limit on 2026-10-27
+- [ ] Re-private `luranai-api` after CI/CD runs (made public 2026-10-27 so Actions could run)
+
