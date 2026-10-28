@@ -240,7 +240,7 @@ When an agent takes over a WhatsApp conversation (`POST /chat/sessions/{id}/take
 2. **No reply to media while a human owns the chat** is by design; the placeholder line tells the agent to check the customer's media on the phone for voice notes etc.
 3. A **moderated or unreadable image may leave no trace** (moderated) or a placeholder (unreadable): do not promise tenants a complete media log.
 4. **The customer's rating arrives without a comment.** Do not show an empty comment box as "missing".
-5. **A tenant that turned file uploads off** (`widget_allow_file_upload`) also stops WhatsApp images: the customer is told `Sorry, I can't take images in this chat. Please type your question.` and the transcript shows the "could not be received" placeholder. Tell tenants the switch covers both channels. More than 10 images in one conversation within an hour are placeholder-only (no reply).
+5. **A tenant that turned file uploads off** (`widget_allow_file_upload`) also stops WhatsApp images: the customer is told `Sorry, I can't take images in this chat. Please type your question.` and the transcript shows the "could not be received" placeholder. Tell tenants the switch covers both channels. More than 10 image attempts from one chat within an hour are placeholder-only (no reply).
 6. Rating prompts are delivered to WhatsApp automatically; there is nothing to configure and no way to disable it per channel in this slice.
 
 ## 9. Verification table

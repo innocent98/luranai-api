@@ -476,33 +476,26 @@ async def test_a_tenant_that_switched_uploads_off_gets_no_images_stored(
     assert ("GET", "/sessions/{key}/media/{media_id}") not in fake_sidecar.calls
 
 
-async def test_one_conversation_cannot_run_up_unlimited_image_cost(
+async def test_a_chat_cannot_run_up_unlimited_image_cost_even_with_blocked_images_and_no_session(
     db, conn, fake_sidecar, queue, llm, media_stubs, fanout
 ):
+    """Attempts are counted per chat before any work, whatever their outcome: moderated images
+    store nothing and open no session, which must not make the cap unreachable."""
     from app.services.whatsapp_inbound import IMAGE_RATE_MAX
 
-    await handle_event(db, inbound(conn, text="hello"))
+    media_stubs.verdict = (False, "nope")
+    for _ in range(IMAGE_RATE_MAX):
+        assert await handle_event(db, inbound_image(conn, fake_sidecar)) == "image_blocked"
+    assert db.execute(select(ConversationSession)).scalars().all() == []
+    moderated = len(media_stubs.moderated)
     queue.sends.clear()
-    session_id = _chat(db, conn).session_id
-    for n in range(IMAGE_RATE_MAX):
-        _att = MessageAttachment(
-            session_id=session_id,
-            tenant_id=conn.tenant_id,
-            direction=AttachmentDirection.INBOUND,
-            status=AttachmentStatus.LINKED,
-            moderation_status=__import__(
-                "app.db.models.conversation", fromlist=["x"]
-            ).AttachmentModeration.PASSED,
-            cloudinary_public_id=f"p{n}",
-            url="https://res.cloudinary.com/demo/x.jpg",
-            content_type="image/png",
-            bytes=1,
-        )
-        db.add(_att)
-    db.commit()
-    llm.calls = 0
-    assert await handle_event(db, inbound_image(conn, fake_sidecar)) == "image_unreadable_silent"
-    assert queue.sends == [] and media_stubs.moderated == [] and llm.calls == 0
+    out = await handle_event(db, inbound_image(conn, fake_sidecar))
+    assert out == "image_unreadable_silent"
+    assert len(media_stubs.moderated) == moderated  # no moderation call, no fetch, no reply
+    assert queue.sends == [] and llm.calls == 0
+    # another chat is unaffected
+    other = await handle_event(db, inbound_image(conn, fake_sidecar, ref="999@lid"))
+    assert other == "image_blocked"
 
 
 async def test_a_permanent_pipeline_rejection_is_not_retried(

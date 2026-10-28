@@ -50,6 +50,8 @@ from app.services.conversation_service import (
     new_session_attribution,
 )
 from app.utils.datetime import ensure_utc_aware, utcnow_aware, utcnow_naive
+from app.utils.http_rate_limiter import enforce_identifier_limit
+from app.utils.rate_limiter import RedisRateLimiter
 
 # Fixed fallback for what Luran cannot read (voice notes, video, documents, stickers).
 OTHER_KIND_REPLY = (
@@ -66,13 +68,17 @@ IMAGE_UNREADABLE_REPLY = "Sorry, I couldn't open that image. Could you send it a
 IMAGE_TOO_LARGE_REPLY = "Sorry, that image is too large for me to open. Please send a smaller one."
 # The ONLY thing a customer ever hears about a moderated image: never the moderation reason.
 IMAGE_DISABLED_REPLY = "Sorry, I can't take images in this chat. Please type your question."
-IMAGE_RATE_MAX = 10  # images per conversation per window
-IMAGE_RATE_WINDOW = timedelta(hours=1)
+IMAGE_RATE_MAX = 10  # inbound image attempts per chat per window
+IMAGE_RATE_WINDOW_S = 3600
 IMAGE_BLOCKED_REPLY = "Sorry, I can't accept that image. Please send a different one."
 IMAGE_ONLY_PLACEHOLDER = "[image]"  # same stand-in chat.py stores for an image without a caption
 RATING_REPLY = re.compile(r"\s*([1-5])(\s*(/\s*5|stars?|⭐+))?\s*[.!]*\s*", re.IGNORECASE)
 _IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 PLAN_ALERT_DEBOUNCE = timedelta(hours=6)
+
+_image_limiter = RedisRateLimiter(
+    key_prefix="wa_inbound_images", max_calls=IMAGE_RATE_MAX, window_seconds=IMAGE_RATE_WINDOW_S
+)
 
 _USABLE_SESSION = (SessionStatus.ACTIVE, SessionStatus.ESCALATED, SessionStatus.ABANDONED)
 
@@ -561,19 +567,12 @@ async def _handle_image(
     tenant = db.get(Tenant, conn.tenant_id)
     if tenant is None or not tenant.widget_allow_file_upload:
         return await _unreadable(IMAGE_DISABLED_REPLY)
-    session_now = _usable_session(db, conn, chat)
-    if session_now is not None:
-        recent = db.execute(
-            select(func.count())
-            .select_from(MessageAttachment)
-            .where(
-                MessageAttachment.session_id == session_now.id,
-                MessageAttachment.direction == AttachmentDirection.INBOUND,
-                MessageAttachment.created_at >= utcnow_aware() - IMAGE_RATE_WINDOW,
-            )
-        ).scalar_one()
-        if recent >= IMAGE_RATE_MAX:
-            return await _unreadable(None)  # over the cap: noted for agents, no reply (no loop)
+    try:  # every attempt counts (moderated, unreadable or fine), per chat, even before a session
+        await enforce_identifier_limit(_image_limiter, str(chat.id))
+    except HTTPException as exc:
+        if exc.status_code != 429:
+            raise
+        return await _unreadable(None)  # over the cap: noted for agents, no reply (no loop)
 
     # 1. Bytes from the sidecar's short-lived store; size and checksum must match the event.
     declared_mime = str(media.get("mime", "")).lower()

@@ -343,3 +343,26 @@ def inbound_image(conn, fake, content: bytes | None = None, caption: str = "", *
     content = content if content is not None else png_bytes()
     media = fake.add_media(conn.session_key, content, kw.pop("mime", "image/png"))
     return inbound(conn, text=caption, kind="image", media=media, **kw)
+
+
+class MemoryLimiter:
+    """In-memory stand-in for the Redis rate limiter (no cross-event-loop connection in tests)."""
+
+    def __init__(self, max_calls: int, window_seconds: int = 3600) -> None:
+        self.max_calls, self.window_seconds = max_calls, window_seconds
+        self.hits: dict[str, int] = {}
+
+    async def get_current_usage(self, identifier: str) -> dict:
+        return {"calls": self.hits.get(identifier, 0)}
+
+    async def acquire(self, identifier: str) -> None:
+        self.hits[identifier] = self.hits.get(identifier, 0) + 1
+
+
+@pytest.fixture(autouse=True)
+def image_limiter(monkeypatch):
+    from app.services import whatsapp_inbound
+
+    limiter = MemoryLimiter(whatsapp_inbound.IMAGE_RATE_MAX)
+    monkeypatch.setattr(whatsapp_inbound, "_image_limiter", limiter)
+    return limiter
