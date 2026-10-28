@@ -15,7 +15,7 @@ from uuid import UUID
 
 from fastapi import HTTPException
 from loguru import logger
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -65,6 +65,9 @@ IMAGE_UNREADABLE_PLACEHOLDER = "[The customer sent an image that could not be re
 IMAGE_UNREADABLE_REPLY = "Sorry, I couldn't open that image. Could you send it again?"
 IMAGE_TOO_LARGE_REPLY = "Sorry, that image is too large for me to open. Please send a smaller one."
 # The ONLY thing a customer ever hears about a moderated image: never the moderation reason.
+IMAGE_DISABLED_REPLY = "Sorry, I can't take images in this chat. Please type your question."
+IMAGE_RATE_MAX = 10  # images per conversation per window
+IMAGE_RATE_WINDOW = timedelta(hours=1)
 IMAGE_BLOCKED_REPLY = "Sorry, I can't accept that image. Please send a different one."
 IMAGE_ONLY_PLACEHOLDER = "[image]"  # same stand-in chat.py stores for an image without a caption
 RATING_REPLY = re.compile(r"\s*([1-5])(\s*(/\s*5|stars?|⭐+))?\s*[.!]*\s*", re.IGNORECASE)
@@ -410,10 +413,16 @@ def _human_owns(db: Session, conn: WhatsAppConnection, chat: WhatsAppChat) -> bo
 
 
 # --------------------------------------------------------------------------- rating reply
-def _clear_rating(db: Session, chat: WhatsAppChat) -> None:
-    chat.rating_request_id = None
-    chat.rating_request_expires_at = None
+def _clear_rating(db: Session, chat: WhatsAppChat, request_id: UUID) -> None:
+    """Close `request_id` on the chat, but only if it is still the one remembered: the sender job
+    does not hold the chat lock and may have just stored a newer prompt."""
+    db.execute(
+        update(WhatsAppChat)
+        .where(WhatsAppChat.id == chat.id, WhatsAppChat.rating_request_id == request_id)
+        .values(rating_request_id=None, rating_request_expires_at=None)
+    )
     db.commit()
+    db.refresh(chat)
 
 
 async def _maybe_record_rating(
@@ -429,9 +438,10 @@ async def _maybe_record_rating(
     match = RATING_REPLY.fullmatch(text)
     if match is None or chat.rating_request_id is None:
         return None
+    open_id = chat.rating_request_id
     expires = ensure_utc_aware(chat.rating_request_expires_at)
     if expires is None or expires <= utcnow_aware():
-        _clear_rating(db, chat)  # expired: ordinary text from here on
+        _clear_rating(db, chat, open_id)  # expired: ordinary text from here on
         return None
     if _plan_blocks_conversation(db, conn, new_session=False):
         return None  # the normal flow applies the plan rule to it
@@ -443,8 +453,10 @@ async def _maybe_record_rating(
         or request.tenant_id != conn.tenant_id
         or session.tenant_id != conn.tenant_id
         or session.user_identifier != f"wa_{chat.contact_hmac[:24]}"  # this chat's customer
+        # a request from an earlier conversation must not capture a digit typed in a new one
+        or request.session_id != chat.session_id
     ):
-        _clear_rating(db, chat)
+        _clear_rating(db, chat, open_id)
         return None
     score = int(match.group(1))
     try:
@@ -457,9 +469,12 @@ async def _maybe_record_rating(
         )
     except RatingSubmitError:
         # Already answered (e.g. on the widget), expired, or unusable: a replay is plain text.
-        _clear_rating(db, chat)
+        _clear_rating(db, chat, open_id)
         return None
-    _clear_rating(db, chat)
+    _clear_rating(db, chat, open_id)
+    human_until = ensure_utc_aware(chat.human_until)
+    if human_until is not None and human_until > utcnow_aware():
+        return "rating_recorded"  # the owner is on the phone: no automatic thank-you
     try:
         await _send_system(
             conn, chat, f"Thanks! We've recorded your {score}/5.", f"rating_ack:{request.id}"
@@ -514,16 +529,17 @@ async def _handle_image(
     message_id = event["message_id"]
     media = event["media"]
     user_identifier = f"wa_{chat.contact_hmac[:24]}"
-    visitor = _ensure_visitor(db, conn, chat, event.get("push_name"))
-    db.commit()
     silent = paused or not conn.ai_enabled or _human_owns(db, conn, chat)
     new_session = _usable_session(db, conn, chat) is None
+
+    silent_chat = silent
 
     # Plan / subscription guard BEFORE the bytes are fetched, screened or stored.
     if _plan_blocks_conversation(db, conn, new_session=new_session):
         return await _plan_limit(db, conn, chat, caption or IMAGE_ONLY_PLACEHOLDER, user_identifier)
 
-    async def _unreadable(reply: str) -> str:
+    async def _unreadable(reply: str | None) -> str:
+        silent = silent_chat or reply is None
         if not silent:
             await _enqueue_reply(conn, chat, reply, f"imgfail:{message_id}")
         _ensure_visitor(db, conn, chat, event.get("push_name"))
@@ -539,6 +555,25 @@ async def _handle_image(
             Message,
         )
         return "image_unreadable_silent" if silent else "image_unreadable"
+
+    # 0. Same gates web chat applies to uploads: the tenant's upload switch and a per-chat rate cap
+    #    (each image costs a moderation call, an upload and a vision turn).
+    tenant = db.get(Tenant, conn.tenant_id)
+    if tenant is None or not tenant.widget_allow_file_upload:
+        return await _unreadable(IMAGE_DISABLED_REPLY)
+    session_now = _usable_session(db, conn, chat)
+    if session_now is not None:
+        recent = db.execute(
+            select(func.count())
+            .select_from(MessageAttachment)
+            .where(
+                MessageAttachment.session_id == session_now.id,
+                MessageAttachment.direction == AttachmentDirection.INBOUND,
+                MessageAttachment.created_at >= utcnow_aware() - IMAGE_RATE_WINDOW,
+            )
+        ).scalar_one()
+        if recent >= IMAGE_RATE_MAX:
+            return await _unreadable(None)  # over the cap: noted for agents, no reply (no loop)
 
     # 1. Bytes from the sidecar's short-lived store; size and checksum must match the event.
     declared_mime = str(media.get("mime", "")).lower()
@@ -574,6 +609,8 @@ async def _handle_image(
         return await _unreadable(IMAGE_UNREADABLE_REPLY)
 
     # 3. Store it against the conversation (opened here if this is the chat's first message).
+    visitor = _ensure_visitor(db, conn, chat, event.get("push_name"))
+    db.commit()
     session = _ensure_session(db, conn, chat, user_identifier)
     attachment: MessageAttachment | None = None
     try:
@@ -606,6 +643,9 @@ async def _handle_image(
                 return await _plan_limit(
                     db, conn, chat, caption or IMAGE_ONLY_PLACEHOLDER, user_identifier
                 )
+            if 400 <= exc.status_code < 500:  # permanent: retrying re-runs moderation + upload
+                _discard_unlinked(db, attachment)
+                return await _unreadable(IMAGE_UNREADABLE_REPLY)
             raise
         finally:
             message_channel.reset(channel)

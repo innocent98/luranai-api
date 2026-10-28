@@ -347,3 +347,69 @@ async def test_fetch_media_returns_bytes_and_a_normalised_content_type(conn, fak
     # a wrong key finds nothing: media is per session
     with pytest.raises(MediaNotFound):
         await adapter.fetch_media("some-other-session", media["id"], 1024)
+
+
+# ------------------------------------------------------------------ the join line
+def _joined(agent_id, name="Sam Agent"):
+    return {"type": "agent_joined", "agent_name": name, "agent_id": agent_id, "timestamp": None}
+
+
+async def test_the_join_line_goes_to_the_customer_once_per_agent_and_conversation(
+    db, conn, queue, manager, wa_session
+):
+    sid = wa_session.session_id
+    for _ in range(2):  # a repeated takeover by the same agent
+        await manager.fanout_event(sid, _joined("agent-1"), to_customer=True, to_agents=False)
+    await manager.fanout_event(sid, _joined("agent-2", "Bola Ade"), True, False)
+    assert [s["text"] for s in queue.sends] == [
+        "You're now chatting with Sam.",
+        "You're now chatting with Sam.",
+        "You're now chatting with Bola.",
+    ]
+    keys = [s["key"] for s in queue.sends]
+    assert keys[0] == keys[1] == f"agent_joined:{sid}:agent-1"  # same arq job id: sent once
+    assert keys[2] == f"agent_joined:{sid}:agent-2" and keys[2] != keys[0]
+    assert all(s["guard"] is False for s in queue.sends)  # a human wrote it: not AI-guarded
+
+
+async def test_the_join_line_without_a_name_uses_the_generic_wording(
+    db, conn, queue, manager, wa_session
+):
+    await manager.fanout_event(wa_session.session_id, _joined("a", ""), True, False)
+    assert [s["text"] for s in queue.sends] == ["You're now chatting with a member of our team."]
+
+
+async def test_no_join_line_while_the_owner_is_on_the_phone(db, conn, queue, manager, wa_session):
+    from datetime import timedelta
+
+    from app.utils.datetime import utcnow_aware
+
+    wa_session.human_until = utcnow_aware() + timedelta(minutes=30)
+    db.commit()
+    await manager.fanout_event(wa_session.session_id, _joined("a"), True, False)
+    assert queue.sends == []
+    wa_session.human_until = utcnow_aware() - timedelta(minutes=1)  # pause over
+    db.commit()
+    await manager.fanout_event(wa_session.session_id, _joined("a"), True, False)
+    assert len(queue.sends) == 1
+
+
+async def test_agent_joined_is_not_forwarded_to_agents_only_or_without_an_agent_id(
+    db, conn, queue, manager, wa_session
+):
+    await manager.fanout_event(wa_session.session_id, _joined("a"), False, True)
+    await manager.fanout_event(wa_session.session_id, {"type": "agent_joined"}, True, False)
+    assert queue.sends == []
+
+
+async def test_image_fetch_failed_502_is_transient_and_never_marks_the_connection_unhealthy(
+    db, conn, fake_sidecar
+):
+    chat = _chat(db, conn, with_session=True)
+    att = _att(db, tenant_id=conn.tenant_id, session_id=chat.session_id)
+    fake_sidecar.image_send_error = (502, "image_fetch_failed")
+    with pytest.raises(RetrySend):
+        await send_image(db, conn.id, chat.id, att.id, None, 1)
+    assert await send_image(db, conn.id, chat.id, att.id, None, MAX_SEND_TRIES) == "dropped_gave_up"
+    db.expire_all()
+    assert db.get(type(conn), conn.id).status == "connected"

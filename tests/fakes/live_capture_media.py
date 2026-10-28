@@ -306,6 +306,15 @@ def main() -> None:
         },
     )
     record("ratings-list-after-replay", "GET", "/api/v1/reviews/session", token=owner)
+
+    # --- 8. an agent takes over: the customer gets the join line ---------------------------
+    with SessionLocal() as db:  # the scenario ticket is no longer needed; no ticket = plain takeover
+        db.execute(sql("DELETE FROM tickets"))
+        db.commit()
+    before = len(sidecar_sent())
+    record("agent-takeover", "POST", f"/api/v1/chat/sessions/{sid}/takeover", token=owner)
+    wait_for(lambda: len(sidecar_sent()) > before, "join line delivered")
+    save("21-sidecar-sent-join-line.json", {"fake_sidecar_received": sent_redacted()[before:]})
     print("captures written to", OUT)
 
 

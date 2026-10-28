@@ -105,7 +105,6 @@ def test_payload_cannot_name_a_tenant(client, queue, conn):
     "mutate",
     [
         lambda e: e.pop("message_id"),
-        lambda e: e.update(kind="image"),
         lambda e: e.update(type="message.bogus"),
         lambda e: e.update(text="x" * 10001),
     ],
@@ -127,6 +126,14 @@ def test_image_event_with_media_is_accepted_and_queued_intact(client, queue, con
     assert queued["kind"] == "image" and queued["media"] == _MEDIA and queued["text"] == "look"
 
 
+def test_an_image_event_without_media_still_validates_and_is_handled_as_unreadable(
+    client, queue, conn
+):
+    """Never 400 a delivery the sidecar would drop for good: it degrades to the 'other' path."""
+    ev = inbound(conn, kind="image")
+    assert _post(client, ev).status_code == 200 and queue.events[0]["media"] is None
+
+
 def test_oversize_marker_on_an_other_event_is_kept(client, queue, conn):
     ev = inbound(conn, text="", kind="other", skipped="media_too_large")
     assert _post(client, ev).status_code == 200 and queue.events[0]["skipped"] == "media_too_large"
@@ -135,7 +142,6 @@ def test_oversize_marker_on_an_other_event_is_kept(client, queue, conn):
 @pytest.mark.parametrize(
     "media",
     [
-        None,  # an image with no media reference
         {**_MEDIA, "id": "../../health"},  # path characters
         {**_MEDIA, "id": "a/b"},
         {**_MEDIA, "sha256": "short"},

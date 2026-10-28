@@ -479,7 +479,7 @@ async def test_a_reply_is_recorded_even_while_the_owner_has_paused_the_ai(
     db.commit()
     assert await handle_event(db, inbound(conn, text="4")) == "rating_recorded"
     assert [r.score for r in _ratings(db)] == [4]
-    assert [s["text"] for s in queue.sends] == ["Thanks! We've recorded your 4/5."]
+    assert queue.sends == []  # recorded, but no automatic thank-you into the owner's own chat
 
 
 async def test_an_inactive_subscription_leaves_the_reply_to_the_plan_rules(
@@ -529,3 +529,31 @@ async def test_fanout_rating_request_is_what_feeds_the_hook(db, conn, queue, llm
         connection_manager.fanout_event = original
     assert ("rating_requested", True) in seen and ("rating_request_created", False) in seen
     assert [s["key"] for s in queue.sends] == [f"rating_requested:{result.request.id}"]
+
+
+async def test_a_request_from_an_earlier_conversation_does_not_capture_a_digit_in_a_new_one(
+    db, conn, queue, llm, manager
+):
+    sc = await Scenario(db, conn).start()
+    await sc.deliver_prompt(manager, queue)
+    old = db.get(ConversationSession, sc.session.id)
+    old.status = __import__("app.db.models.conversation", fromlist=["x"]).SessionStatus.RESOLVED
+    db.commit()
+    # the customer comes back later: a NEW conversation, and answers the AI's question with "2"
+    assert await handle_event(db, inbound(conn, text="hi again")) == "ai_reply"
+    assert _chat(db, conn).session_id != sc.session.id
+    assert await handle_event(db, inbound(conn, text="2")) == "ai_reply"
+    assert _ratings(db) == []
+
+
+async def test_clearing_a_stale_request_never_wipes_a_newer_prompt(db, conn, queue, llm, manager):
+    from app.services.whatsapp_inbound import _clear_rating
+
+    sc = await Scenario(db, conn).start()
+    await sc.deliver_prompt(manager, queue)
+    chat = _chat(db, conn)
+    newer = chat.rating_request_id
+    _clear_rating(db, chat, uuid.uuid4())  # an older reply's cleanup, for a different request
+    assert _chat(db, conn).rating_request_id == newer
+    _clear_rating(db, chat, newer)
+    assert _chat(db, conn).rating_request_id is None

@@ -19,17 +19,17 @@
           "meta": {
             "channel": "whatsapp"
           },
-          "id": "246e0884-3007-45fb-8ec6-715c0640c7ae",
-          "tenant_id": "3d3e8029-ea97-49ca-bcc3-99ed96abd18f",
-          "session_id": "076904b2-3b36-49f7-9ba6-1ce0f92c7f22",
+          "id": "9df7f95b-25e8-4e8c-86d5-c85be89f1868",
+          "tenant_id": "0737bf0a-4e3e-4d15-b782-1ac1586f029d",
+          "session_id": "cf72b74f-73e7-4e22-aba6-d3320e61f3fe",
           "customer_label": "Ada",
-          "created_at": "2026-10-28T14:17:41.000143Z",
-          "updated_at": "2026-10-28T14:17:41.000143Z",
-          "rated_agent_id": "70bf8d5e-c477-47fd-9f4b-52525e7ab68f",
+          "created_at": "2026-10-28T14:27:59.148380Z",
+          "updated_at": "2026-10-28T14:27:59.148380Z",
+          "rated_agent_id": "86f00b60-2154-4ce7-9de7-ff04d106e5eb",
           "source": "manual_request",
-          "rating_request_id": "cf9a08e7-3b36-4346-883f-ae6b21d786b7",
+          "rating_request_id": "9a098b0e-31b9-4f44-a8e2-3841df144018",
           "rated_agent_name": "Alpha Owner",
-          "ticket_id": "304e347e-e673-44dd-b12f-30eadf5a783c",
+          "ticket_id": "fdeef87d-fcfe-4d72-9e75-242dfe0d2ac0",
           "ticket_number": "TKT-CAPTURE-1",
           "rated_party": "human"
         }

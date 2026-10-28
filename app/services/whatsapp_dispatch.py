@@ -24,6 +24,7 @@ from app.db.models.conversation import (
 )
 from app.db.models.whatsapp import WhatsAppChat
 from app.services.whatsapp_outbound import media_url_allowed
+from app.utils.datetime import ensure_utc_aware, utcnow_aware
 
 TICKET_RESOLVED_TEXT = (
     "Your request has been marked as resolved. Reply here any time if you need more help."
@@ -42,8 +43,16 @@ def _rating_text(frame: dict) -> str:
     return f"{prompt or 'How was your chat with our team?'} {RATING_INSTRUCTION}"
 
 
-def frame_text(frame: dict) -> tuple[str, str] | None:
+def _join_text(frame: dict) -> str:
+    parts = (frame.get("agent_name") or "").split()
+    return f"You're now chatting with {parts[0] if parts else 'a member of our team'}."
+
+
+def frame_text(frame: dict, session_id: UUID | None = None) -> tuple[str, str] | None:
     """(idempotency key, text) for a forwardable frame, else None.
+
+    `agent_joined` needs `session_id` for its key: one join line per (conversation, agent), so a
+    retried or repeated takeover by the same agent sends once and a different agent sends again.
 
     An agent message that is only an image has no text to forward (the image itself is sent
     by `maybe_forward`), so the `[image]` placeholder maps to None.
@@ -58,6 +67,8 @@ def frame_text(frame: dict) -> tuple[str, str] | None:
         return f"ticket_resolved:{frame.get('ticket_id')}", TICKET_RESOLVED_TEXT
     if ftype == "ticket_closed":
         return f"ticket_closed:{frame.get('ticket_id')}", TICKET_CLOSED_TEXT
+    if ftype == "agent_joined" and session_id is not None and frame.get("agent_id"):
+        return f"agent_joined:{session_id}:{frame['agent_id']}", _join_text(frame)
     if ftype == "rating_requested" and frame.get("request_id"):
         return f"rating_requested:{frame.get('request_id')}", _rating_text(frame)
     return None
@@ -78,7 +89,7 @@ def _frame_image_ids(frame: dict) -> list[UUID]:
 
 
 def _find_chat(session_id: UUID, image_ids: list[UUID] | None = None):  # type: ignore[no-untyped-def]
-    """(connection_id, chat_id, forwardable image ids in frame order) or None.
+    """(connection_id, chat_id, forwardable image ids in frame order, owner-paused) or None.
 
     An image is forwardable only if it is a LINKED, outbound image of THIS conversation (same
     session, so also the same tenant) whose stored URL is on the allowed media host.
@@ -88,7 +99,7 @@ def _find_chat(session_id: UUID, image_ids: list[UUID] | None = None):  # type: 
     db = SessionLocal()
     try:
         row = db.execute(
-            select(WhatsAppChat.connection_id, WhatsAppChat.id).where(
+            select(WhatsAppChat.connection_id, WhatsAppChat.id, WhatsAppChat.human_until).where(
                 WhatsAppChat.session_id == session_id
             )
         ).first()
@@ -107,7 +118,8 @@ def _find_chat(session_id: UUID, image_ids: list[UUID] | None = None):  # type: 
             ).scalars()
             by_id = {a.id: a for a in rows if media_url_allowed(a.url)}
             usable = [i for i in image_ids if i in by_id]
-        return row[0], row[1], usable
+        paused_until = ensure_utc_aware(row[2])
+        return row[0], row[1], usable, paused_until is not None and paused_until > utcnow_aware()
     finally:
         db.close()
 
@@ -116,7 +128,7 @@ async def maybe_forward(session_id: UUID, message: dict, to_customer: bool) -> N
     """Never raises: a WhatsApp problem must not break the web chat fanout."""
     if not to_customer or not settings.WHATSAPP_ENABLED:
         return
-    mapped = frame_text(message)
+    mapped = frame_text(message, session_id)
     image_ids = _frame_image_ids(message)
     if mapped is None and not image_ids:
         return
@@ -126,7 +138,9 @@ async def maybe_forward(session_id: UUID, message: dict, to_customer: bool) -> N
             return
         from app.services import whatsapp_enqueue
 
-        connection_id, chat_id, usable = found
+        connection_id, chat_id, usable, owner_paused = found
+        if message.get("type") == "agent_joined" and owner_paused:
+            return  # the owner is on the phone: no automatic notice into their conversation
         if image_ids and not usable:
             logger.warning("whatsapp forward: no image of this frame is forwardable")
         # The agent's text rides as the first image's caption when it fits; otherwise (or when

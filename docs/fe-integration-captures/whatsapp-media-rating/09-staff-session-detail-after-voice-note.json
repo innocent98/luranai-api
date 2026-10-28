@@ -3,7 +3,7 @@
   "note": "",
   "request": {
     "method": "GET",
-    "path": "/api/v1/chat/sessions/076904b2-3b36-49f7-9ba6-1ce0f92c7f22",
+    "path": "/api/v1/chat/sessions/cf72b74f-73e7-4e22-aba6-d3320e61f3fe",
     "headers": {
       "Authorization": "Bearer <admin-jwt-placeholder>"
     },
@@ -16,14 +16,14 @@
         {
           "role": "user",
           "content": "Is this the right model?",
-          "id": "98883d9e-5a52-498e-959c-aaede0c306d7",
-          "session_id": "076904b2-3b36-49f7-9ba6-1ce0f92c7f22",
+          "id": "83b06bc2-f8df-4e34-afba-26365d29f7cd",
+          "session_id": "cf72b74f-73e7-4e22-aba6-d3320e61f3fe",
           "retrieved_chunk_ids": null,
           "token_count": null,
           "attachments": [
             {
-              "id": "6e97385e-4d75-4d4c-8a68-d7ebc9c40e7f",
-              "url": "https://res.cloudinary.com/demo/image/upload/luran/chat_images/e8c3881bf8e6.jpg",
+              "id": "307844bf-818b-4b07-b85a-b96e9d6ccfda",
+              "url": "https://res.cloudinary.com/demo/image/upload/luran/chat_images/958b50d6136f.jpg",
               "content_type": "image/png",
               "width": 24,
               "height": 24,
@@ -37,13 +37,13 @@
           "meta": {
             "channel": "whatsapp"
           },
-          "created_at": "2026-10-28T14:17:35.224222Z"
+          "created_at": "2026-10-28T14:27:52.247175Z"
         },
         {
           "role": "assistant",
           "content": "[stubbed AI] I can see 1 image(s) you sent.",
-          "id": "95a1f402-aa1f-46b5-b376-85c5441ec08a",
-          "session_id": "076904b2-3b36-49f7-9ba6-1ce0f92c7f22",
+          "id": "f9247e4c-de7f-4c62-ae02-dee7e2e23373",
+          "session_id": "cf72b74f-73e7-4e22-aba6-d3320e61f3fe",
           "retrieved_chunk_ids": [],
           "token_count": 30,
           "attachments": [],
@@ -66,13 +66,13 @@
             },
             "channel": "whatsapp"
           },
-          "created_at": "2026-10-28T14:17:35.434253Z"
+          "created_at": "2026-10-28T14:27:52.442296Z"
         },
         {
           "role": "user",
           "content": "[The customer sent an image that could not be received.]",
-          "id": "0f171a1f-bf37-41b7-aa8b-1a445291e4ad",
-          "session_id": "076904b2-3b36-49f7-9ba6-1ce0f92c7f22",
+          "id": "fdb000a5-164b-4029-bb50-db0e6f55a8fd",
+          "session_id": "cf72b74f-73e7-4e22-aba6-d3320e61f3fe",
           "retrieved_chunk_ids": null,
           "token_count": null,
           "attachments": [],
@@ -80,13 +80,13 @@
           "meta": {
             "channel": "whatsapp"
           },
-          "created_at": "2026-10-28T14:17:37.019433Z"
+          "created_at": "2026-10-28T14:27:54.198582Z"
         },
         {
           "role": "assistant",
           "content": "Sorry, I couldn't open that image. Could you send it again?",
-          "id": "827b2b45-0d9b-4f5b-b375-0cfaa8346041",
-          "session_id": "076904b2-3b36-49f7-9ba6-1ce0f92c7f22",
+          "id": "6e1c4433-c944-4a07-9927-3a8905f8defd",
+          "session_id": "cf72b74f-73e7-4e22-aba6-d3320e61f3fe",
           "retrieved_chunk_ids": null,
           "token_count": null,
           "attachments": [],
@@ -95,19 +95,19 @@
             "source": "whatsapp_media_fallback",
             "channel": "whatsapp"
           },
-          "created_at": "2026-10-28T14:17:37.027244Z"
+          "created_at": "2026-10-28T14:27:54.211523Z"
         },
         {
           "role": "user",
           "content": "here is the receipt",
-          "id": "25b01364-656c-46f3-8f6e-97db001ccd51",
-          "session_id": "076904b2-3b36-49f7-9ba6-1ce0f92c7f22",
+          "id": "ecfd1bab-9263-45d5-a031-3f114174a21d",
+          "session_id": "cf72b74f-73e7-4e22-aba6-d3320e61f3fe",
           "retrieved_chunk_ids": null,
           "token_count": null,
           "attachments": [
             {
-              "id": "8993fa61-90d9-4727-a389-dfedfe9caf56",
-              "url": "https://res.cloudinary.com/demo/image/upload/luran/chat_images/18d770020bd5.jpg",
+              "id": "32bbd86f-9cbc-4bd1-ab36-83fb9b748c2d",
+              "url": "https://res.cloudinary.com/demo/image/upload/luran/chat_images/f50839164a9d.jpg",
               "content_type": "image/png",
               "width": 40,
               "height": 40,
@@ -121,13 +121,13 @@
           "meta": {
             "channel": "whatsapp"
           },
-          "created_at": "2026-10-28T14:17:38.066318Z"
+          "created_at": "2026-10-28T14:27:55.203749Z"
         },
         {
           "role": "user",
           "content": "[The customer sent a voice note, video, document or sticker. Luran can't read these on WhatsApp yet.]",
-          "id": "c6e17756-e471-4d47-a259-54278ca501ca",
-          "session_id": "076904b2-3b36-49f7-9ba6-1ce0f92c7f22",
+          "id": "0e274ae2-125e-4bbf-862e-3dd1ac960096",
+          "session_id": "cf72b74f-73e7-4e22-aba6-d3320e61f3fe",
           "retrieved_chunk_ids": null,
           "token_count": null,
           "attachments": [],
@@ -135,7 +135,7 @@
           "meta": {
             "channel": "whatsapp"
           },
-          "created_at": "2026-10-28T14:17:38.525786Z"
+          "created_at": "2026-10-28T14:27:56.159828Z"
         }
       ],
       "ticket_id": null,
@@ -143,18 +143,18 @@
       "meta": {
         "contact_name": "Ada"
       },
-      "id": "076904b2-3b36-49f7-9ba6-1ce0f92c7f22",
-      "tenant_id": "3d3e8029-ea97-49ca-bcc3-99ed96abd18f",
-      "visitor_id": "463f86d5-9e9a-4456-91dc-f471ae9d42f1",
+      "id": "cf72b74f-73e7-4e22-aba6-d3320e61f3fe",
+      "tenant_id": "0737bf0a-4e3e-4d15-b782-1ac1586f029d",
+      "visitor_id": "636174eb-b71a-4131-bdf9-dd176b6e566f",
       "visitor_session_id": null,
       "customer_user_id": null,
       "visitor": {
-        "id": "463f86d5-9e9a-4456-91dc-f471ae9d42f1",
+        "id": "636174eb-b71a-4131-bdf9-dd176b6e566f",
         "name": "Ada",
         "email": null,
         "phone": null,
-        "first_seen_at": "2026-10-28T14:17:35.031717Z",
-        "last_seen_at": "2026-10-28T14:17:35.031717Z",
+        "first_seen_at": "2026-10-28T14:27:52.190067Z",
+        "last_seen_at": "2026-10-28T14:27:52.190067Z",
         "is_blocked": false
       },
       "source": "whatsapp",
@@ -163,9 +163,9 @@
       "escalated_at": null,
       "agent_id": null,
       "agent_joined_at": null,
-      "last_message_at": "2026-10-28T14:17:38.524346Z",
-      "created_at": "2026-10-28T14:17:35.041885Z",
-      "updated_at": "2026-10-28T14:17:38.516283Z",
+      "last_message_at": "2026-10-28T14:27:56.157588Z",
+      "created_at": "2026-10-28T14:27:52.198709Z",
+      "updated_at": "2026-10-28T14:27:56.147213Z",
       "customer_label": "Ada",
       "customer_presence": {
         "state": "offline",

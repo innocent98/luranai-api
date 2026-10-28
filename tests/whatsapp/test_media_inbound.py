@@ -459,3 +459,73 @@ async def test_an_image_the_sidecar_skipped_as_too_large_gets_the_size_hint_not_
     ev = inbound(conn, kind="other", text="", skipped="media_too_large")
     assert await handle_event(db, ev) == "other_kind_reply"
     assert [s["text"] for s in queue.sends] == [IMAGE_TOO_LARGE_REPLY]
+
+
+# ------------------------------------------------------------------ web-chat parity gates
+async def test_a_tenant_that_switched_uploads_off_gets_no_images_stored(
+    db, conn, fake_sidecar, queue, llm, media_stubs
+):
+    from app.services.whatsapp_inbound import IMAGE_DISABLED_REPLY
+
+    db.get(Tenant, conn.tenant_id).widget_allow_file_upload = False
+    db.commit()
+    out = await handle_event(db, inbound_image(conn, fake_sidecar))
+    assert out == "image_unreadable"
+    assert [s["text"] for s in queue.sends] == [IMAGE_DISABLED_REPLY]
+    assert media_stubs.moderated == [] and media_stubs.uploads == [] and _attachments(db) == []
+    assert ("GET", "/sessions/{key}/media/{media_id}") not in fake_sidecar.calls
+
+
+async def test_one_conversation_cannot_run_up_unlimited_image_cost(
+    db, conn, fake_sidecar, queue, llm, media_stubs, fanout
+):
+    from app.services.whatsapp_inbound import IMAGE_RATE_MAX
+
+    await handle_event(db, inbound(conn, text="hello"))
+    queue.sends.clear()
+    session_id = _chat(db, conn).session_id
+    for n in range(IMAGE_RATE_MAX):
+        _att = MessageAttachment(
+            session_id=session_id,
+            tenant_id=conn.tenant_id,
+            direction=AttachmentDirection.INBOUND,
+            status=AttachmentStatus.LINKED,
+            moderation_status=__import__(
+                "app.db.models.conversation", fromlist=["x"]
+            ).AttachmentModeration.PASSED,
+            cloudinary_public_id=f"p{n}",
+            url="https://res.cloudinary.com/demo/x.jpg",
+            content_type="image/png",
+            bytes=1,
+        )
+        db.add(_att)
+    db.commit()
+    llm.calls = 0
+    assert await handle_event(db, inbound_image(conn, fake_sidecar)) == "image_unreadable_silent"
+    assert queue.sends == [] and media_stubs.moderated == [] and llm.calls == 0
+
+
+async def test_a_permanent_pipeline_rejection_is_not_retried(
+    db, conn, fake_sidecar, queue, llm, media_stubs, monkeypatch
+):
+    from fastapi import HTTPException
+
+    monkeypatch.setattr(db, "rollback", lambda: None)
+    with patch(
+        "app.api.v1.endpoints.chat.send_message",
+        new=AsyncMock(side_effect=HTTPException(400, "Invalid or already-used attachment")),
+    ):
+        out = await handle_event(db, inbound_image(conn, fake_sidecar))
+    assert out == "image_unreadable"  # answered once, ledger kept: no 30-try retry storm
+    assert db.execute(select(WhatsAppInboundMessage)).first() is not None
+    assert _attachments(db) == []
+
+
+async def test_a_blocked_image_creates_no_visitor_or_conversation(
+    db, conn, fake_sidecar, queue, llm, media_stubs
+):
+    from app.db.models.visitor import Visitor
+
+    media_stubs.verdict = (False, "nope")
+    await handle_event(db, inbound_image(conn, fake_sidecar))
+    assert db.execute(select(Visitor)).scalars().all() == []

@@ -9,6 +9,8 @@ Backend PR: `feature/whatsapp-channel-backend` → `develop` (luranai-api). SOP:
 
 Anything not exercised live is marked **NOT LIVE** and listed in the table at the end.
 
+**Section 8 (images + rating)** was captured the same way on 2026-10-28 into `docs/fe-integration-captures/whatsapp-media-rating/` (driver `tests/fakes/live_capture_media.py`). Extra stand-ins there: **moderation and Cloudinary are stubbed** (image URLs look like `https://res.cloudinary.com/demo/image/upload/luran/chat_images/<id>.jpg` but nothing was uploaded), and the sidecar's media store and image send are the fake's.
+
 ## 1. What the feature is (FE terms)
 
 A tenant admin connects **a WhatsApp number they own** to Luran. They type the number, tick a consent box, and get an **8-character pairing code**. On their phone they open *WhatsApp → Linked devices → Link a device → Link with phone number instead* and type the code. Luran then answers customers who message that number, using the same AI/human pipeline as the website widget. Agents see the conversations in the normal inbox, tagged `source: "whatsapp"`.
@@ -33,7 +35,7 @@ Gating: the tenant needs the **platform grant** (`can_use_whatsapp` + `max_whats
 | **Unpaired attempts expire** | A connection still `awaiting_pair` 30 minutes after it was created may be removed by the backend when anyone creates a connection (to free the number and the capacity slot); the next `GET` is then `404 not_found`. Treat a 404 while pairing as "attempt expired, start over". |
 | Cross-tenant / unknown id | Always `404 {"code":"not_found",…}`, never `403`. Do not special-case. |
 | **The AI only answers if "who answers first" allows it** | New tenants start with `first_responder: "human"` (see `docs/fe-integration-guide-who-answers-first.md`). In that mode WhatsApp customers get the fixed "connecting you with someone from our team" message and a ticket, never an AI answer. Capture 22 shows the tenant switching to `ai`. Surface this on the WhatsApp screen when the tenant is human-only. |
-| Non-text messages | Images, voice notes, etc. get one fixed reply: *"Sorry, I can only read text messages for now. Please type your question and I'll help."* Media is not supported in this slice. |
+| Images and other media | **Images now work both ways** (section 8). Voice notes, video, documents and stickers still get one fixed reply, *"Sorry, I can only read text messages and images for now. Please type your question and I'll help."*, **except while a human owns the chat** (agent assigned, escalated, owner paused, AI off): then nothing is sent and the item shows in the transcript as a placeholder line. |
 
 ## 3. Endpoints
 
@@ -189,7 +191,59 @@ These are existing staff endpoints, shown here only for what is new for WhatsApp
 
 `POST /api/v1/webhooks/whatsapp/linked` is called by the sidecar, never by the browser. Captured for the sidecar track: valid → `200 {"status":"accepted"}` (`zz-webhook-valid.json`), bad or missing signature → `401 {"error":"invalid_signature"}` (`zz-webhook-bad-signature.json`, `zz-webhook-missing-header.json`). Unknown `session_key` → `200 {"status":"ignored"}` and nothing is processed (**NOT LIVE**; tests only). Session keys and signatures in those files are replaced by placeholders.
 
-## 8. Verification table
+## 8. Images and rating over WhatsApp (added 2026-10-28)
+
+Backend PR: `feature/whatsapp-media-rating-backend` → `develop`. SOP: `docs/sop/whatsapp_media_and_rating.md`. **No new FE endpoint**: everything below arrives through endpoints and frames you already render; this section is what changed in their payloads and what the UI must do.
+
+### 8.1 Customer images in the inbox
+A WhatsApp image is a normal `role: "user"` message with `attachments` (the same shape web-chat uploads have). The caption is the message `content` (`"[image]"` when there is none). Capture `03-staff-session-detail-after-image.json` (`GET /chat/sessions/{id}`, trimmed):
+```json
+{"role": "user", "content": "Is this the right model?", "attachments": [{"id": "6e97385e-4d75-4d4c-8a68-d7ebc9c40e7f", "url": "https://res.cloudinary.com/demo/image/upload/luran/chat_images/e8c3881bf8e6.jpg", "content_type": "image/png", "width": 24, "height": 24, "kind": "image", "duration_ms": null, "poster_url": null, "expired": false}], "reply_to": null, "meta": {"channel": "whatsapp"}}
+{"role": "assistant", "content": "[stubbed AI] I can see 1 image(s) you sent.", "attachments": [], "meta": {"channel": "whatsapp", "…": "…"}}
+```
+- Render attachments exactly as for the widget (thumbnail, open full size). `expired: true` / `url: null` after the retention window (30 days).
+- **`content_type` is the type of the original upload** (`image/png` above) while the stored file is re-encoded to JPEG by the Cloudinary upload settings (the capture's stub URL only mimics that): do not infer the file extension from it.
+- **The AI answers the image** (the stub's reply above says how many images the model received: 1). If the chat is owner-paused, the connection has AI off, or a human owns it (session `escalated` or an agent assigned), the image is stored and shown with **no AI reply** (capture `07`: the `"here is the receipt"` message has its attachment, no assistant message follows, the sidecar received no send).
+- Agents watching live get the existing `customer_message` frame with the same `attachments` array (`message_id`, `content`, `customer_label`, `attachments`, …). **NOT LIVE** (no socket client in the capture run); shape asserted by `tests/whatsapp/test_media_inbound.py`.
+- Trouble cases are visible as transcript lines, not errors (capture `07`/`09`):
+  - Image that could not be received (expired in the sidecar, corrupted, over 10 MB, not a real image): user message `"[The customer sent an image that could not be received.]"` plus, unless a human owns the chat, an assistant line `"Sorry, I couldn't open that image. Could you send it again?"` (`meta.source: "whatsapp_media_fallback"`). Over the size cap the reply is `"Sorry, that image is too large for me to open. Please send a smaller one."`
+  - **Moderated image: nothing appears in the transcript at all** and the customer is told `"Sorry, I can't accept that image. Please send a different one."` (capture `04`). The moderation reason is never exposed anywhere.
+  - Voice note / video / document / sticker: user message `"[The customer sent a voice note, video, document or sticker. Luran can't read these on WhatsApp yet.]"`. While nobody owns the chat the customer gets the fixed text-only line (capture `10`, sent once); **while a human owns it nothing is sent** (capture `08`: the fake sidecar received no send; the placeholder is in the transcript, `09`, session `status: "escalated"`).
+
+### 8.2 Agent images reach the customer
+Unchanged endpoints. Upload with `POST /chat/sessions/{id}/upload` (capture `11`, `200`):
+```json
+{"attachment_id": "89fdcf68-ea55-4deb-9447-229491338c16", "url": "https://res.cloudinary.com/demo/image/upload/luran/chat_images/3175312101e7.jpg", "content_type": "image/png", "width": 50, "height": 50, "kind": "image", "duration_ms": null, "poster_url": null, "bytes": 160}
+```
+then `POST /chat/sessions/{id}/agent-message` with `{"message": "Here is the setup diagram", "attachment_ids": ["89fdcf68-…"]}` (capture `12`, `201`, same response shape as before). **The customer's WhatsApp receives a real image with the agent's text as its caption** (capture `13`: the fake sidecar got `{"to_ref": "…", "image": {"url": "https://res.cloudinary.com/…/3175312101e7.jpg", "caption": "Here is the setup diagram"}}`).
+- The old "Your support agent sent an image, which can't be shown in WhatsApp yet." notice is **gone**; do not mention it in UI copy.
+- Several images: caption on the first only. An agent text longer than 1024 characters is sent as its own message after the images.
+- Only images uploaded through the endpoint above are forwarded. Videos and anything else are not sent to WhatsApp (the agent sees no error). **Delivery is asynchronous and silent**: if the number is disconnected, rate-capped or the image is refused, the agent's message still shows as sent in the dashboard (same as text today).
+
+### 8.3 Rating request on WhatsApp
+When an agent requests a rating (`POST /tickets/{id}/rating-requests`, capture `14`, `201`, unchanged) or a ticket is resolved with an assigned agent, a WhatsApp customer now **receives the request as a message** (capture `15`):
+`How was your chat with Alpha? Reply with a number from 1 (poor) to 5 (great).` (`Alpha` = the agent's first name; if the agent has no name the prompt is `How was your chat with our team? …`.) The transcript still stores the shorter widget prompt `How was your chat with Alpha?`.
+
+The customer answers with a bare `1`-`5` (also `4/5`, `3 stars`, `5⭐`, trailing `.`/`!`). The backend records it **exactly like a widget rating** and replies once `Thanks! We've recorded your 5/5.` (capture `16`). Capture `17` (`GET /reviews/session`, unchanged shape):
+```json
+{"score": 5, "comment": null, "meta": {"channel": "whatsapp"}, "session_id": "076904b2-…", "customer_label": "Ada", "rated_agent_id": "70bf8d5e-…", "source": "manual_request", "rating_request_id": "cf9a08e7-…", "rated_agent_name": "Alpha Owner", "ticket_id": "304e347e-…", "ticket_number": "TKT-CAPTURE-1", "rated_party": "human"}
+```
+- **New: `meta.channel == "whatsapp"` on a rating** (the only difference from a widget rating). A WhatsApp rating has no comment.
+- A second answer, an answer after the 7-day expiry, a digit when no request is open, or anything that is not a bare number is treated as **ordinary chat text** (capture `18`: the second `1` went to the AI; capture `19`: still exactly one rating, score 5).
+- The rating prompt is only "open" on WhatsApp once it was actually delivered; if the tenant's number was disconnected at that moment, a stray `5` is just text.
+
+### 8.4 Agent joined line
+When an agent takes over a WhatsApp conversation (`POST /chat/sessions/{id}/takeover`, capture `20`, `200`, unchanged response) the customer receives one WhatsApp message (capture `21`): `You're now chatting with Alpha.` (first name only; `a member of our team` when the agent has no name). The same agent taking over again does not send it twice; a different agent does. It is not sent while the owner has the chat paused from the phone. The in-widget transcript still shows `<full name> joined the conversation`. No other system notice is forwarded.
+
+### 8.5 UX consequences the FE must surface
+1. **Images are read by the AI on WhatsApp**: say so where tenants configure WhatsApp, and that images are moderated (a flagged image is dropped, the customer sees a generic refusal, the tenant sees nothing).
+2. **No reply to media while a human owns the chat** is by design; the placeholder line tells the agent to check the customer's media on the phone for voice notes etc.
+3. A **moderated or unreadable image may leave no trace** (moderated) or a placeholder (unreadable): do not promise tenants a complete media log.
+4. **The customer's rating arrives without a comment.** Do not show an empty comment box as "missing".
+5. **A tenant that turned file uploads off** (`widget_allow_file_upload`) also stops WhatsApp images: the customer is told `Sorry, I can't take images in this chat. Please type your question.` and the transcript shows the "could not be received" placeholder. Tell tenants the switch covers both channels. More than 10 images in one conversation within an hour are placeholder-only (no reply).
+6. Rating prompts are delivered to WhatsApp automatically; there is nothing to configure and no way to disable it per channel in this slice.
+
+## 9. Verification table
 
 | Behaviour | Status |
 |---|---|
@@ -198,7 +252,7 @@ These are existing staff endpoints, shown here only for what is new for WhatsApp
 | Cross-tenant 404 on GET/PATCH/DELETE, unknown id 404 | **Verified live** (POST pairing-code 404 and unit isolation: tests only) |
 | Status flow `awaiting_pair → connecting → connected → logged_out → awaiting_pair` through signed webhooks and arq | **Verified live** |
 | Inbound customer text → AI (LLM **stubbed**) → reply enqueued → delivered to fake sidecar | **Verified live** |
-| Non-text → fixed reply | **Verified live** |
+| Non-text → fixed reply (2026-10-27 wording; reworded and made conditional in section 8) | **Verified live** (re-verified 2026-10-28, section 8) |
 | Owner typed from phone → pause, `owner_phone` message, paused customer message stored, no AI reply | **Verified live** |
 | Agent REST reply → forwarded to WhatsApp once | **Verified live** |
 | `source: "whatsapp"` + `meta.channel` on staff session | **Verified live** |
@@ -208,4 +262,15 @@ These are existing staff endpoints, shown here only for what is new for WhatsApp
 | `reconnecting` / `failed` statuses; disconnect reasons other than `logged_out_from_phone` | Tests only |
 | Pause expiry (AI resumes after 2 h), pause extension | Tests only (time-shifted) |
 | 402 plan-limit silence, AI-disabled path, ticket resolved/closed forwarding | Tests only |
-| **Real Baileys sidecar, real pairing code format, real phone, real LLM** | **NOT verified** |
+| Customer image + caption → vision call received the image → AI reply delivered; attachment visible on the staff session | **Verified live** (captures `02`, `03`; moderation, Cloudinary and LLM stubbed) |
+| Moderated image: nothing stored, one fixed sentence | **Verified live** (stub flags a 7x7 image) |
+| Corrupt (sha256 mismatch) image: placeholder + "couldn't open" | **Verified live** |
+| AI-off image stored with attachment, no send | **Verified live** |
+| Voice note while escalated: stored, no send; with nobody owning: fixed reply | **Verified live** |
+| Agent upload + image message → sidecar receives `image {url, caption}` | **Verified live** (fake sidecar enforces `res.cloudinary.com`) |
+| Agent takeover → customer gets the join line (`21`) | **Verified live** |
+| Rating prompt delivered → `5` → thank-you → rating attributed to agent + ticket → replay is ordinary text | **Verified live** |
+| `customer_message` WS frame carrying the image attachment | Tests only (no socket client in the run) |
+| Join line not repeated for the same agent, generic wording, owner-paused skip; upload switch off; 10-per-hour image cap; request from an earlier conversation ignored | Tests only |
+| Owner-paused image, agent-assigned (not escalated) image, expiry of the 7-day window, sidecar media 404/outage, over-size (10 MB) images, image send 400/413/415 refusals, tenant isolation, plan-limit | Tests only |
+| **Real Baileys sidecar (media endpoint, image send, real `kind:"image"` events), real OpenAI moderation, real Cloudinary, real vision answer, real pairing code format, real phone** | **NOT verified** |
