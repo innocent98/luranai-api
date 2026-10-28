@@ -282,7 +282,9 @@ class LeadService:
             "duration_min": meeting.duration_min,
             "visitor_timezone": meeting.visitor_timezone,
             "use_case": meeting.use_case,
-            "status": meeting.status.value if hasattr(meeting.status, "value") else str(meeting.status),
+            "status": (
+                meeting.status.value if hasattr(meeting.status, "value") else str(meeting.status)
+            ),
             "created_at": meeting.created_at.isoformat() if meeting.created_at else None,
         }
 
