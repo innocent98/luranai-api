@@ -118,7 +118,10 @@ for k in "${BACKEND_KEYS[@]}"; do has "$k" || backend_missing+=("$k"); done
 # --- 2. keep sidecar-only secrets out of the api/worker env_file ----------------------------------------------------
 : > "$SIDECAR_ENV_FILE"
 strip_keys "$SIDECAR_ENV_FILE" "${SIDECAR_ONLY_KEYS[@]}"
-chmod 600 "$ENV_FILE" "$SIDECAR_ENV_FILE"
+# 644, not 600: these are runner-local, ephemeral files and the scp-action that ships them runs in a container as a
+# different user, which cannot read a 600 file ("tar: can't open '.env': Permission denied"). The deploy steps tighten
+# both files to 600 on the server after they arrive.
+chmod 644 "$ENV_FILE" "$SIDECAR_ENV_FILE"
 echo "Sidecar-only secrets (names: ${SIDECAR_ONLY_KEYS[*]}) kept out of the api/worker env file"
 
 if [ "${#problems[@]}" -gt 0 ]; then
