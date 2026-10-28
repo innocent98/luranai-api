@@ -55,6 +55,31 @@ cat /proc/sys/fs/dentry-state
 
 and repeat the cgroup command in 24 hours; the difference in `slab_reclaimable` is the growth rate (baseline: 641,424,816 bytes at 2026-10-28 ~16:57 WAT).
 
+## Root cause of the slab growth (found 2026-10-28 ~17:30 WAT, read-only, measured)
+
+**The 30-second container healthcheck leaks about 22 KB of kernel directory-entry cache per run.** Nothing else is involved.
+
+| Evidence | Result |
+|---|---|
+| `/app/logs` on the prod API | empty (`total 0`): the Runtime Logs / log-file theory is **refuted** |
+| Host `dentry-state` (17:03) | 4,064,732 dentries, **3,938,827 negative** (97%); only ~96k ext4 inodes. These are names that were looked up and do not exist |
+| Growth rate, prod API, 3 samples | ~3-4 dentries/s (about 200-250 B/s), flat regardless of traffic (load 0.06) |
+| Same rate on the **idle staging API** | ~4-6 dentries/s: so it is the API image, not prod traffic. The worker container grows ~0.1/s |
+| 0.5 s sampling on prod | growth arrives in **steps 31 s apart** (+23 KB each) = the healthcheck interval |
+| Manual exec, 5 runs each | `sh -c true` 0 B · `python -c pass` 0 B · `import urllib.request` **~21 KB/run** · the exact healthcheck command **~22.7 KB/run** |
+| A/B, 8 runs each, two rounds | default `python`: 170,560 B and 193,296 B · `python -B`: **0 B and 0 B** |
+| Arithmetic | 22 KB x 2,880 runs/day = ~63 MB/day; the container is 10 days old: ~630 MB vs measured 641 MB |
+
+**Mechanism.** The official `python:3.11-slim` image deletes every stdlib `.pyc`; the `__pycache__` directories are empty and root-owned, and the app runs as `appuser` (uid 1000). Each new Python process that imports a non-frozen stdlib module compiles it from source and tries to write the `.pyc` through a temp name that contains a per-process id; the write fails with `EACCES`, but the failed lookup leaves a **negative dentry with a unique name**. About 110 modules are imported by `urllib.request`, so ~110 new dentries per healthcheck, none ever reused. Gunicorn itself only does this at boot.
+
+**Impact.** Low. The cache is reclaimable (`oom_kill` 0, `max` 0, `anon` flat at 378 MB), so no outage, but it makes the container look 83% full for no reason and would only be reclaimed under pressure. Side effect: every healthcheck also recompiles ~110 stdlib modules from source (wasted CPU and disk reads, a plausible part of the 1.94 GB of block reads; **not verified**, check `io.stat`).
+
+**Proposed fix (not applied; changes the prod container, so it rides the next promotion):**
+
+1. Healthcheck in `docker-compose.prod.yml:58` and `docker-compose.yml:36`: `python -B -c ...` (verified 0 B/run by the A/B above). One word, no image change.
+2. Optional hardening in the `Dockerfile`, final stage, before `USER appuser`: `RUN python -m compileall -q /usr/local/lib/python3.11` so stdlib `.pyc` files exist (removes the recompile cost and the leak for any `docker exec python`), at the price of some image size. Needs a build to measure.
+3. Verify after deploy: cgroup `slab_reclaimable` stays flat over 24 h; the existing 641 MB drains only under memory pressure or at the next container recreate (do **not** `drop_caches` on the shared host just to look better).
+
 ## What the sidecar can carry today
 
 | Fact | Value | Source |
@@ -71,8 +96,8 @@ Other limits that matter before RAM: WhatsApp's own tolerance (replies are paced
 
 ## To-do (in order)
 
-1. Run the command above on prod and staging now, and again in 24 hours; record `anon`, `file`, `slab_reclaimable`.
-2. Find the source of the 1.94 GB of block reads on the prod API (container uptime first; then what reads files per request or per health probe). Candidate to test: the 30-second Python healthcheck forking an interpreter.
+1. ~~Run the command on prod and staging~~ done 2026-10-28 (see root cause above). Re-run once after the healthcheck fix is deployed and confirm `slab_reclaimable` is flat.
+2. Ship the `python -B` healthcheck fix (PR to `develop`, rides the prod promotion). Then check whether the 1.94 GB of block reads (`io.stat` `rbytes`) was the healthcheck recompiling stdlib; container uptime is 10 days, so ~190 MB/day.
 3. Decide worker count and `--preload` (shared imports) with the measurement from item 1; keep 2 prod workers and the 1.172 GiB limit until then.
 4. Build the sidecar soak (1, 2, 4, 6 sessions with message and image load), record RSS at each step, then size `WHATSAPP_SIDECAR_MEM_LIMIT` and `WHATSAPP_MAX_SESSIONS` for production at measured + about 50%. Required before the production sidecar PR.
 5. Keep an eye on the host total: prod + staging in use should stay well under 5 GiB.
