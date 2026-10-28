@@ -125,7 +125,7 @@ Host impact: worst-case added commitment = (768 - 500) + 384 = **652 MiB** again
 
 | Risk | Control |
 |---|---|
-| Prod pipeline changed | `production-deploy`, `staging-smoke` and `staging-api-e2e` job text is **byte-identical** to `origin/develop` (proof in the SOP); the `cd.yml` diff is additions inside `staging-deploy` only; `docker-compose.prod.yml` is **unchanged** |
+| Prod pipeline changed | `production-deploy`, `staging-smoke` and `staging-api-e2e` job text is **byte-identical** to `origin/develop` (proof in the SOP); the `cd.yml` diff is changes inside `staging-deploy` only (one existing condition tightened, see section 4); `docker-compose.prod.yml` is **unchanged** |
 | Sidecar lands in prod project | `docker-compose.whatsapp.yml` is only copied by the staging job; its container name uses `${COMPOSE_PROJECT_NAME:?}` (no silent fallback to the prod name `luran`); the prep script and the ssh step both refuse unless `COMPOSE_PROJECT_NAME` is `luran_staging` |
 | Network exposure | No published port; staging network only; every route needs the bearer token |
 | Memory / CPU / pids | limits above; no swap; `oom_score_adj` 500 |
