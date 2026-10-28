@@ -52,7 +52,7 @@ The 2026-10-28 live test proved text both ways but showed: customer images were 
 Verdict NO BLOCKERS (nothing crosses tenants, no unmoderated image is stored, the rating token never reaches Redis/DB/logs). Fixed: findings 1, 2, 4, 6, 7, 9. Left as follow-ups: (3) agent text travels only as the first image's caption, so it is lost if that one image send is dropped; (5) a storage failure after `_ensure_session` leaves an empty session; (8) an enqueue failure after the turn committed retries and double-stores; (10) the 120 s chat lock can expire during a slow fetch + moderation + vision turn; (11) a moderation outage looks like a flag to the customer and is invisible to agents on silent chats.
 
 ## Follow-ups
-- Live staging run with the real sidecar and a real number (image both ways, rating reply, human-owned voice note).
+- [DONE 2026-10-28] Live staging run with the real sidecar and a real number: customer image to the agent app, image with caption to the AI, agent image to WhatsApp, rating request + a `5` recorded, join line, resolve notice (Adebayo, real phones; deploy run 40713708796). Still not exercised: a voice note / sticker while a human owns the chat, an image over 8 MB on the sidecar tmpfs.
 - Voice notes (speech-to-text), video, documents, stickers are still `other`.
 - Rating prompt on WhatsApp has no "skip"; a free-text comment is not collected.
 - The upload cleanup on failure is best effort; `cleanup_orphan_attachments` remains the backstop.
