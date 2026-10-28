@@ -116,6 +116,8 @@ jobs:
             set -euo pipefail
             mkdir -p "${{ secrets.DEPLOY_PATH }}"
             cd "${{ secrets.DEPLOY_PATH }}"
+            # The env file arrives readable (the shipping container cannot read a 600 file); tighten it here.
+            chmod 600 .env
             docker load < api-image.tar.gz
             export API_IMAGE="luran-api:${{ github.event.workflow_run.head_sha || github.sha }}"
             docker compose -f docker-compose.prod.yml pull db redis qdrant pgbouncer
