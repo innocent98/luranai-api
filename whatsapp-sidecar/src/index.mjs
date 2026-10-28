@@ -4,11 +4,13 @@ import { openAuthState } from './auth-state.mjs'
 import { createApi } from './api.mjs'
 import { loadConfig } from './config.mjs'
 import { PgAuthDb } from './db.mjs'
+import { fetchImage } from './image-fetch.mjs'
 import { RedisLeaseBackend } from './lease.mjs'
 import { RedisCounter } from './limiter.mjs'
 import { errName, makeLogger } from './log.mjs'
+import { Gate, MediaStore } from './media.mjs'
 import { SessionManager } from './manager.mjs'
-import { currentVersion, makeBaileysSocket, newMessageId } from './wa.mjs'
+import { currentVersion, downloadMedia, makeBaileysSocket, newMessageId } from './wa.mjs'
 import { WebhookDelivery } from './webhook.mjs'
 
 const log = makeLogger()
@@ -32,6 +34,11 @@ const manager = new SessionManager({
   leaseBackend: new RedisLeaseBackend(redis),
   counter: new RedisCounter(redis),
   newMessageId,
+  media: new MediaStore({ maxBytes: cfg.mediaStoreMaxMb * 1048576 }),   // in-memory only: TTL 10 min, 8 per session, evict oldest
+  mediaGate: new Gate(2),     // at most two image downloads / outbound fetches in flight, process-wide
+  uploadGate: new Gate(1),    // one Baileys image upload at a time (temp file in the small /tmp tmpfs)
+  downloadMedia,
+  fetchImage: (url) => fetchImage(url, { allowlist: cfg.mediaUrlAllowlist }),
   versionProvider: currentVersion,
   now: () => Date.now(),
   sleep: (ms) => new Promise((r) => setTimeout(r, ms)),

@@ -122,8 +122,14 @@ Docs: plan `docs/superpowers/plans/2026-10-28-sidecar-staging-deploy.md` (eviden
 
 ### Remaining build tasks (plan section 11)
 - [ ] T6 Structured-message text renderer
-- [ ] T7 (rest) Outbound pacing is sidecar-side; image send
-- [ ] T8 Media in/out
+- [ ] T7 (rest) Outbound pacing is sidecar-side; image send (sidecar side built 2026-10-28, not proven live, see T8)
+- [ ] T8 Media in/out — **sidecar half built 2026-10-28** (branch `feature/whatsapp-media-sidecar`, PR to `develop`, tests green, NOT proven on a real phone): inbound image download + bounded in-memory store + `GET /sessions/{key}/media/{id}`, outbound `image:{url,caption}` with SSRF-guarded fetch; backend half is a parallel track (SOP `docs/sop/whatsapp_sidecar.md` "Images")
+  - [x] Sidecar: inbound jpeg/png/webp/gif download (10 MB cap on received bytes), `media_too_large` / `media_unavailable` skips
+  - [x] Sidecar: media store (10 min TTL, 8/session, `MEDIA_STORE_MAX_MB`, per-session isolation, cleared on logout)
+  - [x] Sidecar: outbound image send (allowlist, pinned DNS, no redirects, 10 s, 10 MB, type + magic bytes), same pacing/caps as text
+  - [x] Compose: `/tmp` tmpfs 32m, `MEDIA_*` env passthrough
+  - [ ] Live: real-phone image in and out, >8 MB image on the 32m tmpfs, `rss_mb` with images
+  - [ ] Backend half (fetch from sidecar, vision pipeline, forward agent images)
 - [ ] T9 (rest) Disconnect/plan-limit email alerts, first-responder override per connection
 - [ ] T10 Dashboard Channels -> WhatsApp (luran-dashboard repo; dashboard track)
 - [ ] T11 FE integration guide re-capture against the real sidecar
@@ -166,7 +172,7 @@ Why: plans differed only by volume plus five flags; the sales agent, Slack/CRM, 
 
 ## Deferred follow-ups (WhatsApp)
 - [ ] Sidecar: purge long-dormant `logged_out` session rows; persist the daily send counter beyond Redis; second Baileys-version re-vet on every bump
-- [ ] Sidecar: images/media in and out (backend half built; sidecar half is its own track and the live run is not done)
+- [ ] WhatsApp images: backend (#168) and sidecar (#167) halves are both built and merged; not yet proven live on staging; audio, video, documents and stickers still unsupported; no outbound thumbnail (needs sharp/jimp)
 - [ ] Background sweeper for stale `awaiting_pair` rows (today they are expired lazily on the next create); 7-day purge of `whatsapp_inbound_messages`
 - [ ] Plan-limit / disconnect emails (currently logged only)
 - [ ] Pause/AI-off paths skip the monthly conversation-limit check

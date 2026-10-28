@@ -23,6 +23,7 @@ npm audit signatures
 | `src/auth-state.mjs`, `src/db.mjs`, `src/crypto.mjs` | AES-256-GCM encrypted, batched Postgres auth store (`whatsapp_sidecar` schema) |
 | `src/lease.mjs` | Redis single-writer lease per session, fail closed |
 | `src/webhook.mjs`, `src/sign.mjs` | signed, retried, ordered webhook delivery |
+| `src/media.mjs`, `src/image-fetch.mjs` | image bytes: capped reads, bounded in-memory store, concurrency gate; SSRF-guarded outbound image fetch |
 | `src/wa.mjs` | the only runtime Baileys socket construction |
 | `scripts/soak.mjs` | skeleton for the N-session RAM soak (not run) |
 
