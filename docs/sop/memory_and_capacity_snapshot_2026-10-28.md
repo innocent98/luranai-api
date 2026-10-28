@@ -31,6 +31,30 @@ Totals: about 1.4 GiB in use by production, about 0.7 GiB by staging, **about 2.
 docker exec luran_api sh -c 'grep -E "^(anon|file|slab|slab_reclaimable|slab_unreclaimable|sock|kernel_stack) " /sys/fs/cgroup/memory.stat; cat /sys/fs/cgroup/memory.events'
 ```
 
+## Measured split (Adebayo, ~16:57 WAT, cgroup `memory.stat`)
+
+| | `luran_api` (prod) | `luran_staging_api` |
+|---|---|---|
+| `anon` (real application memory) | **378 MB** | 226 MB |
+| `file` (page cache) | 29 MB | 4.6 MB |
+| `slab_reclaimable` | **641 MB** | 5.7 MB |
+| `slab_unreclaimable` | 1.2 MB | 0.7 MB |
+| `memory.events` `max` / `oom` / `oom_kill` | 0 / 0 / 0 | 0 / 0 / 0 |
+
+Reading: prod's 999.9 MiB is 378 MB of application plus 641 MB of **reclaimable kernel slab** (directory-entry and inode caches). The container has **never reached its limit** (`max 0`) and nothing was killed. Application memory is flat against the earlier reading (367 MB -> 378 MB). The slab grew roughly 40 MB since the earlier reading (about 600 MB). So: no leak in the app, nothing urgent. What is still unexplained is what builds millions of cached directory/inode entries in the prod API and not in staging (staging is also much younger).
+
+Candidate for the 1.94 GB of block reads: the removed Runtime Logs endpoint read the whole log file line by line on each call (`_read_last_lines` in `app/api/v1/endpoints/platform/audit.py` on `main`). It would explain disk reads, but a single file does not explain 641 MB of slab, so treat it as a partial explanation only. The prod API also bind-mounts `./logs:/app/logs`.
+
+Next measurements (read-only, on the VPS):
+
+```bash
+docker exec luran_api ls -lh /app/logs
+sudo grep -E "^(dentry|inode_cache|ext4_inode_cache|proc_inode_cache|kernfs_node_cache|shmem_inode_cache|buffer_head) " /proc/slabinfo
+cat /proc/sys/fs/dentry-state
+```
+
+and repeat the cgroup command in 24 hours; the difference in `slab_reclaimable` is the growth rate (baseline: 641,424,816 bytes at 2026-10-28 ~16:57 WAT).
+
 ## What the sidecar can carry today
 
 | Fact | Value | Source |
