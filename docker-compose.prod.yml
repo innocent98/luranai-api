@@ -54,6 +54,7 @@ services:
         [
           "CMD",
           "python",
+          "-B",
           "-c",
           "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=5)",
         ]
