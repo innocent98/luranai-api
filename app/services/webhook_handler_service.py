@@ -79,16 +79,25 @@ class WebhookHandlerService:
 
         logger.info(f"Handling successful charge: {reference}")
 
-        # Find transaction record
+        # Find transaction record. The row lock serialises parallel deliveries of the
+        # same event, so the status check below cannot race with another worker.
         transaction = (
             self.db.query(PaymentTransaction)
             .filter(PaymentTransaction.reference == reference)
+            .with_for_update()
             .first()
         )
 
         if not transaction:
             logger.warning(f"Transaction not found: {reference}")
             return {"status": "skipped", "message": "Transaction not found"}
+
+        # Paystack retries webhooks. A replay must not re-run the tier upgrade, add a
+        # second history row, or overwrite paid_at, so a settled transaction is a no-op.
+        if transaction.status == "success":
+            logger.info(f"charge.success replay ignored, already processed: {reference}")
+            self.db.commit()  # nothing was mutated; this only releases the row lock
+            return {"status": "already_processed"}
 
         # Update transaction record
         transaction.status = "success"
