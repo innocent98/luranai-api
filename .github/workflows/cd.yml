@@ -219,12 +219,14 @@ jobs:
           script: |
             set -euo pipefail
             cd "${{ secrets.DEPLOY_PATH }}"
+            # Tighten first: the files arrive readable (the shipping container cannot read a 600 file), so no guard
+            # failure below may leave them world-readable on the server.
+            chmod 600 .env .env.sidecar
             # Production-isolation guard: container and network names derive from COMPOSE_PROJECT_NAME.
             grep -Eq "^COMPOSE_PROJECT_NAME=[\"']?luran_staging[\"']?[[:space:]]*$" .env || {
               echo "COMPOSE_PROJECT_NAME is not luran_staging; refusing to deploy the sidecar" >&2
               exit 1
             }
-            chmod 600 .env .env.sidecar
             docker load < sidecar-image.tar.gz
             export WHATSAPP_SIDECAR_IMAGE="luran-whatsapp-sidecar:${{ github.event.workflow_run.head_sha || github.sha }}"
             dc() {
