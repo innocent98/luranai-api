@@ -150,7 +150,14 @@ class LeadDetail(BaseModel):
     model_config = {"from_attributes": True}
 
     @classmethod
-    def from_lead(cls, lead, tier: str, crm_log=None) -> LeadDetail:
+    def from_lead(
+        cls,
+        lead,
+        tier: str,
+        crm_log=None,
+        meeting: dict | None = None,
+        quote: dict | None = None,
+    ) -> LeadDetail:
         """Build the detail payload.
 
         ``crm_log`` is the lead's CRM NotificationLog row, or None when no push
@@ -195,8 +202,8 @@ class LeadDetail(BaseModel):
             conversation_id=lead.conversation_id,
             score_breakdown=breakdown,
             source=source_info,
-            meeting=None,
-            quote=None,
+            meeting=meeting,
+            quote=quote,
             crm=_crm_state(lead, crm_log),
         )
 
