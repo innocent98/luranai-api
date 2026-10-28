@@ -1,0 +1,44 @@
+{
+  "scenario": "ratings-list-after-whatsapp-reply",
+  "note": "",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/reviews/session",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "ratings": [
+        {
+          "score": 5,
+          "comment": null,
+          "meta": {
+            "channel": "whatsapp"
+          },
+          "id": "246e0884-3007-45fb-8ec6-715c0640c7ae",
+          "tenant_id": "3d3e8029-ea97-49ca-bcc3-99ed96abd18f",
+          "session_id": "076904b2-3b36-49f7-9ba6-1ce0f92c7f22",
+          "customer_label": "Ada",
+          "created_at": "2026-10-28T14:17:41.000143Z",
+          "updated_at": "2026-10-28T14:17:41.000143Z",
+          "rated_agent_id": "70bf8d5e-c477-47fd-9f4b-52525e7ab68f",
+          "source": "manual_request",
+          "rating_request_id": "cf9a08e7-3b36-4346-883f-ae6b21d786b7",
+          "rated_agent_name": "Alpha Owner",
+          "ticket_id": "304e347e-e673-44dd-b12f-30eadf5a783c",
+          "ticket_number": "TKT-CAPTURE-1",
+          "rated_party": "human"
+        }
+      ],
+      "total": 1,
+      "average_score": 5.0,
+      "csat_percent": 100.0,
+      "page": 1,
+      "page_size": 50
+    }
+  }
+}

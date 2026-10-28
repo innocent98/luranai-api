@@ -15,7 +15,7 @@ from typing import Protocol
 class InboundMessage:
     provider_message_id: str
     chat_ref: str  # opaque, reply target (may be a LID, NOT a phone number)
-    kind: str  # "text" | "other"
+    kind: str  # "text" | "image" | "other"
     text: str
     sender_phone_digits: str | None = None
     push_name: str | None = None
@@ -25,7 +25,18 @@ class InboundMessage:
 @dataclass(frozen=True)
 class OutboundMessage:
     chat_ref: str
-    text: str
+    text: str = ""
+    # An image send: `image_url` is a URL WE stored (validated by the caller), `text` is unused.
+    image_url: str | None = None
+    image_caption: str | None = None
+
+
+@dataclass(frozen=True)
+class MediaBlob:
+    """Bytes fetched from the sidecar's short-lived media store. Never log or persist as is."""
+
+    content: bytes = field(repr=False)
+    content_type: str
 
 
 @dataclass(frozen=True)
@@ -100,6 +111,22 @@ class RateCapped(ChannelError):
     code = "rate_cap"
 
 
+class MediaNotFound(ChannelError):
+    """The sidecar no longer holds the media (TTL 10 min / evicted): permanent, not retried."""
+
+    code = "media_not_found"
+
+
+class MediaTooLarge(ChannelError):
+    code = "media_too_large"
+
+
+class MediaRejected(ChannelError):
+    """Sidecar refused an outbound image (400 / 413 / 415): permanent, never retried."""
+
+    code = "media_rejected"
+
+
 class SidecarUnavailable(ChannelError):
     """Transport failure / 5xx / timeout: transient, retried with backoff."""
 
@@ -119,3 +146,5 @@ class ChannelAdapter(Protocol):
     async def delete_session(self, session_key: str) -> None: ...
 
     async def send(self, session_key: str, message: OutboundMessage) -> SendResult: ...
+
+    async def fetch_media(self, session_key: str, media_id: str, max_bytes: int) -> MediaBlob: ...

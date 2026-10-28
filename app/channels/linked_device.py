@@ -5,12 +5,18 @@ Bearer-authenticated, short timeouts, never logs the token or a pairing code.
 
 from __future__ import annotations
 
+import re
+
 import httpx
 from loguru import logger
 
 from app.channels.base import (
     CapacityExceeded,
     ChannelCapabilities,
+    MediaBlob,
+    MediaNotFound,
+    MediaRejected,
+    MediaTooLarge,
     NotConnected,
     NotPairable,
     OutboundMessage,
@@ -26,14 +32,19 @@ from app.channels.base import (
 from app.core.config import settings
 
 
+# The id comes from a signed webhook, but it is interpolated into a URL path: pin its shape.
+_MEDIA_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_MEDIA_CHUNK = 64 * 1024
+
+
 class LinkedDeviceAdapter:
     provider = "linked_device"
-    # Reply-only, text only, no buttons (the demo slice).
+    # Reply-only, text + images, no buttons.
     capabilities = ChannelCapabilities(
         rich_buttons=False,
         templates_required_outside_window=False,
         max_text_len=4096,
-        media_kinds=(),
+        media_kinds=("image",),
     )
 
     def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
@@ -120,18 +131,56 @@ class LinkedDeviceAdapter:
             raise SidecarUnavailable(f"sidecar_status_{resp.status_code}")
 
     async def send(self, session_key: str, message: OutboundMessage) -> SendResult:
-        resp = await self._request(
-            "POST",
-            f"/sessions/{session_key}/send",
-            json={"to_ref": message.chat_ref, "text": message.text},
-        )
+        if message.image_url:
+            image: dict[str, str] = {"url": message.image_url}
+            if message.image_caption:
+                image["caption"] = message.image_caption
+            payload: dict = {"to_ref": message.chat_ref, "image": image}
+        else:
+            payload = {"to_ref": message.chat_ref, "text": message.text}
+        resp = await self._request("POST", f"/sessions/{session_key}/send", json=payload)
         if resp.status_code == 200:
             return SendResult(message_id=str(resp.json()["message_id"]))
         if resp.status_code == 409:
             raise ReplyOnly()
         if resp.status_code == 429:
             raise RateCapped()
+        if resp.status_code in (400, 413, 415) and message.image_url:
+            # invalid_image_url / image_too_large / unsupported_media_type: retrying cannot help.
+            raise MediaRejected(code=self._error_code(resp) or "media_rejected")
         if resp.status_code in (404, 503):
             # 503 not_connected and an unknown session are both hard stops (no retry).
             raise NotConnected(code=self._error_code(resp) or "not_connected")
         raise SidecarUnavailable(f"sidecar_status_{resp.status_code}")
+
+    async def fetch_media(self, session_key: str, media_id: str, max_bytes: int) -> MediaBlob:
+        """GET the stored media, streamed with a hard byte cap. Bytes are never logged."""
+        if not _MEDIA_ID.fullmatch(media_id):
+            raise MediaNotFound()
+        try:
+            async with self._client() as client:
+                async with client.stream(
+                    "GET", f"/sessions/{session_key}/media/{media_id}"
+                ) as resp:
+                    if resp.status_code == 404:
+                        raise MediaNotFound()
+                    if resp.status_code != 200:
+                        raise SidecarUnavailable(f"sidecar_status_{resp.status_code}")
+                    declared = resp.headers.get("content-length")
+                    if declared and declared.isdigit() and int(declared) > max_bytes:
+                        raise MediaTooLarge()
+                    chunks: list[bytes] = []
+                    total = 0
+                    async for chunk in resp.aiter_bytes(_MEDIA_CHUNK):
+                        total += len(chunk)
+                        if total > max_bytes:
+                            raise MediaTooLarge()
+                        chunks.append(chunk)
+                    ctype = resp.headers.get("content-type", "application/octet-stream")
+                    return MediaBlob(
+                        content=b"".join(chunks),
+                        content_type=ctype.split(";", 1)[0].strip().lower(),
+                    )
+        except httpx.HTTPError as exc:
+            logger.warning("whatsapp sidecar transport error: {}", type(exc).__name__)
+            raise SidecarUnavailable(type(exc).__name__) from None

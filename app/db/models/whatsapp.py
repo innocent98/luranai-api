@@ -112,6 +112,14 @@ class WhatsAppChat(Base, UUIDMixin, TimestampMixin):
     human_until: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), comment="Owner typed from the phone: AI paused until this time"
     )
+    rating_request_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("rating_requests.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="Open rating request whose prompt was delivered to this chat (a 1-5 reply answers it)",
+    )
+    rating_request_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), comment="Copy of the request expiry (7 days after it was minted)"
+    )
 
 
 class WhatsAppInboundMessage(Base, UUIDMixin):

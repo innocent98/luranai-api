@@ -176,6 +176,21 @@ async def _process_image_upload(
     """
     # Bounded read: never buffer more than cap+1 bytes (covers chunked bodies).
     content = await file.read(_CHAT_UPLOAD_MAX_BYTES + 1)
+    return await process_image_bytes(
+        content,
+        file.content_type or "application/octet-stream",
+        file.filename or "image",
+        session,
+        direction,
+        db,
+    )
+
+
+async def screen_image_bytes(content: bytes, content_type: str) -> None:
+    """Size cap, real-format check and fail-closed moderation: everything that needs no session.
+
+    Nothing is stored. Raises HTTPException (413 too large, 415 invalid image, 422 image_rejected).
+    """
     if len(content) > _CHAT_UPLOAD_MAX_BYTES:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Image too large")
 
@@ -186,7 +201,6 @@ async def _process_image_upload(
             detail=error or "Invalid image",
         )
 
-    content_type = file.content_type or "application/octet-stream"
     # Moderation precedes storage: a flagged image is never uploaded. Fail closed.
     try:
         allowed, reason = await moderate_image(content, content_type)
@@ -199,11 +213,41 @@ async def _process_image_upload(
             detail={"code": "image_rejected", "reason": reason},
         )
 
+
+async def process_image_bytes(
+    content: bytes,
+    content_type: str,
+    filename: str,
+    session: ConversationSession,
+    direction: AttachmentDirection,
+    db: Session,
+) -> MessageAttachment:
+    """Bytes-based core of the image pipeline: screen, then store (see the two halves).
+
+    Raises HTTPException (413 too large, 415 invalid image, 422 image_rejected, 502 storage).
+    """
+    await screen_image_bytes(content, content_type)
+    return store_screened_image(content, content_type, filename, session, direction, db)
+
+
+def store_screened_image(
+    content: bytes,
+    content_type: str,
+    filename: str,
+    session: ConversationSession,
+    direction: AttachmentDirection,
+    db: Session,
+) -> MessageAttachment:
+    """Upload bytes that `screen_image_bytes` already passed and insert the attachment row
+    (30-day retention comes from the model default). Raises HTTPException 502 on storage failure.
+
+    Callers MUST screen first: this function does not moderate.
+    """
     url, public_id, upload_error = cloudinary_manager.upload_chat_image(
         file_content=content,
         tenant_id=session.tenant_id,
         session_id=session.id,
-        filename=file.filename or "image",
+        filename=filename,
     )
     if upload_error or not url or not public_id:
         logger.error(f"Chat image upload failed: {upload_error}")

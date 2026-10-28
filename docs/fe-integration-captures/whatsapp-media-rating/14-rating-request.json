@@ -1,0 +1,26 @@
+{
+  "scenario": "rating-request",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/tickets/304e347e-e673-44dd-b12f-30eadf5a783c/rating-requests",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "request_id": "cf9a08e7-3b36-4346-883f-ae6b21d786b7",
+      "ticket_id": "304e347e-e673-44dd-b12f-30eadf5a783c",
+      "session_id": "076904b2-3b36-49f7-9ba6-1ce0f92c7f22",
+      "agent_id": "70bf8d5e-c477-47fd-9f4b-52525e7ab68f",
+      "agent_name": "Alpha Owner",
+      "source": "manual_request",
+      "message_id": "057f60a1-6d6e-48b4-aa2c-07c74d7e9719",
+      "created_at": "2026-10-28T14:17:40.141225Z",
+      "expires_at": "2026-11-04T14:17:40.141225Z"
+    }
+  }
+}

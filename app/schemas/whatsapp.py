@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # WhatsApp text can be 65k; the chat pipeline accepts 10k.
 MAX_TEXT = 10000
@@ -77,14 +77,33 @@ class SessionStatusEvent(_EventBase):
     code: int | None = None
 
 
+class InboundMedia(BaseModel):
+    """Reference to an image held in the sidecar's media store (fetched, never inlined)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str = Field(..., min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    mime: str = Field(..., max_length=100)
+    bytes: int = Field(..., ge=0, le=100 * 1024 * 1024)
+    sha256: str = Field(..., pattern=r"^[A-Fa-f0-9]{64}$")
+
+
 class MessageInboundEvent(_EventBase):
     type: Literal["message.inbound"]
     message_id: str = Field(..., min_length=1, max_length=128)
     from_ref: str = Field(..., min_length=1, max_length=256)
     from_phone_digits: str | None = Field(None, max_length=20)
     push_name: str | None = Field(None, max_length=255)
-    kind: Literal["text", "other"]
-    text: str = Field("", max_length=MAX_TEXT)
+    kind: Literal["text", "image", "other"]
+    text: str = Field("", max_length=MAX_TEXT)  # an image's caption
+    media: InboundMedia | None = None
+    skipped: str | None = Field(None, max_length=64)  # e.g. media_too_large
+
+    @model_validator(mode="after")
+    def _image_needs_media(self) -> MessageInboundEvent:
+        if self.kind == "image" and self.media is None:
+            raise ValueError("an image event must carry its media reference")
+        return self
 
 
 class MessageOutboundExternalEvent(_EventBase):

@@ -11,10 +11,11 @@ from uuid import UUID
 from arq import Retry
 from loguru import logger
 
+from app.channels.base import SidecarUnavailable
 from app.core.encryption import try_decrypt_field
 from app.db.session import SessionLocal
 from app.services import whatsapp_inbound
-from app.services.whatsapp_outbound import RetrySend, send_text
+from app.services.whatsapp_outbound import RetrySend, send_image, send_text
 
 _CHAT_LOCK_TTL_S = 120
 # A busy chat (the previous message's AI turn is still running) is waited for in-job for up to
@@ -63,6 +64,9 @@ async def process_whatsapp_event(ctx: dict, payload: dict | str) -> str:
         outcome = await whatsapp_inbound.handle_event(db, event)
         logger.info("whatsapp event {} -> {}", event.get("type"), outcome)
         return outcome
+    except SidecarUnavailable:
+        # e.g. the media endpoint is down: the image stays in the sidecar for 10 minutes, retry.
+        raise Retry(defer=15) from None
     finally:
         db.close()
         if key:
@@ -77,7 +81,12 @@ async def process_whatsapp_event(ctx: dict, payload: dict | str) -> str:
 
 
 async def send_whatsapp_message(
-    ctx: dict, connection_id: str, chat_id: str, text: str, guard: bool = False
+    ctx: dict,
+    connection_id: str,
+    chat_id: str,
+    text: str,
+    guard: bool = False,
+    rating_request_id: str | None = None,
 ) -> str:
     db = SessionLocal()
     try:
@@ -88,6 +97,26 @@ async def send_whatsapp_message(
             try_decrypt_field(text),  # sealed by whatsapp_enqueue.enqueue_send
             int(ctx.get("job_try", 1)),
             guard,
+            UUID(rating_request_id) if rating_request_id else None,
+        )
+    except RetrySend as exc:
+        raise Retry(defer=exc.defer_s) from None
+    finally:
+        db.close()
+
+
+async def send_whatsapp_image(
+    ctx: dict, connection_id: str, chat_id: str, attachment_id: str, caption: str | None = None
+) -> str:
+    db = SessionLocal()
+    try:
+        return await send_image(
+            db,
+            UUID(connection_id),
+            UUID(chat_id),
+            UUID(attachment_id),
+            try_decrypt_field(caption) if caption else None,
+            int(ctx.get("job_try", 1)),
         )
     except RetrySend as exc:
         raise Retry(defer=exc.defer_s) from None

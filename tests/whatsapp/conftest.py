@@ -61,6 +61,7 @@ class Queue:
     def __init__(self) -> None:
         self.events: list[dict] = []
         self.sends: list[dict] = []
+        self.images: list[dict] = []
         self.fail_events = False
 
 
@@ -74,7 +75,12 @@ def queue(monkeypatch):
         q.events.append(event)
 
     async def enqueue_send(
-        connection_id: UUID, chat_id: UUID, text: str, key: str, guard: bool = False
+        connection_id: UUID,
+        chat_id: UUID,
+        text: str,
+        key: str,
+        guard: bool = False,
+        rating_request_id: UUID | None = None,
     ) -> None:
         q.sends.append(
             {
@@ -83,11 +89,26 @@ def queue(monkeypatch):
                 "text": text,
                 "key": key,
                 "guard": guard,
+                "rating_request_id": rating_request_id,
+            }
+        )
+
+    async def enqueue_send_image(
+        connection_id: UUID, chat_id: UUID, attachment_id: UUID, caption: str | None, key: str
+    ) -> None:
+        q.images.append(
+            {
+                "connection_id": connection_id,
+                "chat_id": chat_id,
+                "attachment_id": attachment_id,
+                "caption": caption,
+                "key": key,
             }
         )
 
     monkeypatch.setattr(whatsapp_enqueue, "enqueue_event", enqueue_event)
     monkeypatch.setattr(whatsapp_enqueue, "enqueue_send", enqueue_send)
+    monkeypatch.setattr(whatsapp_enqueue, "enqueue_send_image", enqueue_send_image)
     return q
 
 
@@ -218,6 +239,7 @@ def owner_typed(
 class LLM:
     def __init__(self) -> None:
         self.calls = 0
+        self.image_urls: list = []  # the `image_urls` of every vision-capable model call
 
 
 @pytest.fixture
@@ -229,6 +251,7 @@ def llm():
         self, prompt, max_tokens=800, model_name=None, system_message=None, image_urls=None
     ):
         counter.calls += 1
+        counter.image_urls.append(image_urls)
         return "We open 9am to 5pm, Monday to Friday.", 30, False
 
     async def _retr(self, *, tenant_id, query, max_chunks, score_threshold):
@@ -257,3 +280,66 @@ def log_lines():
     sink_id = logger.add(lambda m: lines.append(str(m)), level="DEBUG")
     yield lines
     logger.remove(sink_id)
+
+
+def png_bytes(size: tuple[int, int] = (8, 8), colour: str = "red") -> bytes:
+    """A real (tiny) PNG: the pipeline's Pillow format check must pass on it."""
+    import io
+
+    from PIL import Image
+
+    out = io.BytesIO()
+    Image.new("RGB", size, colour).save(out, format="PNG")
+    return out.getvalue()
+
+
+class MediaStubs:
+    """Stand-ins for OpenAI moderation and Cloudinary (tests never reach either)."""
+
+    CLOUDINARY_URL = "https://res.cloudinary.com/demo/image/upload/luran/chat_images/{n}.jpg"
+
+    def __init__(self) -> None:
+        self.moderated: list[bytes] = []
+        self.uploads: list[dict] = []
+        self.destroyed: list[str] = []
+        self.verdict: tuple[bool, str | None] = (True, None)
+        self.moderation_raises = False
+        self.upload_fails = False
+
+
+@pytest.fixture
+def media_stubs(monkeypatch):
+    from app.api.v1.endpoints import chat as chat_module
+
+    stubs = MediaStubs()
+
+    async def moderate(image_bytes, content_type):
+        stubs.moderated.append(image_bytes)
+        if stubs.moderation_raises:
+            raise RuntimeError("openai down")
+        return stubs.verdict
+
+    def upload(file_content, tenant_id, session_id, filename):
+        if stubs.upload_fails:
+            return None, None, "Failed to upload image"
+        n = len(stubs.uploads) + 1
+        stubs.uploads.append(
+            {"tenant_id": tenant_id, "session_id": session_id, "bytes": len(file_content)}
+        )
+        return MediaStubs.CLOUDINARY_URL.format(n=n), f"luran/chat_images/pub{n}", None
+
+    def destroy(public_id, *, resource_type):
+        stubs.destroyed.append(public_id)
+        return True, None
+
+    monkeypatch.setattr(chat_module, "moderate_image", moderate)
+    monkeypatch.setattr(chat_module.cloudinary_manager, "upload_chat_image", upload)
+    monkeypatch.setattr(chat_module.cloudinary_manager, "destroy", destroy)
+    return stubs
+
+
+def inbound_image(conn, fake, content: bytes | None = None, caption: str = "", **kw):
+    """A `message.inbound` image event whose bytes are staged in the fake sidecar's store."""
+    content = content if content is not None else png_bytes()
+    media = fake.add_media(conn.session_key, content, kw.pop("mime", "image/png"))
+    return inbound(conn, text=caption, kind="image", media=media, **kw)

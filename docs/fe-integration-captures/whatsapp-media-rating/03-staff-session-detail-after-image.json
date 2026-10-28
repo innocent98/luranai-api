@@ -1,0 +1,107 @@
+{
+  "scenario": "staff-session-detail-after-image",
+  "note": "Customer image message with attachments; the AI reply says how many images it saw (LLM stubbed).",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/chat/sessions/076904b2-3b36-49f7-9ba6-1ce0f92c7f22",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "messages": [
+        {
+          "role": "user",
+          "content": "Is this the right model?",
+          "id": "98883d9e-5a52-498e-959c-aaede0c306d7",
+          "session_id": "076904b2-3b36-49f7-9ba6-1ce0f92c7f22",
+          "retrieved_chunk_ids": null,
+          "token_count": null,
+          "attachments": [
+            {
+              "id": "6e97385e-4d75-4d4c-8a68-d7ebc9c40e7f",
+              "url": "https://res.cloudinary.com/demo/image/upload/luran/chat_images/e8c3881bf8e6.jpg",
+              "content_type": "image/png",
+              "width": 24,
+              "height": 24,
+              "kind": "image",
+              "duration_ms": null,
+              "poster_url": null,
+              "expired": false
+            }
+          ],
+          "reply_to": null,
+          "meta": {
+            "channel": "whatsapp"
+          },
+          "created_at": "2026-10-28T14:17:35.224222Z"
+        },
+        {
+          "role": "assistant",
+          "content": "[stubbed AI] I can see 1 image(s) you sent.",
+          "id": "95a1f402-aa1f-46b5-b376-85c5441ec08a",
+          "session_id": "076904b2-3b36-49f7-9ba6-1ce0f92c7f22",
+          "retrieved_chunk_ids": [],
+          "token_count": 30,
+          "attachments": [],
+          "reply_to": null,
+          "meta": {
+            "chunks_used": 0,
+            "avg_similarity": 0.0,
+            "retrieval_hit": false,
+            "escalation_action": "no_escalation",
+            "response_quality": {
+              "is_substantial": true,
+              "has_uncertainty": false,
+              "word_count": 9,
+              "char_count": 43
+            },
+            "token_breakdown": {
+              "prompt_tokens": 138,
+              "completion_tokens": -108,
+              "total_tokens": 30
+            },
+            "channel": "whatsapp"
+          },
+          "created_at": "2026-10-28T14:17:35.434253Z"
+        }
+      ],
+      "ticket_id": null,
+      "ratings": [],
+      "meta": {
+        "contact_name": "Ada"
+      },
+      "id": "076904b2-3b36-49f7-9ba6-1ce0f92c7f22",
+      "tenant_id": "3d3e8029-ea97-49ca-bcc3-99ed96abd18f",
+      "visitor_id": "463f86d5-9e9a-4456-91dc-f471ae9d42f1",
+      "visitor_session_id": null,
+      "customer_user_id": null,
+      "visitor": {
+        "id": "463f86d5-9e9a-4456-91dc-f471ae9d42f1",
+        "name": "Ada",
+        "email": null,
+        "phone": null,
+        "first_seen_at": "2026-10-28T14:17:35.031717Z",
+        "last_seen_at": "2026-10-28T14:17:35.031717Z",
+        "is_blocked": false
+      },
+      "source": "whatsapp",
+      "status": "active",
+      "escalation_reason": null,
+      "escalated_at": null,
+      "agent_id": null,
+      "agent_joined_at": null,
+      "last_message_at": "2026-10-28T14:17:35.432991Z",
+      "created_at": "2026-10-28T14:17:35.041885Z",
+      "updated_at": "2026-10-28T14:17:35.235613Z",
+      "customer_label": "Ada",
+      "customer_presence": {
+        "state": "offline",
+        "last_seen_at": null
+      }
+    }
+  }
+}

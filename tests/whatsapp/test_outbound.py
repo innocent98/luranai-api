@@ -231,12 +231,6 @@ async def test_ticket_and_missed_frames_map_to_fixed_or_given_text(db, queue, ma
     assert queue.sends[2]["text"] == "Sorry for the wait"
 
 
-async def test_image_only_agent_frame_gets_a_text_notice(db, queue, manager, wa_session):
-    frame = {**AGENT_FRAME, "content": "[image]", "attachments": [{"id": "a"}]}
-    await manager.fanout_event(wa_session.session_id, frame, True, True)
-    assert queue.sends[0]["text"] == whatsapp_dispatch.IMAGE_NOTICE
-
-
 async def test_hook_is_inert_when_whatsapp_is_off_and_never_breaks_fanout(
     db, queue, manager, wa_session, wa_settings, monkeypatch
 ):

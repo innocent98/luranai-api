@@ -1306,6 +1306,7 @@ class WorkerSettings:
 
     from app.workers.whatsapp import (  # type: ignore[misc]
         process_whatsapp_event,
+        send_whatsapp_image,
         send_whatsapp_message,
     )
     from arq import func as arq_func  # type: ignore[misc]
@@ -1316,6 +1317,7 @@ class WorkerSettings:
         # Per-function try budgets: chat-lock contention + send backoff outlast the global 3.
         arq_func(process_whatsapp_event, max_tries=30),
         arq_func(send_whatsapp_message, max_tries=MAX_SEND_TRIES),
+        arq_func(send_whatsapp_image, max_tries=MAX_SEND_TRIES),
         run_website_audit,
         send_rep_alert,
         send_slack_notification,
