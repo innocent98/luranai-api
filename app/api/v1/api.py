@@ -48,6 +48,7 @@ from app.api.v1.endpoints.platform import financials as platform_financials
 from app.api.v1.endpoints.platform import health as platform_health
 from app.api.v1.endpoints.platform import pricing as platform_pricing
 from app.api.v1.endpoints.platform import promotional_grants as platform_promotional_grants
+from app.api.v1.endpoints.platform import referrals as platform_referrals
 from app.api.v1.endpoints.platform import reviews as platform_reviews
 from app.api.v1.endpoints.platform import subscriptions as platform_subscriptions
 from app.api.v1.endpoints.platform import tenants as platform_tenants
@@ -221,6 +222,13 @@ api_router.include_router(
     platform_promotional_grants.router,
     prefix="/platform/promotional-grants",
     tags=["platform: promotional grants"],
+)
+
+# Platform admin referral program (marketer onboarding)
+api_router.include_router(
+    platform_referrals.router,
+    prefix="/platform/referrals",
+    tags=["platform: referrals"],
 )
 
 # Test-only fixture endpoints (env-gated — 404 outside test/local)

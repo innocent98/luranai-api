@@ -283,6 +283,71 @@ class TokenService:
             logger.error(f"Failed to verify platform admin reset token: {e}")
             return None
 
+    # Marketer invite tokens (set-password link emailed when an admin onboards a marketer)
+    def create_marketer_invite_token(
+        self,
+        marketer_id: UUID,
+        email: str,
+        expiry_minutes: int = 7 * 24 * 60,
+    ) -> str:
+        """
+        Create a one-time invite token a marketer redeems to set their first password.
+
+        Args:
+            marketer_id: UUID of the marketer
+            email: Marketer's (normalised) email address
+            expiry_minutes: Token expiry in minutes (default 7 days)
+
+        Returns:
+            Generated token string
+        """
+        token = self._generate_token()
+        key = f"marketer_invite:{token}"
+
+        data = {
+            "marketer_id": str(marketer_id),
+            "email": email,
+        }
+
+        try:
+            self.redis_client.hset(key, mapping=data)
+            self.redis_client.expire(key, expiry_minutes * 60)
+            logger.info(f"Created invite token for marketer {marketer_id}")
+            return token
+        except Exception as e:
+            logger.error(f"Failed to create marketer invite token: {e}")
+            raise
+
+    def verify_marketer_invite_token(self, token: str) -> dict | None:
+        """
+        Verify a marketer invite token and consume it (one-time use).
+
+        Args:
+            token: Token to verify
+
+        Returns:
+            Dict with marketer_id and email if valid, None otherwise
+        """
+        key = f"marketer_invite:{token}"
+
+        try:
+            # Read and delete in one MULTI/EXEC so two concurrent redemptions cannot both win.
+            pipe = self.redis_client.pipeline(transaction=True)
+            pipe.hgetall(key)
+            pipe.delete(key)
+            data, _ = pipe.execute()
+            if not data:
+                logger.warning("Invalid or expired marketer invite token")
+                return None
+
+            return {
+                "marketer_id": UUID(data["marketer_id"]),
+                "email": data["email"],
+            }
+        except Exception as e:
+            logger.error(f"Failed to verify marketer invite token: {e}")
+            return None
+
     def invalidate_all_user_tokens(self, user_id: UUID) -> None:
         """
         Invalidate all tokens for a specific user.
