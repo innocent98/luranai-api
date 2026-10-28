@@ -36,8 +36,9 @@ services:
       WHATSAPP_AUTH_MASTER_KEY: ${WHATSAPP_AUTH_MASTER_KEY:?set WHATSAPP_AUTH_MASTER_KEY}
       BACKEND_BASE: ${WHATSAPP_BACKEND_BASE:-http://api:8000}
       # Direct to Postgres (not pgbouncer): the schema bootstrap takes a session-level advisory lock, and pgbouncer
-      # (transaction pooling) does not know this role. Dedicated least-privilege role, created by whatsapp-db-init below.
-      WHATSAPP_SIDECAR_DATABASE_URL: postgresql://whatsapp_sidecar:${WHATSAPP_SIDECAR_DB_PASSWORD:?set WHATSAPP_SIDECAR_DB_PASSWORD}@db:5432/${POSTGRES_DB}
+      # (transaction pooling) does not know this role. Dedicated least-privilege role, created by whatsapp-db-init below,
+      # which refuses to run without WHATSAPP_SIDECAR_DB_PASSWORD (the CD gate checks it first).
+      WHATSAPP_SIDECAR_DATABASE_URL: postgresql://whatsapp_sidecar:${WHATSAPP_SIDECAR_DB_PASSWORD}@db:5432/${POSTGRES_DB}
       # Logical Redis DB 1: the backend and arq use DB 0. Keys are prefixed `wa:`.
       WHATSAPP_SIDECAR_REDIS_URL: ${WHATSAPP_SIDECAR_REDIS_URL:-redis://redis:6379/1}
       MAX_SESSIONS: ${WHATSAPP_MAX_SESSIONS:-2}
