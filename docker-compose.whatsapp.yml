@@ -22,8 +22,10 @@ services:
     # Under host memory pressure the kernel kills this container before anything else (production shares the host).
     oom_score_adj: 500
     read_only: true
+    # 32m: Baileys writes an encrypted copy AND an original copy of an outgoing image under /tmp while it uploads
+    # (measured: 2 x 10 MB for a 10 MB image). The sidecar serialises image uploads process-wide. tmpfs counts toward mem_limit.
     tmpfs:
-      - /tmp:size=16m,mode=1777
+      - /tmp:size=32m,mode=1777
     cap_drop:
       - ALL
     security_opt:
@@ -43,6 +45,10 @@ services:
       WHATSAPP_SIDECAR_REDIS_URL: ${WHATSAPP_SIDECAR_REDIS_URL:-redis://redis:6379/1}
       MAX_SESSIONS: ${WHATSAPP_MAX_SESSIONS:-2}
       RSS_REFUSE_MB: ${WHATSAPP_RSS_REFUSE_MB:-300}
+      # Images: hosts the backend may ask the sidecar to fetch from (comma separated, exact names), and the cap of the
+      # in-memory store of inbound images (never on disk, 10 minute TTL, 8 per session).
+      MEDIA_URL_ALLOWLIST: ${WHATSAPP_MEDIA_URL_ALLOWLIST:-res.cloudinary.com}
+      MEDIA_STORE_MAX_MB: ${WHATSAPP_MEDIA_STORE_MAX_MB:-32}
     # No compose healthcheck here on purpose: the image's HEALTHCHECK (GET /health with the bearer token read from the
     # container's own env) is the single source, so the token is never written into a compose file or a CD log.
     depends_on:

@@ -1,8 +1,11 @@
-// Pure message classification. 1:1 text chats only: groups, status, broadcasts, newsletters are ignored; media is never
-// downloaded (kind "other", text ""); edits, deletes, reactions and protocol chatter are ignored.
+// Pure message classification. 1:1 chats only: groups, status, broadcasts, newsletters are ignored. Text is "text"; a
+// jpeg/png/webp/gif image is "image" (the caller downloads it, capped); every other media type is "other" with text ""
+// and is never downloaded. Edits, deletes, reactions and protocol chatter are ignored.
+import { IMAGE_MIMES } from './media.mjs'
 const ONE_TO_ONE = /@(s\.whatsapp\.net|lid)$/
 const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/
 const MAX_TEXT = 8192
+const DIRECT_PATH = /^\/[^\s\\]{1,2000}$/   // must start with '/': '@evil.com/x' or '.evil.com/x' cannot change the host
 
 // Wrapper / chatter content types that must never surface as a message.
 const IGNORED = ['protocolMessage', 'editedMessage', 'reactionMessage', 'encReactionMessage', 'senderKeyDistributionMessage',
@@ -29,7 +32,7 @@ function unwrap(content) {
 }
 
 /**
- * @returns null (ignore) | { id, fromMe, chatRef, kind, text, pushName, tsS }
+ * @returns null (ignore) | { id, fromMe, chatRef, kind, text, pushName, tsS, image? }
  */
 export function parseMessage(msg, { selfUsers = [] } = {}) {
   const key = msg?.key
@@ -44,12 +47,21 @@ export function parseMessage(msg, { selfUsers = [] } = {}) {
     : typeof c.extendedTextMessage?.text === 'string' ? c.extendedTextMessage.text : null
   const hasContent = text !== null || Object.keys(c).some((k) => k !== 'messageContextInfo')
   if (!hasContent) return null
+  const img = text === null && c.imageMessage && typeof c.imageMessage === 'object' ? c.imageMessage : null
+  const imgMime = img && typeof img.mimetype === 'string' ? img.mimetype.split(';')[0].trim().toLowerCase() : null
+  // The sender controls every field of an imageMessage, including `url`. We never fetch `url`: only a CDN-relative
+  // directPath (resolved against the fixed WhatsApp media host in wa.mjs) plus the media key are used.
+  const directPath = img?.directPath
+  const mediaKey = img?.mediaKey
+  const isImage = !!imgMime && IMAGE_MIMES.has(imgMime) && typeof directPath === 'string' && DIRECT_PATH.test(directPath)
+    && (mediaKey instanceof Uint8Array) && mediaKey.length === 32
   return {
     id: key.id,
     fromMe: !!key.fromMe,
     chatRef: key.remoteJid,
-    kind: text !== null ? 'text' : 'other',
-    text: text !== null ? text.slice(0, MAX_TEXT) : '',
+    kind: text !== null ? 'text' : isImage ? 'image' : 'other',
+    text: text !== null ? text.slice(0, MAX_TEXT) : isImage && typeof img.caption === 'string' ? img.caption.slice(0, MAX_TEXT) : '',
+    ...(isImage ? { image: { mime: imgMime, declaredBytes: img.fileLength, directPath, mediaKey } } : {}),
     pushName: typeof msg.pushName === 'string' && msg.pushName ? msg.pushName.slice(0, 100) : null,
     tsS: Number(msg.messageTimestamp?.toString?.() ?? msg.messageTimestamp) || 0,
   }

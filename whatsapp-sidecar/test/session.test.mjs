@@ -194,11 +194,11 @@ test('inbound text: contract fields; from_ref kept opaque; phone resolved from j
   assert.equal(ev[3].from_phone_digits, null)
 })
 
-test('inbound: media is kind other with empty text (never downloaded); extended text works; duplicates, groups, status, history ignored', async () => {
+test('inbound: non-image media is kind other with empty text (never downloaded; images: see media-session.test.mjs); extended text works; duplicates, groups, status, history ignored', async () => {
   const h = makeHarness(); await pairAndConnect(h)
   const s = h.last()
   s.upsert([
-    { key: { id: 'M1', remoteJid: CUST, fromMe: false }, message: { imageMessage: { caption: 'look', mimetype: 'image/jpeg' } } },
+    { key: { id: 'M1', remoteJid: CUST, fromMe: false }, message: { videoMessage: { caption: 'look', mimetype: 'video/mp4' } } },
     { key: { id: 'M2', remoteJid: CUST, fromMe: false }, message: { extendedTextMessage: { text: 'quoted reply' } } },
     textMsg('M2', CUST, 'dup'),
     textMsg('G1', '1203630@g.us', 'group'),

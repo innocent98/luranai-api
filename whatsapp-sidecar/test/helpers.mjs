@@ -1,11 +1,13 @@
 // Fake-socket harness: no network, no Baileys socket. Real auth-state/crypto code runs against MemoryAuthDb.
-import { Writable } from 'node:stream'
+import { Readable, Writable } from 'node:stream'
 import pino from 'pino'
 import { openAuthState } from '../src/auth-state.mjs'
 import { MemoryAuthDb } from '../src/db.mjs'
 import { MemoryLeaseBackend } from '../src/lease.mjs'
 import { MemoryCounter } from '../src/limiter.mjs'
+import { Gate, MediaStore } from '../src/media.mjs'
 import { SessionManager } from '../src/manager.mjs'
+import { ApiError } from '../src/session.mjs'
 
 export const MASTER = 'ab'.repeat(32)
 export const TOKEN = 't'.repeat(40)
@@ -33,7 +35,7 @@ export class FakeSocket {
   close(code, msg = 'closed') { this.update({ connection: 'close', lastDisconnect: { error: { output: { statusCode: code }, message: msg } } }) }
   upsert(messages, type = 'notify') { this.ev.emit('messages.upsert', { messages, type }) }
   async requestPairingCode(phone) { this.calls.push(['pair', phone]); return this.pairCode }
-  async sendMessage(jid, content, o) { this.calls.push(['send', jid, content.text, o?.messageId]); return { key: { id: o?.messageId, remoteJid: jid, fromMe: true } } }
+  async sendMessage(jid, content, o) { this.calls.push(['send', jid, content.text, o?.messageId, content]); return { key: { id: o?.messageId, remoteJid: jid, fromMe: true }, message: content.image ? { imageMessage: { mimetype: content.mimetype, caption: content.caption } } : undefined } }
   async readMessages(keys) { this.calls.push(['read', keys[0]?.id]) }
   async presenceSubscribe(j) { this.calls.push(['sub', j]) }
   async sendPresenceUpdate(s, j) { this.calls.push(['presence', s, j]) }
@@ -58,7 +60,8 @@ export function makeLogCapture() {
 export function makeHarness(over = {}) {
   const cfg = {
     masterKeyHex: MASTER, maxSessions: 3, rssRefuseMb: 400, sendPerMin: 6, dailySendCap: 200, replyWindowHours: 24,
-    restoreStaggerMs: 2000, leaseTtlMs: 30000, pairingTtlMs: 600000, pairingWaitMs: 1000, ...over.cfg,
+    restoreStaggerMs: 2000, leaseTtlMs: 30000, pairingTtlMs: 600000, pairingWaitMs: 1000,
+    mediaStoreMaxMb: 32, mediaUrlAllowlist: ['res.cloudinary.com'], ...over.cfg,
   }
   const db = over.db || new MemoryAuthDb()
   const leaseBackend = over.leaseBackend || new MemoryLeaseBackend(() => h.clock.now)
@@ -67,6 +70,7 @@ export function makeHarness(over = {}) {
     cfg, db, leaseBackend, logCap, emitted: [], sockets: [], sleeps: [],
     clock: { now: 1_800_000_000_000 },
     rss: 150 * 1048576,
+    mediaFor: {}, images: {}, downloads: [], fetches: [],
   }
   const deps = {
     cfg, log: logCap.log, db, leaseBackend,
@@ -81,6 +85,23 @@ export function makeHarness(over = {}) {
     random: () => 0.5,
     backoffFn: () => 5,
     rssBytes: () => h.rss,
+    media: new MediaStore({ maxBytes: cfg.mediaStoreMaxMb * 1048576, now: () => h.clock.now }),
+    mediaGate: new Gate(2),
+    uploadGate: new Gate(1),
+    // Inbound: tests set h.mediaFor[messageId] = Buffer | Readable | Error. Outbound: h.images[url] = { buf, mime } | ApiError.
+    downloadMedia: async (msg) => {
+      h.downloads.push(msg.key.id)
+      const v = h.mediaFor[msg.key.id]
+      if (v instanceof Error) throw v
+      return v instanceof Readable ? v : Readable.from(Buffer.isBuffer(v) ? [v] : v)
+    },
+    fetchImage: async (url) => {
+      h.fetches.push(url)
+      const v = h.images[url]
+      if (v instanceof Error) throw v
+      if (!v) throw new ApiError(400, 'invalid_image_url')
+      return v
+    },
   }
   h.deps = deps
   h.mgr = new SessionManager(deps)

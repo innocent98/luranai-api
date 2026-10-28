@@ -1,7 +1,7 @@
 // The only module (besides auth-state.mjs) that touches Baileys at runtime. Everything else receives a socket factory,
 // so the session logic is tested against a fake socket with no network.
 import makeWASocket, {
-  Browsers, fetchLatestBaileysVersion, generateMessageIDV2, isJidBroadcast, isJidGroup, isJidNewsletter, makeCacheableSignalKeyStore,
+  Browsers, downloadMediaMessage, fetchLatestBaileysVersion, generateMessageIDV2, isJidBroadcast, isJidGroup, isJidNewsletter, makeCacheableSignalKeyStore,
 } from '@whiskeysockets/baileys'
 import { silentLogger } from './log.mjs'
 
@@ -23,6 +23,12 @@ export function makeBaileysSocket({ auth, version, getMessage }) {
     getMessage,
   })
 }
+
+// Decrypting download as a stream: the caller caps what it reads (MediaStore never sees more than the cap) and destroys it early.
+// `msg` is the sanitized {key, message:{imageMessage:{url:'', directPath, mediaKey, mimetype}}} built by the session, and the
+// host is pinned, so a crafted imageMessage can never make us request an arbitrary URL (the sender controls `url`).
+export const MEDIA_HOST = 'mmg.whatsapp.net'
+export const downloadMedia = (msg, sock) => downloadMediaMessage(msg, 'stream', { host: MEDIA_HOST }, { logger, reuploadRequest: sock.updateMediaMessage })
 
 export const newMessageId = (userId) => generateMessageIDV2(userId)
 
