@@ -8,6 +8,7 @@ Provides single source of truth for pricing and capabilities.
 from datetime import datetime, timedelta
 
 from loguru import logger
+from sqlalchemy import Boolean
 from sqlalchemy.orm import Session
 
 from app.db.models.subscription_plan import SubscriptionPlan
@@ -220,78 +221,9 @@ class PlanService:
         if sort_order is not None:
             _set_plan_attr("sort_order", sort_order)
 
-        # Update capabilities
+        # Update capabilities (every plan capability column; a new column needs no edit here)
         if capabilities is not None:
-            if "can_access_analytics" in capabilities:
-                _set_plan_attr("can_access_analytics", capabilities["can_access_analytics"])
-
-            if "max_knowledge_sources" in capabilities:
-                _set_plan_attr("max_knowledge_sources", capabilities["max_knowledge_sources"])
-
-            if "can_use_url_sources" in capabilities:
-                _set_plan_attr("can_use_url_sources", capabilities["can_use_url_sources"])
-
-            if "max_knowledge_mb" in capabilities:
-                _set_plan_attr("max_knowledge_mb", capabilities["max_knowledge_mb"])
-
-            if "max_conversations_per_month" in capabilities:
-                _set_plan_attr(
-                    "max_conversations_per_month",
-                    capabilities["max_conversations_per_month"],
-                )
-
-            if "max_team_members" in capabilities:
-                _set_plan_attr("max_team_members", capabilities["max_team_members"])
-
-            if "max_response_tokens" in capabilities:
-                if capabilities["max_response_tokens"] <= 0:
-                    raise ValueError("max_response_tokens must be positive")
-                _set_plan_attr("max_response_tokens", capabilities["max_response_tokens"])
-
-            if "max_automation_actions" in capabilities:
-                value = capabilities["max_automation_actions"]
-                if value is not None and value < 0:
-                    raise ValueError("max_automation_actions cannot be negative")
-                _set_plan_attr("max_automation_actions", value)
-
-            if "max_automation_executions_per_month" in capabilities:
-                value = capabilities["max_automation_executions_per_month"]
-                if value is not None and value < 0:
-                    raise ValueError("max_automation_executions_per_month cannot be negative")
-                _set_plan_attr("max_automation_executions_per_month", value)
-
-            if "can_use_ai_chat_automation" in capabilities:
-                _set_plan_attr(
-                    "can_use_ai_chat_automation",
-                    capabilities["can_use_ai_chat_automation"],
-                )
-
-            if "can_use_lookup_chains" in capabilities:
-                _set_plan_attr(
-                    "can_use_lookup_chains",
-                    capabilities["can_use_lookup_chains"],
-                )
-
-            if "max_flows" in capabilities:
-                value = capabilities["max_flows"]
-                if value is not None and value < 0:
-                    raise ValueError("max_flows cannot be negative")
-                _set_plan_attr("max_flows", value)
-
-            if "max_nodes_per_flow" in capabilities:
-                value = capabilities["max_nodes_per_flow"]
-                if value is not None and value < 0:
-                    raise ValueError("max_nodes_per_flow cannot be negative")
-                _set_plan_attr("max_nodes_per_flow", value)
-
-            if "can_use_webhooks" in capabilities:
-                _set_plan_attr("can_use_webhooks", capabilities["can_use_webhooks"])
-
-            if "max_webhooks_per_flow" in capabilities:
-                value = capabilities["max_webhooks_per_flow"]
-                if value is not None and value < 0:
-                    raise ValueError("max_webhooks_per_flow cannot be negative")
-                _set_plan_attr("max_webhooks_per_flow", value)
+            self._apply_capability_updates(plan, capabilities)
 
         # Save changes
         _set_plan_attr("updated_at", datetime.utcnow())
@@ -304,6 +236,27 @@ class PlanService:
         logger.info(f"Updated subscription plan: {tier}")
 
         return plan
+
+    @staticmethod
+    def _apply_capability_updates(plan: SubscriptionPlan, capabilities: dict) -> None:
+        """Validate and set capability columns on a plan."""
+        columns = {c.key: c for c in SubscriptionPlan.__table__.columns}
+        allowed = set(SubscriptionPlan.capability_columns())
+        for name, value in capabilities.items():
+            if name not in allowed:
+                raise ValueError(f"Unknown plan capability: {name}")
+            if isinstance(columns[name].type, Boolean):
+                if not isinstance(value, bool):
+                    raise ValueError(f"{name} must be true or false")
+            elif value is not None:
+                if isinstance(value, bool) or not isinstance(value, int):
+                    raise ValueError(f"{name} must be a whole number")
+                if name == "max_response_tokens":
+                    if value <= 0:
+                        raise ValueError("max_response_tokens must be positive")
+                elif value < 0:
+                    raise ValueError(f"{name} cannot be negative")
+            setattr(plan, name, value)
 
     def validate_tier(self, tier: str) -> bool:
         """

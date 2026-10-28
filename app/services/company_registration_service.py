@@ -6,9 +6,10 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.services.entitlements import new_tenant_capabilities
 from app.core.encryption import hash_for_lookup
 from app.core.security import get_password_hash
-from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
+from app.db.models.tenant import Tenant, TenantAIConfig, TenantStatus
 from app.db.models.user import User, UserRole
 from app.schemas.auth import (
     CompanyRegistrationRequest,
@@ -133,26 +134,7 @@ class CompanyRegistrationService:
             self.db.add(ai_config)
 
             # Create trial tier capabilities
-            capabilities = TenantCapabilities(
-                tenant_id=tenant.id,
-                can_create_tickets=True,
-                can_access_analytics=False,  # No analytics in trial
-                can_upload_knowledge=True,
-                max_knowledge_mb=10,  # 10 MB for trial
-                max_conversations_per_month=200,  # 200 conversations/month for trial
-                max_knowledge_sources=2,  # Only 2 sources for trial
-                can_use_url_sources=False,  # Files only, no URLs in trial
-                max_team_members=1,  # Only 1 user (admin) for trial
-                max_automation_actions=2,  # Starter automation access in trial
-                max_automation_executions_per_month=100,  # Starter monthly automation usage in trial
-                can_use_ai_chat_automation=True,  # Trial should experience real AI chat automation
-                can_use_lookup_chains=False,  # Lookup-first chaining starts on higher plans
-                can_use_webhooks=False,  # Direct API/webhook nodes start on higher plans
-                max_flows=1,  # Allow one flow on trial
-                max_webhooks_per_flow=0,  # No webhook nodes on trial
-                max_audits_per_month=2,  # 2 dashboard audits/month on trial
-                max_audit_pages_per_crawl=20,  # Shallow crawl depth on trial
-            )
+            capabilities = new_tenant_capabilities(self.db, tenant.id, "trial")
             self.db.add(capabilities)
 
             # Create admin user (inactive until email verified)

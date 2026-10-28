@@ -8,7 +8,7 @@ Current tiers
 - enterprise
 
 Current public pricing references
-- Lite: ₦9,000/month
+- Lite: ₦15,000/month
 - Professional: ₦40,000/month
 - Growth: ₦80,000/month
 - Enterprise: custom pricing (contact sales)
@@ -28,12 +28,14 @@ Starter capability examples by tier
 
 Lite
 - 2,000 conversations/month
-- 15 knowledge sources
+- 20 knowledge sources
 - 50 MB storage
 - 3 team members
 - 2 flows
 - URL sources enabled
 - webhooks not enabled
+- 2 AI actions
+- not included: meeting booking and quotes, Slack and CRM notifications, screen recording, ratings breakdown and CSV export (these start at Professional)
 
 Professional
 - 10,000 conversations/month

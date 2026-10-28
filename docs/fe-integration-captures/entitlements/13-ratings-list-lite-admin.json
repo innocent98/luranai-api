@@ -1,0 +1,22 @@
+{
+  "scenario": "ratings-list-lite-admin",
+  "note": "Admin ratings breakdown on Lite.",
+  "request": {
+    "method": "GET",
+    "path": "/reviews/session",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "code": "feature_not_in_plan",
+      "feature": "ratings_export",
+      "min_tier": "professional",
+      "message": "Your plan does not include the ratings breakdown and CSV export. Upgrade to Professional to use it."
+    }
+  }
+}

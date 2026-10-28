@@ -1,0 +1,29 @@
+{
+  "scenario": "analytics-agents-lite",
+  "note": "Analytics stays open on Lite; the ratings columns are zero/null (empty list here because the tenant has no agents with ratings).",
+  "request": {
+    "method": "GET",
+    "path": "/analytics/agents",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "content_type": "application/json",
+    "body": [
+      {
+        "agent_id": "27468b39-2477-4ce7-84b6-f60e13d1fe81",
+        "agent_name": "Demo Owner",
+        "email": "ent-a-901d06@example.com",
+        "current_assigned_tickets": 0,
+        "tickets_by_status": {},
+        "total_tickets_resolved": 0,
+        "ratings_count": 0,
+        "average_rating": null,
+        "csat_percent": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "scenario": "public-meeting-book-lite",
+  "note": "Same tenant: booking is refused exactly like a tenant that switched it off (BOOKING_DISABLED).",
+  "request": {
+    "method": "POST",
+    "path": "/chat/meetings",
+    "headers": {},
+    "body": {
+      "conversation_id": "687fcb4a-427e-4861-96be-474de600e039",
+      "scheduled_at": "2030-01-07T10:00:00Z",
+      "visitor_timezone": "UTC"
+    }
+  },
+  "response": {
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "success": false,
+      "error": {
+        "code": "BOOKING_DISABLED",
+        "message": "Meeting booking is not enabled"
+      }
+    }
+  }
+}

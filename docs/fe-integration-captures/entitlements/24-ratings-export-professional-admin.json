@@ -1,0 +1,17 @@
+{
+  "scenario": "ratings-export-professional-admin",
+  "note": "CSV header row only (no ratings yet).",
+  "request": {
+    "method": "GET",
+    "path": "/reviews/session/export",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "content_type": "text/csv; charset=utf-8",
+    "body": "created_at,score,comment,rated_party,rated_agent_name,source,ticket_number,customer_label\r\n"
+  }
+}

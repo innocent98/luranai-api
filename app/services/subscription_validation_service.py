@@ -4,12 +4,15 @@ from datetime import UTC
 from uuid import UUID
 
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.models.automation import TenantAction
 from app.db.models.flow import Flow, FlowStatus
 from app.db.models.knowledge import KnowledgeSource, SourceStatus
+from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.db.models.user import User
+from app.db.models.whatsapp import WhatsAppConnection
 from app.services.knowledge_service import KnowledgeService
 from app.services.plan_service import PlanService
 
@@ -73,6 +76,15 @@ class SubscriptionValidationService:
             violations.append(violation)
 
         if violation := self._check_automation_actions(tenant_id, new_limits):
+            violations.append(violation)
+
+        if violation := self._check_sales_close(tenant_id, new_limits):
+            violations.append(violation)
+
+        if violation := self._check_crm_notifications(tenant_id, new_limits):
+            violations.append(violation)
+
+        if violation := self._check_whatsapp_numbers(tenant_id, new_limits):
             violations.append(violation)
 
         if warning := self._check_conversations(tenant_id, new_limits):
@@ -289,6 +301,77 @@ class SubscriptionValidationService:
             )
 
         return None
+
+    def _sales_config(self, tenant_id: UUID) -> TenantSalesAgentConfig | None:
+        return self.db.execute(
+            select(TenantSalesAgentConfig).where(TenantSalesAgentConfig.tenant_id == tenant_id)
+        ).scalar_one_or_none()
+
+    def _check_sales_close(self, tenant_id: UUID, new_limits: dict) -> ValidationViolation | None:
+        """Meeting booking and quotes must be switched off before moving to a plan without them."""
+        if new_limits.get("can_use_sales_close", False):
+            return None
+        config = self._sales_config(tenant_id)
+        active = (
+            sum(1 for on in (config.meeting_booking_enabled, config.quotation_enabled) if on)
+            if config
+            else 0
+        )
+        if not active:
+            return None
+        return ValidationViolation(
+            field="sales_close",
+            current_value=active,
+            allowed_value=0,
+            difference=active,
+            action_required="Turn off meeting booking and quotes in the sales agent settings before downgrading",
+        )
+
+    def _check_crm_notifications(
+        self, tenant_id: UUID, new_limits: dict
+    ) -> ValidationViolation | None:
+        """Slack and CRM notifications must be switched off before moving to a plan without them."""
+        if new_limits.get("can_use_crm_notifications", False):
+            return None
+        config = self._sales_config(tenant_id)
+        if config is None:
+            return None
+        channels = config.notify_channels or {}
+        active = sum(1 for name in ("slack", "crm") if channels.get(name))
+        if not active:
+            return None
+        return ValidationViolation(
+            field="crm_notifications",
+            current_value=active,
+            allowed_value=0,
+            difference=active,
+            action_required="Turn off Slack and CRM notifications in the sales agent settings before downgrading",
+        )
+
+    def _check_whatsapp_numbers(
+        self, tenant_id: UUID, new_limits: dict
+    ) -> ValidationViolation | None:
+        """Linked WhatsApp numbers must fit the target plan's allowance."""
+        allowed = new_limits.get("max_whatsapp_numbers")
+        if allowed is None:
+            return None
+        current = int(
+            self.db.execute(
+                select(func.count())
+                .select_from(WhatsAppConnection)
+                .where(WhatsAppConnection.tenant_id == tenant_id)
+            ).scalar_one()
+        )
+        if current <= allowed:
+            return None
+        difference = current - allowed
+        return ValidationViolation(
+            field="whatsapp_numbers",
+            current_value=current,
+            allowed_value=allowed,
+            difference=difference,
+            action_required=f"Disconnect {difference} WhatsApp number{'s' if difference > 1 else ''} before downgrading",
+        )
 
     def _check_conversations(self, tenant_id: UUID, new_limits: dict) -> str | None:
         """

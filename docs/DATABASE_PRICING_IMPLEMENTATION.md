@@ -1,5 +1,7 @@
 # Database-Driven Subscription Pricing - Implementation Summary
 
+> **Historical document.** Prices and limits here predate the 2026-10-28 pricing and entitlements change (Lite is now 15,000 naira/month, with plan gates). The current definition is `app/services/plan_catalog.py` and `docs/SUBSCRIPTION_PLANS.md`.
+
 ## Overview
 
 Successfully converted hardcoded subscription pricing to database-driven system. Platform admins can now update pricing without code changes.

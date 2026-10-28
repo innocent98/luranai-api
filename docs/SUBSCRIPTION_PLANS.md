@@ -1,6 +1,6 @@
 # Luran Subscription Plans
 
-**Last Updated:** 2026-02-04
+**Last Updated:** 2026-10-28 (Lite price and plan gates; the cost analysis below is from 2026-02 and uses the old Lite price in its per-conversation figures where not restated)
 **AI Model:** GPT-4o-mini ($0.150/1M input, $0.600/1M output)
 **Exchange Rate:** $1 = ₦1,500
 
@@ -11,7 +11,7 @@
 | Tier | Monthly Price | Annual Price | Conversations/Month | Price per Conversation |
 |------|--------------|--------------|---------------------|------------------------|
 | **Trial** | ₦0 | ₦0 | 200 | ₦0 (Free) |
-| **Lite** | ₦9,000 | ₦90,000 | 2,000 | ₦4.50 |
+| **Lite** | ₦15,000 | ₦150,000 | 2,000 | ₦7.50 |
 | **Professional** | ₦40,000 | ₦400,000 | 10,000 | ₦4.00 |
 | **Growth** | ₦80,000 | ₦800,000 | 25,000 | ₦3.20 |
 | **Enterprise** | Custom | Custom | Unlimited | Custom |
@@ -23,7 +23,7 @@
 | Tier | Avg. Input Tokens | Avg. Output Tokens | AI Cost/Convo | Revenue/Convo | Profit/Convo | Margin |
 |------|-------------------|--------------------|--------------:|---------------:|--------------:|-------:|
 | **Trial** | 1,000 | 560 | ₦0.74 | ₦0.00 | -₦0.74 | -100% |
-| **Lite** | 1,000 | 700 | ₦0.86 | ₦4.50 | ₦3.64 | 81% |
+| **Lite** | 1,000 | 700 | ₦0.86 | ₦7.50 | ₦6.64 | 89% |
 | **Professional** | 1,000 | 1,050 | ₦1.17 | ₦4.00 | ₦2.83 | 71% |
 | **Growth** | 1,000 | 1,050 | ₦1.17 | ₦3.20 | ₦2.03 | 63% |
 | **Enterprise** | 1,000 | 1,400 | ₦1.49 | Custom | Custom | ~60-70% |
@@ -41,13 +41,13 @@
 | Tier | Conversations | Total AI Cost | Total Revenue | Gross Profit | Net Margin |
 |------|--------------|---------------|---------------|--------------|------------|
 | **Trial** | 200 | ₦148 | ₦0 | -₦148 | Loss (acquisition) |
-| **Lite** | 2,000 | ₦1,720 | ₦9,000 | ₦7,280 | 81% |
+| **Lite** | 2,000 | ₦1,720 | ₦15,000 | ₦13,280 | 89% |
 | **Professional** | 10,000 | ₦11,700 | ₦40,000 | ₦28,300 | 71% |
 | **Growth** | 25,000 | ₦29,250 | ₦80,000 | ₦50,750 | 63% |
 | **Enterprise** | 50,000+ | ₦74,500+ | Custom | Custom | 60-70% |
 
 **After infrastructure costs (₦3,000/month):**
-- **Lite:** ₦4,280 net profit (48% margin)
+- **Lite:** ₦10,280 net profit (69% margin)
 - **Professional:** ₦25,300 net profit (63% margin)
 - **Growth:** ₦47,750 net profit (60% margin)
 
@@ -79,19 +79,21 @@
 
 ## Lite Tier
 
-**Price:** ₦9,000/month or ₦90,000/year (save ₦18,000)
+**Price:** ₦15,000/month or ₦150,000/year (10 months of monthly; changed from ₦9,000 on 2026-10-28, new signups only)
 **Conversations:** 2,000/month
 
 ### Features
-- 15 knowledge sources
+- 20 knowledge sources
 - 50MB storage
 - 2,000 conversations/month
 - 3 team members
-- 2 automation flows
+- 3 flows
+- 2 AI actions
 - URL scraping
 - Analytics dashboard
-- Priority email support
-- Max response tokens: 1,000
+- WhatsApp (beta, on request): 1 number
+- Not included: meeting booking and quotes, Slack and CRM notifications, screen recording, ratings breakdown and CSV export, lookup chains, webhooks (these start at Professional)
+- Max response tokens: 800
 
 ### Capabilities
 | Capability | Limit |
@@ -186,6 +188,27 @@
 | Webhook Integrations | ♾️ Unlimited |
 
 ---
+
+## Plan gates (entitlements, 2026-10-28)
+
+The single definition of every plan row is `app/services/plan_catalog.py`; the `features` strings on
+`GET /subscription/plans` are generated from it. What each tier includes:
+
+| Capability | Trial | Lite | Professional | Growth | Enterprise |
+|---|---|---|---|---|---|
+| Meeting booking and quotes (`sales_close`) | yes | no | yes | yes | yes |
+| Slack and CRM notifications (`crm_notifications`) | yes | no | yes | yes | yes |
+| Screen recording | yes | no | yes | yes | yes |
+| Ratings breakdown and CSV export | yes | no | yes | yes | yes |
+| AI actions (max) | 2 | 2 | 15 | 40 | unlimited |
+| Lookup chains and webhook nodes | no | no | yes | yes | yes |
+| Analytics | no | yes | yes | yes | yes |
+| WhatsApp numbers (also needs the platform grant) | 1 | 1 | 2 | 5 | unlimited |
+| Voice | platform grant only, never from a plan | | | | |
+
+Never gated: human handoff, tickets, the agent app, image upload, rating collection, lead capture,
+scoring and the lead email notice, the web widget. Audits, conversations, seats, sources, storage and
+flows keep their per-plan limits. Details: `docs/sop/plan_entitlements.md`.
 
 ## Technical Details
 

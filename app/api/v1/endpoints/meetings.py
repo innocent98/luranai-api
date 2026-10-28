@@ -24,6 +24,7 @@ from app.schemas.meeting import (
     BookMeetingRequest,
     BookMeetingResponse,
 )
+from app.services.entitlements import tenant_has
 from app.services.meeting_service import MeetingService, SlotUnavailable
 
 router = APIRouter()
@@ -62,7 +63,7 @@ def get_availability(
     if resolved is None:
         return {"success": True, "data": {"slots": []}}
     lead, cfg = resolved
-    if not cfg.meeting_booking_enabled:
+    if not cfg.meeting_booking_enabled or not tenant_has(db, lead.tenant_id, "sales_close"):
         return {"success": True, "data": {"slots": []}}
     slots = MeetingService(db).compute_availability(
         lead.tenant_id, cfg.availability, now=datetime.now(UTC), days=days
@@ -83,7 +84,8 @@ def book_meeting(payload: BookMeetingRequest, db: Session = Depends(get_db)):
     if resolved is None:
         return _err("LEAD_NOT_FOUND", "No lead for this conversation", 404)
     lead, cfg = resolved
-    if not cfg.meeting_booking_enabled:
+    # A plan without the sales gate looks exactly like booking switched off to the visitor.
+    if not cfg.meeting_booking_enabled or not tenant_has(db, lead.tenant_id, "sales_close"):
         return _err("BOOKING_DISABLED", "Meeting booking is not enabled", 403)
     try:
         meeting = MeetingService(db).book(

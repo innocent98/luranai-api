@@ -14,6 +14,7 @@ from app.db.models.lead import Lead
 from app.db.models.notification_log import NotificationLog, NotifChannel, NotifEvent, NotifStatus
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.db.models.user import User, UserRole
+from app.services.entitlements import tenant_has
 
 # (event → does it notify the visitor?)
 _VISITOR_EVENTS = {NotifEvent.MEETING_BOOKED}
@@ -125,6 +126,9 @@ class NotificationService:
         ).scalar_one_or_none()
         channels = (config.notify_channels if config is not None else {}) or {}
         jobs: list[tuple[uuid.UUID, str]] = []
+        # Slack and the CRM webhook are plan-gated; email and in-app are not. A tenant whose plan
+        # lacks the gate keeps its stored settings but nothing is sent.
+        external_allowed = tenant_has(self.db, tenant_id, "crm_notifications")
 
         if channels.get("email"):
             rep = self._rep_recipient(tenant_id, config)
@@ -167,7 +171,11 @@ class NotificationService:
                 body=body,
             )
 
-        if channels.get("slack") and getattr(config, "slack_webhook_url", None):
+        if (
+            external_allowed
+            and channels.get("slack")
+            and getattr(config, "slack_webhook_url", None)
+        ):
             title, body = self._render_in_app_text(event, entity_type, entity_id)
             log_id = self._try_log(
                 tenant_id=tenant_id,
@@ -184,7 +192,8 @@ class NotificationService:
                 jobs.append((log_id, "send_slack_notification"))
 
         if (
-            event == NotifEvent.SALES_READY_LEAD
+            external_allowed
+            and event == NotifEvent.SALES_READY_LEAD
             and channels.get("crm")
             and getattr(config, "crm_webhook_url", None)
         ):

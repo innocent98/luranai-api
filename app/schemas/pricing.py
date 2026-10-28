@@ -25,6 +25,13 @@ class PricingPlanCapabilitiesUpdate(BaseModel):
     max_nodes_per_flow: int | None = None
     can_use_webhooks: bool | None = None
     max_webhooks_per_flow: int | None = None
+    max_audit_pages_per_crawl: int | None = None
+    max_audits_per_month: int | None = None
+    can_use_sales_close: bool | None = None
+    can_use_crm_notifications: bool | None = None
+    can_use_screen_recording: bool | None = None
+    can_export_ratings: bool | None = None
+    max_whatsapp_numbers: int | None = None
 
 
 class PricingPlanUpdateRequest(BaseModel):
@@ -83,6 +90,13 @@ class PricingPlanCapabilitiesResponse(BaseModel):
     max_nodes_per_flow: int | None
     can_use_webhooks: bool
     max_webhooks_per_flow: int | None
+    max_audit_pages_per_crawl: int | None
+    max_audits_per_month: int | None
+    can_use_sales_close: bool
+    can_use_crm_notifications: bool
+    can_use_screen_recording: bool
+    can_export_ratings: bool
+    max_whatsapp_numbers: int | None
 
 
 class PricingPlanResponse(BaseModel):

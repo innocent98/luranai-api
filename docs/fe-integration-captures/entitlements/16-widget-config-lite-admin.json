@@ -1,0 +1,29 @@
+{
+  "scenario": "widget-config-lite-admin",
+  "note": "Dashboard widget settings: can_use_screen_recording is the plan decision.",
+  "request": {
+    "method": "GET",
+    "path": "/widget/config",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "tenant_id": "a0756b04-c230-423f-a495-dc93c2de4d03",
+      "company_name": "Demo Bakery a becba8",
+      "widget_primary_color": "#2563eb",
+      "widget_accent_color": "#10b981",
+      "widget_logo_url": null,
+      "widget_greeting_message": "Hi! How can we help you today?",
+      "widget_position": "bottom-right",
+      "widget_show_unread_badge": true,
+      "widget_allow_file_upload": true,
+      "widget_allow_screen_recording": true,
+      "can_use_screen_recording": false
+    }
+  }
+}

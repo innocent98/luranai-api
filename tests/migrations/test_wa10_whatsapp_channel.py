@@ -105,7 +105,8 @@ def test_upgrade_matches_models_and_downgrade_reverses(scratch_db):
 
     caps = {c["name"]: c for c in insp.get_columns("tenant_capabilities")}
     assert caps["can_use_whatsapp"]["nullable"] is False
-    assert caps["max_whatsapp_numbers"]["nullable"] is False
+    # ent10 made the number plan-driven; NULL means unlimited (Enterprise).
+    assert caps["max_whatsapp_numbers"]["nullable"] is True
     with scratch_db.connect() as conn:
         labels = {
             r[0]

@@ -71,6 +71,7 @@ from app.schemas.user import UserResponse
 from app.schemas.visitor import VisitorEnrichmentUpdate
 from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
+from app.sales.config_view import SalesConfigView
 from app.sales.intent import is_trigger_intent
 from app.schemas.agent_app import AcknowledgeLost
 from app.services.conversation_service import (
@@ -80,6 +81,8 @@ from app.services.conversation_service import (
     new_session_attribution,
 )
 from app.services.chat_automation_orchestrator import ChatAutomationOrchestrator
+from app.services.entitlements import tenant_has
+from app.services.screen_recording.gating import screen_recording_allowed
 from app.services.first_responder import (
     FIRST_RESPONDER_HUMAN,
     HUMAN_FIRST_REASON,
@@ -1291,6 +1294,9 @@ async def _send_message_impl(
         and getattr(sales_agent_config, "agent_enabled", False)
         and getattr(sales_agent_config, "lead_capture_enabled", False)
     )
+    # Meeting booking and quotes are plan-gated; lead capture and scoring are not. A tenant whose
+    # plan lacks the gate gets the same chat as one with the options switched off.
+    _sales_close_allowed = _sales_mode and tenant_has(db, session.tenant_id, "sales_close")
     linked_visitor = visitor_service.get_visitor_for_session(session_id)
     current_session_meta = dict(session_model.meta or {})
     customer_name = _resolve_customer_name(
@@ -1338,6 +1344,16 @@ async def _send_message_impl(
                 detail={"code": "too_many_videos", "message": "One recording per message"},
             )
         turn_has_video = _video_count == 1
+        if turn_has_video and not screen_recording_allowed(db, db.get(Tenant, session.tenant_id)):
+            # Registered before a downgrade or while recording was switched off: same answer
+            # as the sign/register endpoints give.
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "screen_recording_disabled",
+                    "message": "Screen recording is not enabled",
+                },
+            )
         _attachment_ids = message_data.attachment_ids
         _plain_add_message = conversation_service.add_message
         _linked = False
@@ -2790,7 +2806,11 @@ async def _send_message_impl(
                 ai_response_text, _sales_meta, token_count, is_api_error = (
                     await rag_service.generate_sales_response(
                         prompt=prompt_components,
-                        config=sales_agent_config,
+                        config=(
+                            sales_agent_config
+                            if _sales_close_allowed
+                            else SalesConfigView(sales_agent_config, meeting_booking_enabled=False)
+                        ),
                         model_name=settings.OPENAI_LLM_MODEL,
                         known_facts=_known_facts,
                         company_website=_company_website,
@@ -2977,12 +2997,16 @@ async def _send_message_impl(
             _message_meta["lead_captured"] = _lead_captured_meta
         if _sales_mode and _sales_meta is not None:
             _signals = _sales_meta.get("signals") or {}
-            if bool(_signals.get("offer_meeting")) and getattr(
-                sales_agent_config, "meeting_booking_enabled", False
+            if (
+                _sales_close_allowed
+                and bool(_signals.get("offer_meeting"))
+                and getattr(sales_agent_config, "meeting_booking_enabled", False)
             ):
                 _message_meta["offer_meeting"] = True
-            if bool(_signals.get("offer_quote")) and getattr(
-                sales_agent_config, "quotation_enabled", False
+            if (
+                _sales_close_allowed
+                and bool(_signals.get("offer_quote"))
+                and getattr(sales_agent_config, "quotation_enabled", False)
             ):
                 try:
                     _ts_raw = (lead.team_size if lead is not None else None) or (

@@ -1,5 +1,7 @@
 # Luran Subscription & Pricing Model Documentation
 
+> **Historical document.** Prices and limits here predate the 2026-10-28 pricing and entitlements change (Lite is now 15,000 naira/month, with plan gates). The current definition is `app/services/plan_catalog.py` and `docs/SUBSCRIPTION_PLANS.md`.
+
 **Last Updated:** 2026-01-25
 **Status:** Current Implementation (v1.0)
 

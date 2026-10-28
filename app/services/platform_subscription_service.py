@@ -21,6 +21,7 @@ from app.schemas.platform_subscription import (
     TrialExtensionResponse,
 )
 from app.utils.datetime import ensure_utc_aware
+from app.services.entitlements import apply_plan_to_capabilities
 from app.services.plan_service import PlanService
 from app.services.subscription_service import SubscriptionService
 
@@ -617,29 +618,6 @@ class PlatformSubscriptionService:
         if not capabilities:
             raise ValueError("Capabilities not found")
 
-        existing_flags = capabilities.override_flags or {}
-        # Get override flags (fields that should NOT be reset)
-        override_flags = existing_flags if respect_overrides else {}
-
-        # Update capability fields, tracking which previously-flagged fields
-        # the bypass actually overwrote so their flags can be cleared below.
-        bypassed_fields = []
-        for key, value in config.items():
-            if hasattr(capabilities, key):
-                # Skip if manually overridden and respect_overrides is True
-                if key not in override_flags:
-                    setattr(capabilities, key, value)
-                    if not respect_overrides and key in existing_flags:
-                        bypassed_fields.append(key)
-                # else: keep current value (override persists)
-
-        if bypassed_fields:
-            # Assign a new dict rather than mutating in place -- SQLAlchemy
-            # does not track in-place mutation of a JSON column.
-            capabilities.override_flags = {
-                field: flag
-                for field, flag in existing_flags.items()
-                if field not in bypassed_fields
-            }
+        apply_plan_to_capabilities(capabilities, config, respect_overrides=respect_overrides)
 
         self.db.commit()

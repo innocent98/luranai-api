@@ -18,9 +18,9 @@ from app.db.models.automation import (
 )
 from app.schemas.conversation import MessageResponse
 from app.schemas.rag import PromptComponents
-from app.db.models.tenant import TenantCapabilities
 from app.services.automation_service import AutomationService
 from app.services.conversation_service import ConversationService
+from app.services.entitlements import tenant_has
 from app.services.rag_service import RAGService
 
 PLACEHOLDER_PATTERN = re.compile(r"{{\s*([a-zA-Z0-9_.-]+)\s*}}")
@@ -79,24 +79,10 @@ class ChatAutomationOrchestrator:
         self.conversation_service = ConversationService(db)
 
     def _can_use_ai_chat_automation(self, tenant_id: UUID) -> bool:
-        capabilities = (
-            self.db.query(TenantCapabilities)
-            .filter(TenantCapabilities.tenant_id == tenant_id)
-            .one_or_none()
-        )
-        if not capabilities:
-            return False
-        return bool(capabilities.can_use_ai_chat_automation)
+        return tenant_has(self.db, tenant_id, "ai_actions")
 
     def _can_use_lookup_chains(self, tenant_id: UUID) -> bool:
-        capabilities = (
-            self.db.query(TenantCapabilities)
-            .filter(TenantCapabilities.tenant_id == tenant_id)
-            .one_or_none()
-        )
-        if not capabilities:
-            return False
-        return bool(capabilities.can_use_lookup_chains)
+        return tenant_has(self.db, tenant_id, "lookup_chains")
 
     async def handle_turn(
         self,

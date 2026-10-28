@@ -28,7 +28,6 @@ from app.channels.base import (
 )
 from app.channels.registry import get_adapter
 from app.core.config import settings
-from app.db.models.tenant import TenantCapabilities
 from app.db.models.whatsapp import (
     LIVE_STATUSES,
     WhatsAppChat,
@@ -37,6 +36,7 @@ from app.db.models.whatsapp import (
     WhatsAppProvider,
     WhatsAppStatus,
 )
+from app.services.entitlements import Entitlements, get_entitlements_for_tenant_id
 from app.utils.datetime import utcnow_aware
 from app.utils.http_rate_limiter import (
     enforce_identifier_limit,
@@ -124,15 +124,17 @@ class WhatsAppService:
         )
 
     # ------------------------------------------------------------------ create
-    def _require_enabled(self, tenant_id: UUID) -> TenantCapabilities:
-        caps = self.db.execute(
-            select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant_id)
-        ).scalar_one_or_none()
-        if not settings.WHATSAPP_ENABLED or caps is None or not caps.can_use_whatsapp:
+    def _require_enabled(self, tenant_id: UUID) -> Entitlements:
+        entitlements = get_entitlements_for_tenant_id(self.db, tenant_id)
+        if (
+            not settings.WHATSAPP_ENABLED
+            or entitlements is None
+            or not entitlements.value("can_use_whatsapp")
+        ):
             raise WhatsAppError(
                 403, "whatsapp_not_enabled", "WhatsApp is not enabled for this account."
             )
-        return caps
+        return entitlements
 
     def _lock_capacity(self) -> None:
         if self.db.get_bind().dialect.name == "postgresql":
@@ -184,7 +186,7 @@ class WhatsAppService:
         consent_version: str | None,
         consent_accepted: bool,
     ) -> CreatedConnection:
-        caps = self._require_enabled(tenant_id)
+        entitlements = self._require_enabled(tenant_id)
 
         if not consent_accepted or consent_version != CONSENT_VERSION:
             raise WhatsAppError(
@@ -225,11 +227,13 @@ class WhatsAppService:
             .select_from(WhatsAppConnection)
             .where(WhatsAppConnection.tenant_id == tenant_id)
         ).scalar_one()
-        if owned >= caps.max_whatsapp_numbers:
+        # Plan-driven (None = unlimited); the can_use_whatsapp grant is still required above.
+        number_limit = entitlements.limit("whatsapp")
+        if number_limit is not None and owned >= number_limit:
             raise WhatsAppError(
                 409,
                 "connection_limit",
-                f"Your plan allows {caps.max_whatsapp_numbers} WhatsApp number(s).",
+                f"Your plan allows {number_limit} WhatsApp number(s).",
             )
         if self._live_count() >= settings.WHATSAPP_MAX_CONNECTIONS:
             raise WhatsAppError(
