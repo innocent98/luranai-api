@@ -190,7 +190,9 @@ class MarketerService:
             # Lost a race against a concurrent create: unique(lower(code)) or unique(email_hash).
             if self._code_taken(code):
                 raise MarketerCodeTakenError("Referral code already in use") from exc
-            raise MarketerEmailInUseError("Email already in use") from exc
+            if self._email_in_use(email):
+                raise MarketerEmailInUseError("Email already in use") from exc
+            raise
         self.db.commit()
         self.db.refresh(marketer)
 

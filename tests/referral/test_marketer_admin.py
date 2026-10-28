@@ -242,6 +242,67 @@ def test_create_code_race_integrity_error_maps_to_409(db_session, fake_email, mo
     assert db_session.execute(select(Marketer).where(Marketer.code == "race-code")).scalar_one()
 
 
+def test_create_email_race_integrity_error_maps_to_409(db_session, fake_email, monkeypatch):
+    """Same normalised email wins the race for the unique index after the pre-check passed."""
+    svc = MarketerService(db_session)
+    svc.create(
+        admin_id=None,
+        name="First",
+        email="race-mail@example.com",
+        code="mail-race-1",
+        bank_code=FAKE_BANK,
+        account_number=FAKE_ACCOUNT,
+        account_name="FIRST",
+    )
+    real_email_in_use = MarketerService._email_in_use
+    calls = {"n": 0}
+
+    def pre_check_misses_then_real(self, email):
+        calls["n"] += 1
+        return False if calls["n"] == 1 else real_email_in_use(self, email)
+
+    monkeypatch.setattr(MarketerService, "_email_in_use", pre_check_misses_then_real)
+    with pytest.raises(marketer_service_module.MarketerEmailInUseError):
+        svc.create(
+            admin_id=None,
+            name="Second",
+            email=" RACE-MAIL@example.com ",
+            code="mail-race-2",
+            bank_code=FAKE_BANK,
+            account_number=FAKE_ACCOUNT,
+            account_name="SECOND",
+        )
+    assert db_session.execute(select(Marketer).where(Marketer.code == "mail-race-1")).scalar_one()
+
+
+def test_unrelated_integrity_error_is_not_reported_as_email_in_use(
+    db_session, fake_email, monkeypatch
+):
+    """An IntegrityError that is neither a code nor an email collision is re-raised as is."""
+    from sqlalchemy import event
+    from sqlalchemy.exc import IntegrityError
+
+    svc = MarketerService(db_session)
+
+    def boom(mapper, connection, target):
+        raise IntegrityError("INSERT", {}, Exception("other constraint"))
+
+    event.listen(Marketer, "before_insert", boom)
+    try:
+        with pytest.raises(IntegrityError):
+            svc.create(
+                admin_id=None,
+                name="X",
+                email=f"x_{uuid4().hex[:6]}@example.com",
+                code=f"x-{uuid4().hex[:6]}",
+                bank_code=FAKE_BANK,
+                account_number=FAKE_ACCOUNT,
+                account_name="X",
+            )
+    finally:
+        event.remove(Marketer, "before_insert", boom)
+
+
 @pytest.mark.parametrize("code", ["ab", "a" * 33, "admin", "a_b", "Has Space"])
 def test_create_invalid_code_422(pg_client, auth, fake_email, code):
     resp = _create(pg_client, auth, code=code)
@@ -292,22 +353,87 @@ def test_response_never_contains_full_account_number(pg_client, auth, fake_email
 # --- auth --------------------------------------------------------------------------------------
 
 
-def test_non_admin_token_403(pg_client, regular_user_token, fake_email):
+def test_tenant_token_and_missing_token_are_401(pg_client, regular_user_token, fake_email):
     headers = {"Authorization": f"Bearer {regular_user_token}"}
     random_id = uuid4()
     calls = [
         pg_client.post(f"{BASE}/", json=_payload(), headers=headers),
         pg_client.get(f"{BASE}/", headers=headers),
         pg_client.get(f"{BASE}/{random_id}", headers=headers),
+        pg_client.patch(f"{BASE}/{random_id}/bank", json={}, headers=headers),
         pg_client.post(f"{BASE}/{random_id}/suspend", headers=headers),
+        pg_client.post(f"{BASE}/{random_id}/reactivate", headers=headers),
+        pg_client.get(f"{BASE}/"),
+        pg_client.post(f"{BASE}/", json=_payload()),
     ]
-    for r in calls:
-        assert r.status_code in (401, 403)
+    assert [r.status_code for r in calls] == [401] * len(calls)
     assert fake_email.sent == []
 
 
-def test_no_token_rejected(pg_client):
-    assert pg_client.get(f"{BASE}/").status_code in (401, 403)
+@pytest.fixture
+def plain_admin_headers(db_session):
+    """Auth header for a platform admin with role ADMIN (not SUPER_ADMIN)."""
+    from app.core.security import create_access_token
+    from app.db.models.platform_admin import PlatformAdmin, PlatformAdminRole
+
+    admin = PlatformAdmin(
+        email=f"plain_{uuid4().hex[:8]}@testdomain.com",
+        hashed_password="x",
+        full_name="Plain Admin",
+        role=PlatformAdminRole.ADMIN,
+        is_active=True,
+    )
+    db_session.add(admin)
+    db_session.flush()
+    token = create_access_token(
+        subject=str(admin.id),
+        additional_claims={"role": admin.role.value, "admin_type": "platform_admin"},
+    )
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_plain_admin_cannot_write_but_can_read(
+    pg_client, auth, plain_admin_headers, fake_email, db_session
+):
+    mid = _create(pg_client, auth).json()["id"]  # super admin creates
+    sent_before = len(fake_email.sent)
+    reward = _reward(db_session, mid, RewardStatus.PENDING)
+
+    writes = [
+        pg_client.post(f"{BASE}/", json=_payload(), headers=plain_admin_headers),
+        pg_client.patch(
+            f"{BASE}/{mid}/bank",
+            json={"bank_code": "111", "account_number": "0000077777", "account_name": "N"},
+            headers=plain_admin_headers,
+        ),
+        pg_client.post(f"{BASE}/{mid}/suspend", headers=plain_admin_headers),
+        pg_client.post(f"{BASE}/{mid}/reactivate", headers=plain_admin_headers),
+    ]
+    assert [r.status_code for r in writes] == [403] * 4
+    assert len(fake_email.sent) == sent_before
+    m = db_session.get(Marketer, mid)
+    db_session.refresh(m)
+    db_session.refresh(reward)
+    assert m.status == MarketerStatus.ACTIVE
+    assert m.account_number == FAKE_ACCOUNT
+    assert reward.status == RewardStatus.PENDING
+
+    assert pg_client.get(f"{BASE}/", headers=plain_admin_headers).status_code == 200
+    assert pg_client.get(f"{BASE}/{mid}", headers=plain_admin_headers).status_code == 200
+
+
+def test_super_admin_passes_all_writes(pg_client, auth, fake_email):
+    mid = _create(pg_client, auth).json()["id"]
+    assert (
+        pg_client.patch(
+            f"{BASE}/{mid}/bank",
+            json={"bank_code": "111", "account_number": "0000077777", "account_name": "N"},
+            headers=auth,
+        ).status_code
+        == 200
+    )
+    assert pg_client.post(f"{BASE}/{mid}/suspend", headers=auth).status_code == 200
+    assert pg_client.post(f"{BASE}/{mid}/reactivate", headers=auth).status_code == 200
 
 
 # --- list / get / bank -------------------------------------------------------------------------

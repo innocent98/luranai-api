@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from loguru import logger
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_platform_admin, get_db
+from app.api.deps import get_current_platform_admin, get_current_super_admin, get_db
 from app.db.models.referral import Marketer, MarketerStatus
 from app.schemas.platform_admin import PlatformAdminResponse
 from app.schemas.referral import (
@@ -28,6 +28,8 @@ from app.utils.http_rate_limiter import platform_admin_rate_limit
 
 router = APIRouter()
 
+# Writes (create / bank / suspend / reactivate) decide who is paid and to which account, so they
+# require a SUPER_ADMIN; the read endpoints stay open to any platform admin.
 # Id path params use the uuid convertor so literal sibling routes added later in this router
 # (/batches, /rewards, /config) can never be captured as a marketer id.
 
@@ -90,7 +92,7 @@ def _audit(
 def create_marketer(
     request: MarketerCreateRequest,
     db: Session = Depends(get_db),
-    current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
 ):
     """Onboard a marketer and email them a one-time set-password link."""
     try:
@@ -156,7 +158,7 @@ def update_marketer_bank(
     marketer_id: UUID,
     request: MarketerBankUpdateRequest,
     db: Session = Depends(get_db),
-    current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
 ):
     try:
         marketer = MarketerService(db).update_bank_details(
@@ -185,7 +187,7 @@ def update_marketer_bank(
 def suspend_marketer(
     marketer_id: UUID,
     db: Session = Depends(get_db),
-    current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
 ):
     """Suspend a marketer: the code stops attributing and unpaid rewards move to held."""
     try:
@@ -204,7 +206,7 @@ def suspend_marketer(
 def reactivate_marketer(
     marketer_id: UUID,
     db: Session = Depends(get_db),
-    current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
 ):
     """Reactivate a marketer. Held rewards are not released automatically."""
     try:
