@@ -1,0 +1,9 @@
+{
+  "fake_sidecar_received": [
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432100@lid",
+      "text": "Sorry, I can only read text messages and images for now. Please type your question and I'll help."
+    }
+  ]
+}

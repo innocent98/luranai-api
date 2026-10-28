@@ -14,6 +14,7 @@ Pairing codes are obviously fake (`FAKE` + 4 digits).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import secrets
 import time
@@ -23,7 +24,7 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.channels import signing
 
@@ -44,6 +45,11 @@ class FakeSidecar:
         self.sent: list[dict[str, Any]] = []
         self.calls: list[tuple[str, str]] = []
         self.send_error: tuple[int, str] | None = None  # force /send to fail
+        self.image_send_error: tuple[int, str] | None = None  # force only image sends to fail
+        # Media store mirror: (session_key, media_id) -> (bytes, content-type).
+        self.media: dict[tuple[str, str], tuple[bytes, str]] = {}
+        self.media_status: int | None = None  # force the media endpoint to answer this status
+        self.media_url_allowlist = ("res.cloudinary.com",)  # the real sidecar's MEDIA_URL_ALLOWLIST
         self.app = self._build()
 
     # ------------------------------------------------------------------ helpers
@@ -54,6 +60,17 @@ class FakeSidecar:
     def _auth(self, authorization: str | None) -> None:
         if authorization != f"Bearer {self.token}":
             raise HTTPException(status_code=401, detail="unauthorized")
+
+    def add_media(self, key: str, content: bytes, mime: str = "image/jpeg") -> dict[str, Any]:
+        """Stage an inbound image and return the `media` object a `message.inbound` event carries."""
+        media_id = "m_" + uuid.uuid4().hex[:16]
+        self.media[(key, media_id)] = (content, mime)
+        return {
+            "id": media_id,
+            "mime": mime,
+            "bytes": len(content),
+            "sha256": hashlib.sha256(content).hexdigest(),
+        }
 
     def set_status(self, key: str, status: str, code: int | None = None) -> None:
         sess = self.sessions[key]
@@ -134,9 +151,32 @@ class FakeSidecar:
             if self.send_error is not None:
                 code, err = self.send_error
                 return JSONResponse({"error": err}, status_code=code)
+            image = body.get("image")
+            if image is not None:
+                url = str(image.get("url", ""))
+                host = url.split("/")[2].split(":")[0] if url.startswith("https://") else ""
+                if host not in self.media_url_allowlist:
+                    return JSONResponse({"error": "invalid_image_url"}, status_code=400)
+                if self.image_send_error is not None:
+                    code, err = self.image_send_error
+                    return JSONResponse({"error": err}, status_code=code)
             message_id = "FAKEMSG" + uuid.uuid4().hex[:12].upper()
-            self.sent.append({"key": key, "to_ref": body["to_ref"], "text": body["text"]})
+            if image is not None:
+                self.sent.append({"key": key, "to_ref": body["to_ref"], "image": image})
+            else:
+                self.sent.append({"key": key, "to_ref": body["to_ref"], "text": body["text"]})
             return {"message_id": message_id}
+
+        @app.get("/sessions/{key}/media/{media_id}")
+        async def get_media(key: str, media_id: str, authorization: str | None = Header(None)):
+            self._auth(authorization)
+            self.calls.append(("GET", "/sessions/{key}/media/{media_id}"))
+            if self.media_status is not None:
+                return JSONResponse({"error": "forced"}, status_code=self.media_status)
+            item = self.media.get((key, media_id))
+            if item is None:
+                return JSONResponse({"error": "not_found"}, status_code=404)
+            return Response(content=item[0], media_type=item[1])
 
         @app.get("/health")
         async def health(authorization: str | None = Header(None)):
@@ -162,6 +202,12 @@ class FakeSidecar:
             body = await request.json()
             resp = await self.emit(key, body.pop("type"), **body)
             return {"backend_status": resp.status_code, "backend_body": resp.json()}
+
+        @app.post("/_fake/media/{key}")
+        async def fake_media(key: str, request: Request):
+            """Stage raw image bytes (request body) and get the `media` object to emit."""
+            mime = request.headers.get("content-type", "image/png")
+            return self.add_media(key, await request.body(), mime)
 
         @app.get("/_fake/sent")
         async def fake_sent():

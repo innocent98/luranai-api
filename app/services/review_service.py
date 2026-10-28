@@ -134,7 +134,6 @@ class ReviewService:
         the loser re-reads fulfilled_at after the winner commits. The unique index on
         rating_request_id / (session, agent) is the backstop.
         """
-        now = utcnow_aware()
         request = self.db.execute(
             select(RatingRequest)
             .where(
@@ -144,6 +143,61 @@ class ReviewService:
             )
             .with_for_update()
         ).scalar_one_or_none()
+        return self._fulfil_request(
+            session,
+            request,
+            score=rating_data.score,
+            comment=rating_data.comment,
+            user_identifier=rating_data.user_identifier,
+            meta=rating_data.meta,
+        )
+
+    def rate_request_by_id(
+        self,
+        session: ConversationSession,
+        request_id: UUID,
+        *,
+        score: int,
+        user_identifier: str,
+        meta: dict | None = None,
+    ) -> SessionRatingSubmitResponse:
+        """Same fulfilment as the token path, for a caller that already authenticated the
+        customer another way (the WhatsApp webhook resolves tenant, chat and session itself).
+
+        The request is looked up by id AND this session AND this tenant (row-locked), so an id
+        belonging to another conversation or tenant is indistinguishable from an unknown one.
+        Raises RatingSubmitError exactly as the token path does.
+        """
+        request = self.db.execute(
+            select(RatingRequest)
+            .where(
+                RatingRequest.id == request_id,
+                RatingRequest.session_id == session.id,
+                RatingRequest.tenant_id == session.tenant_id,
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        return self._fulfil_request(
+            session,
+            request,
+            score=score,
+            comment=None,
+            user_identifier=user_identifier,
+            meta=meta,
+        )
+
+    def _fulfil_request(
+        self,
+        session: ConversationSession,
+        request: RatingRequest | None,
+        *,
+        score: int,
+        comment: str | None,
+        user_identifier: str,
+        meta: dict | None,
+    ) -> SessionRatingSubmitResponse:
+        """Record the rating for a locked request row (agent/source/ticket come from the row)."""
+        now = utcnow_aware()
         # Unknown token and a token minted for another session are indistinguishable.
         if request is None or request.session_id != session.id:
             raise RatingSubmitError("rating_request_invalid")
@@ -161,10 +215,10 @@ class ReviewService:
         db_rating = SessionRating(
             tenant_id=session.tenant_id,
             session_id=session.id,
-            score=rating_data.score,
-            comment=rating_data.comment,
-            user_identifier=rating_data.user_identifier,
-            meta=rating_data.meta or {},
+            score=score,
+            comment=comment,
+            user_identifier=user_identifier,
+            meta=meta or {},
             rated_agent_id=request.agent_id,
             source=request.source,
             rating_request_id=request.id,

@@ -105,7 +105,6 @@ def test_payload_cannot_name_a_tenant(client, queue, conn):
     "mutate",
     [
         lambda e: e.pop("message_id"),
-        lambda e: e.update(kind="image"),
         lambda e: e.update(type="message.bogus"),
         lambda e: e.update(text="x" * 10001),
     ],
@@ -115,6 +114,45 @@ def test_invalid_event_is_400(client, queue, conn, mutate):
     mutate(ev)
     r = _post(client, ev)
     assert (r.status_code, r.json()) == (400, {"error": "invalid_event"})
+
+
+_MEDIA = {"id": "m_abc123", "mime": "image/jpeg", "bytes": 1234, "sha256": "a" * 64}
+
+
+def test_image_event_with_media_is_accepted_and_queued_intact(client, queue, conn):
+    ev = inbound(conn, text="look", kind="image", media=_MEDIA)
+    assert _post(client, ev).status_code == 200
+    queued = queue.events[0]
+    assert queued["kind"] == "image" and queued["media"] == _MEDIA and queued["text"] == "look"
+
+
+def test_an_image_event_without_media_still_validates_and_is_handled_as_unreadable(
+    client, queue, conn
+):
+    """Never 400 a delivery the sidecar would drop for good: it degrades to the 'other' path."""
+    ev = inbound(conn, kind="image")
+    assert _post(client, ev).status_code == 200 and queue.events[0]["media"] is None
+
+
+def test_oversize_marker_on_an_other_event_is_kept(client, queue, conn):
+    ev = inbound(conn, text="", kind="other", skipped="media_too_large")
+    assert _post(client, ev).status_code == 200 and queue.events[0]["skipped"] == "media_too_large"
+
+
+@pytest.mark.parametrize(
+    "media",
+    [
+        {**_MEDIA, "id": "../../health"},  # path characters
+        {**_MEDIA, "id": "a/b"},
+        {**_MEDIA, "sha256": "short"},
+        {**_MEDIA, "bytes": -1},
+        {"id": "m1"},
+    ],
+)
+def test_image_event_with_a_bad_media_reference_is_400(client, queue, conn, media):
+    ev = inbound(conn, kind="image", media=media)
+    r = _post(client, ev)
+    assert (r.status_code, r.json()) == (400, {"error": "invalid_event"}) and queue.events == []
 
 
 def test_kill_switch_and_missing_secret_fail_closed(client, queue, conn, wa_settings, monkeypatch):

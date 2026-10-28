@@ -39,9 +39,17 @@ async def enqueue_event(event: dict) -> None:
 
 
 async def enqueue_send(
-    connection_id: UUID, chat_id: UUID, text: str, key: str, guard: bool = False
+    connection_id: UUID,
+    chat_id: UUID,
+    text: str,
+    key: str,
+    guard: bool = False,
+    rating_request_id: UUID | None = None,
 ) -> None:
-    """Queue one outbound text. `key` is the idempotency key (becomes the arq job id)."""
+    """Queue one outbound text. `key` is the idempotency key (becomes the arq job id).
+
+    `rating_request_id` marks a rating prompt: once it is actually sent the chat remembers it.
+    """
     redis = await _pool()
     try:
         await redis.enqueue_job(
@@ -50,6 +58,26 @@ async def enqueue_send(
             str(chat_id),
             encrypt_field(text),  # reply text is chat content too: sealed at rest in Redis
             guard,  # True for automatic replies: re-check pause / ai_enabled at send time
+            str(rating_request_id) if rating_request_id else None,
+            _job_id=f"wa_send:{key}",
+        )
+    finally:
+        await redis.close()
+
+
+async def enqueue_send_image(
+    connection_id: UUID, chat_id: UUID, attachment_id: UUID, caption: str | None, key: str
+) -> None:
+    """Queue one outbound image. Only the attachment id travels: the sender job reads the stored
+    URL from our own row (never a URL from a frame). `key` becomes the arq job id."""
+    redis = await _pool()
+    try:
+        await redis.enqueue_job(
+            "send_whatsapp_image",
+            str(connection_id),
+            str(chat_id),
+            str(attachment_id),
+            encrypt_field(caption) if caption else None,  # an agent's words: sealed at rest
             _job_id=f"wa_send:{key}",
         )
     finally:

@@ -343,6 +343,10 @@ class Settings(BaseSettings):
     WHATSAPP_MAX_CONNECTIONS: int = 3
     # Owner typed from the phone/WhatsApp Web: AI stays silent this long.
     WHATSAPP_OWNER_PAUSE_MINUTES: int = 120
+    # Images: the only hosts an outbound image URL may point at (comma separated; the sidecar
+    # enforces its own MEDIA_URL_ALLOWLIST too) and the inbound byte cap (matches web chat).
+    WHATSAPP_MEDIA_URL_HOSTS: str = "res.cloudinary.com"
+    WHATSAPP_MEDIA_MAX_BYTES: int = 10 * 1024 * 1024
 
     def get_trial_expiry_reminder_days(self) -> list[int]:
         """Parse and validate reminder windows from env setting."""

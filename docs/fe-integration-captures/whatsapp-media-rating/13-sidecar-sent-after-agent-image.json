@@ -1,0 +1,12 @@
+{
+  "fake_sidecar_received": [
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432100@lid",
+      "image": {
+        "url": "https://res.cloudinary.com/demo/image/upload/luran/chat_images/563128f01c58.jpg",
+        "caption": "Here is the setup diagram"
+      }
+    }
+  ]
+}

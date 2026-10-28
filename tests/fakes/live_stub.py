@@ -17,6 +17,8 @@ def apply_llm_stub() -> list:
     async def _gen(
         self, prompt, max_tokens=800, model_name=None, system_message=None, image_urls=None
     ):
+        if image_urls:  # evidence the vision call received the customer's image(s)
+            return f"[stubbed AI] I can see {len(image_urls)} image(s) you sent.", 30, False
         return "[stubbed AI] Our opening hours are 9am to 5pm, Monday to Friday.", 30, False
 
     async def _retr(self, *, tenant_id, query, max_chunks, score_threshold):
@@ -35,9 +37,41 @@ def apply_llm_stub() -> list:
             new=_auto,
         ),
     ]
+    patches += apply_media_stub()
     for p in patches:
         p.start()
     return patches
+
+
+def apply_media_stub() -> list:
+    """Moderation + Cloudinary stand-ins: a live run must never reach OpenAI or real Cloudinary.
+
+    Moderation flags an image that is exactly 7x7 pixels (so a capture can show a block);
+    everything else passes. The "upload" returns a Cloudinary-shaped URL that is never fetched.
+    """
+    import io
+    import uuid
+
+    async def _moderate(image_bytes, content_type):
+        from PIL import Image
+
+        with Image.open(io.BytesIO(image_bytes)) as img:
+            if img.size == (7, 7):
+                return False, "stub: flagged"
+        return True, None
+
+    def _upload(self, file_content, tenant_id, session_id, filename):
+        name = uuid.uuid4().hex[:12]
+        return (
+            f"https://res.cloudinary.com/demo/image/upload/luran/chat_images/{name}.jpg",
+            f"luran/chat_images/{name}",
+            None,
+        )
+
+    return [
+        patch("app.api.v1.endpoints.chat.moderate_image", new=_moderate),
+        patch("app.utils.cloudinary_client.CloudinaryManager.upload_chat_image", new=_upload),
+    ]
 
 
 def main() -> None:  # pragma: no cover - manual / capture use

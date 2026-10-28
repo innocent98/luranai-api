@@ -11,6 +11,8 @@ Snapshot (Sidecar on staging): pipeline wiring built and validated locally (PR o
 
 Snapshot (WhatsApp module): spike DONE; build plan DONE; backend demo slice DONE (PR open, not merged, 2026-10-27); sidecar and dashboard tracks in flight; live end-to-end with a real phone NOT done.
 
+Snapshot (WhatsApp media + rating): backend half built and verified locally 2026-10-28 (full suite, scratch-DB migration cycle, live run with fake sidecar and stubbed LLM/moderation/Cloudinary); PR open, not merged; real sidecar media endpoint, real moderation/Cloudinary and a real phone NOT yet exercised.
+
 ## Activation (signup -> first value) — IN PROGRESS (backend built, PR open to `develop`, not merged; dashboard track in flight)
 Why: 2026-10-27 prod aggregates: 13 tenants, 0 payments, 0 of 12 trials ever uploaded a KB, 6 of 10 expired trials never had a conversation. Docs: SOP `docs/sop/activation_onboarding_backend.md`; FE guide `docs/fe-integration-guide-onboarding.md`; captures `docs/fe-integration-captures/activation/`. Branch `feature/activation-onboarding-backend`.
 
@@ -74,6 +76,20 @@ Docs: spike `docs/sop/whatsapp_pairing_spike.md`; plan `docs/superpowers/plans/2
 - [x] Opus security review of the backend slice done; HIGH/MEDIUM findings fixed (see SOP); LOW leftovers listed as follow-ups
 - [x] Lead merge (luranai-api #153, `31ce21b`, 2026-10-27)
 - [x] Consent wording replaced 2026-10-28 with the copy Adebayo specified (`CONSENT_VERSION` `2026-10-28-draft2`; no "unofficial"/fear wording; old version rejected). The version string still says `draft2`; bump it whenever the text changes (activation track, PR open)
+
+### Media + rating, backend half (branch `feature/whatsapp-media-rating-backend`) — built 2026-10-28, PR open to `develop`, not merged
+Docs: SOP `docs/sop/whatsapp_media_and_rating.md`; FE guide `docs/fe-integration-guide-whatsapp-channel.md` section 8; captures `docs/fe-integration-captures/whatsapp-media-rating/`; contract `docs/specs/2026-10-28-whatsapp-media-rating-contract.md` (outside the repo).
+- [x] Inbound image: sidecar media fetch (streamed, capped, size + sha256 + mime check) -> shared image pipeline (`screen_image_bytes` / `store_screened_image`, fail-closed moderation, Cloudinary, 30-day retention) -> AI with vision
+  - [x] Store-only (no AI) when owner-paused, AI off, escalated or an agent is assigned; fanned out to agents
+  - [x] Moderation block: nothing stored, one fixed sentence, never the reason; unreadable / oversize / sha mismatch / expired media: placeholder + polite reply
+  - [x] Plan/subscription + conversation-cap guard before any fetch, moderation or upload; redelivery is a no-op
+- [x] Fallback fix: the "text only" reply fires only for `kind:"other"` and only when no human owns the chat
+- [x] Outbound agent images via sidecar `send {image}` from our own stored Cloudinary URL (id-only jobs, host allowlist, 400/413/415 permanent)
+- [x] Rating request forwarded to WhatsApp (`rating_requested` frame), remembered on the chat (migration `wa20ratingreply`), `1`-`5` reply recorded through `ReviewService` (same attribution as the widget), single thank-you, replay/expiry/foreign-request safe
+- [x] Fake sidecar media endpoint + image send; stubs for moderation/Cloudinary; live capture rig
+- [x] Join line on takeover (`You're now chatting with <first name>.`, once per agent, skipped while owner-paused) — Adebayo's decision 2026-10-28
+- [x] Opus security review: NO BLOCKERS; findings 1, 2, 4, 6, 7, 9 fixed; 3, 5, 8, 10, 11 listed in the SOP as follow-ups
+- [ ] Live staging run with the real sidecar and a real number: image both ways, rating reply, voice note while a human owns the chat
 
 ### Sidecar demo slice (branch `feature/whatsapp-sidecar`, text only) — built 2026-10-27
 - [ ] T3 Sidecar (multi-session, PG encrypted store, lease, restore, signed events, compose, CI job) — **built, PR open `feature/whatsapp-sidecar`; fake-socket + real Postgres/Redis tests green; NOT yet proven live** (SOP `docs/sop/whatsapp_sidecar.md`)
@@ -156,7 +172,7 @@ Why: plans differed only by volume plus five flags; the sales agent, Slack/CRM, 
 
 ## Deferred follow-ups (WhatsApp)
 - [ ] Sidecar: purge long-dormant `logged_out` session rows; persist the daily send counter beyond Redis; second Baileys-version re-vet on every bump
-- [ ] Sidecar: images in and out are built (see T8) but not proven live; audio/video/documents/stickers still unsupported; no outbound thumbnail (needs sharp/jimp)
+- [ ] WhatsApp images: backend (#168) and sidecar (#167) halves are both built and merged; not yet proven live on staging; audio, video, documents and stickers still unsupported; no outbound thumbnail (needs sharp/jimp)
 - [ ] Background sweeper for stale `awaiting_pair` rows (today they are expired lazily on the next create); 7-day purge of `whatsapp_inbound_messages`
 - [ ] Plan-limit / disconnect emails (currently logged only)
 - [ ] Pause/AI-off paths skip the monthly conversation-limit check

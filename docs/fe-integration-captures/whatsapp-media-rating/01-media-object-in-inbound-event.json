@@ -1,0 +1,9 @@
+{
+  "note": "media object a message.inbound image event carries",
+  "media": {
+    "id": "<media-id-placeholder>",
+    "mime": "image/png",
+    "bytes": 99,
+    "sha256": "3a79339eee661cf34f6ff37f910adae8819a9dc3117e07c46d8892028419570d"
+  }
+}

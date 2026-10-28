@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/sessions/cf72b74f-73e7-4e22-aba6-d3320e61f3fe/upload",
+    "body": "multipart file=diagram.png"
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "attachment_id": "1b1bcc84-371c-4253-b50d-e62fb2b3fd92",
+      "url": "https://res.cloudinary.com/demo/image/upload/luran/chat_images/563128f01c58.jpg",
+      "content_type": "image/png",
+      "width": 50,
+      "height": 50,
+      "kind": "image",
+      "duration_ms": null,
+      "poster_url": null,
+      "bytes": 160
+    }
+  }
+}
