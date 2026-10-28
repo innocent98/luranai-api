@@ -5290,8 +5290,8 @@ Registration → 30-Day Trial → Trial Expires → Payment Required → Active 
 
 | Feature | Trial (30 days) | Lite | Professional | Growth | Enterprise |
 |---------|-----------------|------|--------------|--------|------------|
-| **Monthly Price** | ₦0 | ₦9,000 | ₦40,000 | ₦80,000 | Volume-based |
-| **Annual Price** | N/A | ₦90,000 (save ₦18k) | ₦400,000 (save ₦80k) | ₦800,000 (save ₦160k) | Custom |
+| **Monthly Price** | ₦0 | ₦15,000 | ₦40,000 | ₦80,000 | Volume-based |
+| **Annual Price** | N/A | ₦150,000 (save ₦30k) | ₦400,000 (save ₦80k) | ₦800,000 (save ₦160k) | Custom |
 | | | | | | |
 | **Conversations/month** | 200 | 2,000 | 10,000 | 25,000 | Unlimited |
 | **Knowledge sources** | 2 (files only) | 15 (files+URLs) | 50 (files+URLs) | 50 (files+URLs) | Unlimited |
@@ -5305,6 +5305,10 @@ Registration → 30-Day Trial → Trial Expires → Payment Required → Active 
 | **Support** | Community | Email 24-48h | Priority 4-8h | Priority 4-8h | Dedicated 1-2h |
 
 **Annual Billing Discount:** 2 months free (10 months price for 12 months service)
+
+**Plan gates (2026-10-28):** which features each tier includes (meeting booking and quotes, Slack and CRM,
+screen recording, ratings export, AI-action limits, WhatsApp numbers) is read from
+`GET /api/v1/tenant/entitlements`; see `docs/fe-integration-guide-entitlements.md`.
 
 **Enterprise Volume Pricing:** See section 13.7 for volume-based pricing calculator (25K-300K+ conversations)
 

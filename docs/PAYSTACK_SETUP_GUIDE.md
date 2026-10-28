@@ -37,6 +37,11 @@ Navigate to: **Transactions** → **Plans** (https://dashboard.paystack.com/plan
 
 Click **Create Plan** button.
 
+> **Amounts changed 2026-10-28.** Lite is now 15,000 naira/month (`1500000` kobo) and 150,000 naira/year.
+> The amounts below are historical. The current prices live in `app/services/plan_catalog.py`, and the
+> Paystack plan must be created with the same amount before the price ships: see the owner-action list in
+> `docs/sop/plan_entitlements.md`.
+
 ### Plan 1: Luran Lite Monthly
 
 - **Plan Name**: `Luran Lite Monthly`

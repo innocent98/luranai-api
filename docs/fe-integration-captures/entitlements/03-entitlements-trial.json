@@ -1,0 +1,66 @@
+{
+  "scenario": "entitlements-trial",
+  "note": "A brand-new trial tenant: everything on except lookup chains, webhooks and analytics. WhatsApp shows enabled=false: the platform grant is not set.",
+  "request": {
+    "method": "GET",
+    "path": "/tenant/entitlements",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "tier": "trial",
+      "subscription_status": "trialing",
+      "features": {
+        "sales_close": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "crm_notifications": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "screen_recording": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "ratings_export": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "lookup_chains": {
+          "enabled": false,
+          "min_tier": "professional"
+        },
+        "webhooks": {
+          "enabled": false,
+          "min_tier": "professional"
+        },
+        "analytics": {
+          "enabled": false,
+          "min_tier": "lite"
+        },
+        "ai_actions": {
+          "enabled": true,
+          "min_tier": "trial",
+          "limit": 2,
+          "used": 0
+        },
+        "whatsapp": {
+          "enabled": false,
+          "min_tier": "trial",
+          "limit": 1,
+          "used": 0
+        },
+        "voice": {
+          "enabled": false,
+          "min_tier": null
+        }
+      }
+    }
+  }
+}

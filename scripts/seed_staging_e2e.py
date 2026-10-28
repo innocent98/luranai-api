@@ -35,6 +35,7 @@ from app.db.models.platform_admin import PlatformAdmin, PlatformAdminRole
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
 from app.db.models.user import User, UserRole
 from app.db.session import SessionLocal
+from app.services.plan_catalog import plan_capabilities
 
 COMMON_PASSWORD = "StagingE2E123$"
 BEARER_TOKEN = "staging-sandbox-bearer-token"
@@ -148,6 +149,17 @@ def _ensure_capabilities(
     capabilities.can_use_webhooks = can_use_webhooks
     capabilities.max_flows = max_flows
     capabilities.max_webhooks_per_flow = max_webhooks_per_flow
+
+    # Entitlement gates come from the tier's plan (single source: plan_catalog), never hand-set.
+    plan_values = plan_capabilities(str(tenant.subscription_tier))
+    for field in (
+        "can_use_sales_close",
+        "can_use_crm_notifications",
+        "can_use_screen_recording",
+        "can_export_ratings",
+        "max_whatsapp_numbers",
+    ):
+        setattr(capabilities, field, plan_values[field])
 
 
 def _ensure_user(db, tenant: Tenant, *, email: str, full_name: str) -> User:

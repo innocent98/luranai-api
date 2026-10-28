@@ -1,0 +1,40 @@
+{
+  "scenario": "downgrade-blocked-by-gated-options",
+  "note": "Downgrade to Lite while booking/quotes/Slack/CRM are on: 400 with violations. (Nothing is sent to Paystack: validation runs first.)",
+  "request": {
+    "method": "POST",
+    "path": "/subscription/downgrade",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "tier": "lite"
+    }
+  },
+  "response": {
+    "status": 400,
+    "content_type": "application/json",
+    "body": {
+      "detail": {
+        "error": "data_exceeds_limits",
+        "violations": [
+          {
+            "field": "sales_close",
+            "current_value": 2,
+            "allowed_value": 0,
+            "difference": 2,
+            "action_required": "Turn off meeting booking and quotes in the sales agent settings before downgrading"
+          },
+          {
+            "field": "crm_notifications",
+            "current_value": 2,
+            "allowed_value": 0,
+            "difference": 2,
+            "action_required": "Turn off Slack and CRM notifications in the sales agent settings before downgrading"
+          }
+        ],
+        "message": "Your current usage exceeds the new tier's limits"
+      }
+    }
+  }
+}

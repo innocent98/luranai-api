@@ -5,6 +5,8 @@ Legend: `[x]` done and verified, `[ ]` not done. Status per module: DONE / IN PR
 
 Snapshot (Activation module): backend A/B/C built and verified locally (full suite, live end-to-end run); PR open, not merged; dashboard UI and staging verification not done.
 
+Snapshot (Plan entitlements): backend built and verified (full suite, scratch-DB migration cycle, live API captures); PR open, not merged; Paystack plan for the new Lite price NOT created; dashboard not built.
+
 Snapshot (WhatsApp module): spike DONE; build plan DONE; backend demo slice DONE (PR open, not merged, 2026-10-27); sidecar and dashboard tracks in flight; live end-to-end with a real phone NOT done.
 
 ## Activation (signup -> first value) — IN PROGRESS (backend built, PR open to `develop`, not merged; dashboard track in flight)
@@ -104,6 +106,29 @@ Docs: spike `docs/sop/whatsapp_pairing_spike.md`; plan `docs/superpowers/plans/2
 - [ ] Separate +234 test number and USD card; Coexistence test on +234
 - [ ] Legal read on Terms 4.1(c) and 4.7
 
+## Plan entitlements (pricing and gates) — IN PROGRESS (backend built, PR open to `develop`, not merged; dashboard track in flight; prod untouched)
+Why: plans differed only by volume plus five flags; the sales agent, Slack/CRM, recording, ratings export and WhatsApp numbers were not tied to plans, and limits lived in two tables that had drifted. Matrix approved 2026-10-28 (Lite 15,000 naira). Docs: SOP `docs/sop/plan_entitlements.md` (includes the Paystack owner-action list); FE guide `docs/fe-integration-guide-entitlements.md`; captures `docs/fe-integration-captures/entitlements/`; spec `docs/superpowers/specs/2026-10-27-pricing-and-entitlements-design.md`. Branch `feature/plan-entitlements-backend`.
+
+- [x] One definition of the plan rows: `app/services/plan_catalog.py` (seed and migration agree; `features` strings generated from the capabilities)
+- [x] New gate columns on `subscription_plans` AND `tenant_capabilities` (`can_use_sales_close`, `can_use_crm_notifications`, `can_export_ratings`; plan-driven `can_use_screen_recording`, `max_whatsapp_numbers`)
+- [x] Parity test: plan columns vs capability columns vs pricing/tenant schemas
+- [x] ONE resolver `get_entitlements(tenant)` (plan, then `override_flags`, then promo grant tier) used by every gate and the endpoint
+- [x] Alembic `ent10entitlements`: idempotent, reversible, tenant backfill, Growth override tenant ends with everything on (proved on a scratch Postgres, upgrade / downgrade / upgrade)
+- [x] Gate: meeting booking + quotes (config save, public meeting endpoints, chat offer/quote branch, sales prompt)
+- [x] Gate: Slack + CRM (config save, dispatch, queued worker jobs)
+- [x] Gate: screen recording (sign, register, send, widget configs) now plan-driven
+- [x] Gate: ratings breakdown (admin list, analytics agent table) + new CSV export `GET /reviews/session/export`; agent self-view and rating collection stay open
+- [x] AI actions limit and lookup chains read the resolver; WhatsApp numbers plan-driven (grant stays platform-only)
+- [x] Downgrade conflicts for sales options, Slack/CRM and WhatsApp numbers
+- [x] `GET /api/v1/tenant/entitlements` (any tenant user, own tenant only)
+- [x] Lite price 1,500,000 kobo (annual 15,000,000); docs that state prices updated
+- [x] FE guide with live captures; SOP
+- [ ] Paystack: create the Lite 15,000 monthly/annual plans and point the env at them BEFORE the new price reaches prod (owner action, see SOP)
+- [ ] Chat sales branch and the queued-worker paths verified with a real LLM / real Slack (unit/integration tests only)
+- [ ] Dashboard: lock badges, upgrade prompts, 403 `feature_not_in_plan` handling (separate track)
+- [ ] Docs site and public pricing page copy (after prod promotion)
+- [ ] Prod promotion (migration + seed review) — lead / Adebayo
+
 ## Backlog / upcoming
 - [ ] Reconcile all earlier modules into this checklist
 
@@ -116,7 +141,7 @@ Docs: spike `docs/sop/whatsapp_pairing_spike.md`; plan `docs/superpowers/plans/2
 - [x] Confirm with the real sidecar that `to_ref` (owner message) and `from_ref` (customer) are the same id for a chat (confirmed live 2026-10-27, one chat)
 - [ ] Run Evolution or WAHA once live for the fallback record
 - [ ] Decide LID <-> phone identity model before schema freeze
-- [ ] Tier-driven `max_whatsapp_numbers` on `subscription_plans` (phase 2 after beta)
+- [x] Tier-driven `max_whatsapp_numbers` on `subscription_plans` (done in Plan entitlements; the `can_use_whatsapp` grant stays platform-only)
 - [ ] Connect page: warn when the tenant's 'Who answers first' is human (0-KB default) or the KB is empty; the AI stays silent otherwise and nothing says why. Per-connection first-responder override is still unbuilt
 - [ ] KB: `POST /knowledge/upload` (text) stores rows but never writes vectors; short documents fail in the chunker ("No chunks could be created") with no tenant-facing message; one long multi-topic chunk scores under the 0.35 retrieval cutoff
 - [ ] WhatsApp: the fixed 'please type' fallback reply is sent but not stored in the transcript

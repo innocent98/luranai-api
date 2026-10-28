@@ -1,15 +1,18 @@
 """Review and rating endpoints."""
 
+import csv
+import io
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
     AuthContext,
+    get_current_tenant_admin,
     get_current_platform_admin,
     get_current_user,
     get_current_user_or_platform_admin,
@@ -30,6 +33,7 @@ from app.schemas.review import (
     SessionRatingSubmitResponse,
 )
 from app.schemas.user import UserResponse
+from app.services.entitlements import require_feature
 from app.services.review_service import RatingSubmitError, ReviewService
 from app.utils.http_rate_limiter import rating_rate_limit
 
@@ -173,6 +177,10 @@ def list_session_ratings(
                     page_size=limit,
                 )
             rated_agent_id = user.id
+        elif rated_agent_id != user.id:
+            # The admin breakdown across the whole tenant is a plan feature; an admin looking at
+            # their own ratings is the same self-view every agent has.
+            require_feature(db, tenant_id, "ratings_export")
         logger.info(f"Tenant user viewing ratings for tenant {tenant_id}")
     else:
         logger.info("Platform admin viewing all ratings (system-wide)")
@@ -197,6 +205,83 @@ def list_session_ratings(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve session ratings",
         ) from e
+
+
+_EXPORT_MAX_ROWS = 10_000
+_EXPORT_HEADER = [
+    "created_at",
+    "score",
+    "comment",
+    "rated_party",
+    "rated_agent_name",
+    "source",
+    "ticket_number",
+    "customer_label",
+]
+
+
+def _csv_cell(value: object) -> str:
+    """Stop spreadsheet apps from executing a customer-written comment as a formula."""
+    text = "" if value is None else str(value)
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
+
+
+@router.get(
+    "/session/export",
+    summary="Export session ratings as CSV",
+    description="Tenant admins only; requires the ratings_export plan feature (403 feature_not_in_plan).",
+)
+def export_session_ratings(
+    min_score: int | None = Query(None, ge=1, le=5),
+    max_score: int | None = Query(None, ge=1, le=5),
+    start_date: datetime | None = Query(None, description="Filter from date (ISO 8601)"),
+    end_date: datetime | None = Query(None, description="Filter to date (ISO 8601)"),
+    rated_agent_id: UUID | None = Query(None),
+    rated_party: Literal["ai", "human"] | None = Query(None),
+    db: Session = Depends(get_db),
+    admin: UserResponse = Depends(get_current_tenant_admin),
+):
+    require_feature(db, admin.tenant_id, "ratings_export")
+    service = ReviewService(db)
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(_EXPORT_HEADER)
+    offset = 0
+    while offset < _EXPORT_MAX_ROWS:
+        page = service.list_session_ratings(
+            tenant_id=admin.tenant_id,
+            session_id=None,
+            min_score=min_score,
+            max_score=max_score,
+            start_date=start_date,
+            end_date=end_date,
+            limit=100,
+            offset=offset,
+            rated_agent_id=rated_agent_id,
+            rated_party=rated_party,
+            source=None,
+        )
+        for r in page.ratings:
+            writer.writerow(
+                [
+                    r.created_at.isoformat(),
+                    r.score,
+                    _csv_cell(r.comment),
+                    r.rated_party,
+                    _csv_cell(r.rated_agent_name),
+                    r.source,
+                    r.ticket_number or "",
+                    _csv_cell(r.customer_label),
+                ]
+            )
+        offset += 100
+        if offset >= page.total:
+            break
+    return Response(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="session-ratings.csv"'},
+    )
 
 
 # ===== Platform Feedback Endpoints =====

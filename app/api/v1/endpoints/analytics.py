@@ -1,7 +1,6 @@
 """Analytics endpoints."""
 
 from datetime import datetime
-from typing import cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_current_user, get_db
 from app.db.models.conversation import SessionStatus, TicketPriority, TicketStatus
+from app.db.models.tenant import Tenant
 from app.db.models.user import UserRole
 from app.schemas.analytics import (
     AgentPerformanceResponse,
@@ -20,10 +20,9 @@ from app.schemas.analytics import (
     TrendResponse,
     VisitTrackRequest,
 )
-from app.schemas.tenant import TenantResponse
 from app.schemas.user import UserResponse
 from app.services.analytics_service import AnalyticsService
-from app.services.tenant_service import TenantService
+from app.services.entitlements import get_entitlements, tenant_has
 from app.services.visit_analytics_service import VisitAnalyticsService
 
 router = APIRouter()
@@ -40,19 +39,25 @@ def check_analytics_permission(db: Session, tenant_id: UUID) -> None:
     Raises:
         HTTPException: If analytics access not enabled
     """
-    tenant_service = TenantService(db)
-    tenant = tenant_service.get_tenant_by_id(tenant_id, include_relations=True)
+    tenant = db.get(Tenant, tenant_id)
 
     if not tenant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
-    tenant = cast(TenantResponse, tenant)
-
-    if not tenant.capabilities or not tenant.capabilities.can_access_analytics:
+    if not get_entitlements(tenant, db).enabled("analytics"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Analytics access not enabled for this tenant",
         )
+
+
+def _hide_ratings(items: list[AgentSummaryResponse] | AgentPerformanceResponse):
+    """Blank the ratings fields (admin ratings breakdown is a plan feature)."""
+    for item in items if isinstance(items, list) else [items]:
+        item.ratings_count = 0
+        item.average_rating = None
+        item.csat_percent = None
+    return items
 
 
 @router.post("/visit", status_code=status.HTTP_202_ACCEPTED)
@@ -232,7 +237,10 @@ def get_all_agents_performance(
         )
 
     analytics_service = AnalyticsService(db)
-    return analytics_service.get_all_agents_performance(tenant_id, start_date, end_date)
+    agents = analytics_service.get_all_agents_performance(tenant_id, start_date, end_date)
+    if not tenant_has(db, tenant_id, "ratings_export"):
+        _hide_ratings(agents)
+    return agents
 
 
 @router.get(
@@ -285,9 +293,15 @@ def get_agent_performance(
 
     analytics_service = AnalyticsService(db)
     try:
-        return analytics_service.get_agent_performance(tenant_id, agent_id, start_date, end_date)
+        performance = analytics_service.get_agent_performance(
+            tenant_id, agent_id, start_date, end_date
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from e
+    # An agent's own ratings stay open; an admin reading anyone else's needs the plan feature.
+    if current_user.id != agent_id and not tenant_has(db, tenant_id, "ratings_export"):
+        _hide_ratings(performance)
+    return performance
 
 
 @router.get("/trends/conversations", response_model=TrendResponse, status_code=status.HTTP_200_OK)

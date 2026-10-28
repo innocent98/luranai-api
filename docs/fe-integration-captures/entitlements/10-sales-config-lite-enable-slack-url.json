@@ -1,0 +1,24 @@
+{
+  "scenario": "sales-config-lite-enable-slack-url",
+  "note": "Slack URL is the crm_notifications gate.",
+  "request": {
+    "method": "PATCH",
+    "path": "/sales/config",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "slack_webhook_url": "https://hooks.slack.com/services/T111/B111/other-placeholder"
+    }
+  },
+  "response": {
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "code": "feature_not_in_plan",
+      "feature": "crm_notifications",
+      "min_tier": "professional",
+      "message": "Your plan does not include Slack and CRM notifications. Upgrade to Professional to use it."
+    }
+  }
+}

@@ -29,6 +29,7 @@ from app.db.models.automation import (
 )
 from app.db.models.tenant import TenantCapabilities
 from app.schemas.automation import TenantActionCreate, TenantActionUpdate
+from app.services.entitlements import get_entitlements_for_tenant_id
 from app.services.action_success import SuccessConditionError, evaluate_success_condition
 from app.utils.network_security import resolve_and_validate_host
 from app.utils.pinned_http import aread_capped, build_pinned_request
@@ -92,15 +93,17 @@ class AutomationService:
         return int(self.db.execute(stmt).scalar() or 0)
 
     def _check_action_limit(self, tenant_id: UUID) -> None:
-        stmt = select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant_id)
-        capabilities = self.db.execute(stmt).scalar_one_or_none()
-        if not capabilities or capabilities.max_automation_actions is None:
+        entitlements = get_entitlements_for_tenant_id(self.db, tenant_id)
+        if entitlements is None:
+            return
+        limit = entitlements.limit("ai_actions")
+        if limit is None:
             return
 
         action_count = self.count_actions(tenant_id)
-        if action_count >= capabilities.max_automation_actions:
+        if action_count >= limit:
             raise ValueError(
-                f"Automation action limit reached. Your plan allows {capabilities.max_automation_actions} automation actions. Upgrade to create more."
+                f"Automation action limit reached. Your plan allows {limit} automation actions. Upgrade to create more."
             )
 
     def count_monthly_executions(self, tenant_id: UUID) -> int:

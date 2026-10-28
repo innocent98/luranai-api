@@ -6,8 +6,9 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_tenant_admin, get_db
-from app.db.models.tenant import TenantAIConfig
+from app.api.deps import get_current_tenant_admin, get_current_user, get_db
+from app.db.models.tenant import Tenant, TenantAIConfig
+from app.schemas.entitlements import EntitlementsResponse
 from app.schemas.onboarding import OnboardingStatus
 from app.schemas.tenant import (
     CuratedVoiceResponse,
@@ -20,6 +21,7 @@ from app.schemas.tenant import (
     VoiceSettingsUpdate,
 )
 from app.schemas.user import UserResponse
+from app.services.entitlements import get_entitlements
 from app.services.first_responder import default_first_responder
 from app.services.onboarding_service import get_onboarding_status
 from app.services.tenant_service import TenantService
@@ -29,6 +31,22 @@ from app.services.voice.voices import CURATED_VOICES, is_curated_voice_id
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get("/entitlements", response_model=EntitlementsResponse, status_code=status.HTTP_200_OK)
+def get_my_entitlements(
+    db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_user),
+):
+    """What the caller's plan includes. Any authenticated tenant user; always the caller's own tenant.
+
+    Resolution order: plan defaults, then the tenant's manual overrides, then an active
+    promotional grant's tier (see app/services/entitlements.py).
+    """
+    tenant = db.get(Tenant, current_user.tenant_id)
+    if tenant is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+    return get_entitlements(tenant, db).to_response()
 
 
 @router.get("/onboarding", response_model=OnboardingStatus, status_code=status.HTTP_200_OK)

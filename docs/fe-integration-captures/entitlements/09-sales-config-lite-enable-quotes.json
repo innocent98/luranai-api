@@ -1,0 +1,24 @@
+{
+  "scenario": "sales-config-lite-enable-quotes",
+  "note": "Same gate, other option.",
+  "request": {
+    "method": "PATCH",
+    "path": "/sales/config",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "quotation_enabled": true
+    }
+  },
+  "response": {
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "code": "feature_not_in_plan",
+      "feature": "sales_close",
+      "min_tier": "professional",
+      "message": "Your plan does not include meeting booking and quotes. Upgrade to Professional to use it."
+    }
+  }
+}
