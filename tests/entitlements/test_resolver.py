@@ -233,7 +233,38 @@ def test_an_ended_grant_stops_counting_before_the_expiry_worker_runs(db_session)
     db_session.query(PromotionalGrant).filter_by(tenant_id=tenant.id).update(
         {"grant_ends_at": datetime.now(UTC) - timedelta(hours=1)}
     )
+    tenant_row = db_session.get(Tenant, tenant.id)
+    tenant_row.subscription_ends_at = datetime.now(UTC) - timedelta(
+        hours=1
+    )  # as the grant wrote it
     db_session.commit()
     # The tenant row still says professional (the worker has not reverted it).
     ent = get_entitlements(db_session.get(Tenant, tenant.id), db_session)
-    assert ent.tier == "lite" and ent.enabled("sales_close") is False
+    assert ent.tier == "lite"
+    # The grant wrote its end date onto the tenant, so until the worker reverts it the account
+    # reads as lapsed too: nothing stays on from the grant.
+    assert ent.enabled("sales_close") is False
+    assert not any(ent.enabled(key) for key in FEATURES)
+
+
+def test_a_trial_past_its_end_date_is_lapsed_before_the_status_flips(db_session):
+    from datetime import UTC, datetime, timedelta
+
+    tenant = make_tenant(db_session, "trial")
+    tenant.trial_ends_at = datetime.now(UTC) - timedelta(days=1)  # status still "trialing"
+    db_session.commit()
+    ent = get_entitlements(tenant, db_session)
+    assert ent.subscription_status == "trialing"
+    assert not any(ent.enabled(key) for key in FEATURES)
+
+
+def test_an_active_subscription_past_its_end_date_is_lapsed(db_session):
+    from datetime import UTC, datetime, timedelta
+
+    tenant = make_tenant(db_session, "professional")
+    tenant.subscription_ends_at = datetime.now(UTC) - timedelta(hours=1)
+    db_session.commit()
+    assert not get_entitlements(tenant, db_session).enabled("sales_close")
+    tenant.subscription_ends_at = datetime.now(UTC) + timedelta(days=5)
+    db_session.commit()
+    assert get_entitlements(tenant, db_session).enabled("sales_close")

@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session, object_session
 from app.db.models.subscription_plan import PLAN_ONLY_CAPABILITY_FIELDS, SubscriptionPlan
 from app.db.models.tenant import Tenant, TenantCapabilities
 from app.services.plan_catalog import TIER_ORDER, plan_capabilities
+from app.utils.datetime import ensure_utc_aware
 
 # Display names for the gate message when the plan row cannot be read.
 _TIER_NAMES = {
@@ -40,6 +41,29 @@ _TIER_NAMES = {
 
 
 LAPSED_STATUSES = frozenset({"trial_expired", "canceled", "past_due"})
+
+
+def is_lapsed(
+    status: str,
+    trial_ends_at: datetime | None,
+    subscription_ends_at: datetime | None,
+    now: datetime | None = None,
+) -> bool:
+    """True when the staff API would answer 402 for this account (`require_active_subscription`).
+
+    Mirrors that dependency without its side effects: a stored lapsed status, a trial past
+    `trial_ends_at`, or an active subscription past `subscription_ends_at` (the status flips lazily
+    on the next 402 check, so the dates must be read here too). An ended promotional grant also
+    lands here: the grant wrote its end date onto the tenant.
+    """
+    now = now or datetime.now(UTC)
+    if status in LAPSED_STATUSES:
+        return True
+    trial_end = ensure_utc_aware(trial_ends_at)
+    if status in {"trialing", "trial"} and trial_end is not None and now > trial_end:
+        return True
+    sub_end = ensure_utc_aware(subscription_ends_at)
+    return status == "active" and sub_end is not None and now > sub_end
 
 
 @dataclass(frozen=True)
@@ -160,6 +184,7 @@ class Entitlements:
         tier: str,
         subscription_status: str,
         values: dict[str, Any],
+        lapsed: bool | None = None,
     ) -> None:
         self._db = db
         self.tenant_id = tenant_id
@@ -169,7 +194,7 @@ class Entitlements:
         # Same statuses the staff API answers 402 for: a lapsed account keeps its tier but none of
         # the features, so routes without the 402 check (ratings, sales config, public meeting
         # endpoints) cannot be used for free after the trial or a cancellation.
-        self.lapsed = subscription_status in LAPSED_STATUSES
+        self.lapsed = subscription_status in LAPSED_STATUSES if lapsed is None else lapsed
 
     def value(self, field: str) -> Any:
         return self.values.get(field)
@@ -288,6 +313,9 @@ def get_entitlements(tenant: Tenant, db: Session | None = None) -> Entitlements:
         tier=tier,
         subscription_status=str(tenant.subscription_status),
         values=values,
+        lapsed=is_lapsed(
+            str(tenant.subscription_status), tenant.trial_ends_at, tenant.subscription_ends_at
+        ),
     )
 
 
