@@ -1,6 +1,7 @@
 // Owns every Session in the process: capacity guard, create/lookup/delete, staggered boot restore, graceful shutdown.
 import { errName } from './log.mjs'
 import { deriveSessionKey, open, seal } from './crypto.mjs'
+import { validateImageUrl } from './image-fetch.mjs'
 import { ApiError, Session } from './session.mjs'
 
 const KEY_RE = /^[A-Za-z0-9_-]{1,64}$/
@@ -82,10 +83,14 @@ export class SessionManager {
     return { status: 'logged_out' }
   }
 
-  async send(key, toRef, text) {
+  async send(key, toRef, text, image = null) {
     if (this.shuttingDown) throw new ApiError(503, 'shutting_down')
-    return this.get(key).send(toRef, text)
+    if (image) validateImageUrl(image.url, this.d.cfg.mediaUrlAllowlist)   // 400 invalid_image_url before anything is spent
+    return this.get(key).send(toRef, text, image)
   }
+
+  // Stored inbound image for GET /sessions/{key}/media/{id}; null for unknown, expired or another session's id.
+  media(key, id) { return this.d.media.get(key, id) }
 
   // ---- boot ----
   // Sessions come from our own database. Restore is staggered (one per restoreStaggerMs + jitter) and capped by
@@ -139,6 +144,7 @@ export class SessionManager {
   startSweeper(everyMs = 30000) {
     this.sweeper = setInterval(() => {
       for (const s of this.sessions.values()) if (s.pairingExpired()) s.expirePairing().catch(() => {})
+      this.d.media.sweep()   // free expired image bytes even when nobody asks for them
     }, everyMs)
     this.sweeper.unref?.()
   }

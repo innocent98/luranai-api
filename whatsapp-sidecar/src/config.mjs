@@ -7,6 +7,14 @@ const int = (env, k, d, { min = 0, max = Number.MAX_SAFE_INTEGER } = {}) => {
   return n
 }
 
+// Comma-separated exact hostnames (no wildcards, no IP literals, no ports). Fails loudly on a malformed entry.
+const hostList = (raw, dflt) => {
+  const items = (raw === undefined || raw.trim() === '' ? dflt : raw).split(',').map((h) => h.trim().toLowerCase()).filter(Boolean)
+  for (const h of items) if (!/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(h)) throw new Error('invalid env MEDIA_URL_ALLOWLIST: expected comma-separated hostnames')
+  if (!items.length) throw new Error('invalid env MEDIA_URL_ALLOWLIST: empty')
+  return items
+}
+
 export function loadConfig(env = process.env) {
   const missing = []
   const need = (k) => { if (!env[k]) missing.push(k); return env[k] }
@@ -28,6 +36,8 @@ export function loadConfig(env = process.env) {
     restoreStaggerMs: int(env, 'RESTORE_STAGGER_MS', 2000, { min: 0 }),
     leaseTtlMs: int(env, 'LEASE_TTL_MS', 30000, { min: 3000 }),
     pairingTtlMs: int(env, 'PAIRING_TTL_MS', 600000, { min: 60000 }),
+    mediaStoreMaxMb: int(env, 'MEDIA_STORE_MAX_MB', 32, { min: 10, max: 64 }),   // min: one maximum-size image must fit
+    mediaUrlAllowlist: hostList(env.MEDIA_URL_ALLOWLIST, 'res.cloudinary.com'),
   }
   if (missing.length) throw new Error(`missing required env: ${missing.join(', ')}`)
   if (cfg.token.length < 32) throw new Error('WHATSAPP_SIDECAR_TOKEN must be at least 32 characters')

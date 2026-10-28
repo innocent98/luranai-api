@@ -4,6 +4,7 @@ import { chatHash, deriveSessionKey } from './crypto.mjs'
 import { randomBytes } from 'node:crypto'
 import { Lease, LeaseHeldElsewhere, LeaseUnavailable } from './lease.mjs'
 import { errName, mask } from './log.mjs'
+import { MAX_IMAGE_BYTES, MediaTooLarge, declaredLength, downloadCapped, sha256Hex, sniffImage, withTimeout } from './media.mjs'
 import { BoundedMap, BoundedSet, parseMessage, resolvePhoneDigits, userPart, isOneToOneJid } from './messages.mjs'
 import { TokenBucket, DailyCap } from './limiter.mjs'
 import { backoffMs, classifyDisconnect, isRegistered } from './status.mjs'
@@ -16,6 +17,8 @@ class FatalAuthError extends Error {}
 const OWNER_EVENT_MAX_AGE_S = 900
 const SEND_WARMUP_MS = 3000          // after (re)connect, hold sends briefly: no burst the moment the socket opens
 const MAX_QUEUED_SENDS = 10
+const MEDIA_DOWNLOAD_TIMEOUT_MS = 30000
+const MEDIA_UPLOAD_TIMEOUT_MS = 30000   // Baileys aborts its own upload at this; the race below is the backstop that frees the upload gate
 
 const deferred = () => { const d = {}; d.promise = new Promise((res, rej) => { d.resolve = res; d.reject = rej }); return d }
 
@@ -54,6 +57,7 @@ export class Session {
   }
 
   _setStatus(status, { code, silent = false } = {}) {
+    if (status === 'logged_out') this.d.media.clearSession(this.key)   // stored inbound images die with the link
     if (code !== undefined) {
       this.lastDisconnect = { code, at: new Date(this.d.now()).toISOString() }
       this.d.db.updateSession(this.key, { lastDisconnect: this.lastDisconnect }).catch(() => {})
@@ -356,19 +360,51 @@ export class Session {
         if (this.sentIds.has(m.id) || this.seenOut.has(m.id)) continue
         this.seenOut.add(m.id)
         if (m.tsS && this.d.now() / 1000 - m.tsS > OWNER_EVENT_MAX_AGE_S) continue   // history catch-up, not live owner activity
-        this.d.emit(this.key, { type: 'message.outbound_external', message_id: m.id, to_ref: m.chatRef, text: m.text })
+        this.d.emit(this.key, { type: 'message.outbound_external', message_id: m.id, to_ref: m.chatRef, text: m.kind === 'text' ? m.text : '' })
         continue
       }
       if (type !== 'notify' || this.seenIn.has(m.id)) continue
       this.seenIn.add(m.id)
       this._noteInbound(m.chatRef, msg.key)
       const digits = await resolvePhoneDigits(msg, this.sock)
-      this.log.info({ session: this.key, kind: m.kind, from: mask(m.chatRef) }, 'inbound')
+      const img = m.kind === 'image' ? await this._captureImage(epoch, msg, m) : null
+      if (m.kind === 'image' && !img) return   // the session was unlinked or stopped while downloading: say nothing
+      this.log.info({ session: this.key, kind: img?.skipped ? 'other' : m.kind, from: mask(m.chatRef) }, 'inbound')
       this.d.emit(this.key, {
         type: 'message.inbound', message_id: m.id, from_ref: m.chatRef, from_phone_digits: digits,
-        push_name: m.pushName, kind: m.kind, text: m.text,
+        push_name: m.pushName, kind: img?.skipped ? 'other' : m.kind, text: img?.skipped ? '' : m.text,
+        ...(img?.media ? { media: img.media } : {}), ...(img?.skipped ? { skipped: img.skipped } : {}),
       })
     }
+  }
+
+  // Download an inbound image (decrypting stream, cap enforced on received bytes) into the bounded store.
+  // Returns { media } | { skipped } | null (null only when the session was logged out or stopped meanwhile).
+  // A mere reconnect is NOT silent: the message is reported as unavailable instead of vanishing.
+  async _captureImage(epoch, msg, m) {
+    const declared = declaredLength(m.image.declaredBytes)
+    if (declared !== Infinity && declared > MAX_IMAGE_BYTES) return { skipped: 'media_too_large' }   // cheap early out; received bytes remain the real guard
+    const gone = () => (this.status === 'logged_out' || this.stopped ? null : { skipped: 'media_unavailable' })
+    // Baileys only ever sees this rebuilt message: the sender controls every field of the real one, including `url`.
+    const safe = { key: msg.key, message: { imageMessage: { url: '', directPath: m.image.directPath, mediaKey: m.image.mediaKey, mimetype: m.image.mime } } }
+    let buf
+    try {
+      buf = await this.d.mediaGate.run(() => {
+        const sock = this.sock
+        if (epoch !== this.epoch || !sock) throw new Error('socket gone')
+        return downloadCapped(() => this.d.downloadMedia(safe, sock), MAX_IMAGE_BYTES, this.d.cfg.mediaDownloadTimeoutMs ?? MEDIA_DOWNLOAD_TIMEOUT_MS)
+      })
+    } catch (e) {
+      if (epoch !== this.epoch) return gone()
+      if (e instanceof MediaTooLarge) return { skipped: 'media_too_large' }
+      this.log.warn({ session: this.key, err: errName(e) }, 'media download failed')
+      return { skipped: 'media_unavailable' }
+    }
+    if (epoch !== this.epoch) return gone()
+    if (sniffImage(buf) !== m.image.mime) return { skipped: 'media_unavailable' }   // the declared mime is the sender's word; the bytes must agree
+    const id = this.d.media.put(this.key, m.image.mime, buf)
+    if (!id) return { skipped: 'media_unavailable' }
+    return { media: { id, mime: m.image.mime, bytes: buf.length, sha256: sha256Hex(buf) } }
   }
 
   _noteInbound(chatRef, key) {
@@ -388,7 +424,8 @@ export class Session {
 
   // ---------- outbound ----------
 
-  async send(toRef, text) {
+  /** text: string (may be '' when image is given); image: { url, caption? } | null. An image counts as one send. */
+  async send(toRef, text, image = null) {
     if (this.status !== 'connected' || !this.sock) throw new ApiError(503, 'not_connected')
     if (!isOneToOneJid(toRef)) throw new ApiError(400, 'bad_request', { detail: 'to_ref' })
     const at = await this._lastInboundAt(toRef)
@@ -397,32 +434,49 @@ export class Session {
     if (!this.bucket.tryTake()) throw new ApiError(429, 'rate_cap')
     if (!(await this.daily.tryTake(this.key))) throw new ApiError(429, 'rate_cap', { scope: 'daily' })
     this.sendQueued++
-    const run = this.sendChain.then(() => this._doSend(toRef, text))   // one at a time per session (stricter than per chat)
+    const run = this.sendChain.then(() => this._doSend(toRef, text, image))   // one at a time per session (stricter than per chat)
     this.sendChain = run.catch(() => {})
     try { return await run } finally { this.sendQueued-- }
   }
 
-  async _doSend(toRef, text) {
+  async _doSend(toRef, text, image) {
     const sock = this.sock
     const alive = () => this.sock === sock && this.status === 'connected'
     const warm = this.connectedAt + SEND_WARMUP_MS - this.d.now()
     if (warm > 0) await this.d.sleep(warm)
     if (!alive()) throw new ApiError(503, 'not_connected')
+    const caption = image ? (image.caption || '') : text
+    // The only image buffer this send holds. It is fetched inside the per-session send chain (one at a time), under the
+    // global media gate, and dropped as soon as the message is out; it is never placed in sentContent.
+    let pic = null
+    if (image) {
+      pic = await this.d.mediaGate.run(() => this.d.fetchImage(image.url))   // ApiError 400/413/415/502 passes straight through
+      if (!alive()) throw new ApiError(503, 'not_connected')
+    }
     const lastKey = this.lastInboundKey.get(toRef)
     if (lastKey) await sock.readMessages([lastKey]).catch(() => {})          // read receipt before the reply, like a person
     await sock.presenceSubscribe(toRef).catch(() => {})
     await sock.sendPresenceUpdate('composing', toRef).catch(() => {})
-    await this.d.sleep(1500 + this.d.random() * 2500 + Math.min(text.length * 25, 3000))
+    await this.d.sleep(1500 + this.d.random() * 2500 + Math.min(caption.length * 25, 3000))
     await sock.sendPresenceUpdate('paused', toRef).catch(() => {})
     if (!alive()) throw new ApiError(503, 'not_connected')
     const id = this.d.newMessageId(sock.user?.id)
     this.sentIds.add(id)                                                      // registered BEFORE sending: the echo must not look like the owner
-    this.sentContent.set(id, { conversation: text })
+    if (!image) this.sentContent.set(id, { conversation: text })
     let res
-    try { res = await sock.sendMessage(toRef, { text }, { messageId: id }) } catch (e) {
+    try {
+      // Baileys encrypts to a temp file under /tmp (a small tmpfs in compose): one image upload at a time, process-wide.
+      const upMs = this.d.cfg.mediaUploadTimeoutMs ?? MEDIA_UPLOAD_TIMEOUT_MS
+      res = image
+        ? await this.d.uploadGate.run(() => withTimeout(
+          sock.sendMessage(toRef, { image: pic.buf, mimetype: pic.mime, ...(caption ? { caption } : {}) }, { messageId: id, mediaUploadTimeoutMs: upMs }),
+          upMs + (this.d.cfg.mediaUploadGraceMs ?? 15000), () => new Error('upload timed out')))
+        : await sock.sendMessage(toRef, { text }, { messageId: id })
+    } catch (e) {
       this.log.warn({ session: this.key, err: errName(e) }, 'send failed')
       throw new ApiError(502, 'send_failed')
-    }
+    } finally { pic = null }
+    if (image && res?.message) this.sentContent.set(id, res.message)   // small proto (no bytes): lets Baileys answer retry receipts
     return { message_id: res?.key?.id || id }
   }
 }
