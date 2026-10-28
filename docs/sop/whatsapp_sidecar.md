@@ -75,7 +75,7 @@ Dependencies (exact pins, lockfile committed): `@whiskeysockets/baileys 7.0.0-rc
 | `signalRepository.lidMapping.getPNForLID` / `remoteJidAlt` resolution | Unit-tested against the Baileys 7.0.0-rc14 type definitions only; **not seen live** |
 | `messageId` option and `emitOwnEvents:false` behaviour | Per type definitions; not seen live |
 | Phone-sent messages arriving as `messages.upsert` `notify`/`append` with `fromMe:true` | Assumed from Baileys behaviour; **not seen live** (this is what owner pause depends on: verify first in the live run) |
-| RAM with N sessions | **NOT measured.** One session was 128-152 MB in the spike; idle process with zero sessions is 95-101 MB. `MAX_SESSIONS=3` / `RSS_REFUSE_MB=400` / `mem_limit 512m` are guards, not a sizing |
+| RAM with N sessions | **NOT measured** (soak tooling and runbook exist: `docs/sop/whatsapp_sidecar_soak.md`, not yet run). One session was 128-152 MB in the spike; idle process with zero sessions is 95-101 MB. `MAX_SESSIONS=3` / `RSS_REFUSE_MB=400` / `mem_limit 512m` are guards, not a sizing |
 | Long-run stability (hours), network drop and reconnect, WhatsApp restriction behaviour | Not tested |
 
 ## Operate / roll back
@@ -119,7 +119,7 @@ Sidecar half of WhatsApp images, per `docs/specs/2026-10-28-whatsapp-media-ratin
 | The default HTTPS transport (real DNS, TLS, SNI, pinned `lookup`, no redirect, cap, timeout, content-type) | **Proven once by hand** against public hosts (png fetched; 413 at a 1 KB cap; html 415; httpbin redirect 400; 1 ms timeout 502; forced loopback DNS 400). Not in CI (no network in tests) |
 | Baileys `generateWAMessageContent` with `{image: Buffer}` and no thumbnail library does not throw, writes the 2 temp files, removes them | **Proven offline** with a stub uploader (`10485786` + `10485760` bytes during upload, 0 left over) |
 | `downloadMediaMessage(msg,'stream',...)` against real WhatsApp media (including the 404/410 re-upload path), a real `sendMessage({image})` upload and how the recipient's phone renders it, caption length ceiling, receipt of a >8 MB image on the 32m tmpfs | **NOT proven.** Needs the lead's live test with a real number |
-| RSS of the container with real images and 2 sessions | **NOT measured** |
+| RSS of the container with real images and 2 sessions | **NOT measured** (the soak's image-burst phase measures it; see `whatsapp_sidecar_soak.md`) |
 
 ### Review outcome (images)
 One Opus review (read-only, adversarial) of the outbound URL fetch, the media store, memory bounds, logging and request validation. It reproduced one High, fixed here with regression tests:
@@ -157,7 +157,7 @@ One Opus review (read-only) of credential store, lease, webhook signing and API 
 
 ## Follow-ups
 - Live end-to-end through this service (lead + Adebayo): pair, inbound, owner-typed message, reply, restart restore, unlink.
-- N-session RAM soak and 24 h stability (`scripts/soak.mjs` is a skeleton).
+- N-session RAM soak and 24 h stability: tooling and runbook are built (`docs/sop/whatsapp_sidecar_soak.md`); the run itself needs N test numbers and is still to do.
 - Images are in (see "Images"); audio/video/documents/stickers are still `kind:"other"`. Open: `from_phone_digits` fallback if lid mapping is empty at first contact; real-phone proof of image in/out; a thumbnail (needs `sharp` or `jimp`, a new supply-chain decision) if the missing blur preview matters; an image that fails the fetch could refund its bucket token.
 - Dedicated sidecar DB role, a dedicated `noeviction` Redis, lease fencing epoch in Postgres; purge of long-dormant `logged_out` rows; persist more reply-only context (`push_name` etc.) only if the backend needs it.
 - Persisted webhook outbox (events queued in memory are lost if the process dies while the backend is down for minutes).

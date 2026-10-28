@@ -25,6 +25,6 @@ npm audit signatures
 | `src/webhook.mjs`, `src/sign.mjs` | signed, retried, ordered webhook delivery |
 | `src/media.mjs`, `src/image-fetch.mjs` | image bytes: capped reads, bounded in-memory store, concurrency gate; SSRF-guarded outbound image fetch |
 | `src/wa.mjs` | the only runtime Baileys socket construction |
-| `scripts/soak.mjs` | skeleton for the N-session RAM soak (not run) |
+| `scripts/soak.mjs`, `soak-analyze.mjs`, `soak-lib.mjs`, `soak-make-images.mjs`, `soak-synthetic.mjs` | N-session RAM soak: collector (CSV of `/health` + container cgroup memory + step marker), analysis with recommended limits, test-image generator, fake-socket dry run. **Tooling built and unit tested; the real soak has not been run.** Runbook: `docs/sop/whatsapp_sidecar_soak.md` |
 
 Variable names: `.env.example`. Never commit values.
