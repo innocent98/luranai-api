@@ -25,6 +25,8 @@ Per capability, in order:
 2. then the tenant's **`override_flags`**: a field listed there keeps its stored `tenant_capabilities` value (this is what a platform-admin capability edit records),
 3. no plan row (empty plans table, unknown tier) -> stored capability values; neither -> everything off.
 
+4. **Lapsed accounts** (`subscription_status` in `trial_expired`, `canceled`, `past_due`, the statuses the staff API answers 402 for) have every feature off whatever the tier. Added after the Opus review: several gated routes (ratings list/export, sales config save, public meeting endpoints) have no 402 check of their own, so an expired trial would otherwise have kept the trial's gates. A promotional grant whose end date has passed stops counting at once (the tenant's tier is resolved from the grant's `previous_tier`) instead of waiting for the expiry worker.
+
 A stored capability that differs from the plan **without** an override entry is ignored: a stale copy cannot widen or narrow a plan (the drift incident). `tenant_capabilities` stays as a synced copy for code that reads a single row.
 
 `min_tier` is computed from the plan rows as the lowest tier from which the feature stays included for every higher tier (`sales_close`: professional; `analytics`: lite; `ai_actions`, `whatsapp`: trial; voice: null).
@@ -94,12 +96,20 @@ I changed no payment configuration or code. Before the 15,000 price can ship to 
 | Check | Result |
 |---|---|
 | `ruff check app/` (0.8.6), `black --check app/` (24.10.0) | clean |
-| Full suite `pytest tests/` against Postgres 15 + Redis 7 containers, CI env loaded programmatically | see hand-back / PR (numbers below) |
-| SQLite regression job (`tests/api/v1/test_chat_flow_router.py`, `test_flow_action_call_regressions.py`) | see below |
+| Full suite `pytest tests/` against Postgres 15 + Redis 7 containers, CI env loaded programmatically | 2245 passed, 33 skipped (baseline on the untouched tree: 2134 passed, 33 skipped) |
+| SQLite regression job (`tests/api/v1/test_chat_flow_router.py`, `test_flow_action_call_regressions.py`) | 14 passed (`DATABASE_URL=sqlite:///:memory:`) |
 | New tests: `tests/entitlements/` (resolver, parity, every gate, endpoint, tier sync, WhatsApp limit) and `tests/migrations/test_ent10_entitlements.py` | pass; the same files error on the pre-change tree (nothing to import) |
-| Alembic on a scratch Postgres: single head `ent10entitlements`; seeded the OLD plans and five tenants (trial, lite, lite+override, growth+override, professional with a hand-granted WhatsApp number), `upgrade head`, `downgrade -1`, `upgrade head` again | upgraded values correct; downgrade restored the old price/actions/strings; second backfill changed 0 rows; also `upgrade head` from an empty database |
+| Automated real `upgrade()` / `downgrade()` / `upgrade` round trip on a scratch Postgres database (`test_real_upgrade_downgrade_upgrade_round_trip`: nullability, defaults, dropped columns, tenant values) | pass |
+| Alembic on a scratch Postgres by hand: single head `ent10entitlements`; seeded the OLD plans and five tenants (trial, lite, lite+override, growth+override, professional with a hand-granted WhatsApp number), `upgrade head`, `downgrade -1`, `upgrade head` again | upgraded values correct; downgrade restored the old price/actions/strings; second backfill changed 0 rows; also `upgrade head` from an empty database |
 | Live API run (`scripts/capture_entitlements.py`, 28 captures) | gate errors, entitlements for 6 tenant situations, public meeting endpoints on a Lite tenant, downgrade conflicts, public plans |
 | NOT proven with a running app | chat sales branch with a real LLM; Slack/CRM delivery; Cloudinary recording paths; WhatsApp limit through the real sidecar; Paystack charge amount; promotional-grant flow through HTTP |
+
+## Review (Opus, security-critical parts) and what was done
+* Gate bypass: no bypass found on any HTTP/WebSocket/voice/WhatsApp/worker path (all chat entry points reuse the one chat send path; `QuoteService`, `MeetingService`, `NotificationService.dispatch` have no other callers). One should-fix: lapsed accounts kept the trial's gates on routes with no 402 check -> **fixed** (resolver, tests, capture 28, FE guide). One nit (grant end window) -> **fixed**.
+* Tenant isolation: no findings.
+* Migration: tests only exercised the data steps -> **real round-trip test added**. Not changed: downgrade is lossy where documented.
+* Open: staff session detail (`chat.py` `session_rating_briefs`) still shows each conversation's own ratings to a Lite admin; treated as outside "breakdown" (list + export + analytics columns). Lead to confirm.
+* Before deploying: read-only prod query of the Growth override tenant's `subscription_tier` and `override_flags`. The migration and resolver key off `subscription_tier`; if that tenant's tier is not `growth` (Growth-level capabilities set by hand on a lower tier) it would resolve to the lower tier's gates.
 
 ## Operate / roll back
 * Deploy: `alembic upgrade head` (needs `ENCRYPTION_KEY` in the environment, as for earlier migrations), then review plan `features` (the migration warns if hand-edited), then the Paystack owner steps above. Staging reseed (`scripts/seed_data.py`) now writes the catalog values, including the new Lite price: do the Paystack steps first on that environment.

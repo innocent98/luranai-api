@@ -41,7 +41,9 @@ def _count(db, tenant):
     return db.query(WhatsAppConnection).filter_by(tenant_id=tenant.id).count()
 
 
-def test_lite_gets_one_number_even_though_nothing_was_set_by_hand(pg_client, db_session, fake_sidecar, queue):
+def test_lite_gets_one_number_even_though_nothing_was_set_by_hand(
+    pg_client, db_session, fake_sidecar, queue
+):
     tenant = make_tenant(db_session, "lite", whatsapp_grant=True)
     _login(db_session, tenant)
     assert pg_client.post(URL, json=consent_body(PHONE_A)).status_code == 201
@@ -68,7 +70,9 @@ def test_enterprise_has_no_plan_limit(db_session, pg_client, fake_sidecar, queue
     assert pg_client.post(URL, json=consent_body(PHONE_B)).status_code == 201
 
 
-def test_without_the_grant_the_plan_alone_does_not_open_whatsapp(db_session, pg_client, fake_sidecar, queue):
+def test_without_the_grant_the_plan_alone_does_not_open_whatsapp(
+    db_session, pg_client, fake_sidecar, queue
+):
     tenant = make_tenant(db_session, "growth", whatsapp_grant=False)
     _login(db_session, tenant)
     r = pg_client.post(URL, json=consent_body(PHONE_A))

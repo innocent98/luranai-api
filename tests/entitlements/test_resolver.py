@@ -186,3 +186,54 @@ def test_enterprise_limits_are_null_not_zero(db_session):
 def test_no_second_row_per_tenant(db_session):
     tenant = make_tenant(db_session, "lite")
     assert db_session.query(TenantCapabilities).filter_by(tenant_id=tenant.id).count() == 1
+
+
+@pytest.mark.parametrize("status", ["trial_expired", "canceled", "past_due"])
+def test_lapsed_accounts_have_no_features(db_session, status):
+    tenant = make_tenant(db_session, "professional", whatsapp_grant=True)
+    tenant.subscription_status = status
+    db_session.commit()
+    ent = get_entitlements(tenant, db_session)
+    assert ent.tier == "professional" and ent.subscription_status == status
+    assert not any(ent.enabled(key) for key in FEATURES)
+    assert tenant_has(db_session, tenant.id, "ratings_export") is False
+
+
+def test_lapsed_trial_cannot_use_the_staff_ratings_routes_or_public_booking(pg_client, db_session):
+    from tests.entitlements.helpers import make_user
+
+    tenant = make_tenant(db_session, "trial")
+    tenant.subscription_status = "trial_expired"
+    db_session.commit()
+    _, headers = make_user(db_session, tenant)
+    assert pg_client.get("/api/v1/reviews/session", headers=headers).status_code == 403
+    assert pg_client.get("/api/v1/reviews/session/export", headers=headers).status_code == 403
+    r = pg_client.patch("/api/v1/sales/config", headers=headers, json={"quotation_enabled": True})
+    assert r.status_code == 403 and r.json()["code"] == "feature_not_in_plan"
+
+
+def test_an_ended_grant_stops_counting_before_the_expiry_worker_runs(db_session):
+    from datetime import UTC, datetime, timedelta
+
+    from app.db.models.promotional_grant import PromotionalGrant
+
+    tenant = make_tenant(db_session, "lite")
+    PromotionalGrantService(db_session).create_grant(
+        tenant_id=tenant.id,
+        campaign_code="ENT-END",
+        campaign_name="t",
+        granted_tier="professional",
+        duration_days=30,
+        source="admin_single",
+        granted_by_admin_id=None,
+        granted_by_admin_name="test",
+        reason="grant window test",
+    )
+    assert get_entitlements(db_session.get(Tenant, tenant.id), db_session).enabled("sales_close")
+    db_session.query(PromotionalGrant).filter_by(tenant_id=tenant.id).update(
+        {"grant_ends_at": datetime.now(UTC) - timedelta(hours=1)}
+    )
+    db_session.commit()
+    # The tenant row still says professional (the worker has not reverted it).
+    ent = get_entitlements(db_session.get(Tenant, tenant.id), db_session)
+    assert ent.tier == "lite" and ent.enabled("sales_close") is False

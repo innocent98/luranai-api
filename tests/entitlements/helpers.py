@@ -9,7 +9,13 @@ from app.services.entitlements import new_tenant_capabilities
 
 # The tier matrix from the contract (docs/specs/2026-10-28-entitlements-contract.md), written out
 # by hand so a wrong plan row cannot hide behind a test that reads the same catalog.
-SALES_CLOSE = {"trial": True, "lite": False, "professional": True, "growth": True, "enterprise": True}
+SALES_CLOSE = {
+    "trial": True,
+    "lite": False,
+    "professional": True,
+    "growth": True,
+    "enterprise": True,
+}
 ANALYTICS = {"trial": False, "lite": True, "professional": True, "growth": True, "enterprise": True}
 LOOKUP_AND_WEBHOOKS = {
     "trial": False,

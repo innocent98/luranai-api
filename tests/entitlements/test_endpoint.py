@@ -117,3 +117,6 @@ def test_still_readable_when_the_trial_has_expired(pg_client, db_session):
     _, headers = make_user(db_session, tenant)
     r = pg_client.get(URL, headers=headers)
     assert r.status_code == 200 and r.json()["subscription_status"] == "trial_expired"
+    # A lapsed account keeps its tier but none of the features (no free use of routes that
+    # have no 402 check of their own).
+    assert not any(f["enabled"] for f in r.json()["features"].values())

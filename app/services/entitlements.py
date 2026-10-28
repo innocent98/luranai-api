@@ -39,6 +39,9 @@ _TIER_NAMES = {
 }
 
 
+LAPSED_STATUSES = frozenset({"trial_expired", "canceled", "past_due"})
+
+
 @dataclass(frozen=True)
 class FeatureDef:
     """How one entitlement key maps to capability columns."""
@@ -108,18 +111,35 @@ class FeatureNotInPlan(Exception):
         }
 
 
-def _active_grant_tier(db: Session, tenant_id: UUID) -> str | None:
+def _grant_tier(db: Session, tenant_id: UUID) -> str | None:
+    """Tier granted by the tenant's active promotional grant, if any.
+
+    The grant service writes the granted tier onto the tenant and an expiry worker reverts it
+    later; between the end date and that worker run the grant is over, so resolve with the tier the
+    tenant had before it instead of the granted one.
+    """
     from app.db.models.promotional_grant import PromotionalGrant
 
-    return db.execute(
-        select(PromotionalGrant.granted_tier)
-        .where(
-            PromotionalGrant.tenant_id == tenant_id,
-            PromotionalGrant.status == "active",
-            PromotionalGrant.grant_ends_at > datetime.now(UTC),
+    row = db.execute(
+        select(
+            PromotionalGrant.granted_tier,
+            PromotionalGrant.previous_tier,
+            PromotionalGrant.grant_ends_at,
         )
+        .where(PromotionalGrant.tenant_id == tenant_id, PromotionalGrant.status == "active")
+        .order_by(PromotionalGrant.grant_starts_at.desc())
         .limit(1)
-    ).scalar_one_or_none()
+    ).first()
+    if row is None:
+        return None
+    ends_at = row.grant_ends_at
+    if ends_at is not None and ends_at.tzinfo is None:
+        ends_at = ends_at.replace(tzinfo=UTC)
+    return (
+        row.previous_tier
+        if ends_at is not None and ends_at <= datetime.now(UTC)
+        else row.granted_tier
+    )
 
 
 def _tier_values(db: Session, tier: str) -> dict[str, Any] | None:
@@ -146,6 +166,10 @@ class Entitlements:
         self.tier = tier
         self.subscription_status = subscription_status
         self.values = values
+        # Same statuses the staff API answers 402 for: a lapsed account keeps its tier but none of
+        # the features, so routes without the 402 check (ratings, sales config, public meeting
+        # endpoints) cannot be used for free after the trial or a cancellation.
+        self.lapsed = subscription_status in LAPSED_STATUSES
 
     def value(self, field: str) -> Any:
         return self.values.get(field)
@@ -157,6 +181,8 @@ class Entitlements:
         return self.values.get(feature.limit)
 
     def enabled(self, key: str) -> bool:
+        if self.lapsed:
+            return False
         feature = FEATURES[key]
         if feature.grant is not None and not self.values.get(feature.grant):
             return False
@@ -225,7 +251,7 @@ def get_entitlements(tenant: Tenant, db: Session | None = None) -> Entitlements:
         raise RuntimeError("get_entitlements needs a session (tenant is detached)")
 
     tier = str(tenant.subscription_tier)
-    grant_tier = _active_grant_tier(db, tenant.id)
+    grant_tier = _grant_tier(db, tenant.id)
     if grant_tier in TIER_ORDER:
         tier = grant_tier
 

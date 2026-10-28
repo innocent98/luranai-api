@@ -44,7 +44,9 @@ def _sales_cfg(db, tenant, **fields):
 def test_lite_cannot_turn_on_meeting_booking(pg_client, db_session):
     tenant = make_tenant(db_session, "lite")
     _, headers = make_user(db_session, tenant)
-    r = pg_client.patch("/api/v1/sales/config", headers=headers, json={"meeting_booking_enabled": True})
+    r = pg_client.patch(
+        "/api/v1/sales/config", headers=headers, json={"meeting_booking_enabled": True}
+    )
     assert r.status_code == 403
     body = r.json()
     assert {k: body[k] for k in GATE_BODY} == GATE_BODY
@@ -170,7 +172,11 @@ def test_lite_meeting_picker_is_empty_and_booking_is_refused_like_a_disabled_opt
     when = (datetime.now(UTC) + timedelta(days=1)).replace(minute=0, second=0, microsecond=0)
     r = pg_client.post(
         "/api/v1/chat/meetings",
-        json={"conversation_id": str(conv), "scheduled_at": when.isoformat(), "visitor_timezone": "UTC"},
+        json={
+            "conversation_id": str(conv),
+            "scheduled_at": when.isoformat(),
+            "visitor_timezone": "UTC",
+        },
     )
     # The visitor sees exactly what a tenant with booking switched off produces: no plan details.
     assert r.status_code == 403
@@ -222,7 +228,12 @@ def _chat_with_quote(pg_client, db_session, tier):
         "offer_meeting": True,
         "offer_quote": True,
     }
-    captured = {"name": "Alice", "email": "alice@example.com", "team_size": "58", "plan_interest": "Growth"}
+    captured = {
+        "name": "Alice",
+        "email": "alice@example.com",
+        "team_size": "58",
+        "plan_interest": "Growth",
+    }
     with (
         _sales_llm_patch("PRICING_INQUIRY", captured, signals),
         _retrieval_patch(),
@@ -265,7 +276,13 @@ def test_sales_prompt_is_told_booking_is_off_on_lite(pg_client, db_session):
     from tests.api.v1.test_chat_lead_capture import _automation_patch, _retrieval_patch
 
     tenant = make_tenant(db_session, "lite")
-    _sales_cfg(db_session, tenant, agent_enabled=True, meeting_booking_enabled=True, pricing_tiers=[{"name": "x"}])
+    _sales_cfg(
+        db_session,
+        tenant,
+        agent_enabled=True,
+        meeting_booking_enabled=True,
+        pricing_tiers=[{"name": "x"}],
+    )
     with (
         patch("app.services.rag_service.RAGService.generate_sales_response", new=_spy),
         _retrieval_patch(),
@@ -273,7 +290,11 @@ def test_sales_prompt_is_told_booking_is_off_on_lite(pg_client, db_session):
     ):
         r = pg_client.post(
             "/api/v1/chat/message",
-            json={"message": "What will Growth cost for 58 users?", "tenant_id": str(tenant.id), "user_identifier": f"p-{uuid4().hex[:6]}"},
+            json={
+                "message": "What will Growth cost for 58 users?",
+                "tenant_id": str(tenant.id),
+                "user_identifier": f"p-{uuid4().hex[:6]}",
+            },
         )
     assert r.status_code == 200, r.text
     assert seen["booking"] is False  # prompt: no meeting offers
@@ -303,10 +324,7 @@ def _lead_and_quote(db, tenant):
 
 
 def _channels(db, tenant, **kw):
-    return {
-        c.channel
-        for c in db.query(NotificationLog).filter_by(tenant_id=tenant.id).all()
-    }
+    return {c.channel for c in db.query(NotificationLog).filter_by(tenant_id=tenant.id).all()}
 
 
 @pytest.mark.parametrize("tier,expected", [("lite", False), ("professional", True)])
@@ -321,8 +339,12 @@ def test_dispatch_sends_slack_and_crm_only_when_the_plan_has_them(db_session, ti
     )
     lead, quote = _lead_and_quote(db_session, tenant)
     service = NotificationService(db_session)
-    q_jobs = service.dispatch(tenant.id, NotifEvent.QUOTE_GENERATED, entity_type="quote", entity_id=quote.id)
-    s_jobs = service.dispatch(tenant.id, NotifEvent.SALES_READY_LEAD, entity_type="lead", entity_id=lead.id)
+    q_jobs = service.dispatch(
+        tenant.id, NotifEvent.QUOTE_GENERATED, entity_type="quote", entity_id=quote.id
+    )
+    s_jobs = service.dispatch(
+        tenant.id, NotifEvent.SALES_READY_LEAD, entity_type="lead", entity_id=lead.id
+    )
     names = {name for _, name in q_jobs + s_jobs}
     assert ("send_slack_notification" in names) is expected
     assert ("sync_lead_to_crm" in names) is expected
@@ -334,7 +356,9 @@ def test_dispatch_sends_slack_and_crm_only_when_the_plan_has_them(db_session, ti
 
 def test_email_notifications_are_not_gated(db_session):
     tenant = make_tenant(db_session, "lite")
-    _sales_cfg(db_session, tenant, notify_channels={"email": True}, notification_email="rep@example.com")
+    _sales_cfg(
+        db_session, tenant, notify_channels={"email": True}, notification_email="rep@example.com"
+    )
     _, quote = _lead_and_quote(db_session, tenant)
     jobs = NotificationService(db_session).dispatch(
         tenant.id, NotifEvent.QUOTE_GENERATED, entity_type="quote", entity_id=quote.id
@@ -375,7 +399,9 @@ async def test_queued_slack_and_crm_jobs_do_not_send_after_a_downgrade(db_sessio
 
     monkeypatch.setattr(worker, "SessionLocal", lambda: _NoClose(db_session))
     tenant = make_tenant(db_session, "lite")  # downgraded after the jobs were queued
-    _sales_cfg(db_session, tenant, slack_webhook_url=SLACK, crm_webhook_url="https://hooks.example.com/crm")
+    _sales_cfg(
+        db_session, tenant, slack_webhook_url=SLACK, crm_webhook_url="https://hooks.example.com/crm"
+    )
     lead, quote = _lead_and_quote(db_session, tenant)
     slack_id = _log(db_session, tenant, NotifChannel.SLACK, NotifEvent.QUOTE_GENERATED, quote.id)
     crm_id = _log(db_session, tenant, NotifChannel.CRM, NotifEvent.SALES_READY_LEAD, lead.id)
@@ -393,7 +419,13 @@ async def test_queued_slack_and_crm_jobs_do_not_send_after_a_downgrade(db_sessio
 
 @pytest.mark.parametrize(
     "tier,expected",
-    [("trial", True), ("lite", False), ("professional", True), ("growth", True), ("enterprise", True)],
+    [
+        ("trial", True),
+        ("lite", False),
+        ("professional", True),
+        ("growth", True),
+        ("enterprise", True),
+    ],
 )
 def test_screen_recording_follows_the_plan(db_session, tier, expected):
     tenant = make_tenant(db_session, tier)
@@ -487,7 +519,11 @@ def test_rating_collection_is_never_gated(pg_client, db_session):
     db_session.commit()
     r = pg_client.post(
         "/api/v1/reviews/session",
-        json={"session_id": str(session.id), "user_identifier": session.user_identifier, "score": 5},
+        json={
+            "session_id": str(session.id),
+            "user_identifier": session.user_identifier,
+            "score": 5,
+        },
     )
     assert r.status_code == 201, r.text
 
@@ -495,7 +531,7 @@ def test_rating_collection_is_never_gated(pg_client, db_session):
 def test_professional_admin_lists_and_exports_ratings(pg_client, db_session):
     tenant = make_tenant(db_session, "professional")
     _, headers = make_user(db_session, tenant)
-    _rating(db_session, tenant, score=5, comment="=HYPERLINK(\"http://evil\")")
+    _rating(db_session, tenant, score=5, comment='=HYPERLINK("http://evil")')
     _rating(db_session, tenant, score=2, comment="slow")
     assert pg_client.get("/api/v1/reviews/session", headers=headers).json()["total"] == 2
     r = pg_client.get("/api/v1/reviews/session/export", headers=headers)
@@ -504,7 +540,7 @@ def test_professional_admin_lists_and_exports_ratings(pg_client, db_session):
     assert rows[0][:3] == ["created_at", "score", "comment"]
     assert len(rows) == 3
     comments = {row[2] for row in rows[1:]}
-    assert "'=HYPERLINK(\"http://evil\")" in comments  # formula neutralised
+    assert '\'=HYPERLINK("http://evil")' in comments  # formula neutralised
     assert "slow" in comments
 
 
@@ -663,5 +699,7 @@ def test_downgrade_checks_linked_whatsapp_numbers(db_session):
     assert "Disconnect 1 WhatsApp number" in violation.action_required
     assert "whatsapp_numbers" not in {
         v.field
-        for v in SubscriptionValidationService(db_session).validate_tier_change(tenant.id, "professional").violations
+        for v in SubscriptionValidationService(db_session)
+        .validate_tier_change(tenant.id, "professional")
+        .violations
     }

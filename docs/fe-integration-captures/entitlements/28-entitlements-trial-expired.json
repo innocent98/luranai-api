@@ -17,19 +17,19 @@
       "subscription_status": "trial_expired",
       "features": {
         "sales_close": {
-          "enabled": true,
+          "enabled": false,
           "min_tier": "professional"
         },
         "crm_notifications": {
-          "enabled": true,
+          "enabled": false,
           "min_tier": "professional"
         },
         "screen_recording": {
-          "enabled": true,
+          "enabled": false,
           "min_tier": "professional"
         },
         "ratings_export": {
-          "enabled": true,
+          "enabled": false,
           "min_tier": "professional"
         },
         "lookup_chains": {
@@ -45,7 +45,7 @@
           "min_tier": "lite"
         },
         "ai_actions": {
-          "enabled": true,
+          "enabled": false,
           "min_tier": "trial",
           "limit": 2,
           "used": 0

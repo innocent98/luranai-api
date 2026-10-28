@@ -13,8 +13,8 @@
     "status": 200,
     "content_type": "application/json",
     "body": {
-      "tenant_id": "a0756b04-c230-423f-a495-dc93c2de4d03",
-      "company_name": "Demo Bakery a becba8",
+      "tenant_id": "072ea545-94a6-4421-ae28-91e2e4eed161",
+      "company_name": "Demo Bakery a db3576",
       "widget_primary_color": "#2563eb",
       "widget_accent_color": "#10b981",
       "widget_logo_url": null,

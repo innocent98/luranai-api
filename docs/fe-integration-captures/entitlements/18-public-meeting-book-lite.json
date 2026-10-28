@@ -6,7 +6,7 @@
     "path": "/chat/meetings",
     "headers": {},
     "body": {
-      "conversation_id": "687fcb4a-427e-4861-96be-474de600e039",
+      "conversation_id": "6e6b82d1-f353-437a-9ccf-9cf0fb27f09c",
       "scheduled_at": "2030-01-07T10:00:00Z",
       "visitor_timezone": "UTC"
     }

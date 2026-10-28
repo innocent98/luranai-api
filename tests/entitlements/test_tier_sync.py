@@ -14,7 +14,12 @@ from app.services.subscription_service import SubscriptionService
 from app.services.tenant_service import TenantService
 from tests.entitlements.helpers import caps_of, make_tenant
 
-GATES = ("can_use_sales_close", "can_use_crm_notifications", "can_use_screen_recording", "can_export_ratings")
+GATES = (
+    "can_use_sales_close",
+    "can_use_crm_notifications",
+    "can_use_screen_recording",
+    "can_export_ratings",
+)
 
 
 def _gates(db, tenant):
@@ -61,7 +66,9 @@ def test_upgrade_keeps_a_manual_override_and_downgrade_clears_it(db_session):
     assert caps_of(db_session, tenant).can_use_sales_close is True
     SubscriptionService(db_session)._update_capabilities_for_tier(tenant.id, "lite")
     caps = caps_of(db_session, tenant)
-    assert caps.can_use_sales_close is False and "can_use_sales_close" not in (caps.override_flags or {})
+    assert caps.can_use_sales_close is False and "can_use_sales_close" not in (
+        caps.override_flags or {}
+    )
 
 
 def test_platform_override_and_promo_grant_apply_the_gates(db_session):
@@ -103,10 +110,14 @@ def test_platform_admin_capability_edit_is_an_override(db_session):
 
 def test_plan_editor_accepts_the_new_capabilities_and_rejects_junk(db_session):
     service = PlanService(db_session)
-    plan = service.update_plan("lite", capabilities={"can_use_sales_close": True, "max_whatsapp_numbers": 3})
+    plan = service.update_plan(
+        "lite", capabilities={"can_use_sales_close": True, "max_whatsapp_numbers": 3}
+    )
     assert plan.can_use_sales_close is True and plan.max_whatsapp_numbers == 3
     service.update_plan("lite", capabilities={"max_whatsapp_numbers": None})
-    assert db_session.query(SubscriptionPlan).filter_by(tier="lite").one().max_whatsapp_numbers is None
+    assert (
+        db_session.query(SubscriptionPlan).filter_by(tier="lite").one().max_whatsapp_numbers is None
+    )
     with pytest.raises(ValueError, match="Unknown plan capability"):
         service.update_plan("lite", capabilities={"can_do_anything": True})
     with pytest.raises(ValueError, match="true or false"):

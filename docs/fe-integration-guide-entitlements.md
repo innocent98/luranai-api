@@ -315,26 +315,26 @@ Lite tenant with one manual platform override (`sales_close` switched on by a pl
 ```
 _(from `26-entitlements-lite-with-override.json`; status 200)_
 
-Trial that has expired (still 200; `subscription_status` tells you):
+Trial that has expired (still 200, no 402; **every feature is `enabled: false`** because the account is lapsed, `tier` stays `trial`, and `subscription_status` tells you why):
 ```json
 {
   "tier": "trial",
   "subscription_status": "trial_expired",
   "features": {
     "sales_close": {
-      "enabled": true,
+      "enabled": false,
       "min_tier": "professional"
     },
     "crm_notifications": {
-      "enabled": true,
+      "enabled": false,
       "min_tier": "professional"
     },
     "screen_recording": {
-      "enabled": true,
+      "enabled": false,
       "min_tier": "professional"
     },
     "ratings_export": {
-      "enabled": true,
+      "enabled": false,
       "min_tier": "professional"
     },
     "lookup_chains": {
@@ -350,7 +350,7 @@ Trial that has expired (still 200; `subscription_status` tells you):
       "min_tier": "lite"
     },
     "ai_actions": {
-      "enabled": true,
+      "enabled": false,
       "min_tier": "trial",
       "limit": 2,
       "used": 0
@@ -383,7 +383,8 @@ _(from `28-entitlements-trial-expired.json`; status 200)_
 2. **Trial shows features as enabled with `min_tier: "professional"`.** The trial includes the sales features, Slack/CRM, recording and ratings export so a trial user can try them; `min_tier` says where they stay after the trial. Show "included in your trial; keep it with Professional", not a lock.
 3. **`analytics` is off on Trial** and the Analytics page answers 403 `"Analytics access not enabled for this tenant"` (a different, older error shape, see section 4). Use `analytics.enabled` to lock the sidebar item.
 4. **Overrides can exceed the tier.** Lite + override: `sales_close.enabled` is `true` while `min_tier` stays `professional`. Never derive `enabled` from `tier`.
-5. A promotional grant changes `tier` in this response to the granted tier for its duration (and back afterwards). Re-fetch when a grant starts or ends.
+5. **Lapsed accounts have nothing enabled.** When `subscription_status` is `trial_expired`, `canceled` or `past_due` (the same statuses the API answers 402 for) every feature reads `enabled: false` whatever the tier, so routes without their own 402 check (ratings, sales config, the public meeting picker) cannot be used for free. Show the upgrade/renew view from `subscription_status`, not a per-feature lock.
+6. A promotional grant changes `tier` in this response to the granted tier for its duration (and back afterwards; once a grant's end date has passed it stops counting immediately, before the nightly expiry job reverts the tenant). Re-fetch when a grant starts or ends.
 
 ## 3. The gate error (HTTP 403, new gates only)
 
@@ -497,8 +498,8 @@ Not rejected: turning things **off**, re-sending an option that is already on (s
 {
   "success": true,
   "data": {
-    "id": "1d8659c1-7f12-4925-9a24-9352ad08600c",
-    "tenant_id": "a0756b04-c230-423f-a495-dc93c2de4d03",
+    "id": "39e2ff39-8fea-46f1-ab07-1f651899e156",
+    "tenant_id": "072ea545-94a6-4421-ae28-91e2e4eed161",
     "agent_enabled": true,
     "lead_capture_enabled": true,
     "meeting_booking_enabled": false,
@@ -520,8 +521,8 @@ Not rejected: turning things **off**, re-sending an option that is already on (s
     "currency": "NGN",
     "annual_discount_pct": 0,
     "availability": "... (unchanged, omitted here)",
-    "created_at": "2026-10-28T09:15:05.197883+00:00",
-    "updated_at": "2026-10-28T09:15:05.821594+00:00"
+    "created_at": "2026-10-28T09:29:03.635012+00:00",
+    "updated_at": "2026-10-28T09:29:04.304936+00:00"
   }
 }
 ```
@@ -532,8 +533,8 @@ A rejected save changes nothing. The same save succeeds on Trial and Professiona
 {
   "success": true,
   "data": {
-    "id": "b85456c8-482c-44e4-ba6a-13beeff8d3a2",
-    "tenant_id": "dd5b0317-755b-4f11-8481-64b851bca1bb",
+    "id": "7de33daf-c152-45a9-ab7e-019a0aa413f9",
+    "tenant_id": "7abd2070-1e44-4ef9-9dab-e376d2d720cf",
     "agent_enabled": false,
     "lead_capture_enabled": true,
     "meeting_booking_enabled": true,
@@ -554,8 +555,8 @@ A rejected save changes nothing. The same save succeeds on Trial and Professiona
     "currency": "NGN",
     "annual_discount_pct": 0,
     "availability": "... (unchanged, omitted here)",
-    "created_at": "2026-10-28T09:15:07.494877+00:00",
-    "updated_at": "2026-10-28T09:15:07.494877+00:00"
+    "created_at": "2026-10-28T09:29:06.057030+00:00",
+    "updated_at": "2026-10-28T09:29:06.057030+00:00"
   }
 }
 ```
@@ -565,7 +566,7 @@ _(from `22-sales-config-professional-enable-all.json`; status 200)_
 
 The stored setting is **not** rewritten. At runtime the gated behaviour is silently skipped and the end customer never sees an error. Live capture, Lite tenant whose stored config still has booking on (public widget endpoints, no auth):
 
-`GET /api/v1/chat/meetings/availability?conversation_id=687fcb4a-427e-4861-96be-474de600e039&days=2`
+`GET /api/v1/chat/meetings/availability?conversation_id=6e6b82d1-f353-437a-9ccf-9cf0fb27f09c&days=2`
 ```json
 {
   "success": true,
@@ -578,7 +579,7 @@ _(from `17-public-meeting-availability-lite.json`; status 200)_
 `POST /api/v1/chat/meetings`
 ```json
 {
-  "conversation_id": "687fcb4a-427e-4861-96be-474de600e039",
+  "conversation_id": "6e6b82d1-f353-437a-9ccf-9cf0fb27f09c",
   "scheduled_at": "2030-01-07T10:00:00Z",
   "visitor_timezone": "UTC"
 }
@@ -614,9 +615,9 @@ Lite tenant, admin analytics agent table (ratings columns zeroed):
 ```json
 [
   {
-    "agent_id": "27468b39-2477-4ce7-84b6-f60e13d1fe81",
+    "agent_id": "1b7ac70d-a295-47bd-83a3-17881e5de7db",
     "agent_name": "Demo Owner",
-    "email": "ent-a-901d06@example.com",
+    "email": "ent-a-0f575e@example.com",
     "current_assigned_tickets": 0,
     "tickets_by_status": {},
     "total_tickets_resolved": 0,
@@ -631,8 +632,8 @@ _(from `15-analytics-agents-lite.json`; status 200)_
 Lite tenant, admin widget settings:
 ```json
 {
-  "tenant_id": "a0756b04-c230-423f-a495-dc93c2de4d03",
-  "company_name": "Demo Bakery a becba8",
+  "tenant_id": "072ea545-94a6-4421-ae28-91e2e4eed161",
+  "company_name": "Demo Bakery a db3576",
   "widget_primary_color": "#2563eb",
   "widget_accent_color": "#10b981",
   "widget_logo_url": null,
@@ -790,6 +791,7 @@ _(from `01-public-plans.json`; status 200)_
 
 ## 7. Behaviour the user will notice (surface these)
 
+* A tenant whose trial expired, or whose subscription is canceled or past due, loses every gated feature at once (section 2, trap 5).
 * A tenant that moves to Lite **loses** meeting booking, quotes, Slack/CRM, screen recording and the ratings breakdown immediately, even though their stored settings stay on. Say so in the downgrade confirmation (the backend only blocks the downgrade while the sales options and Slack/CRM channels are still switched on).
 * When a promotional grant ends the tenant is back on its previous tier and the same applies.
 * Lite's AI-action limit is 2 (it was 5). A tenant with more actions than the new limit is blocked from downgrading until they delete some.

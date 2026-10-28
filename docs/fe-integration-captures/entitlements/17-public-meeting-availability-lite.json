@@ -3,7 +3,7 @@
   "note": "Runtime path, public widget endpoint: booking is still switched on in the stored config but the plan lacks it. The visitor gets an empty picker, never a plan error.",
   "request": {
     "method": "GET",
-    "path": "/chat/meetings/availability?conversation_id=687fcb4a-427e-4861-96be-474de600e039&days=2",
+    "path": "/chat/meetings/availability?conversation_id=6e6b82d1-f353-437a-9ccf-9cf0fb27f09c&days=2",
     "headers": {},
     "body": null
   },

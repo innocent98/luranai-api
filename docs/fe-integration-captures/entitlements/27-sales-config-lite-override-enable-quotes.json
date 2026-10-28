@@ -17,8 +17,8 @@
     "body": {
       "success": true,
       "data": {
-        "id": "06797cab-337c-46bc-a83f-f2b9db870781",
-        "tenant_id": "e0048b09-f82d-4686-88da-81191f230bef",
+        "id": "97947bbe-3c50-4bee-87e2-7c0cb3e57ee9",
+        "tenant_id": "1849b0cd-f412-4c4a-8637-431d7fd5f7bd",
         "agent_enabled": false,
         "lead_capture_enabled": true,
         "meeting_booking_enabled": false,
@@ -74,8 +74,8 @@
           "buffer_minutes": 15,
           "tenant_timezone": "UTC"
         },
-        "created_at": "2026-10-28T09:15:08.613663+00:00",
-        "updated_at": "2026-10-28T09:15:08.613663+00:00"
+        "created_at": "2026-10-28T09:29:07.217309+00:00",
+        "updated_at": "2026-10-28T09:29:07.217309+00:00"
       }
     }
   }

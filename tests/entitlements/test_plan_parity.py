@@ -63,10 +63,13 @@ def test_new_gate_columns_default_to_off_in_the_database():
 
 
 def test_the_live_tables_have_the_same_columns_as_the_models(pg_engine):
-    columns = {t: {c["name"] for c in inspect(pg_engine).get_columns(t)} for t in (
-        "subscription_plans",
-        "tenant_capabilities",
-    )}
+    columns = {
+        t: {c["name"] for c in inspect(pg_engine).get_columns(t)}
+        for t in (
+            "subscription_plans",
+            "tenant_capabilities",
+        )
+    }
     assert set(plan_capability_fields()) <= columns["subscription_plans"]
     assert set(plan_capability_fields()) <= columns["tenant_capabilities"]
 
@@ -169,5 +172,8 @@ def test_latest_plan_migration_froze_the_same_numbers_as_the_catalog():
             row["max_whatsapp_numbers"],
         ) == (sales, crm, recording, ratings, whatsapp), tier
         assert mod.NEW_FEATURES[tier] == row["features"], tier
-    assert (rows["lite"]["monthly_price_kobo"], rows["lite"]["annual_price_kobo"]) == mod.LITE_PRICE["new"]
+    assert (
+        rows["lite"]["monthly_price_kobo"],
+        rows["lite"]["annual_price_kobo"],
+    ) == mod.LITE_PRICE["new"]
     assert rows["lite"]["max_automation_actions"] == mod.LITE_ACTIONS["new"]
