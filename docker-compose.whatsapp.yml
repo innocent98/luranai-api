@@ -70,5 +70,5 @@ services:
       WHATSAPP_SIDECAR_DB_PASSWORD: ${WHATSAPP_SIDECAR_DB_PASSWORD:?set WHATSAPP_SIDECAR_DB_PASSWORD}
     volumes:
       - ./scripts/whatsapp_sidecar_db_init.sql:/init.sql:ro
-    entrypoint: ["sh", "-c", "exec psql --no-psqlrc --set=ON_ERROR_STOP=1 --set=pw=\"$$WHATSAPP_SIDECAR_DB_PASSWORD\" --file=/init.sql"]
+    entrypoint: ["psql", "--no-psqlrc", "--set=ON_ERROR_STOP=1", "--file=/init.sql"]
     mem_limit: 64m

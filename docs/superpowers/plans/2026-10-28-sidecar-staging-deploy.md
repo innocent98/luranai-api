@@ -44,7 +44,7 @@ Host: 7.8 GiB RAM, **6.0 GiB available**, 1.7 GiB used, swap 8 GiB (1.5 MiB used
 
 - The sidecar creates `whatsapp_sidecar.{sessions,auth_blobs,inbound_chats}` at boot (`whatsapp-sidecar/src/db.mjs`) under a **session-level advisory lock** and holds a pool of **4** long-lived connections. It runs its own SQL.
 - **pgbouncer: bypass it.** Transaction pooling breaks session-level advisory locks, and pgbouncer authenticates a fixed userlist (`AUTH_TYPE scram-sha-256`) that would not know a new role. The sidecar connects straight to `db:5432` (the existing override already did this).
-- **Role: dedicated least-privilege role `whatsapp_sidecar`, not the app role.** The app role is the Postgres superuser (`POSTGRES_USER` of the image). The auth store is AES-GCM encrypted with a key the database never sees, but a compromised sidecar holding a superuser URL would own every tenant's data; with its own role it can reach only its own schema. REHEARSAL on `postgres:15-alpine` proved: `SELECT` on an app table -> `permission denied`, `CREATE TABLE public.x` -> `permission denied for schema public`, and the sidecar boots and runs its DDL as that role. `CONNECT, CREATE ON DATABASE` is required because Postgres checks database-level `CREATE` before honouring `CREATE SCHEMA IF NOT EXISTS`; it allows creating schemas only.
+- **Role: dedicated least-privilege role `whatsapp_sidecar`, not the app role.** The app role is the Postgres superuser (`POSTGRES_USER` of the image). The auth store is AES-GCM encrypted with a key the database never sees, but a compromised sidecar holding a superuser URL would own every tenant's data; with its own role it can reach only its own schema. REHEARSAL on `postgres:15-alpine` proved: `SELECT` on an app table -> `permission denied`, `CREATE TABLE public.x` -> `permission denied for schema public`, and the sidecar boots and runs its DDL as that role. **No `CREATE` on the database** (Opus review finding): with it the role could `CREATE SCHEMA <superuser name>` and shadow application tables through the app's default `"$user", public` search_path (the CVE-2018-1058 pattern). The deploy pre-creates `whatsapp_sidecar` owned by the role, and `db.mjs` now skips `CREATE SCHEMA` when the schema exists (Postgres checks the database-level privilege before honouring `IF NOT EXISTS`; proven on a scratch Postgres). The sidecar's 96 tests pass against real Postgres/Redis with that change.
 - **Connection budget** (`max_connections=40`, 3 reserved for superuser): pgbouncer up to 25 + sidecar 4 (role `CONNECTION LIMIT 8`) + backup/one-shots ~2 = ~35 of 37. Tight but fits; do not raise `MAX_SESSIONS` and the pool together without raising `POSTGRES_MAX_CONNECTIONS`.
 
 ### 1.4 Is staging Redis safe for the lease keys? (REPO + HOST + REHEARSAL)
@@ -131,9 +131,17 @@ Host impact: worst-case added commitment = (768 - 500) + 384 = **652 MiB** again
 | Memory / CPU / pids | limits above; no swap; `oom_score_adj` 500 |
 | Disk / logs | 30 MiB log cap; 3 sidecar images kept |
 | Sidecar breaks staging deploy | `continue-on-error` on build, copy and deploy; status step warns |
-| Secret exposure | scripts print names and pass/fail only; sidecar-only secrets kept out of the api env; `.env` and `.env.sidecar` shipped `600`; smoke runs inside the container; DB init silences statement logging while it handles the password |
-| DB blast radius | dedicated role, no grants on application tables, `CONNECTION LIMIT 8`; smoke FAILs if the role can `SELECT` any `public` table |
+| Secret exposure | scripts print names and pass/fail only; sidecar-only secrets kept out of the api env; `.env` and `.env.sidecar` shipped `600`; smoke runs inside the container; DB init silences statement logging and reads the password with `\getenv` (never on a command line) |
+| DB blast radius | dedicated role, no grants on application tables, **no database-level CREATE**, `CONNECTION LIMIT 8`; smoke FAILs if the role can `SELECT` any `public` table |
 | Other staging services restarted | `up -d --no-deps whatsapp-sidecar`; REHEARSAL: a later base-file-only `up -d` only prints an "orphan containers" warning and leaves the sidecar running. **Never add `--remove-orphans` to the existing steps** |
+
+### Residual risks accepted for staging (Opus review, not fixed here)
+
+| Risk | Why accepted / follow-up |
+|---|---|
+| The sidecar shares `luran_staging_default` with Redis and Qdrant, **which have no authentication** (base compose). A compromised sidecar could write to Redis DB 0 (arq queue; arq's default serializer is pickle, so a forged job could run code in the worker, which holds the full env) or read/overwrite Qdrant. The api container has the same reach today, so staging posture is unchanged for the api, but the sidecar is the component that parses untrusted WhatsApp traffic | Fixing it means touching the base compose or Redis auth (shared with prod) or running a dedicated Redis for the sidecar on its own network: out of scope. Staging holds test data only. **Do not copy this layout to production** before: a dedicated Redis instance for the sidecar on a private network, and Redis ACLs/`requirepass` + Qdrant API key |
+| `workflow_run` could be triggered by a fork PR from a branch named `develop` (pre-existing). The `staging-deploy` condition now also requires `workflow_run.event == 'push'` and `head_repository == this repo`. This is the only edit to an existing condition; production's trigger (`push` to `main`) is untouched. Whether the `staging` GitHub environment also needs required reviewers/branch rules is for the owner to check (the repo is temporarily public) | |
+| A new sidecar image that never becomes healthy is stopped (no restart loop) but the previous image is not restored | staging only; re-run the deploy after fixing |
 
 ## 5. Rollback
 
@@ -151,6 +159,7 @@ Host impact: worst-case added commitment = (768 - 500) + 384 = **652 MiB** again
 | Piece | File |
 |---|---|
 | Sidecar service hardened + staging defaults; one-shot DB role init | `docker-compose.whatsapp.yml` |
+| Bootstrap skips `CREATE SCHEMA` when the schema already exists (one line + comment) | `whatsapp-sidecar/src/db.mjs` |
 | Role + schema SQL (idempotent) | `scripts/whatsapp_sidecar_db_init.sql` |
 | Env prep + gate + split + api floor | `scripts/prepare_staging_whatsapp_env.sh` |
 | Post-deploy smoke (pass/fail only) | `scripts/smoke_whatsapp_sidecar.sh` |
@@ -248,7 +257,7 @@ What each step proves and what stays unproven is recorded in the SOP after the r
 |---|---|
 | Host numbers, networks, limits, redis/db settings, env NAMES (api container), staging project/working dir | **Verified read-only on the real host** |
 | Sidecar image builds; boots under `read_only`/`cap_drop ALL`/no swap limit; DB role init idempotent; least privilege holds; smoke script 7/7 PASS; signed webhook accepted/bad signature refused (against a stand-in endpoint that runs the repo's real `signing.verify` and `WebhookEvent` schema); orphan behaviour | **Verified locally in throwaway containers (REHEARSAL), not on the VPS** |
-| `prepare_staging_whatsapp_env.sh` gate/split/floor on 5 fixture files | **Verified locally** |
+| `prepare_staging_whatsapp_env.sh` gate/split/floor on 9 fixture files (incl. indented/`export`/spaced assignments, `1.5GiB`, `2048k`, `1gb`, unparsable) | **Verified locally** |
 | actionlint (no new findings vs baseline), `yaml.safe_load`, shellcheck (scripts and the embedded ssh script), `docker compose config`, production-job byte identity | **Verified locally** |
 | The new CD steps executing on a GitHub runner against the VPS (scp of dotfiles, ssh heredoc, `docker load`, `run --rm` init, health loop) | **Not run: configuration only.** First proof is the first deploy after secrets exist. The skip path is the one that runs on merge |
 | Real signed webhook into the real staging backend | **Not run** (needs the deployed backend with `WHATSAPP_ENABLED=true`) |

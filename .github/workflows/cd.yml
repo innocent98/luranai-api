@@ -37,7 +37,9 @@ jobs:
       (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging') ||
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'develop')
+       github.event.workflow_run.head_branch == 'develop' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     environment:
       name: staging
     outputs:
@@ -239,8 +241,9 @@ jobs:
                 break
               fi
               if [ "$attempt" -eq 20 ]; then
-                echo "WhatsApp sidecar not healthy (status: $status)." >&2
+                echo "WhatsApp sidecar not healthy (status: $status); stopping it so it does not restart-loop." >&2
                 docker logs --tail=60 "$cid" >&2 || true
+                dc stop whatsapp-sidecar >&2 || true
                 exit 1
               fi
               echo "Waiting for sidecar health ($attempt/20, status: $status)..."

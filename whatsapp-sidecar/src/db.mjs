@@ -39,7 +39,10 @@ export class PgAuthDb {
     const c = await this.pool.connect()
     try {
       await c.query('SELECT pg_advisory_lock(7731024)')   // serialise concurrent boots
-      try { for (const sql of DDL) await c.query(sql) } finally { await c.query('SELECT pg_advisory_unlock(7731024)') }
+      // A schema pre-created by the deploy (owned by a least-privilege role without database-level CREATE) must not be re-created:
+      // Postgres checks that privilege before honouring IF NOT EXISTS.
+      const exists = (await c.query('SELECT 1 FROM pg_namespace WHERE nspname = $1', [SCHEMA])).rowCount > 0
+      try { for (const sql of DDL) if (!(exists && sql.startsWith('CREATE SCHEMA'))) await c.query(sql) } finally { await c.query('SELECT pg_advisory_unlock(7731024)') }
     } finally { c.release() }
   }
 

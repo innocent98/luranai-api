@@ -34,10 +34,14 @@ skip() {
 }
 
 # Value of KEY (last assignment wins, matching surrounding quotes stripped). Callers must not print it.
+# Accepts what compose's dotenv parser accepts: leading whitespace, `export`, spaces around `=`.
 val() {
   awk -v k="$1" '
-    { sub(/\r$/, ""); line = $0; sub(/^export[ \t]+/, "", line) }
-    index(line, k "=") == 1 { v = substr(line, length(k) + 2); found = 1 }
+    { sub(/\r$/, ""); line = $0; sub(/^[ \t]*(export[ \t]+)?/, "", line) }
+    index(line, k) == 1 {
+      rest = substr(line, length(k) + 1)
+      if (rest ~ /^[ \t]*=/) { sub(/^[ \t]*=[ \t]*/, "", rest); v = rest; found = 1 }
+    }
     END {
       if (!found) exit 1
       if (v ~ /^".*"$/ || v ~ /^'"'"'.*'"'"'$/) v = substr(v, 2, length(v) - 2)
@@ -51,22 +55,22 @@ strip_keys() {
   local out="$1" keys_re
   shift
   keys_re="$(IFS='|'; echo "$*")"
-  awk -v re="^(export[ \\t]+)?(${keys_re})=" -v moved="$out" '
+  awk -v re="^[ \\t]*(export[ \\t]+)?(${keys_re})[ \\t]*=" -v moved="$out" '
     $0 ~ re { if (moved != "") print >> moved; next }
     { print }' "$ENV_FILE" > "${ENV_FILE}.tmp"
   mv "${ENV_FILE}.tmp" "$ENV_FILE"
 }
 
-mem_to_mib() {   # "500m" | "1g" | "524288000" -> MiB, empty if unparsable
-  case "$1" in
-    *[!0-9mMgG]* | "") return 0 ;;
-  esac
-  local n="${1%[mMgG]}" u="${1##*[0-9]}"
-  case "$u" in
-    m | M) echo "$n" ;;
-    g | G) echo $((n * 1024)) ;;
-    "") echo $((n / 1048576)) ;;
-  esac
+mem_to_mib() {   # Docker size ("500m", "1g", "1.5GiB", "2048k", "524288000") -> whole MiB; empty if unparsable
+  printf '%s' "$1" | awk '
+    { s = tolower($0) }
+    s !~ /^[0-9]+(\.[0-9]+)?(b|k|kb|kib|m|mb|mib|g|gb|gib)?$/ { exit }
+    {
+      n = s + 0; u = s; sub(/^[0-9.]+/, "", u)
+      f = 1 / 1048576
+      if (u ~ /^k/) f = 1 / 1024; else if (u ~ /^m/) f = 1; else if (u ~ /^g/) f = 1024
+      printf "%d\n", n * f
+    }'
 }
 
 if [ ! -f "$ENV_FILE" ]; then
@@ -76,9 +80,12 @@ fi
 
 # --- 3. staging api memory floor (independent of the sidecar gate) -------------------------------------------------
 current_mib=""
-if cur="$(val API_MEM_LIMIT 2>/dev/null)"; then current_mib="$(mem_to_mib "$cur")"; fi
-if [ -z "$current_mib" ] || [ "$current_mib" -lt "$API_MEM_FLOOR_MIB" ]; then
-  awk '!/^(export[ \t]+)?API_MEM_LIMIT=/' "$ENV_FILE" > "${ENV_FILE}.tmp"
+current_raw=""
+if current_raw="$(val API_MEM_LIMIT 2>/dev/null)"; then current_mib="$(mem_to_mib "$current_raw")"; fi
+if [ -n "$current_raw" ] && [ -z "$current_mib" ]; then
+  echo "::warning::API_MEM_LIMIT has a value this script cannot parse; left unchanged (set it to at least ${API_MEM_FLOOR_MIB}m yourself)"
+elif [ -z "$current_mib" ] || [ "$current_mib" -lt "$API_MEM_FLOOR_MIB" ]; then
+  awk '!/^[ \t]*(export[ \t]+)?API_MEM_LIMIT[ \t]*=/' "$ENV_FILE" > "${ENV_FILE}.tmp"
   printf 'API_MEM_LIMIT=%sm\n' "$API_MEM_FLOOR_MIB" >> "${ENV_FILE}.tmp"
   mv "${ENV_FILE}.tmp" "$ENV_FILE"
   echo "Staging API_MEM_LIMIT raised to ${API_MEM_FLOOR_MIB}m (was below the floor or unset)"
