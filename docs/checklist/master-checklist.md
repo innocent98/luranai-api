@@ -7,6 +7,8 @@ Snapshot (Activation module): backend A/B/C built and verified locally (full sui
 
 Snapshot (Plan entitlements): backend built and verified (full suite, scratch-DB migration cycle, live API captures); PR open, not merged; Paystack plan for the new Lite price NOT created; dashboard not built.
 
+Snapshot (Sidecar on staging): pipeline wiring built and validated locally (PR open, not merged); CD steps not yet run on a real runner; secrets not yet added; live test NOT done.
+
 Snapshot (WhatsApp module): spike DONE; build plan DONE; backend demo slice DONE (PR open, not merged, 2026-10-27); sidecar and dashboard tracks in flight; live end-to-end with a real phone NOT done.
 
 ## Activation (signup -> first value) — IN PROGRESS (backend built, PR open to `develop`, not merged; dashboard track in flight)
@@ -88,6 +90,20 @@ Docs: spike `docs/sop/whatsapp_pairing_spike.md`; plan `docs/superpowers/plans/2
   - [x] Live pairing through the new multi-session code (2026-10-27, local, one session; pair, KB answer, photo fallback, owner pause, unlink all proven)
   - [ ] N-session RAM soak (`whatsapp-sidecar/scripts/soak.mjs` is a skeleton)
 
+### Sidecar on staging (branch `feature/sidecar-staging-deploy`, PR to `develop`) — built 2026-10-28
+Docs: plan `docs/superpowers/plans/2026-10-28-sidecar-staging-deploy.md` (evidence, budget, owner runbook); SOP `docs/sop/whatsapp_sidecar_staging_deploy.md`. Production untouched.
+- [x] Read-only investigation of the real host (limits, usage, networks, redis/db flags, project labels, env names) — 2026-10-28
+- [x] Decisions: sidecar bypasses pgbouncer; dedicated least-privilege Postgres role; Redis logical DB 1; sidecar-only secrets kept out of the api env; staging api floor 768 MiB
+- [x] Sidecar compose service hardened (384m, no swap, 0.5 CPU, read-only, caps dropped, no ports, log cap) + one-shot DB role init
+- [x] `scripts/prepare_staging_whatsapp_env.sh` (gate, split, api floor), `smoke_whatsapp_sidecar.sh`, `generate_whatsapp_staging_secrets.sh`, `whatsapp_sidecar_db_init.sql`
+- [x] `cd.yml` staging-deploy steps (skip when names are missing; `continue-on-error`); `docker.yml` GHCR image job; `ci.yml` image build check
+- [x] Local validation: actionlint, yaml, shellcheck, `docker compose config`, production-job byte identity, 5 env fixtures, full local rehearsal (7/7 smoke PASS)
+- [ ] PR reviewed and merged by the lead (merging deploys staging; safe before secrets: skip path)
+- [ ] Owner: generate and back up secrets; add names to `.env.staging.enc` (after the PR is merged); PR + merge
+- [ ] First real CD run with the sidecar enabled: health + 7 smoke PASS on the VPS
+- [ ] Owner: `can_use_whatsapp` + `max_whatsapp_numbers` for ONE staging tenant; confirm `AGENT_ALERT_ENABLED` + Firebase project; install the staging-API Android build
+- [ ] Live test: pair test number on staging, escalation rings the agent app, agent reply reaches WhatsApp; record `rss_mb` at 0/1/2 sessions
+
 ### Remaining build tasks (plan section 11)
 - [ ] T6 Structured-message text renderer
 - [ ] T7 (rest) Outbound pacing is sidecar-side; image send
@@ -146,6 +162,8 @@ Why: plans differed only by volume plus five flags; the sales agent, Slack/CRM, 
 - [ ] KB: `POST /knowledge/upload` (text) stores rows but never writes vectors; short documents fail in the chunker ("No chunks could be created") with no tenant-facing message; one long multi-topic chunk scores under the 0.35 retrieval cutoff
 - [ ] WhatsApp: the fixed 'please type' fallback reply is sent but not stored in the transcript
 - [ ] WhatsApp: no alert to the Luran team while the AI is owner-paused; conversation list has no WhatsApp badge and shows the sender's WhatsApp name as 'Anonymous visitor'
-- [ ] Deploy the sidecar to staging (separate compose override today; needs secrets, Postgres schema, RAM budget check). Staging API container sat at 90% of its 500 MiB limit on 2026-10-27
+- [ ] Deploy the sidecar to staging — wiring built 2026-10-28 (see "Sidecar on staging"); waiting on merge, secrets and the live test. Staging API container sat at 90% of its 500 MiB limit on 2026-10-27; floor raised to 768 MiB as a stopgap
+- [ ] Investigate why the api containers sit at 83-90% of their limits (prod api 994 MiB / 1.17 GiB on 2026-10-28)
+- [ ] Production sidecar story: GHCR promotion, dedicated Redis or `volatile-ttl`, prod DB role, limits review
 - [ ] Re-private `luranai-api` after CI/CD runs (made public 2026-10-27 so Actions could run)
 

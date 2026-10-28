@@ -198,6 +198,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # Proves the sidecar image builds on every PR/push (staging CD builds it on the runner, only when its env is set).
+      - name: Build WhatsApp sidecar image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./whatsapp-sidecar
+          file: ./whatsapp-sidecar/Dockerfile
+          push: false
+          tags: luran-whatsapp-sidecar:${{ github.sha }}
+          cache-from: type=gha,scope=whatsapp-sidecar
+          cache-to: type=gha,mode=max,scope=whatsapp-sidecar
+
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
