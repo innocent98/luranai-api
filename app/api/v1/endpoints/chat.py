@@ -1172,8 +1172,6 @@ async def _send_message_impl(
             message_data.tenant_id,
             message_data.metadata,
         )
-        if visitor_id is None and stale_origin is not None:
-            visitor_id = stale_origin.visitor_id
         customer_user_id = authed_customer_id
 
         # If this customer already has a thread inside the reuse window (open, or abandoned /
@@ -1195,9 +1193,16 @@ async def _send_message_impl(
         elif stale_origin is not None:
             # Clients that do not adopt a changed session_id keep sending the old one; point
             # them at the conversation we already opened for them rather than counting again.
+            # Match only the old session's own identifier (the credential the caller was checked
+            # against), never a visitor the request did not prove or an identifier it supplied.
             reused_session = conversation_service.get_active_session_for_user(
-                message_data.tenant_id, message_data.user_identifier
+                stale_origin.tenant_id, stale_origin.user_identifier
             )
+            # An unauthenticated caller must never land in a customer-bound thread.
+            if reused_session is not None:
+                target = db.get(ConversationSession, reused_session.id)
+                if target is None or target.customer_user_id is not None:
+                    reused_session = None
 
         if reused_session:
             session_id = reused_session.id

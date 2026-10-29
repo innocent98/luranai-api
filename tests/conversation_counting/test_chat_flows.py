@@ -149,6 +149,47 @@ async def test_explicit_stale_session_without_visitor_still_converges(db, tenant
     assert count_conversations_this_month(db, tenant.id) == 2
 
 
+async def test_stale_session_never_borrows_a_visitor_the_request_did_not_prove(
+    db, tenant, make_visitor, llm
+):
+    """No visitor token in the request: the old row's visitor is neither reused nor attached."""
+    visitor = make_visitor()
+    other = seed_session(
+        db, tenant.id, status=SessionStatus.ACTIVE, hours_ago=1, visitor_id=visitor.id
+    )
+    stale = seed_session(
+        db,
+        tenant.id,
+        status=SessionStatus.ABANDONED,
+        hours_ago=8,
+        visitor_id=visitor.id,
+        user_identifier="owner-ident",
+    )
+    again = await _send(db, _req(tenant, session_id=stale.id, identifier="owner-ident"))
+    assert again.session_id not in {other.id, stale.id}
+    assert db.get(ConversationSession, again.session_id).visitor_id is None
+
+
+async def test_stale_fallback_matches_the_checked_identifier_not_a_supplied_one(db, tenant, llm):
+    victim = seed_session(db, tenant.id, hours_ago=1, user_identifier="victim-ident")
+    stale = seed_session(
+        db, tenant.id, status=SessionStatus.RESOLVED, hours_ago=8, user_identifier="mine"
+    )
+    again = await _send(db, _req(tenant, session_id=stale.id, identifier="victim-ident"))
+    assert again.session_id != victim.id
+
+
+async def test_stale_fallback_never_lands_in_a_customer_bound_thread(db, tenant, llm):
+    bound = seed_session(
+        db, tenant.id, hours_ago=1, user_identifier="shared-ident", customer_user_id=uuid4()
+    )
+    stale = seed_session(
+        db, tenant.id, status=SessionStatus.RESOLVED, hours_ago=8, user_identifier="shared-ident"
+    )
+    again = await _send(db, _req(tenant, session_id=stale.id, identifier="shared-ident"))
+    assert again.session_id not in {bound.id, stale.id}
+
+
 async def test_voice_style_request_without_identifier_inherits_it(db, tenant, llm):
     """Voice turns send only session_id + tenant_id; a stale session must still convert."""
     first = await _send(db, _req(tenant, identifier="voice-user"))
