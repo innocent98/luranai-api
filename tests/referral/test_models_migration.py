@@ -9,7 +9,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import BigInteger, Integer, create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models.referral import (
@@ -283,6 +283,18 @@ def test_upgrade_creates_tables_and_downgrade_removes_them(alembic_config, scrat
         }
         assert reward_fks["tenant_id"] == "SET NULL"
         assert reward_fks["marketer_id"] == "RESTRICT"
+        for table, column in (
+            ("payout_batches", "total_kobo"),
+            ("payout_items", "amount_kobo"),
+            ("referral_rewards", "amount_kobo"),
+        ):
+            cols = {c["name"]: c for c in inspector.get_columns(table)}
+            assert isinstance(cols[column]["type"], BigInteger), (table, column)
+        items = {c["name"]: c for c in inspector.get_columns("payout_items")}
+        assert isinstance(items["attempt"]["type"], Integer)
+        assert items["attempt"]["nullable"] is False and "1" in str(items["attempt"]["default"])
+        assert items["reward_ids"]["nullable"] is False
+        assert items["claimed_at"]["nullable"] is True
         disputed = {c["name"]: c for c in inspector.get_columns("referral_attributions")}[
             "disputed_at"
         ]
@@ -313,3 +325,51 @@ def test_upgrade_adds_disputed_at_to_an_existing_attributions_table(alembic_conf
         assert "disputed_at" in columns
     finally:
         engine.dispose()
+
+
+def test_upgrade_adds_later_payout_item_columns_to_an_existing_table(alembic_config, scratch_db):
+    """A payout_items table from an earlier draft of the revision gets attempt/reward_ids/claimed_at."""
+    engine = create_engine(scratch_db)
+    try:
+        command.upgrade(alembic_config, "head")
+        with engine.begin() as conn:
+            for column in ("attempt", "reward_ids", "claimed_at"):
+                conn.execute(text(f"ALTER TABLE payout_items DROP COLUMN {column}"))
+        command.stamp(alembic_config, "wa20ratingreply")
+        command.upgrade(alembic_config, "head")
+        columns = {c["name"] for c in inspect(engine).get_columns("payout_items")}
+        assert {"attempt", "reward_ids", "claimed_at"} <= columns
+    finally:
+        engine.dispose()
+
+
+def test_models_and_migration_agree_on_the_referral_tables(alembic_config, scratch_db):
+    """Autogenerate finds no drift for the referral tables (no stray comment= strings, types match)."""
+    from alembic.autogenerate import compare_metadata
+    from alembic.migration import MigrationContext
+
+    from app.db.base import Base
+
+    engine = create_engine(scratch_db)
+    try:
+        command.upgrade(alembic_config, "head")
+        with engine.connect() as conn:
+            context = MigrationContext.configure(conn, opts={"compare_type": True})
+            diffs = compare_metadata(context, Base.metadata)
+        referral = [d for d in diffs if REFERRAL_TABLES & _tables_in(d)]
+        assert referral == []
+    finally:
+        engine.dispose()
+
+
+def _tables_in(diff) -> set[str]:
+    found: set[str] = set()
+    items = diff if isinstance(diff, list) else [diff]
+    for entry in items:
+        for part in entry:
+            table = getattr(part, "table", None)
+            if table is not None:
+                found.add(table.name)
+            elif isinstance(part, str):
+                found.add(part)
+    return found

@@ -4,11 +4,14 @@ Marketers (a separate identity from tenant users and platform admins) share a co
 signs up through it is attributed to the marketer, and the tenant's first successful payment earns
 the marketer one fixed reward (integer kobo, NGN), paid in admin-approved batches.
 
-ON DELETE choices (account deletion hard-deletes tenants, see AccountPurgeService.purge_tenant):
+ON DELETE choices. Account deletion (AccountPurgeService.purge_tenant) anonymises the tenant row and
+keeps it, so none of these FK actions fires on that path; the purge deletes the attribution and
+origin rows explicitly and detaches the reward with an explicit UPDATE (tenant_id -> NULL). The
+rules below apply to a real DELETE of a tenant row (operator SQL, tests):
 * referral_attributions / signup_origins -> tenants: CASCADE. They only describe the tenant.
 * referral_rewards.tenant_id -> tenants: SET NULL (column is nullable). A reward is money owed to
-  the marketer, so the row survives the tenant's purge; unique(tenant_id) still blocks a second
-  reward while the tenant exists, and a purged tenant can never pay again.
+  the marketer, so the row survives; unique(tenant_id) still blocks a second reward while the
+  tenant exists, and a purged tenant can never pay again.
 * anything -> marketers: RESTRICT. Marketers are suspended, never hard-deleted, so history stays.
 * admin ids -> platform_admins: SET NULL, so removing an admin never blocks on history.
 * referral_rewards.payout_batch_id -> payout_batches: SET NULL.
@@ -21,6 +24,7 @@ from uuid import UUID
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -86,22 +90,15 @@ class Marketer(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "marketers"
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    email: Mapped[str] = mapped_column(
-        EncryptedString, nullable=False, comment="Marketer email — encrypted at rest"
-    )
+    email: Mapped[str] = mapped_column(EncryptedString, nullable=False)  # encrypted at rest
+    # SHA-256 of the email for lookups, same scheme as users.email_hash.
     email_hash: Mapped[str | None] = mapped_column(
-        String(64),
-        unique=True,
-        index=True,
-        nullable=True,
-        comment="SHA-256 hash of email for lookups (same scheme as users.email_hash)",
+        String(64), unique=True, index=True, nullable=True
     )
-    password_hash: Mapped[str | None] = mapped_column(
-        String(255), nullable=True, comment="Bcrypt hash; NULL until the invite is accepted"
-    )
-    code: Mapped[str] = mapped_column(
-        String(32), nullable=False, comment="Public referral code, immutable once issued"
-    )
+    # Bcrypt hash; NULL until the invite is accepted.
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Public referral code, immutable once issued.
+    code: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[MarketerStatus] = mapped_column(
         _enum(MarketerStatus, "marketer_status"),
         nullable=False,
@@ -172,7 +169,9 @@ class PayoutBatch(Base, UUIDMixin, TimestampMixin):
         server_default=BatchStatus.DRAFT.value,
         index=True,
     )
-    total_kobo: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    total_kobo: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, default=0, server_default="0"
+    )
     approved_by_admin_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("platform_admins.id", ondelete="SET NULL"), nullable=True
     )
@@ -191,7 +190,7 @@ class ReferralReward(Base, UUIDMixin, TimestampMixin):
     marketer_id: Mapped[UUID] = mapped_column(
         ForeignKey("marketers.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    amount_kobo: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount_kobo: Mapped[int] = mapped_column(BigInteger, nullable=False)
     status: Mapped[RewardStatus] = mapped_column(
         _enum(RewardStatus, "reward_status"),
         nullable=False,
@@ -225,13 +224,23 @@ class PayoutItem(Base, UUIDMixin):
     marketer_id: Mapped[UUID] = mapped_column(
         ForeignKey("marketers.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    amount_kobo: Mapped[int] = mapped_column(Integer, nullable=False)
+    amount_kobo: Mapped[int] = mapped_column(BigInteger, nullable=False)
     status: Mapped[PayoutItemStatus] = mapped_column(
         _enum(PayoutItemStatus, "payout_item_status"),
         nullable=False,
         default=PayoutItemStatus.PENDING,
         server_default=PayoutItemStatus.PENDING.value,
     )
+    # Which attempt the current transfer_reference belongs to: attempt 1 uses ref-{batch}-{marketer},
+    # attempt N > 1 uses ref-{batch}-{marketer}-r{N} (a retry after a provider-confirmed failure).
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    # The exact rewards this item pays (captured at claim time); amount_kobo is their sum.
+    reward_ids: Mapped[list] = mapped_column(
+        JSON, nullable=False, default=list, server_default=text("'[]'")
+    )
+    # When the current attempt was claimed (status -> processing). A retry may only re-send a
+    # `processing` item whose claim is stale: a fresh one belongs to a worker that is mid-call.
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     transfer_reference: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
     failure_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     provider_status: Mapped[str | None] = mapped_column(String(64), nullable=True)

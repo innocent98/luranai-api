@@ -384,8 +384,9 @@ class AccountPurgeService:
         self.db.execute(delete(AnalyticsMetric).where(AnalyticsMetric.tenant_id == tenant_id))
 
         # Referral program: attribution and signup origin describe the tenant, so they go.
-        # The reward is money owed to the marketer: it survives, detached from the tenant
-        # (the same effect as its ON DELETE SET NULL, done here so it holds either way).
+        # The reward is money owed to the marketer: it survives, detached from the tenant. The
+        # tenant row is anonymised, not deleted, so the FK's ON DELETE SET NULL never fires on this
+        # path; this explicit UPDATE is what detaches it.
         self.db.execute(
             delete(ReferralAttribution).where(ReferralAttribution.tenant_id == tenant_id)
         )

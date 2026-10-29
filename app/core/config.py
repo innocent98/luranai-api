@@ -213,16 +213,18 @@ class Settings(BaseSettings):
 
     # Marketer referral program (see docs/superpowers/specs/2026-10-28-referral-program-design.md).
     # Reward/hold/window can be overridden at runtime by admins (referral_config table).
-    REFERRAL_REWARD_KOBO: int = 500_000  # one reward per referred tenant, integer kobo (NGN)
-    REFERRAL_HOLD_DAYS: int = 7  # days a reward waits after the first payment before it is payable
-    REFERRAL_COMMISSION_WINDOW_DAYS: int = (
-        90  # first payment must land within this many days of signup
-    )
-    REFERRAL_COOKIE_DAYS: int = 30  # lifetime of the first-party attribution cookie (luran_ref)
+    # One reward per referred tenant, integer kobo (NGN).
+    REFERRAL_REWARD_KOBO: int = 500_000
+    # Days a reward waits after the first payment before it is payable.
+    REFERRAL_HOLD_DAYS: int = 7
+    # The first payment must land within this many days of signup.
+    REFERRAL_COMMISSION_WINDOW_DAYS: int = 90
+    # Lifetime of the first-party attribution cookie (luran_ref).
+    REFERRAL_COOKIE_DAYS: int = 30
+    # "manual": an admin pays outside and records the bank reference; "paystack": Paystack Transfers.
     REFERRAL_PAYOUT_PROVIDER: Literal["paystack", "manual"] = "manual"
-    REFERRAL_LINK_BASE_URL: str = (
-        "https://luranai.com"  # marketer links are <base>/register?ref=<code>
-    )
+    # Marketer links are <base>/register?ref=<code>.
+    REFERRAL_LINK_BASE_URL: str = "https://luranai.com"
 
     # Backup Configuration (for database backups)
     ENABLE_CLOUD_BACKUP: bool = False

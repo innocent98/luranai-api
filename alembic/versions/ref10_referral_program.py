@@ -13,7 +13,8 @@ existing table, no data step. Amounts are integer kobo.
   referral_attributions.disputed_at records a payment dispute that may precede the reward.
 * referral_rewards: one row per tenant (unique tenant_id = the replay guard). tenant_id is
   nullable with ON DELETE SET NULL: the reward is money owed to the marketer and must survive the
-  tenant's hard purge instead of blocking it.
+  tenant's removal instead of blocking it (the account purge anonymises the tenant row, so the
+  FK action never fires there; the purge detaches the reward with an explicit UPDATE).
 * payout_batches, payout_items (unique batch_id + marketer_id, unique transfer_reference),
   referral_config (admin overrides of the env defaults).
 
@@ -93,6 +94,25 @@ def _timestamps() -> list[sa.Column]:
     ]
 
 
+def _upgrade_existing_payout_items(bind) -> None:
+    """A payout_items table created by an earlier draft of this revision gets the later columns."""
+    columns = {c["name"] for c in sa.inspect(bind).get_columns("payout_items")}
+    if "attempt" not in columns:
+        op.add_column(
+            "payout_items",
+            sa.Column("attempt", sa.Integer(), server_default="1", nullable=False),
+        )
+    if "claimed_at" not in columns:
+        op.add_column(
+            "payout_items", sa.Column("claimed_at", sa.DateTime(timezone=True), nullable=True)
+        )
+    if "reward_ids" not in columns:
+        op.add_column(
+            "payout_items",
+            sa.Column("reward_ids", sa.JSON(), server_default=sa.text("'[]'"), nullable=False),
+        )
+
+
 def upgrade() -> None:
     bind = op.get_bind()
     # New tables only, but the FKs take a brief lock on tenants / platform_admins: fail fast.
@@ -143,7 +163,7 @@ def upgrade() -> None:
             _id(),
             sa.Column("period_label", sa.String(64), nullable=False),
             sa.Column("status", _enum("batch_status"), server_default="draft", nullable=False),
-            sa.Column("total_kobo", sa.Integer(), server_default="0", nullable=False),
+            sa.Column("total_kobo", sa.BigInteger(), server_default="0", nullable=False),
             sa.Column(
                 "approved_by_admin_id",
                 sa.Uuid(),
@@ -222,7 +242,7 @@ def upgrade() -> None:
                 sa.ForeignKey("marketers.id", ondelete="RESTRICT"),
                 nullable=False,
             ),
-            sa.Column("amount_kobo", sa.Integer(), nullable=False),
+            sa.Column("amount_kobo", sa.BigInteger(), nullable=False),
             sa.Column("status", _enum("reward_status"), server_default="pending", nullable=False),
             sa.Column("converted_at", sa.DateTime(timezone=True), nullable=False),
             sa.Column("payable_after", sa.DateTime(timezone=True), nullable=False),
@@ -265,10 +285,13 @@ def upgrade() -> None:
                 sa.ForeignKey("marketers.id", ondelete="RESTRICT"),
                 nullable=False,
             ),
-            sa.Column("amount_kobo", sa.Integer(), nullable=False),
+            sa.Column("amount_kobo", sa.BigInteger(), nullable=False),
             sa.Column(
                 "status", _enum("payout_item_status"), server_default="pending", nullable=False
             ),
+            sa.Column("attempt", sa.Integer(), server_default="1", nullable=False),
+            sa.Column("reward_ids", sa.JSON(), server_default=sa.text("'[]'"), nullable=False),
+            sa.Column("claimed_at", sa.DateTime(timezone=True), nullable=True),
             sa.Column("transfer_reference", sa.String(100), nullable=True),
             sa.Column("failure_reason", sa.String(500), nullable=True),
             sa.Column("provider_status", sa.String(64), nullable=True),
@@ -282,6 +305,8 @@ def upgrade() -> None:
             sa.UniqueConstraint("transfer_reference", name="uq_payout_items_transfer_reference"),
             sa.UniqueConstraint("batch_id", "marketer_id", name="uq_payout_items_batch_marketer"),
         )
+    else:
+        _upgrade_existing_payout_items(bind)
     _create_indexes(
         bind,
         "payout_items",
