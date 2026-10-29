@@ -36,6 +36,15 @@ marketer_auth_rate_limiter = RedisRateLimiter(
     window_seconds=900,
 )
 
+# Marketer dashboard reads (keyed per marketer id, not IP; see endpoints/marketer.py). Generous
+# for normal browsing, but bounds the cost of the referrals endpoint, which runs onboarding
+# queries per in-trial row.
+marketer_portal_rate_limiter = RedisRateLimiter(
+    key_prefix="http_marketer_portal",
+    max_calls=300 if _is_relaxed else 60,
+    window_seconds=60,
+)
+
 chat_rate_limiter = RedisRateLimiter(
     key_prefix="http_chat",
     max_calls=20,

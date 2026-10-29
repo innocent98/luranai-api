@@ -93,8 +93,11 @@ def me(db_session) -> Marketer:
 
 
 @pytest.fixture
-def headers(pg_client, me):
+def headers(db_session, pg_client, me):
     access, _ = logged_in(pg_client, me)
+    # The login commit leaves the shared test session without its outer SAVEPOINT; restore it so
+    # the SAVEPOINTs the views open nest under it (as the conftest session intends).
+    db_session.begin_nested()
     return cookie_header(**{ACCESS: access})
 
 
@@ -674,17 +677,24 @@ def test_referrals_pagination_newest_first_and_totals_cover_everything(
 
 
 def test_referrals_limit_bounds(pg_client, headers):
-    assert _get(pg_client, headers, "/referrals?limit=500").status_code == 200
-    for qs in ("limit=501", "limit=0", "offset=-1"):
+    assert _get(pg_client, headers, "/referrals?limit=100").status_code == 200
+    for qs in ("limit=101", "limit=500", "limit=0", "offset=-1"):
         assert _get(pg_client, headers, f"/referrals?{qs}").status_code == 422
 
 
-def test_default_limit_is_200(db_session, pg_client, me, headers):
+def test_default_page_size_is_50(db_session, pg_client, me, headers):
     page = marketer_views.list_referrals(db_session, me, now=NOW)
     assert page.items == [] and page.totals.signed_up == 0
     import inspect
 
-    assert inspect.signature(marketer_views.list_referrals).parameters["limit"].default == 200
+    assert inspect.signature(marketer_views.list_referrals).parameters["limit"].default == 50
+
+    for i in range(55):
+        _referred(db_session, me, f"Many {i:02d}", converted_at=NOW)
+    body = _get(pg_client, headers, "/referrals").json()
+    assert len(body["items"]) == 50
+    assert body["totals"]["signed_up"] == 55  # totals still cover everything
+    assert len(_get(pg_client, headers, "/referrals?offset=50").json()["items"]) == 5
 
 
 class _QueryCounter:
@@ -890,3 +900,75 @@ def test_earnings_for_a_new_marketer_are_all_zero(pg_client, headers):
         "paid_total_kobo": 0,
         "payouts": [],
     }
+
+
+# --- hint isolation (savepoint) --------------------------------------------------------------------
+
+
+def test_a_database_error_in_the_hint_code_degrades_and_totals_still_return(
+    db_session, pg_client, me, headers, monkeypatch
+):
+    from sqlalchemy import text
+
+    def broken(db, tenant_id):
+        db.execute(text("SELECT * FROM table_that_does_not_exist_9f3"))
+
+    monkeypatch.setattr(marketer_views, "get_onboarding_status", broken)
+    _referred(db_session, me, "Trial One")
+    _referred(db_session, me, "Trial Two")
+    _referred(db_session, me, "Paid Co", converted_at=NOW)
+
+    resp = _get(pg_client, headers, "/referrals")
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    items = _by_name(body)
+    for name in ("Trial One", "Trial Two"):
+        assert (items[name]["kb_uploaded"], items[name]["widget_installed"]) == (False, False)
+        assert items[name]["status"] == "signed_up"
+    assert body["totals"] == {"signed_up": 3, "converted": 1, "conversion_rate": 0.3333}
+    # the outer transaction is still usable afterwards
+    assert _get(pg_client, headers, "/earnings").status_code == 200
+
+
+# --- rate limit -------------------------------------------------------------------------------------
+
+
+def _tight_limit(monkeypatch, max_calls):
+    from app.utils import http_rate_limiter
+
+    limiter = http_rate_limiter.marketer_portal_rate_limiter
+    monkeypatch.setattr(limiter, "max_calls", max_calls)
+    # The limiter singleton caches an async Redis client bound to the first test's event loop.
+    monkeypatch.setattr(limiter, "_redis", None)
+
+
+def test_marketer_routes_are_rate_limited_per_marketer(
+    db_session, pg_client, me, headers, monkeypatch
+):
+    _tight_limit(monkeypatch, 3)
+    other = make_marketer(db_session)
+    other_access, _ = logged_in(pg_client, other)
+    other_headers = cookie_header(**{ACCESS: other_access})
+
+    assert [_get(pg_client, headers, "/me").status_code for _ in range(2)] == [200, 200]
+    assert _get(pg_client, headers, "/earnings").status_code == 200  # shared budget across routes
+    blocked = _get(pg_client, headers, "/referrals")
+    assert blocked.status_code == 429
+    assert blocked.headers["retry-after"] == "60"
+    assert _get(pg_client, headers, "/me").status_code == 429
+
+    # another marketer (same client IP) has an untouched budget, and sees only their own data
+    assert _get(pg_client, other_headers, "/me").status_code == 200
+    assert _get(pg_client, other_headers, "/referrals").json()["items"] == []
+
+
+def test_unauthenticated_calls_do_not_consume_a_marketers_budget(
+    db_session, pg_client, me, headers, monkeypatch
+):
+    _tight_limit(monkeypatch, 2)
+    for _ in range(5):
+        assert pg_client.get(f"{BASE}/me").status_code == 401
+    assert _get(pg_client, headers, "/me").status_code == 200
+    assert _get(pg_client, headers, "/me").status_code == 200
+    assert _get(pg_client, headers, "/me").status_code == 429

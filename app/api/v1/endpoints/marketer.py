@@ -18,19 +18,34 @@ from app.schemas.marketer_portal import (
     ReferralListResponse,
 )
 from app.services.referral import marketer_views
+from app.utils.http_rate_limiter import enforce_identifier_limit, marketer_portal_rate_limiter
 
 router = APIRouter()
 
 
-@router.get("/me", response_model=MarketerMeResponse)
+async def marketer_portal_rate_limit(marketer: Marketer = Depends(get_current_marketer)) -> None:
+    """Per-marketer request budget (429 when exceeded). Runs after authentication, so
+    unauthenticated calls get 401 and never consume a marketer's budget."""
+    await enforce_identifier_limit(marketer_portal_rate_limiter, str(marketer.id))
+
+
+@router.get(
+    "/me",
+    response_model=MarketerMeResponse,
+    dependencies=[Depends(marketer_portal_rate_limit)],
+)
 def get_me(marketer: Marketer = Depends(get_current_marketer)):
     """Name, referral code and the shareable signup link."""
     return marketer_views.get_me(marketer)
 
 
-@router.get("/referrals", response_model=ReferralListResponse)
+@router.get(
+    "/referrals",
+    response_model=ReferralListResponse,
+    dependencies=[Depends(marketer_portal_rate_limit)],
+)
 def list_referrals(
-    limit: int = Query(200, ge=1, le=500),
+    limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     marketer: Marketer = Depends(get_current_marketer),
@@ -40,7 +55,11 @@ def list_referrals(
     return marketer_views.list_referrals(db, marketer, limit, offset)
 
 
-@router.get("/earnings", response_model=EarningsResponse)
+@router.get(
+    "/earnings",
+    response_model=EarningsResponse,
+    dependencies=[Depends(marketer_portal_rate_limit)],
+)
 def get_earnings(
     db: Session = Depends(get_db),
     marketer: Marketer = Depends(get_current_marketer),

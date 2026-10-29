@@ -118,7 +118,10 @@ def _owner_emails(db: Session, tenant_ids: list) -> dict:
 def _activation_hints(db: Session, tenant_id) -> tuple[bool, bool]:
     """(knowledge base uploaded, widget installed): the tenant's own onboarding answers."""
     try:
-        steps = get_onboarding_status(db, tenant_id).steps
+        # A SAVEPOINT, so a database error in the onboarding code cannot poison the outer
+        # transaction (the rest of the page and the totals still run).
+        with db.begin_nested():
+            steps = get_onboarding_status(db, tenant_id).steps
         return bool(steps[0].done), bool(steps[1].done)
     except Exception as exc:  # a hint must never break the page; class and id only
         logger.warning(f"activation hints unavailable for tenant {tenant_id}: {type(exc).__name__}")
@@ -128,7 +131,7 @@ def _activation_hints(db: Session, tenant_id) -> tuple[bool, bool]:
 def list_referrals(
     db: Session,
     marketer: Marketer,
-    limit: int = 200,
+    limit: int = 50,
     offset: int = 0,
     *,
     now: datetime | None = None,
