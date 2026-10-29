@@ -6,7 +6,7 @@ The backend of the marketer referral program: Luran admins onboard marketers; a 
 
 | Item | Reference |
 |---|---|
-| Feature PR (`feature/referral-backend` to `develop`) | `PR: <fill when opened>` |
+| Feature PR (`feature/referral-backend` to `develop`) | [innocent98/luranai-api#174](https://github.com/innocent98/luranai-api/pull/174) |
 | Prerequisite: idempotent `charge.success` handler (`fix/charge-success-idempotent`) | #173 (its fix is cherry-picked here as `0101ae0` and drops out when #173 merges) |
 | Spec / plan | `docs/superpowers/specs/2026-10-28-referral-program-design.md`, `docs/superpowers/plans/2026-10-28-referral-program-backend.md` |
 | FE contract (built only from live captures) | `docs/fe-integration-guide-referral.md`, captures in `docs/fe-integration-captures/referral/` (78 files + `INDEX.md`), `scripts/capture_referral.py` |

@@ -1,6 +1,6 @@
 # FE integration guide: referral program (marketer recruits)
 
-Backend: branch `feature/referral-backend` (PR to `develop`: `<fill when opened>`). SOP: `docs/sop/referral_program_backend.md`. Design: `docs/superpowers/specs/2026-10-28-referral-program-design.md`.
+Backend: branch `feature/referral-backend` (PR to `develop`: [innocent98/luranai-api#174](https://github.com/innocent98/luranai-api/pull/174)). SOP: `docs/sop/referral_program_backend.md`. Design: `docs/superpowers/specs/2026-10-28-referral-program-design.md`.
 
 **Every JSON body below is copied from `docs/fe-integration-captures/referral/`** (78 files, one per call, see its `INDEX.md`), recorded by `scripts/capture_referral.py` against a locally running API on a scratch Postgres 15 and Redis 7. Each body is followed by the capture it came from. Where a long object was trimmed, the line under the block says what was cut; no field was ever renamed, added or tidied. Anything that could NOT be exercised live is marked **NOT CAPTURED** or **NOT LIVE**, and says where its shape came from (code, tests or public docs). Section 14 ends with a table of what is verified and how much to trust each part.
 
