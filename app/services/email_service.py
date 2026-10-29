@@ -559,6 +559,29 @@ class EmailService:
             logger.error(f"Failed to send password changed email: {e}")
             return False
 
+    def send_whatsapp_capacity_alert_email(
+        self,
+        to_email: str,
+        condition: str,
+        detail_lines: list[str],
+    ) -> bool:
+        """Tell a platform operator WhatsApp capacity is running low. No tenant data."""
+        try:
+            human = {
+                "connections": "connections near the limit",
+                "sidecar_memory": "sidecar memory near the limit",
+            }.get(condition, condition)
+            template = self.jinja_env.get_template("whatsapp_capacity_alert.html")
+            html_content = template.render(
+                condition_label=human,
+                detail_lines=detail_lines,
+                current_year=datetime.now().year,
+            )
+            return self._send_email(to_email, f"[Luran] WhatsApp capacity: {human}", html_content)
+        except Exception as e:
+            logger.error(f"Failed to send WhatsApp capacity alert email: {type(e).__name__}")
+            return False
+
     def send_verification_email(
         self,
         email: str,

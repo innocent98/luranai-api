@@ -27,6 +27,7 @@ from app.channels.base import (
     SendResult,
     SessionExists,
     SessionNotFound,
+    SidecarHealth,
     SidecarUnavailable,
 )
 from app.core.config import settings
@@ -123,6 +124,28 @@ class LinkedDeviceAdapter:
             status=str(body["status"]),
             since_ms=body.get("since_ms"),
             last_disconnect_code=last.get("code"),
+        )
+
+    async def get_health(self) -> SidecarHealth:
+        """Sidecar load numbers for the capacity alert. A bad status or body is `SidecarUnavailable`."""
+        resp = await self._request("GET", "/health")
+        if resp.status_code != 200:
+            raise SidecarUnavailable(f"sidecar_status_{resp.status_code}")
+        try:
+            body = resp.json()
+        except ValueError:
+            raise SidecarUnavailable("sidecar_health_malformed") from None
+        fields = ("sessions", "max_sessions", "rss_mb", "rss_refuse_mb")
+        if not isinstance(body, dict) or any(
+            isinstance(body.get(f), bool) or not isinstance(body.get(f), int | float)
+            for f in fields
+        ):
+            raise SidecarUnavailable("sidecar_health_malformed")
+        return SidecarHealth(
+            sessions=int(body["sessions"]),
+            max_sessions=int(body["max_sessions"]),
+            rss_mb=float(body["rss_mb"]),
+            rss_refuse_mb=float(body["rss_refuse_mb"]),
         )
 
     async def delete_session(self, session_key: str) -> None:

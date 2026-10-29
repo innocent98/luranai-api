@@ -61,6 +61,16 @@ class RemoteStatus:
 
 
 @dataclass(frozen=True)
+class SidecarHealth:
+    """The sidecar's `GET /health` numbers (capacity monitoring only, no per-tenant data)."""
+
+    sessions: int
+    max_sessions: int
+    rss_mb: float
+    rss_refuse_mb: float
+
+
+@dataclass(frozen=True)
 class ChannelCapabilities:
     rich_buttons: bool = False
     templates_required_outside_window: bool = False

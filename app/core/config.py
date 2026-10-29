@@ -341,8 +341,8 @@ class Settings(BaseSettings):
     VOICE_MAX_CONCURRENT_SESSIONS: int = 20
 
     # --- WhatsApp channel (linked-device sidecar) ----------------------------
-    # Global kill switch: off by default; a tenant additionally needs the
-    # `can_use_whatsapp` capability granted by hand (platform admin).
+    # WhatsApp access is plan-driven per tenant (`can_use_whatsapp`); this switch is the
+    # global kill switch (off by default).
     WHATSAPP_ENABLED: bool = False
     WHATSAPP_SIDECAR_URL: str = ""
     WHATSAPP_SIDECAR_TOKEN: str = ""
@@ -356,6 +356,11 @@ class Settings(BaseSettings):
     # Platform-wide simultaneous linked sessions; checked before calling the
     # sidecar (the VPS is 8 GB total, per-session RAM beyond one is unmeasured).
     WHATSAPP_MAX_CONNECTIONS: int = 3
+    # Operator addresses (comma separated) told when WhatsApp capacity runs low. Empty = the
+    # alert is logged but nothing is sent. Never hardcode an address.
+    PLATFORM_ALERT_EMAILS: str = ""
+    # Alert when live connections, or the sidecar's memory, reach this percent of their limit.
+    WHATSAPP_CAPACITY_ALERT_PERCENT: int = 80
     # Owner typed from the phone/WhatsApp Web: AI stays silent this long.
     WHATSAPP_OWNER_PAUSE_MINUTES: int = 120
     # Images: the only hosts an outbound image URL may point at (comma separated; the sidecar

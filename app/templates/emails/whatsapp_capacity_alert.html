@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}WhatsApp capacity: {{ condition_label }}{% endblock %}
+
+{% block content %}
+<h1>WhatsApp capacity: {{ condition_label }}</h1>
+
+<p>
+    The WhatsApp channel is approaching a platform limit. New tenant connections will be
+    refused once it is reached.
+</p>
+
+<div class="warning">
+    {% for line in detail_lines %}
+    {{ line }}{% if not loop.last %}<br>{% endif %}
+    {% endfor %}
+</div>
+
+<h3 style="margin-top: 30px;">What to do</h3>
+<ul style="color: #4b5563;">
+    <li>Check the sidecar host (memory and live sessions) before more tenants connect</li>
+    <li>Raise <code>WHATSAPP_MAX_CONNECTIONS</code> or the sidecar capacity only once the host has room</li>
+</ul>
+
+<p style="margin-top: 30px; color: #6b7280;">
+    This alert is sent at most once every 6 hours per condition.
+</p>
+{% endblock %}

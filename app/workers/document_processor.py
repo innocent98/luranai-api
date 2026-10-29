@@ -1312,6 +1312,7 @@ class WorkerSettings:
         process_whatsapp_event,
         send_whatsapp_image,
         send_whatsapp_message,
+        whatsapp_capacity_check,
     )
     from arq import func as arq_func  # type: ignore[misc]
     from app.services.whatsapp_outbound import MAX_SEND_TRIES  # type: ignore[misc]
@@ -1322,6 +1323,7 @@ class WorkerSettings:
         arq_func(process_whatsapp_event, max_tries=30),
         arq_func(send_whatsapp_message, max_tries=MAX_SEND_TRIES),
         arq_func(send_whatsapp_image, max_tries=MAX_SEND_TRIES),
+        whatsapp_capacity_check,
         run_website_audit,
         send_rep_alert,
         send_slack_notification,
@@ -1371,6 +1373,13 @@ class WorkerSettings:
             auto_abandon_inactive_conversations,
             minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
             run_at_startup=True,  # Run once on worker startup
+        ),
+        # WhatsApp capacity alert (connections / sidecar memory near limit) - every 5 minutes
+        # (same cadence as auto_abandon_inactive_conversations above)
+        cron(
+            whatsapp_capacity_check,
+            minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
+            run_at_startup=False,
         ),
         # Purge account-deletion requests past their grace period - every 5
         # minutes (same cadence as auto_abandon_inactive_conversations above)
