@@ -1,7 +1,12 @@
 """Entitlements: the one place that decides what a tenant's plan allows.
 
 Every gate (HTTP endpoints, the chat pipeline, the notification worker, the WhatsApp service) and
-`GET /tenant/entitlements` call `get_entitlements`. Resolution order per capability:
+`GET /tenant/entitlements` call `get_entitlements`. WhatsApp is plan-driven like the other features
+(`can_use_whatsapp` + `max_whatsapp_numbers` on the plan row; a platform-admin edit stays as an
+override). The global `WHATSAPP_ENABLED` kill switch is not part of `enabled()`: the services check
+it separately and `to_response()` reports it as `platform_available` on the `whatsapp` entry.
+
+Resolution order per capability:
 
 1. the plan row of the tenant's effective tier (an active promotional grant's tier wins over the
    tenant's own tier; the grant service also writes the tier onto the tenant, so they agree),
@@ -25,6 +30,7 @@ from uuid import UUID
 from sqlalchemy import func, null, select
 from sqlalchemy.orm import Session, object_session
 
+from app.core.config import settings
 from app.db.models.subscription_plan import PLAN_ONLY_CAPABILITY_FIELDS, SubscriptionPlan
 from app.db.models.tenant import Tenant, TenantCapabilities
 from app.services.plan_catalog import TIER_ORDER, plan_capabilities
@@ -99,7 +105,7 @@ FEATURES: dict[str, FeatureDef] = {
             flag="can_use_ai_chat_automation",
             limit="max_automation_actions",
         ),
-        FeatureDef("whatsapp", "WhatsApp", limit="max_whatsapp_numbers", grant="can_use_whatsapp"),
+        FeatureDef("whatsapp", "WhatsApp", flag="can_use_whatsapp", limit="max_whatsapp_numbers"),
         FeatureDef("voice", "voice chat", grant="can_use_voice"),
     )
 }
@@ -261,6 +267,10 @@ class Entitlements:
                 entry["limit"] = self.limit(key)
                 entry["used"] = self.usage(key)
             entry["min_tier"] = self.min_tier(key)
+            if key == "whatsapp":
+                # The global kill switch, kept out of `enabled` so a tenant's plan state stays
+                # readable; the dashboard hides the section while this is false.
+                entry["platform_available"] = bool(settings.WHATSAPP_ENABLED)
             features[key] = entry
         return {
             "tier": self.tier,

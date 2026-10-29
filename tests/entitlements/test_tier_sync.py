@@ -36,7 +36,8 @@ def test_new_tenants_start_from_the_trial_plan(db_session):
     caps = db_session.query(TenantCapabilities).filter_by(tenant_id=created.id).one()
     assert tuple(getattr(caps, g) for g in GATES) == (True, True, True, True)
     assert caps.max_whatsapp_numbers == 1
-    assert caps.can_use_whatsapp is False  # a grant, never from the plan
+    assert caps.can_use_whatsapp is True  # plan-driven since wa30: the trial plan includes it
+    assert not caps.override_flags
 
 
 def test_upgrade_and_downgrade_move_the_gates(db_session):
@@ -46,6 +47,31 @@ def test_upgrade_and_downgrade_move_the_gates(db_session):
     assert _gates(db_session, tenant) == ((True, True, True, True), 2)
     SubscriptionService(db_session)._update_capabilities_for_tier(tenant.id, "lite")
     assert _gates(db_session, tenant) == ((False, False, False, False), 1)
+
+
+def test_new_tenant_capabilities_copy_the_whatsapp_flag_from_every_plan(db_session):
+    from app.services.entitlements import new_tenant_capabilities
+
+    for tier in ("trial", "lite", "professional", "growth", "enterprise"):
+        assert new_tenant_capabilities(db_session, uuid4(), tier).can_use_whatsapp is True, tier
+
+
+def test_tier_sync_keeps_a_whatsapp_override_either_way_and_a_forced_reset_clears_it(db_session):
+    for admin_value in (False, True):
+        tenant = make_tenant(db_session, "lite")
+        TenantService(db_session).update_capabilities(
+            tenant.id, TenantCapabilitiesUpdate(can_use_whatsapp=admin_value)
+        )
+        assert caps_of(db_session, tenant).override_flags == {"can_use_whatsapp": True}
+        SubscriptionService(db_session).upgrade_subscription(tenant.id, "professional")
+        assert caps_of(db_session, tenant).can_use_whatsapp is admin_value
+        # A forced platform tier change (respect_overrides=False) goes back to the plan value.
+        PlatformSubscriptionService(db_session)._update_capabilities_with_overrides(
+            tenant.id, "professional", respect_overrides=False
+        )
+        caps = caps_of(db_session, tenant)
+        assert caps.can_use_whatsapp is True
+        assert "can_use_whatsapp" not in (caps.override_flags or {})
 
 
 def test_upgrade_to_enterprise_stores_unlimited_as_null(db_session):

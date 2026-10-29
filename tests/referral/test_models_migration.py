@@ -266,7 +266,9 @@ def _enum_names(engine) -> set[str]:
 
 def test_upgrade_creates_tables_and_downgrade_removes_them(alembic_config, scratch_db):
     script = ScriptDirectory.from_config(alembic_config)
-    assert script.get_heads() == ["ref10referral"]
+    # A later migration (wa30) sits on top of ref10referral: one head, and ref10referral is in its chain.
+    assert len(script.get_heads()) == 1
+    assert "ref10referral" in [r.revision for r in script.walk_revisions()]
     assert script.get_revision("ref10referral").down_revision == "wa20ratingreply"
 
     engine = create_engine(scratch_db)

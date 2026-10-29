@@ -157,6 +157,7 @@ def _ensure_capabilities(
         "can_use_crm_notifications",
         "can_use_screen_recording",
         "can_export_ratings",
+        "can_use_whatsapp",
         "max_whatsapp_numbers",
     ):
         setattr(capabilities, field, plan_values[field])

@@ -24,6 +24,14 @@ _MIGRATION = os.path.join(
     "versions",
     "ent10_plan_entitlements.py",
 )
+_WA_MIGRATION = _MIGRATION.replace("ent10_plan_entitlements.py", "wa30_whatsapp_default_on.py")
+
+
+def _load(path: str, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def _plan_columns():
@@ -53,6 +61,27 @@ def test_mirrored_columns_have_the_same_type_and_nullability():
     for name in plan_capability_fields():
         assert type(plan[name].type) is type(caps[name].type), name
         assert plan[name].nullable == caps[name].nullable, name
+
+
+def test_whatsapp_flag_is_a_mirrored_plan_column_not_a_tenant_only_grant():
+    assert "can_use_whatsapp" not in TENANT_ONLY_CAPABILITY_FIELDS
+    assert "can_use_whatsapp" in plan_capability_fields()
+    for table in (_plan_columns(), _caps_columns()):
+        column = table["can_use_whatsapp"]
+        assert column.nullable is False
+        assert str(column.server_default.arg).lower() == "false"
+    assert "can_use_whatsapp" in PricingPlanCapabilitiesResponse.model_fields
+    assert "can_use_whatsapp" in PricingPlanCapabilitiesUpdate.model_fields
+
+
+def test_every_tier_includes_whatsapp_in_the_catalog():
+    for row in build_plan_rows():
+        assert row["can_use_whatsapp"] is True, row["tier"]
+        assert not any("on request" in line for line in row["features"]), row["tier"]
+    features = {r["tier"]: r["features"] for r in build_plan_rows()}
+    assert "WhatsApp (beta): 1 number" in features["lite"]
+    assert "WhatsApp (beta): 2 numbers" in features["professional"]
+    assert "WhatsApp (beta): unlimited numbers" in features["enterprise"]
 
 
 def test_new_gate_columns_default_to_off_in_the_database():
@@ -157,10 +186,13 @@ def test_lite_marketing_matches_the_matrix():
 
 
 def test_latest_plan_migration_froze_the_same_numbers_as_the_catalog():
-    """If this fails you changed plan values: add a new migration and repoint this test."""
-    spec = importlib.util.spec_from_file_location("ent10", _MIGRATION)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    """If this fails you changed plan values: add a new migration and repoint this test.
+
+    ent10 froze the matrix numbers; wa30 later swapped the WhatsApp feature line and added the
+    flag, so ent10's strings are compared after that one swap.
+    """
+    mod = _load(_MIGRATION, "ent10")
+    wa30 = _load(_WA_MIGRATION, "wa30")
     rows = {r["tier"]: r for r in build_plan_rows()}
     for tier, (sales, crm, recording, ratings, whatsapp) in mod.GATES.items():
         row = rows[tier]
@@ -171,9 +203,21 @@ def test_latest_plan_migration_froze_the_same_numbers_as_the_catalog():
             row["can_export_ratings"],
             row["max_whatsapp_numbers"],
         ) == (sales, crm, recording, ratings, whatsapp), tier
-        assert mod.NEW_FEATURES[tier] == row["features"], tier
+        old, new = wa30.WHATSAPP_FEATURE[tier]
+        assert [new if f == old else f for f in mod.NEW_FEATURES[tier]] == row["features"], tier
     assert (
         rows["lite"]["monthly_price_kobo"],
         rows["lite"]["annual_price_kobo"],
     ) == mod.LITE_PRICE["new"]
     assert rows["lite"]["max_automation_actions"] == mod.LITE_ACTIONS["new"]
+
+
+def test_wa30_froze_the_whatsapp_flag_and_feature_lines_of_the_catalog():
+    wa30 = _load(_WA_MIGRATION, "wa30")
+    rows = {r["tier"]: r for r in build_plan_rows()}
+    assert set(wa30.TIERS) == set(rows) == set(wa30.WHATSAPP_FEATURE)
+    for tier, row in rows.items():
+        assert row["can_use_whatsapp"] is True, tier
+        old, new = wa30.WHATSAPP_FEATURE[tier]
+        assert new in row["features"] and old not in row["features"], tier
+        assert old == new.replace("(beta)", "(beta, on request)"), tier

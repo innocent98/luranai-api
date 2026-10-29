@@ -26,7 +26,7 @@ from tests.entitlements.helpers import (
 
 @pytest.mark.parametrize("tier", TIERS)
 def test_plan_defaults_match_the_contract_matrix(db_session, tier):
-    ent = get_entitlements(make_tenant(db_session, tier, whatsapp_grant=True), db_session)
+    ent = get_entitlements(make_tenant(db_session, tier), db_session)
     for key in ("sales_close", "crm_notifications", "screen_recording", "ratings_export"):
         assert ent.enabled(key) is SALES_CLOSE[tier], key
     assert ent.enabled("analytics") is ANALYTICS[tier]
@@ -35,13 +35,66 @@ def test_plan_defaults_match_the_contract_matrix(db_session, tier):
     assert ent.limit("ai_actions") == AI_ACTIONS[tier]
     assert ent.limit("whatsapp") == WHATSAPP[tier]
     assert ent.enabled("ai_actions") is True
-    assert ent.enabled("whatsapp") is True  # grant held, plan allows at least one number
+    assert ent.enabled("whatsapp") is True  # on by plan, no grant needed
+    assert ent.value("can_use_whatsapp") is True
     assert ent.enabled("voice") is False  # platform grant only, never from a plan
 
 
-def test_whatsapp_needs_the_platform_grant_even_when_the_plan_allows_numbers(db_session):
-    ent = get_entitlements(make_tenant(db_session, "growth", whatsapp_grant=False), db_session)
+@pytest.mark.parametrize("tier", TIERS)
+def test_whatsapp_is_on_by_plan_for_a_tenant_nobody_granted(db_session, tier):
+    tenant = make_tenant(db_session, tier)
+    assert not (caps_of(db_session, tenant).override_flags or {})
+    ent = get_entitlements(tenant, db_session)
+    assert ent.enabled("whatsapp") is True
+    assert ent.limit("whatsapp") == WHATSAPP[tier]
+
+
+def test_an_admin_override_off_closes_whatsapp_on_a_plan_that_includes_it(db_session):
+    tenant = make_tenant(db_session, "growth", whatsapp_override=False)
+    ent = get_entitlements(tenant, db_session)
     assert ent.limit("whatsapp") == 5
+    assert ent.value("can_use_whatsapp") is False
+    assert ent.enabled("whatsapp") is False
+
+
+def test_an_admin_override_on_opens_whatsapp_when_the_plan_row_says_no(db_session):
+    from app.db.models.subscription_plan import SubscriptionPlan
+
+    db_session.query(SubscriptionPlan).filter_by(tier="lite").update({"can_use_whatsapp": False})
+    plain = make_tenant(db_session, "lite")
+    granted = make_tenant(db_session, "lite", whatsapp_override=True)
+    assert get_entitlements(plain, db_session).enabled("whatsapp") is False
+    assert get_entitlements(granted, db_session).enabled("whatsapp") is True
+
+
+def test_a_plan_edit_switches_whatsapp_for_tenants_without_an_override(db_session):
+    from app.db.models.subscription_plan import SubscriptionPlan
+
+    tenant = make_tenant(db_session, "lite")
+    assert tenant_has(db_session, tenant.id, "whatsapp") is True
+    db_session.query(SubscriptionPlan).filter_by(tier="lite").update({"can_use_whatsapp": False})
+    db_session.expire_all()
+    assert tenant_has(db_session, tenant.id, "whatsapp") is False
+    assert min_tier_for(db_session, "whatsapp") == "professional"
+
+
+def test_a_lapsed_account_has_whatsapp_disabled_but_keeps_the_plan_value(db_session):
+    """enabled() is the generic lapsed-aware answer; value() is what the services read."""
+    tenant = make_tenant(db_session, "professional")
+    tenant.subscription_status = "past_due"
+    db_session.commit()
+    ent = get_entitlements(tenant, db_session)
+    assert ent.enabled("whatsapp") is False
+    assert ent.value("can_use_whatsapp") is True
+
+
+def test_whatsapp_is_off_when_the_plan_allows_zero_numbers(db_session):
+    from app.db.models.subscription_plan import SubscriptionPlan
+
+    db_session.query(SubscriptionPlan).filter_by(tier="lite").update({"max_whatsapp_numbers": 0})
+    tenant = make_tenant(db_session, "lite")
+    ent = get_entitlements(tenant, db_session)
+    assert ent.value("can_use_whatsapp") is True
     assert ent.enabled("whatsapp") is False
 
 
@@ -113,7 +166,7 @@ def test_tenant_without_a_capabilities_row_follows_the_plan(db_session):
     tenant = make_tenant(db_session, "professional", with_caps=False)
     ent = get_entitlements(tenant, db_session)
     assert ent.enabled("sales_close") is True
-    assert ent.enabled("whatsapp") is False  # no grant row
+    assert ent.enabled("whatsapp") is True  # the plan row is enough, no capabilities row needed
 
 
 def test_unknown_tier_falls_back_to_stored_capabilities(db_session):
@@ -162,8 +215,11 @@ def test_require_raises_the_contract_body(db_session):
     require_feature(db_session, make_tenant(db_session, "professional").id, "sales_close")
 
 
-def test_response_shape_matches_the_contract(db_session):
-    tenant = make_tenant(db_session, "lite", whatsapp_grant=True)
+def test_response_shape_matches_the_contract(db_session, monkeypatch):
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "WHATSAPP_ENABLED", False)
+    tenant = make_tenant(db_session, "lite")
     body = get_entitlements(tenant, db_session).to_response()
     assert set(body) == {"tier", "subscription_status", "features"}
     assert body["tier"] == "lite" and body["subscription_status"] == "active"
@@ -173,11 +229,29 @@ def test_response_shape_matches_the_contract(db_session):
     assert features["analytics"] == {"enabled": True, "min_tier": "lite"}
     assert features["voice"] == {"enabled": False, "min_tier": None}
     assert features["ai_actions"] == {"enabled": True, "limit": 2, "used": 0, "min_tier": "trial"}
-    assert features["whatsapp"] == {"enabled": True, "limit": 1, "used": 0, "min_tier": "trial"}
+    assert features["whatsapp"] == {
+        "enabled": True,
+        "limit": 1,
+        "used": 0,
+        "min_tier": "trial",
+        "platform_available": False,  # the global kill switch, not folded into `enabled`
+    }
+    assert all("platform_available" not in v for k, v in features.items() if k != "whatsapp")
+
+
+def test_platform_available_is_the_kill_switch_and_never_changes_enabled(db_session, monkeypatch):
+    from app.core.config import settings
+
+    ent = get_entitlements(make_tenant(db_session, "lite"), db_session)
+    for switch in (True, False):
+        monkeypatch.setattr(settings, "WHATSAPP_ENABLED", switch)
+        entry = ent.to_response()["features"]["whatsapp"]
+        assert entry["platform_available"] is switch
+        assert entry["enabled"] is True
 
 
 def test_enterprise_limits_are_null_not_zero(db_session):
-    body = get_entitlements(make_tenant(db_session, "enterprise", whatsapp_grant=True), db_session)
+    body = get_entitlements(make_tenant(db_session, "enterprise"), db_session)
     features = body.to_response()["features"]
     assert features["ai_actions"]["limit"] is None and features["ai_actions"]["enabled"] is True
     assert features["whatsapp"]["limit"] is None and features["whatsapp"]["enabled"] is True
@@ -190,7 +264,7 @@ def test_no_second_row_per_tenant(db_session):
 
 @pytest.mark.parametrize("status", ["trial_expired", "canceled", "past_due"])
 def test_lapsed_accounts_have_no_features(db_session, status):
-    tenant = make_tenant(db_session, "professional", whatsapp_grant=True)
+    tenant = make_tenant(db_session, "professional")
     tenant.subscription_status = status
     db_session.commit()
     ent = get_entitlements(tenant, db_session)

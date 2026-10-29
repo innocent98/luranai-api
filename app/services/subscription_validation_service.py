@@ -351,8 +351,10 @@ class SubscriptionValidationService:
     def _check_whatsapp_numbers(
         self, tenant_id: UUID, new_limits: dict
     ) -> ValidationViolation | None:
-        """Linked WhatsApp numbers must fit the target plan's allowance."""
+        """Linked WhatsApp numbers must fit the target plan's allowance (none without the flag)."""
         allowed = new_limits.get("max_whatsapp_numbers")
+        if not new_limits.get("can_use_whatsapp", True):
+            allowed = 0
         if allowed is None:
             return None
         current = int(
