@@ -11,6 +11,8 @@ Snapshot (Sidecar on staging): deployed and healthy on staging since 2026-10-28 
 
 Snapshot (Referral program): backend Tasks 1-10 built and tested on branch `feature/referral-backend` (2026-10-29); PR to `develop` NOT yet opened, whole-branch CI parity still owed (the final Opus review ran and its findings are fixed, 2026-10-29); payouts default to the `manual` provider; dashboard stream, `luran_ref` cookie script, login-page fallback, privacy-policy text and a Paystack test-mode transfer run are NOT done. Counts for this module (2026-10-29): 26 ticked, 23 open (see its section). Prod untouched.
 
+Snapshot (WhatsApp contact exclusion, T15): backend built on `feature/whatsapp-contact-exclusion` (2026-10-29), PR to `develop` open, NOT merged; migration `wa40contactexclusion`; per-connection list of ignored contacts (webhook + worker + sender checks), live-verified against the running app with the fake sidecar; dashboard UI is a separate PR; gate for the public `WHATSAPP_ENABLED` flip. Production untouched.
+
 Snapshot (Conversation limit numbers): built on `feature/conversation-limit-numbers` (2026-10-29), PR to `develop` open, NOT merged; migration `cl10conversationlimits`; two owner decisions open (Growth prod tenant, the 10,001-24,999 gap); prod untouched.
 
 Snapshot (Conversation counting): built on `feature/conversation-counting-window` (2026-10-29), PR to `develop` open, NOT merged; 6-hour same-conversation window + one shared limit check; no plan numbers changed, no migration; `luran-chat` must adopt a changed `session_id`. Prod untouched.
@@ -156,7 +158,14 @@ Docs: plan `docs/superpowers/plans/2026-10-28-sidecar-staging-deploy.md` (eviden
   - [ ] Deploy-restore drill (separate from the RAM soak)
 - [ ] T13 Opus security review of the sidecar + beta fixes (backend demo review is done, see SOP)
 - [ ] T14 Option B Cloud API adapter (blocked on Meta Tech Provider approval)
-- [ ] T15 Per-tenant contact exclusion list (AI never answers personal contacts), beta, not in the demo
+- [x] T15 Per-connection contact exclusion list (AI never answers personal contacts): backend built 2026-10-29 on `feature/whatsapp-contact-exclusion`, PR to `develop` open, NOT merged. SOP `docs/sop/whatsapp_contact_exclusion.md`, FE guide `docs/fe-integration-guide-whatsapp-exclusion.md` (live captures). Gate for the public `WHATSAPP_ENABLED` flip.
+  - [x] Model + migration `wa40contactexclusion` (additive, reversible, single head)
+  - [x] Peppered-HMAC entries (phone + learned LID), encrypted mask/label, no full number stored
+  - [x] CRUD: add / bulk (partial success) / list (paged) / remove; plan-gated add; tenant-scoped
+  - [x] Drop before any side effect: webhook, worker (`dropped_excluded`), sender (queued replies, agent takeover)
+  - [x] Tests: SQLite + real Postgres + migration round trip; live-verified webhook and worker drops
+  - [ ] Dashboard UI (luran-dashboard, separate PR; needs listed in FE guide section 8)
+  - [ ] Known gap: first message from an excluded contact whose LID has no resolvable number (see SOP follow-ups)
 
 ### Option B (Meta) track — owner actions
 - [ ] Meta Business portfolio + Business Verification (Adebayo)

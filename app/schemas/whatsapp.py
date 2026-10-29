@@ -62,6 +62,47 @@ class PairingCodeOut(BaseModel):
     expires_in_s: int
 
 
+# ----------------------------------------------------------------------- exclusions
+class ExclusionCreate(BaseModel):
+    """Validated in the service so errors are `{code, message}` (invalid_phone, own_number)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    phone_number: str = Field(..., max_length=32)
+    label: str | None = Field(None, max_length=100)
+
+
+class ExclusionBulkCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    entries: list[ExclusionCreate] = Field(..., max_length=500)  # the service enforces 1..200
+
+
+class ExclusionOut(BaseModel):
+    id: str
+    phone_masked: str
+    label: str | None
+    created_at: datetime
+
+
+class ExclusionPage(BaseModel):
+    items: list[ExclusionOut]
+    total: int
+    limit: int
+    offset: int
+
+
+class BulkRejected(BaseModel):
+    index: int
+    code: str
+
+
+class ExclusionBulkOut(BaseModel):
+    added: int
+    already_excluded: int
+    rejected: list[BulkRejected]
+
+
 # ----------------------------------------------------------------------- webhook (W)
 class _EventBase(BaseModel):
     model_config = ConfigDict(extra="ignore")

@@ -93,7 +93,12 @@ from app.db.models.visit_analytics import DailyVisit
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
 from app.db.models.user import AvailabilityStatus, DeletionStatus, User, UserRole
 from app.db.models.visitor import DeviceType, Visitor, VisitorSession, VisitorSource
-from app.db.models.whatsapp import WhatsAppChat, WhatsAppConnection, WhatsAppInboundMessage
+from app.db.models.whatsapp import (
+    WhatsAppChat,
+    WhatsAppConnection,
+    WhatsAppContactExclusion,
+    WhatsAppInboundMessage,
+)
 
 __all__ = [
     "Base",
@@ -109,6 +114,7 @@ __all__ = [
     "WhatsAppConnection",
     "WhatsAppChat",
     "WhatsAppInboundMessage",
+    "WhatsAppContactExclusion",
     # Knowledge models
     "KnowledgeSource",
     "KnowledgeChunk",

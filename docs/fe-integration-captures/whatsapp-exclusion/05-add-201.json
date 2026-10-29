@@ -1,0 +1,24 @@
+{
+  "scenario": "add-201",
+  "note": "Typed with +, spaces: normalised to digits server-side. The full number is not echoed.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections/30c8a213-64dd-4790-94d1-f1500333b659/exclusions",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "phone_number": "+234 800 000 0100",
+      "label": "Mum"
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "id": "0ec7a56e-4635-4023-96cf-41c6c4dfdb04",
+      "phone_masked": "+234\u2022\u2022\u2022\u2022\u2022\u20220100",
+      "label": "Mum",
+      "created_at": "2026-10-29T22:50:52.630732Z"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "counts_before": {
+    "whatsapp_chats": 2,
+    "conversation_sessions": 2,
+    "messages": 4,
+    "visitors": 2,
+    "whatsapp_inbound_messages": 2,
+    "sent_to_sidecar": 2
+  },
+  "webhook_response_not_yet_excluded": {
+    "backend_status": 200,
+    "backend_body": {
+      "status": "accepted"
+    }
+  },
+  "added_while_queued": 201,
+  "counts_with_event_queued": {
+    "whatsapp_chats": 2,
+    "conversation_sessions": 2,
+    "messages": 4,
+    "visitors": 2,
+    "whatsapp_inbound_messages": 2,
+    "sent_to_sidecar": 2
+  },
+  "counts_after_worker_ran": {
+    "whatsapp_chats": 2,
+    "conversation_sessions": 2,
+    "messages": 4,
+    "visitors": 2,
+    "whatsapp_inbound_messages": 2,
+    "sent_to_sidecar": 2
+  },
+  "worker_outcome": "dropped_excluded",
+  "note": "Worker stopped; event queued (webhook said accepted: not yet excluded); contact added to the list; worker started. The worker's own check dropped it. Counts unchanged, nothing sent."
+}

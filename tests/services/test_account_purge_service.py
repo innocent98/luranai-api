@@ -70,7 +70,12 @@ from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
 from app.db.models.user import DeletionStatus, User, UserRole
 from app.db.models.visit_analytics import DailyVisit
-from app.db.models.whatsapp import WhatsAppChat, WhatsAppConnection, WhatsAppInboundMessage
+from app.db.models.whatsapp import (
+    WhatsAppChat,
+    WhatsAppConnection,
+    WhatsAppContactExclusion,
+    WhatsAppInboundMessage,
+)
 from app.db.models.visitor import Visitor, VisitorSession, VisitorSource
 from app.services.account_purge_service import AccountPurgeService
 from app.utils.datetime import utcnow_aware
@@ -962,6 +967,15 @@ def _seed_every_tenant_scoped_table(db_session, tenant: Tenant, agent: User) -> 
             visitor_id=visitor.id,
         ),
         "whatsapp_chats",
+    )
+    _add(
+        WhatsAppContactExclusion(
+            tenant_id=tenant.id,
+            connection_id=wa_connection.id,
+            phone_hmac=uuid4().hex + uuid4().hex,
+            phone_masked="+234••••••0100",
+        ),
+        "whatsapp_contact_exclusions",
     )
     db_session.add(
         WhatsAppInboundMessage(

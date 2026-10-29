@@ -7,10 +7,12 @@ from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.channels import identity
 from app.channels import signing as whatsapp_signing
 from app.core.config import settings
 from app.schemas.whatsapp import WebhookEvent
 from app.services import whatsapp_enqueue
+from app.services.whatsapp_exclusion import is_excluded
 from app.services.paystack_service import PaystackService
 from app.services.whatsapp_inbound import get_connection_by_session_key
 from app.services.webhook_handler_service import WebhookHandlerService
@@ -205,9 +207,25 @@ async def whatsapp_linked_webhook(
     except ValidationError:
         return JSONResponse(status_code=400, content={"error": "invalid_event"})
 
-    if get_connection_by_session_key(db, event.session_key) is None:
+    connection = get_connection_by_session_key(db, event.session_key)
+    if connection is None:
         # Unknown session (deleted connection, stale sidecar): acknowledge, do nothing.
         return {"status": "ignored"}
+
+    # A contact on the tenant's exclusion list never reaches the queue: Redis must not hold the
+    # message text of someone Luran is meant to ignore. (The job checks again: an entry added
+    # after this point still wins.)
+    try:
+        if event.type == "message.inbound" and is_excluded(
+            db, connection.id, ref=event.from_ref, phone_digits=event.from_phone_digits
+        ):
+            return {"status": "ignored"}
+        if event.type == "message.outbound_external" and is_excluded(
+            db, connection.id, ref=event.to_ref
+        ):
+            return {"status": "ignored"}
+    except identity.PepperMissing:
+        pass  # misconfigured pepper: the job fails the same way and retries; do not 5xx here
 
     try:
         await whatsapp_enqueue.enqueue_event(event.model_dump(mode="json"))
