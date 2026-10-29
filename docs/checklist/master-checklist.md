@@ -202,8 +202,12 @@ Plan: `docs/deployment/prod-release-plan-2026-10.md` (DRAFT 2026-10-28). Merging
 - [ ] KB: `POST /knowledge/upload` (text) stores rows but never writes vectors; short documents fail in the chunker ("No chunks could be created") with no tenant-facing message; one long multi-topic chunk scores under the 0.35 retrieval cutoff
 - [ ] WhatsApp: the fixed 'please type' fallback reply is sent but not stored in the transcript
 - [ ] WhatsApp: no alert to the Luran team while the AI is owner-paused; conversation list has no WhatsApp badge and shows the sender's WhatsApp name as 'Anonymous visitor'
-- [ ] Deploy the sidecar to staging — wiring built 2026-10-28 (see "Sidecar on staging"); waiting on merge, secrets and the live test. Staging API container sat at 90% of its 500 MiB limit on 2026-10-27; floor raised to 768 MiB as a stopgap
+- [x] Deploy the sidecar to staging: deployed and smoke-tested 2026-10-28 via a manual dispatch (PR #165 fixed the env-permission bug the first real run exposed); live test passed the same day (SOP `docs/sop/whatsapp_staging_live_test.md`).
 - [ ] Investigate why the api containers sit at 83-90% of their limits (prod api 994 MiB / 1.17 GiB on 2026-10-28)
 - [ ] Production sidecar story: GHCR promotion, dedicated Redis or `volatile-ttl`, prod DB role, limits review
 - [ ] Re-private `luranai-api` after CI/CD runs (made public 2026-10-27 so Actions could run)
+- [ ] WhatsApp: the rating request ("How was your chat with <agent>?") is sent as plain text on resolve, but a digit reply is not parsed, so the customer cannot answer it; implement 1-5 reply handling (plan T6) or suppress the request on WhatsApp until then
+- [ ] WhatsApp media: customer photos reach agents only as a placeholder; the "I can only read text" fallback is also sent while a human agent owns the conversation (plan T8, about 1-1.5 agent-days)
+- [ ] Agent app: the live takeover screen shows no earlier Luran-AI turns (by design: the WebSocket replay carries only customer and human-agent turns); give agents the AI context (Flutter release)
+- [ ] Re-confirm the staging API memory floor (768m) after `cd.yml` reaches `main`: automatic deploys use main's workflow file, so the floor only applied to the manual dispatch run
 
