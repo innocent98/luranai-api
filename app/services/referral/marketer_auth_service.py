@@ -31,6 +31,7 @@ from app.services.token_service import token_service
 
 MARKETER_TOKEN_TYPE = "marketer"
 RESET_LINK_MINUTES = 60
+RESET_COOLDOWN_SECONDS = 120
 
 
 class MarketerAuthError(Exception):
@@ -222,8 +223,11 @@ class MarketerAuthService:
 def send_password_reset(marketer_id: UUID, email: str, name: str) -> None:
     """Create a one-time reset token and email it. Runs after the response; never raises."""
     try:
-        # A newer link replaces every older one (invite or reset) for this marketer.
-        token_service.invalidate_marketer_tokens(marketer_id)
+        # Unauthenticated path: it only ADDS a short-lived token and must never retire existing
+        # links (that would let anyone who knows the email kill an admin-issued invite). It is
+        # throttled per marketer so it cannot be used to spam the inbox.
+        if not token_service.acquire_marketer_reset_cooldown(marketer_id, RESET_COOLDOWN_SECONDS):
+            return
         token = token_service.create_marketer_invite_token(
             marketer_id, email, expiry_minutes=RESET_LINK_MINUTES
         )

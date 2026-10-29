@@ -340,12 +340,31 @@ class TokenService:
     return #keys
     """
 
+    def acquire_marketer_reset_cooldown(self, marketer_id: UUID, seconds: int = 120) -> bool:
+        """
+        Claim the per-marketer reset-email cooldown (atomic SET NX EX).
+
+        Returns:
+            True if the caller may send a reset email now, False if one was issued within
+            the last ``seconds`` seconds.
+        """
+        try:
+            return bool(
+                self.redis_client.set(
+                    f"marketer_reset_cooldown:{marketer_id}", "1", nx=True, ex=seconds
+                )
+            )
+        except Exception as e:
+            logger.error(f"Failed to set marketer reset cooldown for {marketer_id}: {e}")
+            raise
+
     def invalidate_marketer_tokens(self, marketer_id: UUID) -> int:
         """
         Delete ALL of a marketer's outstanding invite / reset tokens.
 
-        Called after a password is set and before a new reset link is issued, so older links
-        cannot be redeemed.
+        Called only after a password is successfully set (an authenticated-by-token action).
+        Never call it from an unauthenticated path: anyone who knows the email could otherwise
+        kill an admin-issued invite.
 
         Returns:
             Number of tokens deleted (stale index entries included)

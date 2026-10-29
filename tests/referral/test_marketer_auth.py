@@ -702,30 +702,48 @@ def test_set_password_kills_every_other_outstanding_token(pg_client, db_session)
     assert svc.redis_client.exists(f"marketer_invite:{unrelated}") == 1
 
 
-def test_new_forgot_password_link_kills_older_invite_and_reset_links(
+def test_forgot_password_leaves_invite_and_earlier_reset_links_redeemable(
     pg_client, db_session, fake_email
 ):
+    """The unauthenticated path only adds a token; it must never retire admin-issued links."""
     marketer = make_marketer(db_session, password=None)
+    svc = token_service_module.token_service
     invite = _invite(marketer)
+    earlier_reset = svc.create_marketer_invite_token(marketer.id, marketer.email, expiry_minutes=60)
 
-    pg_client.post(f"{AUTH}/forgot-password", json={"email": marketer.email})
-    first_reset = fake_email.sent[0]["reset_token"]
-    pg_client.post(f"{AUTH}/forgot-password", json={"email": marketer.email})
-    second_reset = fake_email.sent[1]["reset_token"]
-    assert len({invite, first_reset, second_reset}) == 3
+    resp = pg_client.post(f"{AUTH}/forgot-password", json={"email": marketer.email})
+    assert resp.status_code == 200
+    new_reset = fake_email.sent[0]["reset_token"]
+    assert len({invite, earlier_reset, new_reset}) == 3
+    for token in (invite, earlier_reset, new_reset):
+        assert svc.redis_client.exists(f"marketer_invite:{token}") == 1
 
-    for stale in (invite, first_reset):
+    # The untouched invite still works; redeeming it then retires everything else.
+    ok = pg_client.post(f"{AUTH}/set-password", json={"token": invite, "new_password": PASSWORD})
+    assert ok.status_code == 200, ok.text
+    for stale in (earlier_reset, new_reset):
         resp = pg_client.post(
-            f"{AUTH}/set-password", json={"token": stale, "new_password": PASSWORD}
+            f"{AUTH}/set-password", json={"token": stale, "new_password": NEW_PASSWORD}
         )
         assert (resp.status_code, resp.json()) == (400, INVALID_TOKEN)
-    assert login(pg_client, marketer).status_code == 401  # nothing was set by the stale links
 
-    ok = pg_client.post(
-        f"{AUTH}/set-password", json={"token": second_reset, "new_password": PASSWORD}
-    )
-    assert ok.status_code == 200, ok.text
-    assert login(pg_client, marketer).status_code == 200
+
+def test_forgot_password_has_a_per_marketer_email_cooldown(pg_client, db_session, fake_email):
+    marketer = make_marketer(db_session)
+    other = make_marketer(db_session)
+    bodies = [
+        pg_client.post(f"{AUTH}/forgot-password", json={"email": marketer.email}) for _ in range(3)
+    ]
+    assert {r.status_code for r in bodies} == {200}
+    assert len({r.text for r in bodies}) == 1  # throttling is invisible to the caller
+    assert len(fake_email.sent) == 1  # one email inside the cooldown window
+
+    # Other marketers are unaffected, and the window does end.
+    pg_client.post(f"{AUTH}/forgot-password", json={"email": other.email})
+    assert len(fake_email.sent) == 2
+    token_service_module.token_service.redis_client.delete(f"marketer_reset_cooldown:{marketer.id}")
+    pg_client.post(f"{AUTH}/forgot-password", json={"email": marketer.email})
+    assert len(fake_email.sent) == 3
 
 
 def test_unknown_or_suspended_forgot_password_does_not_touch_existing_links(
