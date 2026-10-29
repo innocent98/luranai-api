@@ -248,6 +248,7 @@ def test_batch_detail_items_and_held_rewards_left_out(db_session, pg_client, aut
         "marketer_name",
         "marketer_code",
         "amount_kobo",
+        "current_amount_kobo",
         "status",
         "failure_reason",
         "provider_status",

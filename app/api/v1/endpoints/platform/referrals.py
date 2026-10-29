@@ -1,6 +1,6 @@
 """Platform admin endpoints for onboarding and managing referral-program marketers."""
 
-from typing import NoReturn
+from typing import Literal, NoReturn
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -8,7 +8,7 @@ from loguru import logger
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_platform_admin, get_current_super_admin, get_db
-from app.db.models.referral import Marketer, MarketerStatus, PayoutBatch
+from app.db.models.referral import Marketer, MarketerStatus, PayoutBatch, RewardStatus
 from app.schemas.platform_admin import PlatformAdminResponse
 from app.schemas.referral import (
     MarketerBankUpdateRequest,
@@ -18,9 +18,20 @@ from app.schemas.referral import (
     MarkPaidRequest,
     PayoutBatchDetail,
     PayoutBatchListResponse,
+    ReferralConfigResponse,
+    ReferralConfigUpdate,
+    RewardActionRequest,
+    RewardActionResponse,
+    RewardQueueResponse,
 )
 from app.services.enhanced_audit_service import EnhancedAuditService
-from app.services.referral import payout_queries, payouts
+from app.services.referral import payout_queries, payouts, review_queue, rewards
+from app.services.referral.config import (
+    CONFIG_KEYS,
+    get_config_sources,
+    get_referral_config,
+    update_referral_config,
+)
 from app.services.referral.marketer_service import (
     MarketerCodeTakenError,
     MarketerEmailInUseError,
@@ -443,3 +454,165 @@ def mark_batch_paid(
         {**_counts_metadata(detail), "items": len(entries)},
     )
     return detail
+
+
+# --- reward review queue ------------------------------------------------------------------------
+# Reads: any platform admin. Release / void decide who gets paid, so they need a SUPER_ADMIN. Both
+# write their own audit entry in the same transaction as the status change (see rewards.py).
+
+_REWARD_ERROR_MESSAGES = {
+    "reward_not_found": "Reward not found",
+    "reward_state_invalid": "The reward is not in a state that allows this action",
+    "reward_in_flight": (
+        "The reward is still tied to a payout batch; resolve that payout item first"
+    ),
+}
+
+QueueStatus = Literal["pending", "held", "payable", "batched", "paid", "void", "all"]
+
+
+def _raise_for_reward(exc: rewards.RewardError) -> NoReturn:
+    """Stable ``{code, message}`` bodies. Never echoes ``str(exc)`` (it carries ids)."""
+    if isinstance(exc, rewards.RewardNotFoundError):
+        http_status = status.HTTP_404_NOT_FOUND
+    else:
+        http_status = status.HTTP_409_CONFLICT
+    code = exc.code if exc.code in _REWARD_ERROR_MESSAGES else "reward_state_invalid"
+    raise HTTPException(
+        status_code=http_status,
+        detail={"code": code, "message": _REWARD_ERROR_MESSAGES[code]},
+    ) from exc
+
+
+@router.get(
+    "/rewards",
+    response_model=RewardQueueResponse,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def list_rewards(
+    status_filter: QueueStatus = Query("held", alias="status"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
+):
+    """The reward review queue, newest conversion first. ``status=held`` (default) is the queue
+    proper; ``all`` lists every status. Rewards flagged ``shared_domain`` carry the other tenants
+    that share the domain."""
+    reward_status = None if status_filter == "all" else RewardStatus(status_filter)
+    return review_queue.list_rewards(db, reward_status, limit, offset)
+
+
+def _decide(
+    action: str,
+    reward_id: UUID,
+    request: RewardActionRequest,
+    db: Session,
+    admin: PlatformAdminResponse,
+) -> RewardActionResponse:
+    decide = rewards.release if action == "release" else rewards.void
+    try:
+        reward = decide(db, reward_id, admin.id, request.note, admin_name=admin.email)
+    except rewards.RewardError as exc:
+        _raise_for_reward(exc)
+    return RewardActionResponse(id=reward.id, status=reward.status)
+
+
+@router.post(
+    "/rewards/{reward_id:uuid}/release",
+    response_model=RewardActionResponse,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def release_reward(
+    reward_id: UUID,
+    request: RewardActionRequest,
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
+):
+    """Clear a held reward: payable if its hold date has passed, else pending. A note is
+    required and is kept in the audit entry only."""
+    return _decide("release", reward_id, request, db, current_admin)
+
+
+@router.post(
+    "/rewards/{reward_id:uuid}/void",
+    response_model=RewardActionResponse,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def void_reward(
+    reward_id: UUID,
+    request: RewardActionRequest,
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
+):
+    """Void a held, pending or payable reward. A note is required (audit entry only)."""
+    return _decide("void", reward_id, request, db, current_admin)
+
+
+# --- referral config ----------------------------------------------------------------------------
+
+
+def _config_response(db: Session) -> ReferralConfigResponse:
+    config = get_referral_config(db)
+    return ReferralConfigResponse(
+        reward_kobo=config.reward_kobo,
+        hold_days=config.hold_days,
+        commission_window_days=config.commission_window_days,
+        source_by_key=get_config_sources(db),
+    )
+
+
+@router.get(
+    "/config",
+    response_model=ReferralConfigResponse,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def get_config(
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
+):
+    """The effective reward amount and windows, and whether each is an admin override or env."""
+    return _config_response(db)
+
+
+@router.patch(
+    "/config",
+    response_model=ReferralConfigResponse,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def update_config(
+    request: ReferralConfigUpdate,
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
+):
+    """Partially update the programme settings (bounds enforced; integers only).
+
+    The new values only affect rewards created AFTER this call: existing rewards keep the amount
+    and hold date they were created with. The change and its audit entry commit together; if the
+    audit cannot be written the change is rolled back.
+    """
+    values = {key: getattr(request, key) for key in CONFIG_KEYS if key in request.model_fields_set}
+    try:
+        update_referral_config(db, current_admin.id, values)
+        # log_action commits, so the flushed change and its record become durable together.
+        EnhancedAuditService(db).log_action(
+            action_type="update_referral_config",
+            performed_by_type="platform_admin",
+            performed_by_id=current_admin.id,
+            performed_by_name=current_admin.email,
+            target_type="referral_config",
+            target_id=None,
+            description="Updated referral program settings",
+            severity="high",
+            metadata={"changed": values},
+        )
+    except Exception as exc:
+        db.rollback()
+        logger.error(
+            f"Failed to update referral config (admin {current_admin.id}): {type(exc).__name__}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "config_update_failed", "message": "The settings were not changed"},
+        ) from exc
+    return _config_response(db)

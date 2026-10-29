@@ -1,6 +1,7 @@
 """Referral program schemas (platform-admin marketer and payout-batch management)."""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import (
@@ -13,7 +14,13 @@ from pydantic import (
     model_validator,
 )
 
-from app.db.models.referral import BatchStatus, Marketer, MarketerStatus, PayoutItemStatus
+from app.db.models.referral import (
+    BatchStatus,
+    Marketer,
+    MarketerStatus,
+    PayoutItemStatus,
+    RewardStatus,
+)
 from app.services.referral.codes import validate_marketer_code
 
 _ACCOUNT_NUMBER_PATTERN = r"^\d{10}$"
@@ -129,7 +136,15 @@ class PayoutItemResponse(BaseModel):
     marketer_id: UUID
     marketer_name: str
     marketer_code: str
-    amount_kobo: int
+    amount_kobo: int = Field(..., description="The amount claimed when the item was prepared")
+    current_amount_kobo: int = Field(
+        ...,
+        description=(
+            "What the marketer's rewards currently batched in this batch add up to: the amount "
+            "mark-paid accepts now. It is lower than amount_kobo when a claimed reward was "
+            "held since."
+        ),
+    )
     status: PayoutItemStatus
     failure_reason: str | None
     provider_status: str | None
@@ -184,4 +199,91 @@ class MarkPaidRequest(BaseModel):
             raise ValueError("each marketer may appear only once")
         if len(set(references)) != len(references):
             raise ValueError("each payment needs its own bank reference")
+        return self
+
+
+# --- reward review queue and config ---------------------------------------------------------------
+
+
+class SharedDomainMatchResponse(BaseModel):
+    """Another tenant sharing a registrable domain with the one under review."""
+
+    other_tenant_name: str
+    domain: str
+    sources: list[str]
+    own_sources: list[str]
+
+
+class RewardQueueItem(BaseModel):
+    """A reward as the admin sees it. Marketer contact and bank details are never included."""
+
+    id: UUID
+    marketer_id: UUID
+    marketer_name: str
+    marketer_code: str
+    tenant_company_name: str | None = Field(None, description="None once the tenant was purged")
+    amount_kobo: int
+    status: RewardStatus
+    review_reasons: list[str]
+    converted_at: datetime
+    payable_after: datetime
+    payout_batch_id: UUID | None
+    shared_domain_matches: list[SharedDomainMatchResponse] = Field(
+        ..., description="Only for rewards with the shared_domain reason; otherwise empty"
+    )
+
+
+class RewardQueueResponse(BaseModel):
+    items: list[RewardQueueItem]
+    total: int
+    limit: int
+    offset: int
+
+
+class RewardActionRequest(BaseModel):
+    """The note an admin must give to release or void a reward."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    note: str = Field(..., min_length=1, max_length=1000)
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def _strip(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+class RewardActionResponse(BaseModel):
+    id: UUID
+    status: RewardStatus
+
+
+ConfigKey = Literal["reward_kobo", "hold_days", "commission_window_days"]
+
+
+class ReferralConfigResponse(BaseModel):
+    reward_kobo: int
+    hold_days: int
+    commission_window_days: int
+    source_by_key: dict[ConfigKey, Literal["db", "env"]] = Field(
+        ..., description="Where each effective value comes from: an admin override or the env"
+    )
+
+
+class ReferralConfigUpdate(BaseModel):
+    """A partial update. Values only affect rewards created afterwards (R46 bounds)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reward_kobo: StrictInt | None = Field(None, ge=10_000, le=5_000_000)
+    hold_days: StrictInt | None = Field(None, ge=0, le=60)
+    commission_window_days: StrictInt | None = Field(None, ge=1, le=365)
+
+    @model_validator(mode="after")
+    def _at_least_one(self) -> "ReferralConfigUpdate":
+        given = self.model_fields_set
+        if not given:
+            raise ValueError("at least one value is required")
+        if any(getattr(self, name) is None for name in given):
+            raise ValueError("a value cannot be null")
         return self

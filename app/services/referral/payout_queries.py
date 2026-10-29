@@ -108,6 +108,22 @@ def get_batch_detail(db: Session, batch_id: UUID) -> PayoutBatchDetail | None:
             ).all()
         )
 
+    # What each marketer's rewards currently batched in THIS batch add up to (what mark-paid
+    # accepts), next to the stored claim: they differ once a claimed reward was held.
+    current: dict[UUID, int] = {}
+    if marketer_ids:
+        current = dict(
+            db.execute(
+                select(ReferralReward.marketer_id, func.sum(ReferralReward.amount_kobo))
+                .where(
+                    ReferralReward.marketer_id.in_(marketer_ids),
+                    ReferralReward.payout_batch_id == batch_id,
+                    ReferralReward.status == RewardStatus.BATCHED,
+                )
+                .group_by(ReferralReward.marketer_id)
+            ).all()
+        )
+
     items = [
         PayoutItemResponse(
             id=item.id,
@@ -115,6 +131,7 @@ def get_batch_detail(db: Session, batch_id: UUID) -> PayoutBatchDetail | None:
             marketer_name=marketer.name,
             marketer_code=marketer.code,
             amount_kobo=item.amount_kobo,
+            current_amount_kobo=int(current.get(marketer.id, 0)),
             status=item.status,
             failure_reason=item.failure_reason,
             provider_status=item.provider_status,
