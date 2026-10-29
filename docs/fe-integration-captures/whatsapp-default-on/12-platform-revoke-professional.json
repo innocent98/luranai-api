@@ -1,0 +1,48 @@
+{
+  "scenario": "platform-revoke-professional",
+  "note": "The dashboard's 'WhatsApp grant' control sending false.",
+  "request": {
+    "method": "PUT",
+    "path": "/api/v1/platform/tenants/2dd901d1-67fd-44d7-bdc2-4a6a2ee346c3/capabilities",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "can_use_whatsapp": false
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "can_create_tickets": true,
+      "can_access_analytics": true,
+      "can_upload_knowledge": true,
+      "max_knowledge_mb": 200,
+      "max_conversations_per_month": 10000,
+      "max_knowledge_sources": 50,
+      "can_use_url_sources": true,
+      "max_team_members": 10,
+      "max_automation_actions": 15,
+      "max_automation_executions_per_month": 5000,
+      "can_use_ai_chat_automation": true,
+      "can_use_lookup_chains": true,
+      "can_use_webhooks": true,
+      "max_flows": 10,
+      "max_webhooks_per_flow": 3,
+      "can_use_voice": false,
+      "max_voice_minutes_per_month": null,
+      "can_use_screen_recording": true,
+      "max_audit_pages_per_crawl": 500,
+      "max_audits_per_month": 15,
+      "can_use_sales_close": true,
+      "can_use_crm_notifications": true,
+      "can_export_ratings": true,
+      "can_use_whatsapp": false,
+      "max_whatsapp_numbers": 2,
+      "id": "0de4b8dc-1211-4063-9e1e-2d84a6cb46e3",
+      "tenant_id": "2dd901d1-67fd-44d7-bdc2-4a6a2ee346c3",
+      "created_at": "2026-10-29T14:22:22.470648Z",
+      "updated_at": "2026-10-29T14:22:26.240475Z"
+    }
+  }
+}

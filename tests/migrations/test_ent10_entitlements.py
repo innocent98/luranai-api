@@ -122,6 +122,11 @@ def test_plan_data_step_is_idempotent_and_reversible(db_session):
         db_session.expire_all()
         return db_session.query(SubscriptionPlan).filter_by(tier="lite").one()
 
+    # The seeded row carries today's WhatsApp line (wa30); put it back to what ent10 wrote.
+    db_session.execute(
+        sa.text("UPDATE subscription_plans SET features = CAST(:f AS JSON) WHERE tier = 'lite'"),
+        {"f": json.dumps(mod.NEW_FEATURES["lite"])},
+    )
     original = (lite().monthly_price_kobo, list(lite().features), lite().max_automation_actions)
     mod.apply_plan_data(conn, reverse=True)
     assert (lite().monthly_price_kobo, lite().annual_price_kobo) == (900_000, 9_000_000)

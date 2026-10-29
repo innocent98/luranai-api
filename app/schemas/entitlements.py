@@ -15,6 +15,12 @@ class FeatureLimit(FeatureFlag):
     used: int
 
 
+class WhatsAppFeature(FeatureLimit):
+    platform_available: bool = Field(
+        description="Global WhatsApp kill switch (WHATSAPP_ENABLED); false = hide the section"
+    )
+
+
 class EntitlementFeatures(BaseModel):
     sales_close: FeatureFlag
     crm_notifications: FeatureFlag
@@ -24,7 +30,7 @@ class EntitlementFeatures(BaseModel):
     webhooks: FeatureFlag
     analytics: FeatureFlag
     ai_actions: FeatureLimit
-    whatsapp: FeatureLimit
+    whatsapp: WhatsAppFeature
     voice: FeatureFlag
 
 

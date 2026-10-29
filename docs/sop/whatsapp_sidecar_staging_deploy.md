@@ -47,7 +47,7 @@ Roll back (details in plan section 5): `WHATSAPP_ENABLED=false` (kill switch) ->
 - Memory soak at 2+ sessions (`whatsapp-sidecar/scripts/soak.mjs` is a skeleton).
 - Redis/Qdrant have no auth and the sidecar shares their network (plan section 4): dedicated Redis on a private network + ACLs before any production use.
 - Check the `staging` GitHub environment protection rules (required reviewers / branch limits), the repo being public.
-- Production: promote via the GHCR image, a prod Redis story (dedicated instance or `volatile-ttl`), prod DB role, and a prod `MAX_SESSIONS`/limits review. Out of scope here.
+- Production: built 2026-10-29, see `docs/sop/whatsapp_sidecar_production_deploy.md` (GHCR image, prod DB role, limits). The dedicated-Redis / network-isolation item above is still open and is flagged there as a ruling.
 - Investigate why the api containers sit at 83-90% of their limits (the 768 MiB floor is a stopgap).
 - `pg_isready -U "${POSTGRES_USER:-postgres}"` in the existing CD ssh script uses an unset variable (works by luck).
 - CD does not stop the sidecar when its secrets are removed; add an explicit disable flag if that becomes a real workflow.

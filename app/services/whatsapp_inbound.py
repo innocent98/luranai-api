@@ -15,7 +15,7 @@ from uuid import UUID
 
 from fastapi import HTTPException
 from loguru import logger
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -32,7 +32,7 @@ from app.db.models.conversation import (
     SessionStatus,
 )
 from app.db.models.review import RatingRequest
-from app.db.models.tenant import Tenant, TenantCapabilities
+from app.db.models.tenant import Tenant
 from app.db.models.visitor import Visitor, VisitorSource
 from app.db.models.whatsapp import (
     WhatsAppChat,
@@ -43,13 +43,19 @@ from app.db.models.whatsapp import (
 from app.schemas.conversation import ConversationSessionCreate, MessageRequest
 from app.schemas.explore import ConversationSource
 from app.services import whatsapp_enqueue
+from app.services.entitlements import get_entitlements_for_tenant_id
+from app.services.conversation_counting import (
+    conversation_limit_reached,
+    is_stale_closed,
+    reopen_if_closed,
+)
 from app.services.review_service import RatingSubmitError, ReviewService
 from app.services.conversation_service import (
     ConversationService,
     message_channel,
     new_session_attribution,
 )
-from app.utils.datetime import ensure_utc_aware, utcnow_aware, utcnow_naive
+from app.utils.datetime import ensure_utc_aware, utcnow_aware
 from app.utils.http_rate_limiter import enforce_identifier_limit
 from app.utils.rate_limiter import RedisRateLimiter
 
@@ -80,7 +86,6 @@ _image_limiter = RedisRateLimiter(
     key_prefix="wa_inbound_images", max_calls=IMAGE_RATE_MAX, window_seconds=IMAGE_RATE_WINDOW_S
 )
 
-_USABLE_SESSION = (SessionStatus.ACTIVE, SessionStatus.ESCALATED, SessionStatus.ABANDONED)
 
 _DISCONNECT_REASONS = {
     401: "logged_out_from_phone",
@@ -216,13 +221,18 @@ def _forget_message_id(db: Session, conn: WhatsAppConnection, provider_message_i
 
 
 def _usable_session(db: Session, conn: WhatsAppConnection, chat: WhatsAppChat):  # type: ignore[no-untyped-def]
-    """The chat's current conversation unless it is resolved (then a new one starts)."""
+    """The chat's conversation if it can still be continued, else None (a new one starts).
+
+    Open sessions always continue; an abandoned or resolved one only while its last message is
+    inside the reuse window (same rule as the widget), so a quick "thanks" after a resolve reopens
+    the conversation instead of counting a second one.
+    """
     if not chat.session_id:
         return None
     session = db.get(ConversationSession, chat.session_id)
     if session is None or session.tenant_id != conn.tenant_id:
         return None
-    return session if session.status in _USABLE_SESSION else None
+    return None if is_stale_closed(session) else session
 
 
 def _ensure_session(
@@ -231,8 +241,7 @@ def _ensure_session(
     """Existing usable session, else a new WhatsApp-sourced one (store-only paths)."""
     session = _usable_session(db, conn, chat)
     if session is not None:
-        if session.status == SessionStatus.ABANDONED:
-            session.status = SessionStatus.ACTIVE
+        if reopen_if_closed(session):
             db.commit()
         return session
     created = ConversationService(db).create_session(
@@ -264,29 +273,19 @@ def _plan_blocks_conversation(db: Session, conn: WhatsAppConnection, *, new_sess
             return True
     if not new_session:
         return False
-    caps = db.execute(
-        select(TenantCapabilities).where(TenantCapabilities.tenant_id == conn.tenant_id)
-    ).scalar_one_or_none()
-    limit = caps.max_conversations_per_month if caps is not None else None
-    if limit is None:
-        return False
-    month_start = utcnow_naive().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    used = db.execute(
-        select(func.count())
-        .select_from(ConversationSession)
-        .where(
-            ConversationSession.tenant_id == conn.tenant_id,
-            ConversationSession.created_at >= month_start,
-        )
-    ).scalar_one()
-    return used >= limit
+    return conversation_limit_reached(db, conn.tenant_id)
 
 
 def _tenant_may_use(db: Session, tenant_id: UUID) -> bool:
-    caps = db.execute(
-        select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant_id)
-    ).scalar_one_or_none()
-    return settings.WHATSAPP_ENABLED and bool(caps and caps.can_use_whatsapp)
+    """Kill switch on and the plan (or a platform-admin override) allows WhatsApp.
+
+    Reads `value("can_use_whatsapp")`, not `enabled("whatsapp")`, like the create path: a lapsed
+    account keeps today's inbound behaviour and the 402 path handles it.
+    """
+    if not settings.WHATSAPP_ENABLED:
+        return False
+    entitlements = get_entitlements_for_tenant_id(db, tenant_id)
+    return bool(entitlements and entitlements.value("can_use_whatsapp"))
 
 
 async def _enqueue_reply(conn: WhatsAppConnection, chat: WhatsAppChat, text: str, key: str) -> None:
@@ -413,8 +412,8 @@ async def handle_inbound(db: Session, conn: WhatsAppConnection, event: dict) -> 
 def _human_owns(db: Session, conn: WhatsAppConnection, chat: WhatsAppChat) -> bool:
     """A support agent is assigned to the chat's conversation, or it is escalated to humans."""
     session = _usable_session(db, conn, chat)
-    if session is None:
-        return False
+    if session is None or session.status == SessionStatus.RESOLVED:
+        return False  # a resolved thread being reopened is the AI's again
     return session.status == SessionStatus.ESCALATED or session.agent_id is not None
 
 

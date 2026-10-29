@@ -17,7 +17,7 @@ Trial basics
 - Trial starts at signup.
 - Trial duration is currently 30 days.
 - Trial defaults include:
-  - 200 conversations/month
+  - 100 conversations/month
   - 2 knowledge sources
   - 10 MB knowledge storage
   - 1 team member
@@ -27,7 +27,7 @@ Trial basics
 Starter capability examples by tier
 
 Lite
-- 2,000 conversations/month
+- 1,000 conversations/month
 - 20 knowledge sources
 - 50 MB storage
 - 3 team members
@@ -38,7 +38,7 @@ Lite
 - not included: meeting booking and quotes, Slack and CRM notifications, screen recording, ratings breakdown and CSV export (these start at Professional)
 
 Professional
-- 10,000 conversations/month
+- 5,000 conversations/month
 - 50 knowledge sources
 - 200 MB storage
 - 10 team members
@@ -46,7 +46,7 @@ Professional
 - webhooks enabled (up to 3 per flow)
 
 Growth
-- 25,000 conversations/month
+- 10,000 conversations/month
 - 50 knowledge sources
 - 500 MB storage
 - 20 team members
@@ -57,8 +57,12 @@ Enterprise
 - conversation, storage, and flow limits are custom/unlimited by plan config
 - webhooks and team limits are custom
 
+What counts as a conversation?
+- A conversation is one continuous exchange between a customer and your AI or team, from their first message until they have been quiet for 6 hours. It is not counted per message: one conversation can hold any number of messages, images and replies. If the same customer comes back within 6 hours it is still the same conversation; after 6 hours it is a new one. A conversation handed to a human agent stays one conversation until it is resolved. Conversations are counted per calendar month (UTC) and the count resets on the 1st. WhatsApp follows the same rule per chat.
+
 How limits are enforced
 - Limits are checked at runtime. If your plan limit is reached, action is blocked.
+- When the monthly conversation limit is reached, new conversations are refused until the 1st of next month (UTC). Conversations already open or recently active continue, and nothing is deleted. Upgrading the plan raises the limit straight away.
 - Common enforced limits:
   - monthly conversation quota
   - knowledge source count

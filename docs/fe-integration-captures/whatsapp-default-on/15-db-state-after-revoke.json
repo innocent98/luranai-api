@@ -1,0 +1,13 @@
+{
+  "scenario": "db-state-after-revoke",
+  "note": "",
+  "tenant_capabilities": [
+    {
+      "name": "wdo_c_585210",
+      "stored_flag": false,
+      "override_flags": {
+        "can_use_whatsapp": true
+      }
+    }
+  ]
+}

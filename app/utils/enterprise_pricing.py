@@ -13,6 +13,11 @@ class EnterprisePricingCalculator:
         (300_001, float("inf"), 220),  # ₦2.20 per conversation (capped)
     ]
 
+    # Growth's plan limit is 10,000, so Enterprise (a custom quote) starts at 10,001. The published
+    # per-conversation schedule above only begins at 25,000; 10,001-24,999 is quoted by hand.
+    ENTERPRISE_STARTS_AT = 10_001
+    MIN_ENTERPRISE_CONVERSATIONS = 25_000
+
     @classmethod
     def calculate_monthly_cost(cls, conversations: int) -> dict:
         """
@@ -43,11 +48,15 @@ class EnterprisePricingCalculator:
                 'margin_percentage': float  # Profit margin at ₦0.56 AI cost
             }
         """
-        if conversations < 25_000:
+        if conversations < cls.MIN_ENTERPRISE_CONVERSATIONS:
             return {
                 "error": "minimum_volume_not_met",
-                "message": "Enterprise pricing starts at 25,000 conversations/month",
-                "recommended_tier": "growth",
+                "message": (
+                    "Enterprise starts at 10,001 conversations/month (custom quote); "
+                    "the published volume schedule starts at 25,000"
+                ),
+                # Growth covers up to its 10,000 limit; 10,001-24,999 is Enterprise, quoted custom.
+                "recommended_tier": "growth" if conversations <= 10_000 else "custom",
                 "growth_tier_cost_kobo": 8_000_000,
                 "growth_tier_cost_naira": 80_000,
             }
@@ -153,24 +162,40 @@ class EnterprisePricingCalculator:
         Returns:
             Comparison showing which option is better
         """
-        # Growth tier: ₦80,000 for 25,000 conversations
+        # Growth tier: ₦80,000 for 10,000 conversations (its plan limit, plan_catalog.py).
         growth_price_kobo = 8_000_000
-        growth_max_conversations = 25_000
+        growth_max_conversations = 10_000
+
+        growth_tier = {
+            "cost_kobo": growth_price_kobo,
+            "cost_naira": 80_000,
+            "conversations_included": growth_max_conversations,
+            "price_per_conv_naira": round(growth_price_kobo / growth_max_conversations / 100, 2),
+        }
 
         if conversations <= growth_max_conversations:
             return {
                 "recommended_tier": "growth",
                 "reason": f"Volume ({conversations:,}) within Growth tier limit",
                 "conversations": conversations,
-                "growth_tier": {
-                    "cost_kobo": growth_price_kobo,
-                    "cost_naira": 80_000,
-                    "conversations_included": growth_max_conversations,
-                    "price_per_conv_naira": round(
-                        growth_price_kobo / growth_max_conversations / 100, 2
-                    ),
-                },
-                "note": "Growth tier is recommended for volumes up to 25,000 conversations",
+                "growth_tier": growth_tier,
+                "note": f"Growth tier is recommended for volumes up to {growth_max_conversations:,} conversations",
+                "recommendation": "Growth tier covers this volume",
+            }
+
+        if conversations < cls.MIN_ENTERPRISE_CONVERSATIONS:
+            # Above Growth's cap (Enterprise starts at 10,001), below the published volume schedule.
+            return {
+                "recommended_tier": "custom",
+                "reason": (
+                    f"Volume ({conversations:,}) is above the Growth limit "
+                    f"({growth_max_conversations:,}): Enterprise (custom quote), below the "
+                    f"published volume schedule ({cls.MIN_ENTERPRISE_CONVERSATIONS:,})"
+                ),
+                "conversations": conversations,
+                "growth_tier": growth_tier,
+                "note": "Enterprise starts at 10,001 conversations; agree custom pricing with the customer",
+                "recommendation": "Quote custom pricing for this volume",
             }
 
         enterprise_pricing = cls.calculate_monthly_cost(conversations)

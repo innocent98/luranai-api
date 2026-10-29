@@ -4,13 +4,17 @@
 Branch `feature/plan-entitlements-backend` -> `develop` (PR linked from the hand-back; **not merged**, the lead merges). Prod untouched.
 
 1. **One plan definition**: `app/services/plan_catalog.py`. The seed, the migration and the tests all agree with it; the `features` marketing strings are generated from the capability values.
-2. **New gates, plan-driven**: `sales_close` (meeting booking + quotes), `crm_notifications` (Slack + CRM webhook), `screen_recording`, `ratings_export` (admin ratings breakdown + CSV), plus plan-driven AI actions, lookup chains, webhooks, analytics and WhatsApp numbers (the `can_use_whatsapp` grant and voice stay platform grants).
+2. **New gates, plan-driven**: `sales_close` (meeting booking + quotes), `crm_notifications` (Slack + CRM webhook), `screen_recording`, `ratings_export` (admin ratings breakdown + CSV), plus plan-driven AI actions, lookup chains, webhooks, analytics and WhatsApp numbers (voice stays a platform grant; **WhatsApp became plan-driven on 2026-10-29**, see `docs/sop/whatsapp_default_on.md`).
 3. **One resolver**: `get_entitlements(tenant)` in `app/services/entitlements.py`. Every enforcement point and the endpoint use it.
 4. **`GET /api/v1/tenant/entitlements`** per the 2026-10-28 contract, and the **403 `feature_not_in_plan`** gate error.
 5. **Alembic `ent10entitlements`**: columns on both tables, plan data, tenant backfill. Idempotent and reversible.
 6. **Lite price** 1,500,000 kobo/month (annual 15,000,000), Lite AI actions 5 -> 2.
 7. **New** `GET /api/v1/reviews/session/export` (CSV) so the `ratings_export` feature has something to gate (see Decisions).
 8. Downgrade conflicts for sales options, Slack/CRM and WhatsApp numbers.
+
+**Conversation limit meter** (what counts as a conversation, the 6-hour same-conversation window, the single shared check): `docs/sop/conversation_counting.md` (2026-10-29). Plan *numbers* are unchanged by it.
+
+**Conversation limit numbers changed 2026-10-29** (Trial 200 -> 100, Lite 2,000 -> 1,000, Professional 10,000 -> 5,000, Growth 25,000 -> 10,000; Enterprise unlimited): migration `cl10conversationlimits`, SOP `docs/sop/conversation_limit_numbers.md`. Any "2,000" / "10,000" / "25,000 conversations" in older captures or sections below is the pre-change value; the plans capture `docs/fe-integration-captures/entitlements/01-public-plans.json` was refreshed from the live app. The parity test `tests/entitlements/test_plan_parity.py` now freezes ent10 + wa30 + cl10 against the catalog.
 
 FE contract: `docs/fe-integration-guide-entitlements.md` (all payloads from `docs/fe-integration-captures/entitlements/`). Master checklist: "Plan entitlements".
 
@@ -48,7 +52,7 @@ A stored capability that differs from the plan **without** an override entry is 
 | `ratings_export` | `GET /reviews/session` (tenant admin looking beyond their own ratings), new `GET /reviews/session/export`, ratings fields of `/analytics/agents[/{id}]` | 403 gate error on the two review endpoints; analytics rating fields zeroed. Agent self-view (`/agent/me/ratings`, `/reviews/session` as agent) and rating collection untouched |
 | `ai_actions` | `AutomationService._check_action_limit`, `ChatAutomationOrchestrator` | existing limit error / skip |
 | `lookup_chains`, `analytics` | orchestrator, `check_analytics_permission` | existing behaviour, now read via the resolver |
-| `whatsapp` | `WhatsAppService` create: grant check + plan number limit (`None` = unlimited) | existing `whatsapp_not_enabled` / `connection_limit` |
+| `whatsapp` | `WhatsAppService` create: plan/override flag `can_use_whatsapp` + plan number limit (`None` = unlimited) + the `WHATSAPP_ENABLED` kill switch (**was a platform grant until 2026-10-29**) | existing `whatsapp_not_enabled` / `connection_limit` |
 | downgrade | `SubscriptionValidationService`: `sales_close`, `crm_notifications`, `whatsapp_numbers` violations | downgrade blocked with the standard `data_exceeds_limits` body |
 
 Runtime paths never raise to the end customer; only config saves and staff-only endpoints use the gate error, which is registered in `app/main.py` as a flat 403 body.
@@ -59,7 +63,7 @@ Runtime paths never raise to the end customer; only config saves and staff-only 
 * **Ratings export**: the codebase had no CSV endpoint and no dashboard use of `/reviews/session`. I added a small tenant-admin-only CSV endpoint (10,000-row cap, formula-neutralised comments) so the contract's `ratings_export` has an export to gate. The lead should confirm this is wanted; removing it leaves the breakdown gate intact.
 * **Analytics ratings fields are zeroed, not 403**: the analytics page is a separate gate and should keep working on Lite.
 * **`widget_allow_screen_recording` (the tenant's own switch)** is not rejected on save: it defaults to on for everyone, so rejecting it would break unrelated saves; the runtime gate and `can_use_screen_recording` carry the decision.
-* **`whatsapp.enabled` reports the grant**, not the plan (the plan only sets how many numbers). The contract sketch showed `enabled: true` for a Lite tenant; the FE guide explains why the backend returns `false` until the platform grant exists. Flag to the lead.
+* **`whatsapp.enabled` reported the grant** (decision of 2026-10-28). **Reversed 2026-10-29:** it now follows the plan/override like every other feature (true for all tiers unless an admin revoked it), and the entry gains `platform_available` (the `WHATSAPP_ENABLED` kill switch). See `docs/sop/whatsapp_default_on.md`.
 * **Seeded Trial includes the sales features, Slack/CRM, recording, ratings export** (contract); `min_tier` for them is `professional` (what the tenant keeps after the trial).
 * **`tenant_capabilities.max_knowledge_mb` made nullable** (found by the parity test): the Enterprise plan has unlimited storage (`NULL`) and syncing it onto a NOT NULL column would have failed on the first Enterprise upgrade. Application code already handled `NULL`.
 * **ORM gotcha**: an explicit `None` on a column with a Python default is replaced by the default on INSERT. `plan.max_whatsapp_numbers` therefore has no default, and `new_tenant_capabilities` writes `sqlalchemy.null()` for unlimited values.

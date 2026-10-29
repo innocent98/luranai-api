@@ -42,7 +42,7 @@ async def create_test_setup():
                 max_knowledge_sources=30,
                 can_use_url_sources=True,
                 max_knowledge_mb=500,
-                max_conversations_per_month=10000,
+                max_conversations_per_month=5000,
                 max_team_members=20,
                 max_response_tokens=2000,
                 can_upload_knowledge=True,

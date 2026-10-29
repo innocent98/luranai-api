@@ -1,0 +1,33 @@
+{
+  "scenario": "pricing-compare-15000",
+  "note": "Growth vs Enterprise sales helper after Growth's limit became 10,000.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/pricing/enterprise/compare",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "conversations": 15000
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "recommended_tier": "custom",
+      "conversations": 15000,
+      "growth_tier_with_overage": null,
+      "enterprise_tier": null,
+      "savings": null,
+      "recommendation": "Quote custom pricing for this volume",
+      "growth_tier": {
+        "cost_kobo": 8000000,
+        "cost_naira": 80000,
+        "conversations_included": 10000,
+        "price_per_conv_naira": 8.0
+      },
+      "reason": "Volume (15,000) is above the Growth limit (10,000): Enterprise (custom quote), below the published volume schedule (25,000)",
+      "note": "Enterprise starts at 10,001 conversations; agree custom pricing with the customer"
+    }
+  }
+}

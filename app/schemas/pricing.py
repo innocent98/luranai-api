@@ -31,6 +31,7 @@ class PricingPlanCapabilitiesUpdate(BaseModel):
     can_use_crm_notifications: bool | None = None
     can_use_screen_recording: bool | None = None
     can_export_ratings: bool | None = None
+    can_use_whatsapp: bool | None = None
     max_whatsapp_numbers: int | None = None
 
 
@@ -96,6 +97,7 @@ class PricingPlanCapabilitiesResponse(BaseModel):
     can_use_crm_notifications: bool
     can_use_screen_recording: bool
     can_export_ratings: bool
+    can_use_whatsapp: bool
     max_whatsapp_numbers: int | None
 
 

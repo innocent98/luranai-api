@@ -24,7 +24,7 @@ The matrix (what each tier includes; the endpoint is the source of truth, do not
 | `ai_actions` (max) | 2 | 2 | 15 | 40 | unlimited |
 | `lookup_chains`, `webhooks` | no | no | yes | yes | yes |
 | `analytics` | no | yes | yes | yes | yes |
-| `whatsapp` numbers (needs the platform grant too) | 1 | 1 | 2 | 5 | unlimited |
+| `whatsapp` numbers (plan-driven since 2026-10-29, no grant needed) | 1 | 1 | 2 | 5 | unlimited |
 | `voice` | platform grant only, never from a plan |||||
 
 Never gated (no lock, no check): human handoff, tickets, agent app, image upload, rating **collection**, lead capture/scoring/email notice, the web widget. Lite is 15,000 naira/month (`monthly_price_kobo` 1500000), annual 15000000 kobo.
@@ -379,7 +379,7 @@ _(from `28-entitlements-trial-expired.json`; status 200)_
 
 ### Traps (read these)
 
-1. **`whatsapp.enabled` is the platform grant, not the plan.** In every capture above `whatsapp.limit` is 1 or 2 but `enabled` is `false`: no grant is set on these tenants. `enabled=false` with `limit>0` means "not granted to your account; contact support", **not** "upgrade". The plan only decides how many numbers once granted. (The contract sketch showed `enabled: true` for a Lite tenant; the backend reports `true` only when the grant exists.)
+1. **SUPERSEDED 2026-10-29 (WhatsApp is now plan-driven; read `docs/fe-integration-guide-whatsapp-default-on.md`): `whatsapp.enabled` follows the plan/override and the entry gained `platform_available` (the global kill switch). The paragraph below describes the old grant model and the captures above predate it.** ~~**`whatsapp.enabled` is the platform grant, not the plan.** In every capture above `whatsapp.limit` is 1 or 2 but `enabled` is `false`: no grant is set on these tenants. `enabled=false` with `limit>0` means "not granted to your account; contact support", **not** "upgrade". The plan only decides how many numbers once granted. (The contract sketch showed `enabled: true` for a Lite tenant; the backend reports `true` only when the grant exists.)~~
 2. **Trial shows features as enabled with `min_tier: "professional"`.** The trial includes the sales features, Slack/CRM, recording and ratings export so a trial user can try them; `min_tier` says where they stay after the trial. Show "included in your trial; keep it with Professional", not a lock.
 3. **`analytics` is off on Trial** and the Analytics page answers 403 `"Analytics access not enabled for this tenant"` (a different, older error shape, see section 4). Use `analytics.enabled` to lock the sidebar item.
 4. **Overrides can exceed the tier.** Lite + override: `sales_close.enabled` is `true` while `min_tier` stays `professional`. Never derive `enabled` from `tier`.
@@ -607,7 +607,7 @@ So the visitor sees an empty picker / the same `BOOKING_DISABLED` a tenant with 
 | `GET /analytics/agents`, `GET /analytics/agents/{id}` | still 200 (analytics is a separate gate); the per-agent `ratings_count`, `average_rating`, `csat_percent` are `0`, `null`, `null` unless the plan has `ratings_export`, or an agent reads their own row |
 | `GET /widget/config` (admin) | `can_use_screen_recording` is the plan decision |
 | public widget config + `POST /chat/video/sign` / `register` + chat send with a video | recording is off: existing 403 `screen_recording_disabled` on the video endpoints, `allow_screen_recording: false` in the public config |
-| `POST /whatsapp/connections` | `connection_limit` (409) now uses the plan's number of lines; `whatsapp_not_enabled` (403) still means no platform grant |
+| `POST /whatsapp/connections` | `connection_limit` (409) now uses the plan's number of lines; `whatsapp_not_enabled` (403) now means an admin revoke or the global kill switch (was: no platform grant until 2026-10-29) |
 | AI action create | existing "Automation action limit reached" error, limit now plan-driven (Lite 2) |
 | `GET /analytics/*` | unchanged 403 string for tenants whose plan has no analytics |
 
@@ -728,7 +728,7 @@ Show each `action_required` string and block the downgrade until the tenant fixe
     "features": [
       "20 knowledge sources",
       "50MB storage",
-      "2,000 conversations/month",
+      "1,000 conversations/month",
       "3 team members",
       "3 flows",
       "2 automation actions",
@@ -757,7 +757,7 @@ Show each `action_required` string and block the downgrade until the tenant fixe
     "features": [
       "50 knowledge sources",
       "200MB storage",
-      "10,000 conversations/month",
+      "5,000 conversations/month",
       "10 team members",
       "10 flows",
       "15 automation actions",
@@ -787,6 +787,34 @@ Show each `action_required` string and block the downgrade until the tenant fixe
 ```
 _(from `01-public-plans.json`; status 200)_
 
+> **2026-10-29:** the plan captures above show the feature string `WhatsApp (beta, on request): N number(s)`; it is now `WhatsApp (beta): N number(s)` and each plan's `capabilities` also carries `can_use_whatsapp: true`.
+
+### Monthly conversation limits (2026-10-29)
+
+**What counts as a conversation?** A conversation is one continuous exchange between a customer and your AI or team, from their first message until they have been quiet for 6 hours. It is not counted per message: one conversation can hold any number of messages, images and replies. If the same customer comes back within 6 hours it is still the same conversation; after 6 hours it is a new one. A conversation handed to a human agent stays one conversation until it is resolved. Conversations are counted per calendar month (UTC) and the count resets on the 1st. WhatsApp follows the same rule per chat.
+
+Show this text next to every place the dashboard or pricing page shows a conversation limit or a usage count (a tooltip or a line under the meter is enough). It is copied verbatim into the knowledge base and docs; the 402 `conversation_limit_reached` body now also carries it in `definition` (additive field, same words). The "6 hours" is the setting `CONVERSATION_REUSE_WINDOW_HOURS`: if it changes, this text must change in every place.
+
+The monthly conversation limit of each plan went down. Everything below is copied from the live captures in `docs/fe-integration-captures/conversation-limits/` (local app, migrated to head, plans seeded; re-run `scripts/capture_conversation_limits.py` to re-derive).
+
+| Plan | `capabilities.max_conversations_per_month` | Feature string | Was |
+|---|---|---|---|
+| Trial | `100` | `"100 conversations/month"` | 200 |
+| Lite | `1000` | `"1,000 conversations/month"` | 2,000 |
+| Professional | `5000` | `"5,000 conversations/month"` | 10,000 |
+| Growth | `10000` | `"10,000 conversations/month"` | 25,000 |
+| Enterprise | not listed (unlimited, stored as `null`) | n/a | unchanged |
+
+_(from `01-public-plans.json`, status 200)_
+
+* **Never hardcode these numbers in the dashboard or the pricing page.** Read `capabilities.max_conversations_per_month` and the `features` strings from `GET /api/v1/subscription/plans`; they changed once and a platform admin can change them again. Search your code for `200`, `2000`, `10000`, `25000` next to "conversation".
+* A tenant's own limit is on its capabilities, not on the plan: a new Trial tenant reads `"max_conversations_per_month": 100` (`03-platform-tenant-trial-after-sync.json`), a Growth tenant synced from its plan reads `10000` (`02-platform-tenant-growth-after-sync.json`). A tenant a platform admin edited by hand can read any number (next bullet).
+* **Existing tenants move too.** The migration lowers every tenant still on its plan's old number and leaves hand-edited ones alone. A tenant already above its new limit this month is **not** cut off from what it has: existing conversations stay and can continue; only starting a NEW counted conversation is refused, with the unchanged `402` body below, until the 1st of next month (UTC).
+* **UX to surface:** show the limit and the used count where the tenant can see them, and when the used count is at or above the limit say plainly "new conversations are paused until the 1st of next month; open conversations are not affected; upgrade to raise the limit". Do not describe it as a failure on our side. The `402` body and the widget handling are in `docs/fe-integration-guide-conversation-counting.md` (shape unchanged; only the numbers inside it differ).
+* **Downgrade warning:** a downgrade whose usage this month is above the target plan's new limit still succeeds and returns the warning string `Your current monthly conversations (N) exceed the new tier's limit (L). Limit will reset at start of next month.` in `warnings` (verified by test against the new catalog numbers; not captured live because the Paystack leg of a downgrade is not exercised locally). Show it before the user confirms.
+* **Platform admin, hold one tenant at its old number:** `PUT /api/v1/platform/tenants/{id}/capabilities` with `{"max_conversations_per_month": 25000}` returns 200 with the full capabilities (`04-platform-hold-growth-tenant-at-25000.json`). The edit is recorded as `override_flags: {"max_conversations_per_month": true}`. It survives an upgrade or activation sync (`06-...-upgrade-or-activation-sync.json`: still 25000). It does **not** survive a downgrade, a promotional grant starting or ending, or a platform tier change that applies the tier capabilities: the stored value goes back to the plan's 10000 and the flag is cleared (`07-...-downgrade-or-promo-sync.json`). The dashboard should tell an admin this when they set the override.
+* **Platform pricing helper** `POST /api/v1/platform/pricing/enterprise/compare` (platform admin): Growth stops at 10,000, so **Enterprise (custom quote) starts at 10,001**; the published per-conversation volume schedule only begins at 25,000. Real responses (re-captured 2026-10-29): 10,000 returns `"recommended_tier": "growth"` (`08-pricing-compare-10000.json`); 15,000 returns `"recommended_tier": "custom"` with `"reason": "Volume (15,000) is above the Growth limit (10,000): Enterprise (custom quote), below the published volume schedule (25,000)"` (`09-pricing-compare-15000.json`); 30,000 returns `"recommended_tier": "enterprise"` (`10-pricing-compare-30000.json`). The `custom` value is new; render it as "Enterprise: needs a custom quote". The Enterprise plan description and its pricing feature line now read "10,001+" (`Custom pricing for 10,001+ conversations/month`) instead of "25K+"; read them from the plans endpoint, do not hardcode.
+
 `capabilities` in each plan now also carries `can_use_sales_close`, `can_use_crm_notifications`, `can_use_screen_recording`, `can_export_ratings`, `max_whatsapp_numbers` (`null` = unlimited) and the audit limits. The prices only change in the database when the migration + seed run on that environment: see the SOP for the order of operations and the Paystack step.
 
 ## 7. Behaviour the user will notice (surface these)
@@ -808,6 +836,11 @@ _(from `01-public-plans.json`; status 200)_
 | Analytics agent table ratings zeroed on Lite; agent self-view stays open | live (empty ratings; the non-empty and CSV-with-rows cases are tests only) |
 | Downgrade blocked with `sales_close` + `crm_notifications` violations | live |
 | Public plans: Lite price, generated feature strings | live |
+| Public plans: new conversation limits and strings (100 / 1,000 / 5,000 / 10,000) | live (`conversation-limits/01`) |
+| Admin override holds a tenant at 25,000 through an upgrade sync, is cleared by a downgrade/promo sync | live (DB state, `conversation-limits/05-07`) |
+| Pricing compare: growth / custom / enterprise recommendations | live (`conversation-limits/07-09`) |
+| Downgrade `warnings` string when usage is above the new limit | automated test only; **NOT LIVE** (Paystack leg not exercised) |
+| `402 conversation_limit_reached` at the new numbers | shape live in the conversation-counting guide; **not re-captured** at 100/1,000/5,000/10,000 |
 | CSV export with data, formula neutralising, tenant isolation of the export | automated tests only (Postgres), not live |
 | Chat: no `offer_meeting` / `quote` on a plan without `sales_close`, sales prompt told booking is off | automated tests with a stubbed LLM only; **NOT LIVE** (no real LLM was called) |
 | Slack/CRM not dispatched and queued jobs not sent after a downgrade | automated tests only; **NOT LIVE** (no real Slack/CRM endpoint) |

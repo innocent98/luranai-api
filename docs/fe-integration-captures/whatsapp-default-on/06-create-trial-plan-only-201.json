@@ -1,0 +1,28 @@
+{
+  "scenario": "create-trial-plan-only-201",
+  "note": "Trial tenant, never granted: allowed by plan.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "phone_number": "2348000000011",
+      "label": "Main line",
+      "consent": {
+        "version": "2026-10-28-draft2",
+        "accepted": true
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "id": "fd86b7b7-2bb7-466c-a5f8-bf922f946185",
+      "status": "awaiting_pair",
+      "pairing_code": "FAKE0721",
+      "expires_in_s": 180
+    }
+  }
+}

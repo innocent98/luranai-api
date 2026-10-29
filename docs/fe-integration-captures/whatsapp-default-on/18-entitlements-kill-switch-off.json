@@ -1,0 +1,66 @@
+{
+  "scenario": "entitlements-kill-switch-off",
+  "note": "Growth tenant on the API whose WHATSAPP_ENABLED is false: plan says yes, platform says no.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/tenant/entitlements",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "tier": "growth",
+      "subscription_status": "active",
+      "features": {
+        "sales_close": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "crm_notifications": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "screen_recording": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "ratings_export": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "lookup_chains": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "webhooks": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "analytics": {
+          "enabled": true,
+          "min_tier": "lite"
+        },
+        "ai_actions": {
+          "enabled": true,
+          "min_tier": "trial",
+          "limit": 40,
+          "used": 0
+        },
+        "whatsapp": {
+          "enabled": true,
+          "min_tier": "trial",
+          "limit": 5,
+          "used": 0,
+          "platform_available": false
+        },
+        "voice": {
+          "enabled": false,
+          "min_tier": null
+        }
+      }
+    }
+  }
+}

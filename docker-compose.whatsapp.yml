@@ -1,8 +1,9 @@
-# WhatsApp linked-device sidecar. Override file: layer it on top of the base stack. STAGING ONLY today:
-# cd.yml's staging-deploy job is the only thing that ships this file (production-deploy copies docker-compose.prod.yml alone).
+# WhatsApp linked-device sidecar. Override file: layer it on top of the base stack. This file is what STAGING runs as is:
 #   docker compose --env-file .env --env-file .env.sidecar -f docker-compose.prod.yml -f docker-compose.whatsapp.yml up -d --no-deps whatsapp-sidecar
+# PRODUCTION layers docker-compose.whatsapp.production.yml on top of it (container name and sizing only); cd.yml's
+# production-deploy sidecar steps are the only thing that ships that. Its defaults below (384m, 2 sessions, RSS 300) are staging's.
 # Does NOT publish a port: the backend reaches it as http://whatsapp-sidecar:8787 on the project's own compose network
-# (luran_staging_default), which production's network (luran_default) cannot see.
+# (luran_staging_default on staging, luran_default on production), which the other stack cannot see.
 # Sidecar-only secrets (master key, DB password) live in .env.sidecar so the api/worker env_file (.env) never carries them.
 # Runbook, capacity notes and the staging plan: docs/sop/whatsapp_sidecar.md, docs/superpowers/plans/2026-10-28-sidecar-staging-deploy.md
 services:

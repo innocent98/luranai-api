@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Literal, cast
 from uuid import UUID
 
@@ -363,58 +363,6 @@ async def verify_subscription_active(
         )
 
     return tenant
-
-
-async def verify_conversation_limit(
-    current_user: UserResponse = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> None:
-    """
-    Check if tenant has reached monthly conversation limit.
-
-    Raises:
-        HTTPException 402: Monthly limit reached
-    """
-    from app.db.models.conversation import ConversationSession
-    from app.services.tenant_service import TenantService
-
-    tenant_service = TenantService(db)
-    capabilities = tenant_service.get_capabilities(current_user.tenant_id)
-
-    if not capabilities:
-        return
-
-    # Skip if unlimited
-    if capabilities.max_conversations_per_month is None:
-        return
-
-    # Get start of current month
-
-    now = datetime.now(UTC)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-    # Count conversations this month
-    monthly_count = (
-        db.query(ConversationSession)
-        .filter(
-            ConversationSession.tenant_id == current_user.tenant_id,
-            ConversationSession.created_at >= month_start,
-        )
-        .count()
-    )
-
-    # Check limit
-    if monthly_count >= capabilities.max_conversations_per_month:
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "error": "conversation_limit_reached",
-                "message": f"Monthly conversation limit of {capabilities.max_conversations_per_month} reached.",
-                "current_count": monthly_count,
-                "limit": capabilities.max_conversations_per_month,
-                "resets_at": (month_start + timedelta(days=32)).replace(day=1).isoformat(),
-            },
-        )
 
 
 async def get_current_user_or_platform_admin(

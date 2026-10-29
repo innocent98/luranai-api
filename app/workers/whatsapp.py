@@ -14,7 +14,8 @@ from loguru import logger
 from app.channels.base import SidecarUnavailable
 from app.core.encryption import try_decrypt_field
 from app.db.session import SessionLocal
-from app.services import whatsapp_inbound
+from app.core.config import settings
+from app.services import whatsapp_capacity, whatsapp_inbound
 from app.services.whatsapp_outbound import RetrySend, send_image, send_text
 
 _CHAT_LOCK_TTL_S = 120
@@ -122,3 +123,22 @@ async def send_whatsapp_image(
         raise Retry(defer=exc.defer_s) from None
     finally:
         db.close()
+
+
+async def whatsapp_capacity_check(ctx: dict) -> dict:
+    """Cron (every 5 minutes): email the operator when live connections or the sidecar's memory
+    near their limits. Does nothing while WhatsApp is switched off. Never raises."""
+    if not settings.WHATSAPP_ENABLED or not (
+        settings.WHATSAPP_SIDECAR_URL and settings.WHATSAPP_SIDECAR_TOKEN
+    ):
+        return {"skipped": True, "alerts": []}
+    try:
+        db = SessionLocal()
+        try:
+            alerts = await whatsapp_capacity.check_and_alert(db, include_health=True)
+        finally:
+            db.close()
+    except Exception as exc:  # noqa: BLE001
+        logger.error("whatsapp capacity cron failed: {}", type(exc).__name__)
+        return {"skipped": False, "alerts": [], "error": type(exc).__name__}
+    return {"skipped": False, "alerts": alerts}

@@ -1,5 +1,7 @@
 # Production release plan: activation, plan entitlements, WhatsApp (code, dark)
 
+> **2026-10-29 addendum:** `can_use_whatsapp` is no longer a per-tenant grant defaulting to false: migration `wa30whatsappdefaulton` (after `ref10referral`) makes it a plan capability for every tier. Prod stays dark only because `WHATSAPP_ENABLED` is false there. Add `wa30whatsappdefaulton` to the migration chain and run the pre-deploy check in `docs/sop/whatsapp_default_on.md` before it.
+
 Status: **DRAFT for Adebayo's review, 2026-10-28. Nothing in this document has been run against production.**
 Scope: promote everything on `develop` / dashboard `staging` / chat `stage` that production does not have yet. Source of truth for "what is different" is the git diff, checked 2026-10-28:
 
@@ -76,7 +78,7 @@ No new required environment variables: every added setting has a default (`app/c
 4. **Chat:** merge `stage` -> `main` (independent, can be any time after step 2).
 5. Update memory, the checklists and the SOP index in the same pass.
 
-Enabling WhatsApp for real tenants is **not** part of this release. It needs its own PR and its own go: a production sidecar job mirroring the staging one (`docker-compose.whatsapp.yml`, `scripts/prepare_staging_whatsapp_env.sh` pattern with a prod guard instead of the `luran_staging` project check, sidecar DB role init, `scripts/smoke_whatsapp_sidecar.sh`), generated and backed-up secrets in `.env.production.enc` (losing `WHATSAPP_AUTH_MASTER_KEY` forces every number to re-pair), `WHATSAPP_ENABLED=true`, a memory budget on the shared 7.8 GiB host (staging: sidecar limit 384 MiB, about 111 MB RSS with one session, refuse limit 300 MB), the consent/ToS items, then a per-tenant grant by hand.
+The production sidecar wiring now exists as its own PR (`feature/sidecar-production-deploy`, SOP `docs/sop/whatsapp_sidecar_production_deploy.md`): it is skipped until the secrets are added, so promoting it with this release is safe. Enabling WhatsApp for real tenants is **not** part of this release. It needs its own PR and its own go: a production sidecar job mirroring the staging one (`docker-compose.whatsapp.yml`, `scripts/prepare_staging_whatsapp_env.sh` pattern with a prod guard instead of the `luran_staging` project check, sidecar DB role init, `scripts/smoke_whatsapp_sidecar.sh`), generated and backed-up secrets in `.env.production.enc` (losing `WHATSAPP_AUTH_MASTER_KEY` forces every number to re-pair), `WHATSAPP_ENABLED=true`, a memory budget on the shared 7.8 GiB host (staging: sidecar limit 384 MiB, about 111 MB RSS with one session, refuse limit 300 MB), the consent/ToS items, then a per-tenant grant by hand.
 
 ## 7. Post-deploy verification (production, read-only or already-safe actions)
 

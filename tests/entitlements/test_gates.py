@@ -678,7 +678,7 @@ def test_downgrade_checks_linked_whatsapp_numbers(db_session):
     from app.services.subscription_validation_service import SubscriptionValidationService
     from app.utils.datetime import utcnow_aware
 
-    tenant = make_tenant(db_session, "growth", whatsapp_grant=True)
+    tenant = make_tenant(db_session, "growth")
     for i in range(2):
         phone = f"23480000010{i}0"
         db_session.add(
@@ -703,3 +703,57 @@ def test_downgrade_checks_linked_whatsapp_numbers(db_session):
         .validate_tier_change(tenant.id, "professional")
         .violations
     }
+
+
+def _link_numbers(db_session, tenant, count: int) -> None:
+    from app.db.models.whatsapp import WhatsAppConnection
+    from app.utils.datetime import utcnow_aware
+
+    for i in range(count):
+        db_session.add(
+            WhatsAppConnection(
+                tenant_id=tenant.id,
+                status="connected",
+                phone_e164=f"23480000020{i}0",
+                phone_hmac=uuid4().hex,
+                session_key=f"sk_{uuid4().hex[:16]}",
+                consent_version="v",
+                consent_accepted_at=utcnow_aware(),
+            )
+        )
+    db_session.commit()
+
+
+def test_downgrade_to_a_plan_without_whatsapp_is_blocked_while_numbers_are_linked(db_session):
+    from app.db.models.subscription_plan import SubscriptionPlan
+    from app.services.subscription_validation_service import SubscriptionValidationService
+
+    tenant = make_tenant(db_session, "growth")
+    _link_numbers(db_session, tenant, 1)
+    db_session.query(SubscriptionPlan).filter_by(tier="lite").update({"can_use_whatsapp": False})
+    db_session.commit()
+    result = SubscriptionValidationService(db_session).validate_tier_change(tenant.id, "lite")
+    violation = {v.field: v for v in result.violations}["whatsapp_numbers"]
+    # Lite still lists one number, but without the flag nothing is allowed.
+    assert (violation.current_value, violation.allowed_value, violation.difference) == (1, 0, 1)
+    assert "Disconnect 1 WhatsApp number" in violation.action_required
+
+
+def test_downgrade_to_a_plan_without_whatsapp_is_clean_when_nothing_is_linked(db_session):
+    from app.db.models.subscription_plan import SubscriptionPlan
+    from app.services.subscription_validation_service import SubscriptionValidationService
+
+    tenant = make_tenant(db_session, "growth")
+    db_session.query(SubscriptionPlan).filter_by(tier="lite").update({"can_use_whatsapp": False})
+    db_session.commit()
+    result = SubscriptionValidationService(db_session).validate_tier_change(tenant.id, "lite")
+    assert "whatsapp_numbers" not in {v.field for v in result.violations}
+
+
+def test_downgrade_between_plans_that_include_whatsapp_keeps_the_number_check_only(db_session):
+    from app.services.subscription_validation_service import SubscriptionValidationService
+
+    tenant = make_tenant(db_session, "growth")
+    _link_numbers(db_session, tenant, 1)
+    result = SubscriptionValidationService(db_session).validate_tier_change(tenant.id, "lite")
+    assert "whatsapp_numbers" not in {v.field for v in result.violations}  # 1 number fits Lite

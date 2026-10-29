@@ -1,5 +1,6 @@
 """GET /api/v1/tenant/entitlements: contract body, any tenant user, own tenant only."""
 
+from app.core.config import settings
 from app.db.models.user import UserRole
 from app.services.promotional_grant_service import PromotionalGrantService
 from tests.entitlements.helpers import caps_of, make_tenant, make_user
@@ -11,8 +12,9 @@ def test_requires_authentication(pg_client):
     assert pg_client.get(URL).status_code in (401, 403)
 
 
-def test_lite_admin_gets_the_contract_body(pg_client, db_session):
-    tenant = make_tenant(db_session, "lite", whatsapp_grant=True)
+def test_lite_admin_gets_the_contract_body(pg_client, db_session, monkeypatch):
+    monkeypatch.setattr(settings, "WHATSAPP_ENABLED", False)
+    tenant = make_tenant(db_session, "lite")
     _, headers = make_user(db_session, tenant)
     r = pg_client.get(URL, headers=headers)
     assert r.status_code == 200, r.text
@@ -28,10 +30,45 @@ def test_lite_admin_gets_the_contract_body(pg_client, db_session):
             "webhooks": {"enabled": False, "min_tier": "professional"},
             "analytics": {"enabled": True, "min_tier": "lite"},
             "ai_actions": {"enabled": True, "limit": 2, "used": 0, "min_tier": "trial"},
-            "whatsapp": {"enabled": True, "limit": 1, "used": 0, "min_tier": "trial"},
+            "whatsapp": {
+                "enabled": True,
+                "limit": 1,
+                "used": 0,
+                "min_tier": "trial",
+                "platform_available": False,
+            },
             "voice": {"enabled": False, "min_tier": None},
         },
     }
+
+
+def test_whatsapp_entry_reports_the_kill_switch_without_changing_enabled(
+    pg_client, db_session, monkeypatch
+):
+    tenant = make_tenant(db_session, "professional")
+    _, headers = make_user(db_session, tenant)
+    for switch in (True, False):
+        monkeypatch.setattr(settings, "WHATSAPP_ENABLED", switch)
+        features = pg_client.get(URL, headers=headers).json()["features"]
+        assert features["whatsapp"] == {
+            "enabled": True,
+            "limit": 2,
+            "used": 0,
+            "min_tier": "trial",
+            "platform_available": switch,
+        }
+        assert all(
+            "platform_available" not in entry
+            for name, entry in features.items()
+            if name != "whatsapp"
+        )
+
+
+def test_whatsapp_entry_for_an_admin_override_off(pg_client, db_session):
+    tenant = make_tenant(db_session, "professional", whatsapp_override=False)
+    _, headers = make_user(db_session, tenant)
+    entry = pg_client.get(URL, headers=headers).json()["features"]["whatsapp"]
+    assert entry["enabled"] is False and entry["limit"] == 2 and entry["min_tier"] == "trial"
 
 
 def test_any_tenant_role_can_read_it(pg_client, db_session):

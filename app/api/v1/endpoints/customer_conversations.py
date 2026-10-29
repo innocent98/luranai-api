@@ -242,6 +242,7 @@ async def send_customer_message(
         existing_session = conversation_service.get_latest_session_for_customer(
             tenant_id=payload.tenant_id,
             customer_user_id=current_customer.id,
+            reuse_window=True,
         )
         if existing_session:
             target_session_id = existing_session.id

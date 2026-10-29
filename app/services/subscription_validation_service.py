@@ -1,6 +1,5 @@
 """Subscription validation service for tier changes."""
 
-from datetime import UTC
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -13,6 +12,7 @@ from app.db.models.knowledge import KnowledgeSource, SourceStatus
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.db.models.user import User
 from app.db.models.whatsapp import WhatsAppConnection
+from app.services.conversation_counting import count_conversations_this_month
 from app.services.knowledge_service import KnowledgeService
 from app.services.plan_service import PlanService
 
@@ -351,8 +351,10 @@ class SubscriptionValidationService:
     def _check_whatsapp_numbers(
         self, tenant_id: UUID, new_limits: dict
     ) -> ValidationViolation | None:
-        """Linked WhatsApp numbers must fit the target plan's allowance."""
+        """Linked WhatsApp numbers must fit the target plan's allowance (none without the flag)."""
         allowed = new_limits.get("max_whatsapp_numbers")
+        if not new_limits.get("can_use_whatsapp", True):
+            allowed = 0
         if allowed is None:
             return None
         current = int(
@@ -386,29 +388,13 @@ class SubscriptionValidationService:
         Returns:
             Warning message if current usage exceeds new limit, None otherwise
         """
-        from datetime import datetime
-
-        from app.db.models.conversation import ConversationSession
-
         max_conversations = new_limits.get("max_conversations_per_month")
 
         # If unlimited (None), no warning
         if max_conversations is None:
             return None
 
-        # Get start of current month
-        now = datetime.now(UTC)
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-        # Count conversations this month
-        monthly_count = (
-            self.db.query(ConversationSession)
-            .filter(
-                ConversationSession.tenant_id == tenant_id,
-                ConversationSession.created_at >= month_start,
-            )
-            .count()
-        )
+        monthly_count = count_conversations_this_month(self.db, tenant_id)
 
         if monthly_count > max_conversations:
             return (

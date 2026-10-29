@@ -30,6 +30,7 @@ from app.schemas.conversation import (
     StaffSessionResponse,
 )
 from app.schemas.visitor import VisitorIdentitySummary
+from app.services.conversation_counting import reusable_session_clause, reuse_cutoff
 from app.services.reply_to import ReplySnapshot
 from app.utils.attribution import coerce_source, normalize_source_meta
 from app.utils.datetime import utcnow_naive
@@ -206,9 +207,10 @@ class ConversationService:
                 ConversationSession.status == SessionStatus.ACTIVE,
             )
             .order_by(desc(ConversationSession.last_message_at))
+            .limit(1)
         )
 
-        session = self.db.execute(stmt).scalar_one_or_none()
+        session = self.db.execute(stmt).scalars().first()
 
         if not session:
             return None
@@ -220,6 +222,7 @@ class ConversationService:
         tenant_id: UUID,
         visitor_id: UUID,
         allowed_statuses: list[SessionStatus] | None = None,
+        reuse_window: bool = False,
     ) -> SessionResponse | None:
         """
         Get the most recent session for a visitor.
@@ -228,6 +231,8 @@ class ConversationService:
             tenant_id: Tenant UUID
             visitor_id: Visitor UUID
             allowed_statuses: Optional list of session statuses to consider
+            reuse_window: Only sessions the visitor may still continue: open ones, or closed
+                (abandoned/resolved) ones whose last message is inside the reuse window
 
         Returns:
             Most recent matching session if found, None otherwise
@@ -239,10 +244,12 @@ class ConversationService:
 
         if allowed_statuses:
             stmt = stmt.where(ConversationSession.status.in_(allowed_statuses))
+        if reuse_window:
+            stmt = stmt.where(reusable_session_clause(reuse_cutoff()))
 
-        stmt = stmt.order_by(desc(ConversationSession.last_message_at))
+        stmt = stmt.order_by(desc(ConversationSession.last_message_at)).limit(1)
 
-        session = self.db.execute(stmt).scalar_one_or_none()
+        session = self.db.execute(stmt).scalars().first()
         if not session:
             return None
 
@@ -253,6 +260,7 @@ class ConversationService:
         tenant_id: UUID,
         customer_user_id: UUID,
         allowed_statuses: list[SessionStatus] | None = None,
+        reuse_window: bool = False,
     ) -> SessionResponse | None:
         stmt = select(ConversationSession).where(
             ConversationSession.tenant_id == tenant_id,
@@ -260,8 +268,10 @@ class ConversationService:
         )
         if allowed_statuses:
             stmt = stmt.where(ConversationSession.status.in_(allowed_statuses))
-        stmt = stmt.order_by(desc(ConversationSession.last_message_at))
-        session = self.db.execute(stmt).scalar_one_or_none()
+        if reuse_window:
+            stmt = stmt.where(reusable_session_clause(reuse_cutoff()))
+        stmt = stmt.order_by(desc(ConversationSession.last_message_at)).limit(1)
+        session = self.db.execute(stmt).scalars().first()
         if not session:
             return None
         return self._to_session_response(session)

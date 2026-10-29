@@ -1,0 +1,27 @@
+# PRODUCTION override for the WhatsApp sidecar. Layer it AFTER the base sidecar file (docker-compose.whatsapp.yml, which is
+# what staging runs) and after the stack file. cd.yml's production-deploy sidecar steps are the only thing that ships it.
+#   docker compose -p luran --env-file .env --env-file .env.sidecar \
+#     -f docker-compose.prod.yml -f docker-compose.whatsapp.yml -f docker-compose.whatsapp.production.yml \
+#     up -d --no-deps whatsapp-sidecar
+# Everything not listed here (hardening, no published port, direct Postgres with the dedicated role, Redis logical DB 1,
+# log cap, oom_score_adj) is inherited unchanged from the base file. This file only carries what differs for production:
+# the container name and the sizing. Every value can still be overridden from the env (the same WHATSAPP_* names).
+#
+# Sizing basis (details and the measured/extrapolated split: docs/sop/whatsapp_sidecar_production_deploy.md):
+#   MEASURED on staging, 2 linked numbers, 21 h: process RSS 135-144 MiB (/health rss_mb divides by 1048576), container
+#   memory 79.8 -> 88.9 MiB, peak 97.3 MiB.
+#   RSS_REFUSE_MB 216  = peak RSS 144 MiB x 1.5.
+#   MAX_SESSIONS  3    = measured 2 x 1.5. Only 2 sessions have ever been exercised: the third is EXTRAPOLATED.
+#   MEM_LIMIT     384m = refuse threshold 216 MiB + 32 MiB /tmp tmpfs + ~48 MiB for the short-lived HEALTHCHECK node process
+#                        + ~50 MiB for the deploy smoke's node process = 346, rounded up to the next 64 MiB. The RSS guard only
+#                        gates NEW sessions and restores, so this keeps it tripping before the OOM killer would. Same limit
+#                        staging has run on for the whole measurement.
+services:
+  whatsapp-sidecar:
+    # Literal on purpose: this file only ever describes the production stack (project `luran`).
+    container_name: luran_whatsapp_sidecar
+    mem_limit: ${WHATSAPP_SIDECAR_MEM_LIMIT:-384m}
+    memswap_limit: ${WHATSAPP_SIDECAR_MEM_LIMIT:-384m}
+    environment:
+      MAX_SESSIONS: ${WHATSAPP_MAX_SESSIONS:-3}
+      RSS_REFUSE_MB: ${WHATSAPP_RSS_REFUSE_MB:-216}

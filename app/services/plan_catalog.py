@@ -25,7 +25,7 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         max_knowledge_sources=2,
         can_use_url_sources=False,
         max_knowledge_mb=10,
-        max_conversations_per_month=200,
+        max_conversations_per_month=100,
         max_team_members=1,
         max_response_tokens=450,
         max_automation_actions=2,
@@ -36,6 +36,7 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         can_use_crm_notifications=True,
         can_use_screen_recording=True,
         can_export_ratings=True,
+        can_use_whatsapp=True,
         max_whatsapp_numbers=1,
         max_flows=1,
         max_nodes_per_flow=0,
@@ -49,7 +50,7 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         max_knowledge_sources=20,
         can_use_url_sources=True,
         max_knowledge_mb=50,
-        max_conversations_per_month=2000,
+        max_conversations_per_month=1000,
         max_team_members=3,
         max_response_tokens=800,
         max_automation_actions=2,
@@ -60,6 +61,7 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         can_use_crm_notifications=False,
         can_use_screen_recording=False,
         can_export_ratings=False,
+        can_use_whatsapp=True,
         max_whatsapp_numbers=1,
         max_flows=3,
         max_nodes_per_flow=20,
@@ -73,7 +75,7 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         max_knowledge_sources=50,
         can_use_url_sources=True,
         max_knowledge_mb=200,
-        max_conversations_per_month=10000,
+        max_conversations_per_month=5000,
         max_team_members=10,
         max_response_tokens=1200,
         max_automation_actions=15,
@@ -84,6 +86,7 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         can_use_crm_notifications=True,
         can_use_screen_recording=True,
         can_export_ratings=True,
+        can_use_whatsapp=True,
         max_whatsapp_numbers=2,
         max_flows=10,
         max_nodes_per_flow=50,
@@ -97,7 +100,7 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         max_knowledge_sources=100,
         can_use_url_sources=True,
         max_knowledge_mb=500,
-        max_conversations_per_month=25000,
+        max_conversations_per_month=10000,
         max_team_members=20,
         max_response_tokens=1400,
         max_automation_actions=40,
@@ -108,6 +111,7 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         can_use_crm_notifications=True,
         can_use_screen_recording=True,
         can_export_ratings=True,
+        can_use_whatsapp=True,
         max_whatsapp_numbers=5,
         max_flows=25,
         max_nodes_per_flow=100,
@@ -132,6 +136,7 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         can_use_crm_notifications=True,
         can_use_screen_recording=True,
         can_export_ratings=True,
+        can_use_whatsapp=True,
         max_whatsapp_numbers=None,
         max_flows=None,
         max_nodes_per_flow=None,
@@ -150,7 +155,7 @@ _EXTRAS: dict[str, dict[str, Any]] = {
     "growth": {"support": ["Full support"]},
     "enterprise": {
         "support": [
-            "Volume-based pricing (25K-300K+)",
+            "Custom pricing for 10,001+ conversations/month",
             "Dedicated account manager",
             "Custom integrations",
             "SLA guarantees",
@@ -215,9 +220,9 @@ def build_feature_strings(tier: str, caps: dict[str, Any]) -> list[str]:
         features.append("Ratings breakdown and CSV export")
     whatsapp = caps["max_whatsapp_numbers"]
     features.append(
-        "WhatsApp (beta, on request): unlimited numbers"
+        "WhatsApp (beta): unlimited numbers"
         if whatsapp is None
-        else f"WhatsApp (beta, on request): {whatsapp} number{'' if whatsapp == 1 else 's'}"
+        else f"WhatsApp (beta): {whatsapp} number{'' if whatsapp == 1 else 's'}"
     )
     features.extend(_EXTRAS[tier]["support"])
     return features
@@ -254,7 +259,7 @@ _IDENTITY: dict[str, dict[str, Any]] = {
     },
     "enterprise": {
         "display_name": "Enterprise",
-        "description": "Volume-based pricing for high-scale operations (25K+ conversations)",
+        "description": "Custom pricing for high-scale operations (10,001+ conversations a month)",
         "monthly_price_kobo": 0,  # Contact for pricing
         "annual_price_kobo": 0,  # Contact for pricing
         "sort_order": 4,

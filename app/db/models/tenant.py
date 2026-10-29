@@ -408,7 +408,6 @@ TENANT_ONLY_CAPABILITY_FIELDS = frozenset(
         "can_upload_knowledge",
         "can_use_voice",
         "max_voice_minutes_per_month",
-        "can_use_whatsapp",
         "override_flags",
     }
 )
@@ -517,7 +516,7 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
         default=False,
         nullable=False,
         server_default="false",
-        comment="Can link WhatsApp numbers (grant-only, set by a platform admin)",
+        comment="Can link WhatsApp numbers (plan-driven; a platform-admin edit is kept as an override)",
     )
     max_whatsapp_numbers: Mapped[int | None] = mapped_column(
         Integer,
@@ -525,7 +524,7 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
         nullable=True,
         server_default="0",
         comment="WhatsApp numbers the tenant may link; plan-driven, null = unlimited "
-        "(only usable with the can_use_whatsapp grant)",
+        "(only usable while can_use_whatsapp is on)",
     )
     can_use_sales_close: Mapped[bool] = mapped_column(
         Boolean,
