@@ -25,6 +25,9 @@ _MIGRATION = os.path.join(
     "ent10_plan_entitlements.py",
 )
 _WA_MIGRATION = _MIGRATION.replace("ent10_plan_entitlements.py", "wa30_whatsapp_default_on.py")
+_CL_MIGRATION = _MIGRATION.replace(
+    "ent10_plan_entitlements.py", "cl10_conversation_limit_numbers.py"
+)
 
 
 def _load(path: str, name: str):
@@ -189,10 +192,12 @@ def test_latest_plan_migration_froze_the_same_numbers_as_the_catalog():
     """If this fails you changed plan values: add a new migration and repoint this test.
 
     ent10 froze the matrix numbers; wa30 later swapped the WhatsApp feature line and added the
-    flag, so ent10's strings are compared after that one swap.
+    flag, and cl10 swapped the conversations line, so ent10's strings are compared after those
+    two swaps.
     """
     mod = _load(_MIGRATION, "ent10")
     wa30 = _load(_WA_MIGRATION, "wa30")
+    cl10 = _load(_CL_MIGRATION, "cl10")
     rows = {r["tier"]: r for r in build_plan_rows()}
     for tier, (sales, crm, recording, ratings, whatsapp) in mod.GATES.items():
         row = rows[tier]
@@ -204,7 +209,14 @@ def test_latest_plan_migration_froze_the_same_numbers_as_the_catalog():
             row["max_whatsapp_numbers"],
         ) == (sales, crm, recording, ratings, whatsapp), tier
         old, new = wa30.WHATSAPP_FEATURE[tier]
-        assert [new if f == old else f for f in mod.NEW_FEATURES[tier]] == row["features"], tier
+        swaps = {old: new}
+        if tier in cl10.LIMITS:
+            old_limit, new_limit = cl10.LIMITS[tier]
+            swaps[cl10._feature(old_limit)] = cl10._feature(new_limit)
+            assert row["max_conversations_per_month"] == new_limit, tier
+        else:  # Enterprise: unlimited, not touched by cl10
+            assert row["max_conversations_per_month"] is None, tier
+        assert [swaps.get(f, f) for f in mod.NEW_FEATURES[tier]] == row["features"], tier
     assert (
         rows["lite"]["monthly_price_kobo"],
         rows["lite"]["annual_price_kobo"],

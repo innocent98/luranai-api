@@ -11,6 +11,8 @@ Snapshot (Sidecar on staging): deployed and healthy on staging since 2026-10-28 
 
 Snapshot (Referral program): backend Tasks 1-10 built and tested on branch `feature/referral-backend` (2026-10-29); PR to `develop` NOT yet opened, whole-branch CI parity still owed (the final Opus review ran and its findings are fixed, 2026-10-29); payouts default to the `manual` provider; dashboard stream, `luran_ref` cookie script, login-page fallback, privacy-policy text and a Paystack test-mode transfer run are NOT done. Counts for this module (2026-10-29): 26 ticked, 23 open (see its section). Prod untouched.
 
+Snapshot (Conversation limit numbers): built on `feature/conversation-limit-numbers` (2026-10-29), PR to `develop` open, NOT merged; migration `cl10conversationlimits`; two owner decisions open (Growth prod tenant, the 10,001-24,999 gap); prod untouched.
+
 Snapshot (Conversation counting): built on `feature/conversation-counting-window` (2026-10-29), PR to `develop` open, NOT merged; 6-hour same-conversation window + one shared limit check; no plan numbers changed, no migration; `luran-chat` must adopt a changed `session_id`. Prod untouched.
 
 Snapshot (WhatsApp default-on): backend built on `feature/whatsapp-default-on` (2026-10-29), PR to `develop` open, NOT merged; owner reversed the per-tenant grant (WhatsApp is now plan-driven for all tenants, `WHATSAPP_ENABLED` stays the prod kill switch, default false); capacity alert emails `PLATFORM_ALERT_EMAILS`. Dashboard work, production sidecar, `PLATFORM_ALERT_EMAILS` value and the pre-deploy override count are open. Prod untouched.
@@ -287,6 +289,20 @@ Docs: SOP `docs/sop/conversation_counting.md`; FE guide `docs/fe-integration-gui
 - [ ] `luran-chat`: adopt a changed `session_id` from any response (server tolerates the old id meanwhile)
 - [ ] Re-baseline the proposed plan limits (Lite 1,000 / Pro 5,000 / Growth 10,000 / trial 100) on post-fix counts, then change them in a separate PR
 - [ ] Dashboard usage-meter wording
+
+## Conversation limit numbers (Trial 100 / Lite 1,000 / Professional 5,000 / Growth 10,000) — BUILT 2026-10-29, PR open to `develop`, not merged; prod untouched
+Owner decision 2026-10-29 (step 2 after the counting meter). Docs: SOP `docs/sop/conversation_limit_numbers.md`; FE guide `docs/fe-integration-guide-entitlements.md` ("Monthly conversation limits"); captures `docs/fe-integration-captures/conversation-limits/`; prod usage query `docs/handoff/prod-conversation-usage-readonly.sql`. Branch `feature/conversation-limit-numbers`.
+- [x] Plan catalog numbers + generated feature strings (`app/services/plan_catalog.py`); Enterprise stays unlimited
+- [x] Alembic `cl10conversationlimits` (parent `wa30whatsappdefaulton`, single head): plan rows, one feature string each, tenants on the old plan number and without an override; idempotent; reversible; WARNING per over-limit tenant; proved on a scratch Postgres (upgrade / downgrade / upgrade, 43 tests)
+- [x] Parity test repointed (ent10 + wa30 + cl10); pricing helper (Growth cap 10,000, `custom` answer for 10,001-24,999)
+- [x] Email template, staging seed, dev script, plan docs, knowledge base, superseded banners
+- [x] Live captures + FE guide section (public plans, tenant numbers, admin override and what clears it, pricing compare)
+- [x] Read-only prod usage SQL for the owner
+- [ ] **Owner decision:** the one active Growth tenant on prod moves 25,000 -> 10,000 unless an override is set
+- [ ] **Owner decision:** what covers 10,001-24,999 conversations/month (Enterprise copy still says 25K+)
+- [ ] Owner runs the read-only SQL on prod before the promotion; act on every row with `over_new_limit_by > 0`
+- [ ] Dashboard follow-up (separate repo, not changed here): `app/components/luran/pricing/plans.ts` static fallback (200/2000/10000/25000), platform-admin calculator copy (25,000), `luran-docs` pricing page/API doc
+- [ ] In-app notice at 80% / 100% of the monthly limit (none today; the widget only gets the 402)
 
 ## Backlog / upcoming
 - [ ] Reconcile all earlier modules into this checklist

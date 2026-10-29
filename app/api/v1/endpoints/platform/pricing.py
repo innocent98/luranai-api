@@ -311,8 +311,9 @@ async def compare_growth_vs_enterprise(
     Useful for sales conversations and upgrade recommendations.
 
     **Logic:**
-    - ≤25,000 conversations: Growth tier recommended (fixed ₦80K)
-    - >25,000 conversations: Compares Growth + overage vs Enterprise volume pricing
+    - ≤10,000 conversations: Growth tier recommended (fixed ₦80K, its plan limit)
+    - 10,001-24,999 conversations: no standard plan fits; custom pricing is recommended
+    - ≥25,000 conversations: Compares Growth + overage vs Enterprise volume pricing
 
     **Example:**
     - 40,000 conversations:

@@ -1,0 +1,8 @@
+{
+  "scenario": "db-state-held-after-downgrade-or-promo-sync",
+  "note": "After the sync a downgrade, a promotional grant or its expiry runs (respect_overrides=False): back to the plan's 10,000 and the flag is cleared.",
+  "tenant_capabilities": {
+    "max_conversations_per_month": 10000,
+    "override_flags": {}
+  }
+}

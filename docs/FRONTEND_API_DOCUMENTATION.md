@@ -6095,14 +6095,14 @@ const plans = await response.json();
       "max_knowledge_sources": 2,
       "can_use_url_sources": false,
       "max_knowledge_mb": 10,
-      "max_conversations_per_month": 200,
+      "max_conversations_per_month": 100,
       "max_team_members": 1,
       "max_response_tokens": 800
     },
     "features": [
       "2 knowledge sources",
       "10MB storage",
-      "200 conversations/month",
+      "100 conversations/month",
       "1 team member",
       "Email support"
     ],
@@ -7208,7 +7208,7 @@ const response = await fetch(
   "detail": {
     "error": "minimum_volume_not_met",
     "message": "Enterprise pricing starts at 25,000 conversations/month",
-    "recommended_tier": "growth",
+    "recommended_tier": "growth",  // "custom" when the volume is above Growth's 10,000 limit
     "growth_tier_cost_naira": 80000
   }
 }
@@ -7307,11 +7307,11 @@ const response = await fetch(
   "growth_tier_with_overage": {
     "base_cost_kobo": 8000000,
     "base_cost_naira": 80000,
-    "overage_conversations": 15000,
-    "overage_cost_kobo": 6000000,
-    "overage_cost_naira": 60000.0,
-    "total_cost_kobo": 14000000,
-    "total_cost_naira": 140000.0
+    "overage_conversations": 30000,
+    "overage_cost_kobo": 12000000,
+    "overage_cost_naira": 120000.0,
+    "total_cost_kobo": 20000000,
+    "total_cost_naira": 200000.0
   },
   "enterprise_tier": {
     "total_cost_kobo": 12000000,
@@ -7319,25 +7319,38 @@ const response = await fetch(
     "average_price_per_conv_naira": 3.0
   },
   "savings": {
-    "amount_kobo": 2000000,
-    "amount_naira": 20000.0,
-    "percentage": 14.29
+    "amount_kobo": 8000000,
+    "amount_naira": 80000.0,
+    "percentage": 40.0
   },
   "recommendation": "Enterprise tier is more cost-effective for this volume"
 }
 
-// Response - When Growth is recommended (≤25,000 conversations)
+// Response - When Growth is recommended (≤10,000 conversations, Growth's plan limit)
 {
   "recommended_tier": "growth",
-  "conversations": 20000,
-  "reason": "Volume (20,000) within Growth tier limit",
+  "conversations": 8000,
+  "reason": "Volume (8,000) within Growth tier limit",
   "growth_tier": {
     "cost_kobo": 8000000,
     "cost_naira": 80000,
-    "conversations_included": 25000,
-    "price_per_conv_naira": 3.2
+    "conversations_included": 10000,
+    "price_per_conv_naira": 8.0
   },
-  "note": "Growth tier is recommended for volumes up to 25,000 conversations"
+  "note": "Growth tier is recommended for volumes up to 10,000 conversations",
+  "recommendation": "Growth tier covers this volume"
+}
+
+// Response - 10,001 to 24,999 conversations: above Growth's limit, below Enterprise's 25,000
+// minimum, so no standard plan fits (real response in
+// docs/fe-integration-captures/conversation-limits/08-pricing-compare-15000.json)
+{
+  "recommended_tier": "custom",
+  "conversations": 15000,
+  "reason": "Volume (15,000) is above the Growth limit (10,000) and below the Enterprise minimum (25,000)",
+  "growth_tier": { "cost_kobo": 8000000, "cost_naira": 80000, "conversations_included": 10000, "price_per_conv_naira": 8.0 },
+  "note": "No standard plan covers this volume; agree custom pricing with the customer",
+  "recommendation": "Quote custom pricing for this volume"
 }
 ```
 
