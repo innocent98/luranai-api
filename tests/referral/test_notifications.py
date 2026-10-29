@@ -9,10 +9,12 @@ nothing here touches a mail server.
 import re
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from loguru import logger
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.db.models.payment import PaymentTransaction
 from app.db.models.referral import (
@@ -22,15 +24,24 @@ from app.db.models.referral import (
     ReferralReward,
     RewardStatus,
 )
+from app.db.models.subscription import SubscriptionHistory
+from app.services import email_service as email_module
 from app.services.email_service import EmailService
+from app.services.referral import payouts as payouts_module
 from app.services.referral import rewards as rewards_module
 from app.services.referral.payouts import (
+    AmountMismatchError,
+    BankReferenceInUseError,
+    ItemNotMarkableError,
     apply_transfer_event,
     approve_batch,
     mark_paid,
     retry_batch,
 )
-from app.services.referral.notifications import send_queued_conversion_notices
+from app.services.referral.notifications import (
+    send_payout_notices,
+    send_queued_conversion_notices,
+)
 from app.services.referral.providers import (
     ManualPayoutProvider,
     TransferResult,
@@ -372,7 +383,7 @@ def test_mark_paid_sends_once(db_session, super_admin_user, sent):
     assert "BANK-REF-A" in _to(sent, a)[0].html
 
     # a second call for the same item is refused and sends nothing
-    with pytest.raises(Exception):  # noqa: B017 - the exact refusal type is not under test
+    with pytest.raises(ItemNotMarkableError):
         mark_paid(db_session, batch.id, [(a.id, "BANK-REF-A2", 500_000)], super_admin_user.id)
     mark_paid(db_session, batch.id, [(b.id, "BANK-REF-B", 500_000)], super_admin_user.id)
 
@@ -384,7 +395,7 @@ def test_a_refused_mark_paid_sends_nothing(db_session, super_admin_user, sent):
     batch, (a,), _ = _batch_of(db_session, 1)
     approve_batch(db_session, batch.id, super_admin_user.id, ManualPayoutProvider())
 
-    with pytest.raises(Exception):  # noqa: B017 - amount mismatch
+    with pytest.raises(AmountMismatchError):
         mark_paid(db_session, batch.id, [(a.id, "BANK-REF-A", 1)], super_admin_user.id)
 
     assert sent == []
@@ -454,3 +465,105 @@ def test_mark_paid_through_the_endpoint_sends_the_payout_email(
     assert paid.status_code == 200, paid.text
     (mail,) = _to(sent, payee)
     assert "BANK-REF-ENDPOINT" in mail.html
+
+
+def test_a_mark_paid_that_rolls_back_announces_nothing(
+    db_session, super_admin_user, sent, monkeypatch
+):
+    """A unique-violation on the bank reference rolls the whole call back; the queued notice goes."""
+    batch, (payee,), _ = _batch_of(db_session, 1)
+    approve_batch(db_session, batch.id, super_admin_user.id, ManualPayoutProvider())
+    real = payouts_module._mark_item_paid
+
+    def mark_then_collide(db, item, reference, now, provider_status):
+        real(db, item, reference, now, provider_status)  # queues the notice
+        raise IntegrityError("INSERT", {}, Exception("duplicate transfer_reference"))
+
+    monkeypatch.setattr(payouts_module, "_mark_item_paid", mark_then_collide)
+
+    with pytest.raises(BankReferenceInUseError):
+        mark_paid(db_session, batch.id, [(payee.id, "BANK-REF-DUP", 500_000)], super_admin_user.id)
+
+    assert sent == []
+    assert "referral_payout_notices" not in db_session.info  # dropped by the rollback hook
+    send_payout_notices(db_session)  # even a later drain has nothing to announce
+    assert sent == []
+    # (the item's state is not re-read: this fixture's shared outer transaction means the
+    # rollback also discards the test's own setup rows)
+
+
+def test_smtp_connections_carry_a_socket_timeout(monkeypatch):
+    seen = []
+
+    class FakeServer:
+        def __init__(self, *args, **kwargs):
+            seen.append(kwargs.get("timeout"))
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def starttls(self, **kwargs):
+            pass
+
+        def login(self, *args):
+            pass
+
+        def send_message(self, msg):
+            pass
+
+    monkeypatch.setattr(email_module.smtplib, "SMTP", FakeServer)
+    monkeypatch.setattr(email_module.smtplib, "SMTP_SSL", FakeServer)
+    monkeypatch.setattr(email_module.settings, "SMTP_HOST", "smtp.invalid")
+    monkeypatch.setattr(email_module.settings, "EMAILS_FROM_EMAIL", "noreply@example.com")
+    monkeypatch.setattr(email_module.settings, "EMAILS_FROM_NAME", "Luran")
+    for port in (587, 465):
+        monkeypatch.setattr(email_module.settings, "SMTP_PORT", port)
+        assert EmailService()._send_email("to@example.com", "s", "<p>x</p>") is True
+
+    assert seen == [email_module.SMTP_TIMEOUT_SECONDS] * 2
+    assert 0 < email_module.SMTP_TIMEOUT_SECONDS <= 30
+
+
+def test_a_flush_failure_inside_the_reward_savepoint_cannot_break_the_payment(
+    db_session, sent, monkeypatch
+):
+    """The savepoint is deactivated by a failed FLUSH (not just failed SQL); the handler must still
+    return success and its final commit must work, with the payment, upgrade and history kept."""
+    tenant, marketer, payment = _referred_payment(db_session)
+
+    def insert_a_row_the_database_refuses(db, tenant_id, reference, paid_at):
+        db.add(
+            ReferralReward(
+                tenant_id=tenant_id,
+                marketer_id=uuid4(),  # no such marketer: the foreign key fails at flush
+                amount_kobo=1,
+                status=RewardStatus.PENDING,
+                converted_at=datetime.now(UTC),
+                payable_after=datetime.now(UTC),
+            )
+        )
+        db.flush()
+
+    monkeypatch.setattr(
+        rewards_module, "create_reward_for_first_payment", insert_a_row_the_database_refuses
+    )
+
+    result = WebhookHandlerService(db_session).handle_event(
+        "charge.success", _charge(payment.reference)
+    )
+
+    assert result["status"] == "success"
+    db_session.commit()  # nothing is left pending a rollback
+    db_session.expire_all()
+    assert db_session.get(PaymentTransaction, payment.id).status == "success"
+    history = db_session.scalars(
+        select(SubscriptionHistory).where(
+            SubscriptionHistory.payment_reference == payment.reference
+        )
+    ).all()
+    assert len(history) == 1
+    assert _reward_of(db_session, tenant) is None
+    assert _to(sent, marketer) == []  # no reward, so no notice

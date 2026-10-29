@@ -206,22 +206,21 @@ class WebhookHandlerService:
             transaction.reference,
             transaction.paid_at,
         )
-        savepoint = self.db.begin_nested()
+        reward_id: UUID | None = None
         try:
-            reward = referral_rewards.create_reward_for_first_payment(
-                self.db, tenant_id, reference, paid_at
-            )
-            reward_id = reward.id if reward is not None else None
-            savepoint.commit()
-            return reward_id
+            with self.db.begin_nested():
+                reward = referral_rewards.create_reward_for_first_payment(
+                    self.db, tenant_id, reference, paid_at
+                )
+                if reward is not None:
+                    reward_id = reward.id  # read inside the block: attributes expire on release
         except Exception as exc:  # noqa: BLE001 - rewarding must never break the payment path
-            if savepoint.is_active:
-                savepoint.rollback()
             logger.error(
                 f"Referral reward creation failed for tenant {tenant_id}, payment {reference}: "
                 f"{type(exc).__name__}"
             )
             return None
+        return reward_id
 
     def _handle_transfer_event(self, event_type: str):
         """Referral payout transfers: delegate to the payout module.

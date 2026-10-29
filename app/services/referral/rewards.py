@@ -193,7 +193,7 @@ def _has_reward(db: Session, tenant_id: UUID) -> bool:
     )
 
 
-def reconcile_missing_rewards(db: Session, now: datetime, created: list[UUID] | None = None) -> int:
+def reconcile_missing_rewards(db: Session, now: datetime) -> int:
     """Create the reward for every attributed tenant that paid but has none; returns how many.
 
     Repairs rewards that the webhook's safety net swallowed (or that a crash between the payment

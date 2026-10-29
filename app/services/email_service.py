@@ -14,6 +14,10 @@ from loguru import logger
 
 from app.core.config import settings
 
+# Socket timeout for every SMTP connection: some sends run right after a commit inside a request
+# (payment webhook, payout approval), and a dead mail server must not hang that request.
+SMTP_TIMEOUT_SECONDS = 10
+
 
 class EmailService:
     """Service for sending transactional emails with HTML templates."""
@@ -85,13 +89,16 @@ class EmailService:
                     settings.SMTP_HOST or "",
                     settings.SMTP_PORT,
                     context=context,
+                    timeout=SMTP_TIMEOUT_SECONDS,
                 ) as server:
                     if settings.SMTP_USER and settings.SMTP_PASSWORD:
                         server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                     server.send_message(msg)
             else:
                 # Use STARTTLS (port 587)
-                with smtplib.SMTP(settings.SMTP_HOST or "", settings.SMTP_PORT) as server:
+                with smtplib.SMTP(
+                    settings.SMTP_HOST or "", settings.SMTP_PORT, timeout=SMTP_TIMEOUT_SECONDS
+                ) as server:
                     if settings.SMTP_TLS:
                         context = ssl.create_default_context()
                         server.starttls(context=context)
