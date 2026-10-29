@@ -1,0 +1,19 @@
+{
+  "scenario": "cross-tenant-delete-404",
+  "note": "",
+  "request": {
+    "method": "DELETE",
+    "path": "/api/v1/whatsapp/connections/30c8a213-64dd-4790-94d1-f1500333b659/exclusions/0ec7a56e-4635-4023-96cf-41c6c4dfdb04",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "code": "not_found",
+      "message": "WhatsApp connection not found"
+    }
+  }
+}

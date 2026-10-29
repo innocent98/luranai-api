@@ -1,0 +1,21 @@
+{
+  "scenario": "list-allowed-when-not-enabled",
+  "note": "List and remove are not plan-gated.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/whatsapp/connections/23610210-ad76-4446-b4e9-24a5057241ff/exclusions",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [],
+      "total": 0,
+      "limit": 100,
+      "offset": 0
+    }
+  }
+}

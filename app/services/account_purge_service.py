@@ -254,6 +254,7 @@ from app.db.models.visit_analytics import DailyVisit
 from app.db.models.whatsapp import (
     WhatsAppChat,
     WhatsAppConnection,
+    WhatsAppContactExclusion,
     WhatsAppInboundMessage,
 )
 from app.db.models.visitor import Visitor, VisitorSession
@@ -323,6 +324,9 @@ class AccountPurgeService:
             )
         )
         self.db.execute(delete(WhatsAppChat).where(WhatsAppChat.tenant_id == tenant_id))
+        self.db.execute(
+            delete(WhatsAppContactExclusion).where(WhatsAppContactExclusion.tenant_id == tenant_id)
+        )
         self.db.execute(delete(WhatsAppConnection).where(WhatsAppConnection.tenant_id == tenant_id))
 
         self.db.execute(delete(SessionRating).where(SessionRating.tenant_id == tenant_id))

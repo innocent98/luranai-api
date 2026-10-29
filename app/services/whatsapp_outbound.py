@@ -13,6 +13,7 @@ from uuid import UUID
 from loguru import logger
 from sqlalchemy.orm import Session
 
+from app.channels import identity
 from app.channels.base import (
     MediaRejected,
     NotConnected,
@@ -32,6 +33,7 @@ from app.db.models.conversation import (
 from app.db.models.review import RatingRequest
 from app.db.models.whatsapp import WhatsAppChat, WhatsAppConnection, WhatsAppStatus
 from app.utils.datetime import ensure_utc_aware, utcnow_aware
+from app.services.whatsapp_exclusion import is_excluded
 from app.services.whatsapp_inbound import _tenant_may_use
 
 MAX_SEND_TRIES = 5
@@ -59,6 +61,15 @@ def _preflight(
         return "dropped_missing"
     if not _tenant_may_use(db, conn.tenant_id):  # kill switch or revoked grant
         return "dropped_disabled"
+    try:
+        excluded = is_excluded(db, conn.id, ref=chat.contact_ref)
+    except identity.PepperMissing:
+        logger.error("WHATSAPP_CONTACT_PEPPER is not configured; send will be retried")
+        raise RetrySend(backoff_seconds(1)) from None
+    if excluded:
+        # Listed after this send was queued (or an agent typed into an old conversation): the
+        # contact is ignored entirely, so nothing, automatic or human, goes out to them.
+        return "dropped_excluded"
     if guard:
         # Automatic replies (AI / fixed fallback) were queued earlier: re-check the conditions
         # that may have changed meanwhile (the owner took over, or AI was switched off).

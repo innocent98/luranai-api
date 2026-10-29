@@ -1,0 +1,19 @@
+{
+  "scenario": "cross-tenant-list-404",
+  "note": "",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/whatsapp/connections/30c8a213-64dd-4790-94d1-f1500333b659/exclusions",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "code": "not_found",
+      "message": "WhatsApp connection not found"
+    }
+  }
+}

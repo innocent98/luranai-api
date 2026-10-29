@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_db
@@ -13,8 +13,14 @@ from app.schemas.whatsapp import (
     ConnectionOut,
     ConnectionPatch,
     ConsentOut,
+    ExclusionBulkCreate,
+    ExclusionBulkOut,
+    ExclusionCreate,
+    ExclusionOut,
+    ExclusionPage,
     PairingCodeOut,
 )
+from app.services.whatsapp_exclusion_service import WhatsAppExclusionService, exclusion_to_dict
 from app.services.whatsapp_service import (
     CONSENT_TEXT,
     CONSENT_VERSION,
@@ -113,4 +119,70 @@ async def delete_connection(
     current_user: UserResponse = Depends(get_current_tenant_admin),
 ):
     await WhatsAppService(db).delete(current_user.tenant_id, connection_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ----------------------------------------------------------------------- contact exclusions
+@router.post(
+    "/connections/{connection_id}/exclusions",
+    response_model=ExclusionOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_exclusion(
+    connection_id: UUID,
+    body: ExclusionCreate,
+    db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_tenant_admin),
+):
+    """Luran will ignore this contact on this number entirely (no reply, nothing stored)."""
+    entry = WhatsAppExclusionService(db).add(
+        current_user.tenant_id, connection_id, body.phone_number, body.label
+    )
+    return exclusion_to_dict(entry)
+
+
+@router.post("/connections/{connection_id}/exclusions/bulk", response_model=ExclusionBulkOut)
+def add_exclusions_bulk(
+    connection_id: UUID,
+    body: ExclusionBulkCreate,
+    db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_tenant_admin),
+):
+    result = WhatsAppExclusionService(db).add_bulk(
+        current_user.tenant_id,
+        connection_id,
+        [(e.phone_number, e.label) for e in body.entries],
+    )
+    return ExclusionBulkOut(
+        added=result.added, already_excluded=result.already_excluded, rejected=result.rejected
+    )
+
+
+@router.get("/connections/{connection_id}/exclusions", response_model=ExclusionPage)
+def list_exclusions(
+    connection_id: UUID,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_tenant_admin),
+):
+    rows, total = WhatsAppExclusionService(db).list(
+        current_user.tenant_id, connection_id, limit, offset
+    )
+    return ExclusionPage(
+        items=[exclusion_to_dict(r) for r in rows], total=total, limit=limit, offset=offset
+    )
+
+
+@router.delete(
+    "/connections/{connection_id}/exclusions/{exclusion_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_exclusion(
+    connection_id: UUID,
+    exclusion_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: UserResponse = Depends(get_current_tenant_admin),
+):
+    WhatsAppExclusionService(db).remove(current_user.tenant_id, connection_id, exclusion_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

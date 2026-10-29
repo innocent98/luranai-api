@@ -1,0 +1,21 @@
+{
+  "scenario": "add-invalid-phone-national-format",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections/30c8a213-64dd-4790-94d1-f1500333b659/exclusions",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "phone_number": "08000000100"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "invalid_phone",
+      "message": "Enter the number with its country code, e.g. +234 801 234 5678. Numbers starting with 0 and no country code cannot be matched."
+    }
+  }
+}
