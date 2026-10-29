@@ -3,13 +3,13 @@
   "note": "a: never granted, b: hand-granted by an admin, c: admin revoked, d: NULL override_flags. Tenant names carry the tag (wdo_<tag>_...).",
   "0_seeded_old_state": [
     {
-      "name": "wdo_a_8d4d30",
+      "name": "wdo_a_3122d2",
       "tier": "trial",
       "stored_flag": false,
       "override_flags": {}
     },
     {
-      "name": "wdo_b_8cb38e",
+      "name": "wdo_b_2e6a48",
       "tier": "lite",
       "stored_flag": true,
       "override_flags": {
@@ -18,7 +18,7 @@
       }
     },
     {
-      "name": "wdo_c_986814",
+      "name": "wdo_c_585210",
       "tier": "professional",
       "stored_flag": false,
       "override_flags": {
@@ -26,7 +26,7 @@
       }
     },
     {
-      "name": "wdo_d_c4b4fa",
+      "name": "wdo_d_c3bf7e",
       "tier": "growth",
       "stored_flag": false,
       "override_flags": null
@@ -37,13 +37,13 @@
   ],
   "1_after_downgrade": [
     {
-      "name": "wdo_a_8d4d30",
+      "name": "wdo_a_3122d2",
       "tier": "trial",
       "stored_flag": false,
       "override_flags": {}
     },
     {
-      "name": "wdo_b_8cb38e",
+      "name": "wdo_b_2e6a48",
       "tier": "lite",
       "stored_flag": true,
       "override_flags": {
@@ -52,7 +52,7 @@
       }
     },
     {
-      "name": "wdo_c_986814",
+      "name": "wdo_c_585210",
       "tier": "professional",
       "stored_flag": false,
       "override_flags": {
@@ -60,7 +60,7 @@
       }
     },
     {
-      "name": "wdo_d_c4b4fa",
+      "name": "wdo_d_c3bf7e",
       "tier": "growth",
       "stored_flag": false,
       "override_flags": null
@@ -71,13 +71,13 @@
   ],
   "2_after_upgrade": [
     {
-      "name": "wdo_a_8d4d30",
+      "name": "wdo_a_3122d2",
       "tier": "trial",
       "stored_flag": true,
       "override_flags": {}
     },
     {
-      "name": "wdo_b_8cb38e",
+      "name": "wdo_b_2e6a48",
       "tier": "lite",
       "stored_flag": true,
       "override_flags": {
@@ -86,7 +86,7 @@
       }
     },
     {
-      "name": "wdo_c_986814",
+      "name": "wdo_c_585210",
       "tier": "professional",
       "stored_flag": false,
       "override_flags": {
@@ -94,7 +94,7 @@
       }
     },
     {
-      "name": "wdo_d_c4b4fa",
+      "name": "wdo_d_c3bf7e",
       "tier": "growth",
       "stored_flag": true,
       "override_flags": null
@@ -103,13 +103,13 @@
   "3_alembic_upgrade_head_again": [],
   "3_after_second_upgrade": [
     {
-      "name": "wdo_a_8d4d30",
+      "name": "wdo_a_3122d2",
       "tier": "trial",
       "stored_flag": true,
       "override_flags": {}
     },
     {
-      "name": "wdo_b_8cb38e",
+      "name": "wdo_b_2e6a48",
       "tier": "lite",
       "stored_flag": true,
       "override_flags": {
@@ -118,7 +118,7 @@
       }
     },
     {
-      "name": "wdo_c_986814",
+      "name": "wdo_c_585210",
       "tier": "professional",
       "stored_flag": false,
       "override_flags": {
@@ -126,7 +126,7 @@
       }
     },
     {
-      "name": "wdo_d_c4b4fa",
+      "name": "wdo_d_c3bf7e",
       "tier": "growth",
       "stored_flag": true,
       "override_flags": null

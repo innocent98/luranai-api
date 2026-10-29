@@ -13,7 +13,7 @@
   },
   "redis_key_ttl_seconds": {
     "wa:capacity_alert:sidecar_memory": 21600,
-    "wa:capacity_alert:connections": 21597
+    "wa:capacity_alert:connections": 21596
   },
   "mails_in_local_sink": 2,
   "last_mail": {

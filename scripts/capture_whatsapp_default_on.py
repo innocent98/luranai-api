@@ -198,6 +198,7 @@ def main():
     record("entitlements-professional", "GET", API, "/api/v1/tenant/entitlements", token=tc)
     record("entitlements-growth", "GET", API, "/api/v1/tenant/entitlements", token=td)
 
+    mails_before = len(mails())
     # --- 2. plan-only tenant can create (no grant), plan limits apply ------------------------
     record("create-trial-plan-only-201", "POST", API, "/api/v1/whatsapp/connections", token=ta,
            body=create_body(PHONES["a"]), note="Trial tenant, never granted: allowed by plan.")
@@ -206,17 +207,18 @@ def main():
     record("entitlements-trial-after-create", "GET", API, "/api/v1/tenant/entitlements", token=ta)
 
     # --- 3. capacity: backend limit is 2 live connections; the 2nd create reaches 100% -------
-    before = len(mails())
     record("create-lite-201", "POST", API, "/api/v1/whatsapp/connections", token=tb,
            body=create_body(PHONES["c"]))
     for _ in range(40):  # the post-create check is fire-and-forget
-        if len(mails()) > before:
+        if len(mails()) > mails_before:
             break
         time.sleep(0.25)
-    save("operator-alert-mail-after-second-connection",
-         {"mails_received_by_local_sink_since_previous_step": len(mails()) - before,
+    save("operator-alert-mail-first-warning",
+         {"mails_received_by_local_sink_since_before_first_create": len(mails()) - mails_before,
           "last_mail": mail_summary(mails()[-1]) if mails() else None},
-         "Local SMTP sink; recipient comes from PLATFORM_ALERT_EMAILS (a placeholder address).")
+         "WHATSAPP_MAX_CONNECTIONS=2: the warning fires with the FIRST live connection (one slot short of "
+         "the limit), once; the second connection sends nothing (6-hour dedupe). Local SMTP sink; the "
+         "recipient comes from PLATFORM_ALERT_EMAILS (a placeholder address).")
     record("create-capacity-exceeded-503", "POST", API, "/api/v1/whatsapp/connections", token=tc,
            body=create_body(PHONES["d"]), note="WHATSAPP_MAX_CONNECTIONS=2 and both slots are live.")
 

@@ -69,7 +69,7 @@ Rules for the FE:
 ## 4. Capacity alert (operators, no FE work)
 When live connections are one short of the limit or at 80% of `WHATSAPP_MAX_CONNECTIONS` (whichever comes first), or the
 sidecar reports memory at 80% of its refuse threshold, the platform operators in `PLATFORM_ALERT_EMAILS` get one email
-per condition per 6 hours. Capture [10] is the email after the second connection (limit 2 in that run) and [21] is the
+per condition per 6 hours. Capture [10] is the email sent when the first connection went live in a run with limit 2 (one slot short of the limit; the second connection sent nothing because of the dedupe) and [21] is the
 cron run: first run emails `sidecar_memory`, the second run inside 6 hours sends nothing, and the Redis keys expire in
 21600 s. Tenants never see or receive this.
 

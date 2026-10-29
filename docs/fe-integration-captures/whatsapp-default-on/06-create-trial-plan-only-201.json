@@ -19,9 +19,9 @@
   "response": {
     "status": 201,
     "body": {
-      "id": "a600a82b-0e9c-47b8-a8a8-2f764c9a5330",
+      "id": "fd86b7b7-2bb7-466c-a5f8-bf922f946185",
       "status": "awaiting_pair",
-      "pairing_code": "FAKE6928",
+      "pairing_code": "FAKE0721",
       "expires_in_s": 180
     }
   }
