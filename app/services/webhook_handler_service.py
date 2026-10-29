@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.db.models.payment import PaymentTransaction
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant
+from app.services.referral import rewards as referral_rewards
 from app.services.subscription_service import SubscriptionService
 
 
@@ -43,6 +44,7 @@ class WebhookHandlerService:
             "subscription.not_renew": self._handle_subscription_not_renew,
             "invoice.create": self._handle_invoice_create,
             "invoice.payment_failed": self._handle_invoice_payment_failed,
+            "charge.dispute.create": self._handle_dispute_create,
         }
 
         handler = handlers.get(event_type)
@@ -164,6 +166,10 @@ class WebhookHandlerService:
             transaction.error_message = f"Subscription upgrade failed: {str(e)}"
             # Don't raise - we got the payment, will fix subscription manually
 
+        # Referral reward for the tenant's first payment. After the upgrade (which commits
+        # internally) and before the final commit, so the reward row commits with the history row.
+        self._create_referral_reward(transaction)
+
         self.db.commit()
 
         return {
@@ -171,6 +177,67 @@ class WebhookHandlerService:
             "message": "Payment processed and subscription upgraded",
             "transaction_id": str(transaction.id),
             "tenant_id": str(transaction.tenant_id),
+        }
+
+    def _create_referral_reward(self, transaction: PaymentTransaction) -> None:
+        """Create the referral reward for a just-settled payment, without ever affecting it.
+
+        Runs inside a SAVEPOINT and swallows every failure (including a failed SQL statement,
+        which would otherwise abort the Postgres transaction): the payment, the upgrade and the
+        history row are already in the session and must still commit. Logs ids only. A reward lost
+        here is recreated by the daily ``reconcile_missing_rewards`` job, because a replay of this
+        event returns early and would never retry it.
+        """
+        tenant_id, reference, paid_at = (
+            transaction.tenant_id,
+            transaction.reference,
+            transaction.paid_at,
+        )
+        try:
+            with self.db.begin_nested():
+                referral_rewards.create_reward_for_first_payment(
+                    self.db, tenant_id, reference, paid_at
+                )
+        except Exception as exc:  # noqa: BLE001 - rewarding must never break the payment path
+            logger.error(
+                f"Referral reward creation failed for tenant {tenant_id}, payment {reference}: "
+                f"{type(exc).__name__}"
+            )
+
+    def _handle_dispute_create(self, data: dict) -> dict:
+        """Hold the referral reward of the tenant whose payment was disputed.
+
+        Event: ``charge.dispute.create`` (named in Paystack's docs). Paystack's docs do not publish
+        the payload fields, so the transaction reference is read defensively from
+        ``data.transaction.reference``, then ``data.transaction_reference``, then
+        ``data.reference``. Anything unresolvable is skipped (a 500 would only make Paystack retry).
+        """
+        transaction_data = data.get("transaction")
+        reference = (
+            (transaction_data.get("reference") if isinstance(transaction_data, dict) else None)
+            or data.get("transaction_reference")
+            or data.get("reference")
+        )
+        if not reference:
+            logger.warning("charge.dispute.create without a transaction reference; ignored")
+            return {"status": "skipped", "message": "Missing transaction reference"}
+
+        transaction = (
+            self.db.query(PaymentTransaction)
+            .filter(PaymentTransaction.reference == reference)
+            .first()
+        )
+        if not transaction:
+            logger.warning(f"Dispute for unknown transaction: {reference}")
+            return {"status": "skipped", "message": "Transaction not found"}
+
+        reward = referral_rewards.hold_for_dispute(self.db, transaction.tenant_id)
+        self.db.commit()
+        return {
+            "status": "success",
+            "message": "Dispute recorded",
+            "tenant_id": str(transaction.tenant_id),
+            "reward_status": reward.status.value if reward else None,
         }
 
     def _handle_subscription_create(self, data: dict) -> dict:

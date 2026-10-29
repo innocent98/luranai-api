@@ -1280,6 +1280,7 @@ class WorkerSettings:
     from app.workers.account_deletion_purge import (  # type: ignore[misc]
         purge_due_deletion_requests,
     )
+    from app.workers.referral import referral_promote_pending  # type: ignore[misc]
 
     from app.workers.attachment_cleanup import (  # type: ignore[misc]
         cleanup_orphan_attachments,
@@ -1329,6 +1330,7 @@ class WorkerSettings:
         auto_abandon_inactive_conversations,
         auto_resolve_stale_tickets,
         purge_due_deletion_requests,
+        referral_promote_pending,
         cleanup_orphan_attachments,
         expire_attachments,
         sweep_unregistered_videos,
@@ -1385,6 +1387,13 @@ class WorkerSettings:
             hour=2,
             minute=0,
             run_at_startup=False,  # Don't run on startup
+        ),
+        # Referral rewards: promote pending past their hold, repair missing - daily at 3 AM UTC
+        cron(
+            referral_promote_pending,
+            hour=3,
+            minute=0,
+            run_at_startup=False,
         ),
         # Reap orphaned chat-image uploads (>24h, never sent) - daily at 3 AM UTC
         cron(
