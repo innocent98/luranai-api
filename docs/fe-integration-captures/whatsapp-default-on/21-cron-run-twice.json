@@ -1,0 +1,24 @@
+{
+  "scenario": "cron-run-twice",
+  "note": "Cron function called twice. The 'connections' condition was already alerted when the 2nd connection was created, so only sidecar_memory is new on the first run; the second run sends nothing.",
+  "first_run": {
+    "skipped": false,
+    "alerts": [
+      "sidecar_memory"
+    ]
+  },
+  "second_run_inside_6h": {
+    "skipped": false,
+    "alerts": []
+  },
+  "redis_key_ttl_seconds": {
+    "wa:capacity_alert:sidecar_memory": 21600,
+    "wa:capacity_alert:connections": 21597
+  },
+  "mails_in_local_sink": 2,
+  "last_mail": {
+    "to": "ops-placeholder@example.com",
+    "subject": "[Luran] WhatsApp capacity: sidecar memory near the limit",
+    "body_text": "WhatsApp capacity: sidecar memory near the limit Luran WhatsApp capacity: sidecar memory near the limit The WhatsApp channel is approaching a platform limit. New tenant connections will be refused once it is reached. Sidecar memory: 120 MB of the 400 MB refuse threshold (30%). Sidecar sessions: 2 of 3. Alert threshold: 25%. The sidecar refuses new sessions at 100%. What to do Check the sidecar host (memory and live sessions) before more tenants connect Raise WHATSAPP_MAX_CONNECTIONS or the sidecar capacity only once the host has room This alert is sent at most once every 6 hours per condition. Questions? Reply to this email or contact us at support@luranai.com &copy; 2026 Luran. All rights reserved."
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "scenario": "create-lite-201",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "phone_number": "2348000000013",
+      "label": "Main line",
+      "consent": {
+        "version": "2026-10-28-draft2",
+        "accepted": true
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "id": "69a71a9e-d4ab-4132-a834-a7ec51b0386f",
+      "status": "awaiting_pair",
+      "pairing_code": "FAKE9381",
+      "expires_in_s": 180
+    }
+  }
+}

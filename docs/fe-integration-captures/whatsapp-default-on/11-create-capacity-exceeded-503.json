@@ -1,0 +1,26 @@
+{
+  "scenario": "create-capacity-exceeded-503",
+  "note": "WHATSAPP_MAX_CONNECTIONS=2 and both slots are live.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "phone_number": "2348000000014",
+      "label": "Main line",
+      "consent": {
+        "version": "2026-10-28-draft2",
+        "accepted": true
+      }
+    }
+  },
+  "response": {
+    "status": 503,
+    "body": {
+      "code": "capacity_exceeded",
+      "message": "WhatsApp is temporarily at capacity. Please try again later."
+    }
+  }
+}

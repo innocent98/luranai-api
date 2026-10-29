@@ -1,0 +1,26 @@
+{
+  "scenario": "create-trial-over-plan-limit-409",
+  "note": "Trial allows 1 number.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "phone_number": "2348000000012",
+      "label": "Main line",
+      "consent": {
+        "version": "2026-10-28-draft2",
+        "accepted": true
+      }
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "code": "connection_limit",
+      "message": "Your plan allows 1 WhatsApp number(s)."
+    }
+  }
+}

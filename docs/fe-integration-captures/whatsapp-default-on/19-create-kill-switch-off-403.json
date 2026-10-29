@@ -1,0 +1,26 @@
+{
+  "scenario": "create-kill-switch-off-403",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "phone_number": "2348000000014",
+      "label": "Main line",
+      "consent": {
+        "version": "2026-10-28-draft2",
+        "accepted": true
+      }
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "code": "whatsapp_not_enabled",
+      "message": "WhatsApp is not enabled for this account."
+    }
+  }
+}

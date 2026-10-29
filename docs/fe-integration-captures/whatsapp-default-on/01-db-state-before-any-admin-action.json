@@ -1,0 +1,26 @@
+{
+  "scenario": "db-state-before-any-admin-action",
+  "note": "Four new tenants (trial, lite, professional, growth). No admin grant exists; override_flags is empty.",
+  "tenant_capabilities": [
+    {
+      "name": "wdo_a_8d4d30",
+      "stored_flag": true,
+      "override_flags": {}
+    },
+    {
+      "name": "wdo_b_8cb38e",
+      "stored_flag": true,
+      "override_flags": {}
+    },
+    {
+      "name": "wdo_c_986814",
+      "stored_flag": true,
+      "override_flags": {}
+    },
+    {
+      "name": "wdo_d_c4b4fa",
+      "stored_flag": true,
+      "override_flags": {}
+    }
+  ]
+}

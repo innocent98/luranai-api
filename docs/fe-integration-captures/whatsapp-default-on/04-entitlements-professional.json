@@ -1,0 +1,66 @@
+{
+  "scenario": "entitlements-professional",
+  "note": "",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/tenant/entitlements",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "tier": "professional",
+      "subscription_status": "active",
+      "features": {
+        "sales_close": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "crm_notifications": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "screen_recording": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "ratings_export": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "lookup_chains": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "webhooks": {
+          "enabled": true,
+          "min_tier": "professional"
+        },
+        "analytics": {
+          "enabled": true,
+          "min_tier": "lite"
+        },
+        "ai_actions": {
+          "enabled": true,
+          "min_tier": "trial",
+          "limit": 15,
+          "used": 0
+        },
+        "whatsapp": {
+          "enabled": true,
+          "min_tier": "trial",
+          "limit": 2,
+          "used": 0,
+          "platform_available": true
+        },
+        "voice": {
+          "enabled": false,
+          "min_tier": null
+        }
+      }
+    }
+  }
+}
