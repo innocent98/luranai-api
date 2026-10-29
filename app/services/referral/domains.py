@@ -108,41 +108,93 @@ def registrable_domain(value: str | None) -> str | None:
         return None
 
 
-def tenant_domains_by_tenant(db: Session, tenant_id: UUID | None = None) -> dict[UUID, set[str]]:
-    """Registrable domains per tenant, from the three places a tenant's website shows up.
+SOURCE_AUDIT = "audit"
+SOURCE_KNOWLEDGE_URL = "knowledge_url"
+SOURCE_WIDGET = "widget"
 
-    * ``audit_reports.domain`` of reports the tenant has *claimed* (``tenant_id`` set; an
-      unclaimed public audit belongs to nobody yet),
-    * ``knowledge_sources.source_url`` of url-category sources (uploaded files have no site),
-    * ``tenants.widget_last_seen_host`` (where the embedded widget was last seen).
+# Registrable domains that say nothing about who owns a website: ubiquitous third-party sites that
+# unrelated businesses audit, link to or list as their "website" (a social or link-in-bio page is
+# not proof of owning a site). Skipped when building matching evidence (``tenant_domain_sources``),
+# never by ``registrable_domain`` itself. Accepted cost: a duplicate account whose only web
+# presence is one of these pages is not caught by ``shared_domain``. Keep this short and
+# conservative; every entry is a blind spot.
+NON_OWNERSHIP_DOMAINS = frozenset(
+    {
+        "google.com",
+        "facebook.com",
+        "instagram.com",
+        "twitter.com",
+        "x.com",
+        "linkedin.com",
+        "youtube.com",
+        "tiktok.com",
+        "whatsapp.com",
+        "wa.me",
+        "t.me",
+        "wikipedia.org",
+        "linktr.ee",
+        "github.com",
+        "medium.com",
+        "pinterest.com",
+        "snapchat.com",
+        "bit.ly",
+    }
+)
 
-    With ``tenant_id`` only that tenant is returned (an entry only if it has a domain). Tenants
-    are hard-deleted on account deletion, so there is no soft-deleted/anonymised tenant to skip.
-    Unparseable or empty values are skipped.
+
+def tenant_domain_sources(
+    db: Session, tenant_id: UUID | None = None
+) -> dict[UUID, dict[str, set[str]]]:
+    """Per tenant, each registrable domain mapped to the evidence sources that produced it.
+
+    Sources (a domain can have several):
+
+    * ``"audit"``: ``audit_reports.domain`` of reports the tenant has *claimed* (``tenant_id``
+      set; an unclaimed public audit belongs to nobody yet),
+    * ``"knowledge_url"``: ``knowledge_sources.source_url`` of url-category sources (uploaded
+      files have no site),
+    * ``"widget"``: ``tenants.widget_last_seen_host`` (where the embedded widget was last seen).
+
+    With ``tenant_id`` only that tenant is returned (an entry only if it has a domain). Domains in
+    ``NON_OWNERSHIP_DOMAINS`` and unparseable or empty values are skipped. Tenants are
+    hard-deleted on account deletion, so there is no soft-deleted tenant to skip.
     """
-    report_q = select(AuditReport.tenant_id, AuditReport.domain).where(
-        AuditReport.tenant_id.is_not(None), AuditReport.domain.is_not(None)
+    queries = (
+        (
+            SOURCE_AUDIT,
+            select(AuditReport.tenant_id, AuditReport.domain)
+            .where(AuditReport.tenant_id.is_not(None), AuditReport.domain.is_not(None))
+            .distinct(),
+            AuditReport.tenant_id,
+        ),
+        (
+            SOURCE_KNOWLEDGE_URL,
+            select(KnowledgeSource.tenant_id, KnowledgeSource.source_url)
+            .where(
+                KnowledgeSource.source_category == "url", KnowledgeSource.source_url.is_not(None)
+            )
+            .distinct(),
+            KnowledgeSource.tenant_id,
+        ),
+        (
+            SOURCE_WIDGET,
+            select(Tenant.id, Tenant.widget_last_seen_host)
+            .where(Tenant.widget_last_seen_host.is_not(None))
+            .distinct(),
+            Tenant.id,
+        ),
     )
-    source_q = select(KnowledgeSource.tenant_id, KnowledgeSource.source_url).where(
-        KnowledgeSource.source_category == "url", KnowledgeSource.source_url.is_not(None)
-    )
-    widget_q = select(Tenant.id, Tenant.widget_last_seen_host).where(
-        Tenant.widget_last_seen_host.is_not(None)
-    )
-    if tenant_id is not None:
-        report_q = report_q.where(AuditReport.tenant_id == tenant_id)
-        source_q = source_q.where(KnowledgeSource.tenant_id == tenant_id)
-        widget_q = widget_q.where(Tenant.id == tenant_id)
-
-    found: dict[UUID, set[str]] = {}
-    for query in (report_q, source_q, widget_q):
+    found: dict[UUID, dict[str, set[str]]] = {}
+    for source, query, owner_column in queries:
+        if tenant_id is not None:
+            query = query.where(owner_column == tenant_id)
         for owner_id, raw in db.execute(query):
             domain = registrable_domain(raw)
-            if domain:
-                found.setdefault(owner_id, set()).add(domain)
+            if domain and domain not in NON_OWNERSHIP_DOMAINS:
+                found.setdefault(owner_id, {}).setdefault(domain, set()).add(source)
     return found
 
 
 def tenant_domains(db: Session, tenant_id: UUID) -> set[str]:
     """The tenant's set of registrable domains (empty if it has none)."""
-    return tenant_domains_by_tenant(db, tenant_id).get(tenant_id, set())
+    return set(tenant_domain_sources(db, tenant_id).get(tenant_id, {}))

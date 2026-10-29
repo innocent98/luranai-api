@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.db.models.payment import PaymentTransaction
 from app.db.models.referral import ReferralAttribution, SignupOrigin
 from app.db.models.tenant import Tenant
-from app.services.referral.domains import tenant_domains, tenant_domains_by_tenant
+from app.services.referral.domains import tenant_domain_sources
 
 SHARED_DOMAIN = "shared_domain"
 SHARED_CARD = "shared_card"
@@ -44,6 +44,11 @@ class SharedDomainMatch:
     other_tenant_id: UUID
     other_tenant_name: str  # the other tenant's display name
     domain: str  # the shared registrable domain
+    # Evidence sources ("audit", "knowledge_url", "widget"), sorted, through which the domain was
+    # found for the other tenant / for the tenant under review. Lets an admin discount weak
+    # evidence (e.g. only a widget host or a knowledge url).
+    sources: tuple[str, ...]
+    own_sources: tuple[str, ...]
 
 
 def shared_domain_tenants(db: Session, tenant_id: UUID) -> list[SharedDomainMatch]:
@@ -51,14 +56,15 @@ def shared_domain_tenants(db: Session, tenant_id: UUID) -> list[SharedDomainMatc
 
     One entry per (other tenant, domain), sorted by tenant name, then domain, then tenant id.
     """
-    mine = tenant_domains(db, tenant_id)
+    all_sources = tenant_domain_sources(db)
+    mine = all_sources.get(tenant_id, {})
     if not mine:
         return []
     pairs = {
         (other_id, domain)
-        for other_id, domains in tenant_domains_by_tenant(db).items()
+        for other_id, domains in all_sources.items()
         if other_id != tenant_id
-        for domain in domains & mine
+        for domain in domains.keys() & mine.keys()
     }
     if not pairs:
         return []
@@ -67,7 +73,16 @@ def shared_domain_tenants(db: Session, tenant_id: UUID) -> list[SharedDomainMatc
             select(Tenant.id, Tenant.display_name).where(Tenant.id.in_({p[0] for p in pairs}))
         ).all()
     )
-    matches = [SharedDomainMatch(oid, names.get(oid) or "", domain) for oid, domain in pairs]
+    matches = [
+        SharedDomainMatch(
+            oid,
+            names.get(oid) or "",
+            domain,
+            tuple(sorted(all_sources[oid][domain])),
+            tuple(sorted(mine[domain])),
+        )
+        for oid, domain in pairs
+    ]
     return sorted(matches, key=lambda m: (m.other_tenant_name, m.domain, str(m.other_tenant_id)))
 
 

@@ -195,11 +195,43 @@ def test_shared_domain_tenants_returns_names_sorted(db):
     _report(db, other, "elsewhere.example.net")
 
     assert shared_domain_tenants(db, me.id) == [
-        SharedDomainMatch(amy.id, "Amy Bakes", "example.com"),
-        SharedDomainMatch(amy.id, "Amy Bakes", "example.org"),
-        SharedDomainMatch(zed.id, "Zed Stores", "example.com"),
+        SharedDomainMatch(amy.id, "Amy Bakes", "example.com", ("knowledge_url",), ("audit",)),
+        SharedDomainMatch(amy.id, "Amy Bakes", "example.org", ("knowledge_url",), ("widget",)),
+        SharedDomainMatch(zed.id, "Zed Stores", "example.com", ("audit",), ("audit",)),
     ]
     assert evaluate_flags(db, me.id) == ["shared_domain"]
+
+
+def test_non_ownership_domains_never_cause_shared_domain(db):
+    # Two unrelated tenants that only reference the same social / link-in-bio pages.
+    a, b = _tenant(db), _tenant(db)
+    for tenant in (a, b):
+        _report(db, tenant, "instagram.com")
+        _url_source(db, tenant, "https://www.facebook.com/some-page")
+        _url_source(db, tenant, "https://linktr.ee/someone")
+    _widget_host(db, a, "github.com")
+    _widget_host(db, b, "github.com")
+    assert evaluate_flags(db, a.id) == []
+    assert shared_domain_tenants(db, a.id) == []
+
+    # ... while a real shared website still flags.
+    _widget_host(db, a, "shop.example.com.ng")
+    _report(db, b, "www.example.com.ng")
+    assert evaluate_flags(db, a.id) == ["shared_domain"]
+    assert [m.domain for m in shared_domain_tenants(db, a.id)] == ["example.com.ng"]
+
+
+def test_shared_domain_match_carries_sorted_evidence_sources(db):
+    me, other = _tenant(db), _tenant(db)
+    _widget_host(db, me, "www.example.com")
+    _report(db, me, "example.com")
+    _widget_host(db, other, "shop.example.com")
+    _url_source(db, other, "https://example.com/help")
+    _url_source(db, other, "https://example.com/help")  # duplicate raw url: still one source
+
+    (match,) = shared_domain_tenants(db, me.id)
+    assert match.sources == ("knowledge_url", "widget")
+    assert match.own_sources == ("audit", "widget")
 
 
 # --- shared_card ----------------------------------------------------------------------------
