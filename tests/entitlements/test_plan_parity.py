@@ -214,8 +214,10 @@ def test_latest_plan_migration_froze_the_same_numbers_as_the_catalog():
             old_limit, new_limit = cl10.LIMITS[tier]
             swaps[cl10._feature(old_limit)] = cl10._feature(new_limit)
             assert row["max_conversations_per_month"] == new_limit, tier
-        else:  # Enterprise: unlimited, not touched by cl10
+        else:  # Enterprise: unlimited; cl10 only moved its "25K+" copy to "10,001+"
             assert row["max_conversations_per_month"] is None, tier
+            swaps[cl10.ENT_FEATURE[0]] = cl10.ENT_FEATURE[1]
+            assert row["description"] == cl10.ENT_DESCRIPTION[1], tier
         assert [swaps.get(f, f) for f in mod.NEW_FEATURES[tier]] == row["features"], tier
     assert (
         rows["lite"]["monthly_price_kobo"],

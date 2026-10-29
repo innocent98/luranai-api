@@ -23,10 +23,11 @@ def test_up_to_the_growth_limit_growth_is_recommended(volume):
 
 
 @pytest.mark.parametrize("volume", [GROWTH_LIMIT + 1, 15_000, 24_999])
-def test_between_growth_and_the_enterprise_minimum_no_standard_plan_fits(volume):
+def test_between_growth_and_the_volume_schedule_enterprise_is_quoted_custom(volume):
     result = Calculator.compare_with_fixed_tiers(volume)
     assert result["recommended_tier"] == "custom"
     assert "10,000" in result["reason"] and "25,000" in result["reason"]
+    assert "Enterprise" in result["reason"] and "custom" in result["reason"]
     TierComparison(**result)
 
 
@@ -42,3 +43,8 @@ def test_the_calculator_does_not_call_growth_enough_between_the_limits():
     gap = Calculator.calculate_monthly_cost(15_000)
     assert below["error"] == "minimum_volume_not_met" and below["recommended_tier"] == "growth"
     assert gap["error"] == "minimum_volume_not_met" and gap["recommended_tier"] == "custom"
+
+
+def test_enterprise_starts_one_above_the_growth_limit():
+    assert Calculator.ENTERPRISE_STARTS_AT == GROWTH_LIMIT + 1
+    assert "10,001" in Calculator.calculate_monthly_cost(15_000)["message"]

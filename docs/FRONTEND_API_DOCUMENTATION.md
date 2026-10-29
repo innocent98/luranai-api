@@ -5293,7 +5293,7 @@ Registration → 30-Day Trial → Trial Expires → Payment Required → Active 
 | **Monthly Price** | ₦0 | ₦15,000 | ₦40,000 | ₦80,000 | Volume-based |
 | **Annual Price** | N/A | ₦150,000 (save ₦30k) | ₦400,000 (save ₦80k) | ₦800,000 (save ₦160k) | Custom |
 | | | | | | |
-| **Conversations/month** | 200 | 2,000 | 10,000 | 25,000 | Unlimited |
+| **Conversations/month** | 100 | 1,000 | 5,000 | 10,000 | Unlimited (Enterprise: custom quote from 10,001) |
 | **Knowledge sources** | 2 (files only) | 15 (files+URLs) | 50 (files+URLs) | 50 (files+URLs) | Unlimited |
 | **Storage** | 10 MB | 50 MB | 200 MB | 500 MB | Unlimited |
 | **URL scraping** | ❌ | ✅ | ✅ | ✅ | ✅ |
@@ -7207,7 +7207,7 @@ const response = await fetch(
 {
   "detail": {
     "error": "minimum_volume_not_met",
-    "message": "Enterprise pricing starts at 25,000 conversations/month",
+    "message": "Enterprise starts at 10,001 conversations/month (custom quote); the published volume schedule starts at 25,000",
     "recommended_tier": "growth",  // "custom" when the volume is above Growth's 10,000 limit
     "growth_tier_cost_naira": 80000
   }
@@ -7341,15 +7341,15 @@ const response = await fetch(
   "recommendation": "Growth tier covers this volume"
 }
 
-// Response - 10,001 to 24,999 conversations: above Growth's limit, below Enterprise's 25,000
-// minimum, so no standard plan fits (real response in
-// docs/fe-integration-captures/conversation-limits/08-pricing-compare-15000.json)
+// Response - 10,001 to 24,999 conversations: above Growth's limit, so Enterprise (custom quote);
+// the published volume schedule starts at 25,000 (real response in
+// docs/fe-integration-captures/conversation-limits/09-pricing-compare-15000.json)
 {
   "recommended_tier": "custom",
   "conversations": 15000,
-  "reason": "Volume (15,000) is above the Growth limit (10,000) and below the Enterprise minimum (25,000)",
+  "reason": "Volume (15,000) is above the Growth limit (10,000): Enterprise (custom quote), below the published volume schedule (25,000)",
   "growth_tier": { "cost_kobo": 8000000, "cost_naira": 80000, "conversations_included": 10000, "price_per_conv_naira": 8.0 },
-  "note": "No standard plan covers this volume; agree custom pricing with the customer",
+  "note": "Enterprise starts at 10,001 conversations; agree custom pricing with the customer",
   "recommendation": "Quote custom pricing for this volume"
 }
 ```

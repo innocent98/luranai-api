@@ -13,6 +13,9 @@ class EnterprisePricingCalculator:
         (300_001, float("inf"), 220),  # ₦2.20 per conversation (capped)
     ]
 
+    # Growth's plan limit is 10,000, so Enterprise (a custom quote) starts at 10,001. The published
+    # per-conversation schedule above only begins at 25,000; 10,001-24,999 is quoted by hand.
+    ENTERPRISE_STARTS_AT = 10_001
     MIN_ENTERPRISE_CONVERSATIONS = 25_000
 
     @classmethod
@@ -48,8 +51,11 @@ class EnterprisePricingCalculator:
         if conversations < cls.MIN_ENTERPRISE_CONVERSATIONS:
             return {
                 "error": "minimum_volume_not_met",
-                "message": "Enterprise pricing starts at 25,000 conversations/month",
-                # Growth covers up to its 10,000 limit; between that and 25,000 nothing standard fits.
+                "message": (
+                    "Enterprise starts at 10,001 conversations/month (custom quote); "
+                    "the published volume schedule starts at 25,000"
+                ),
+                # Growth covers up to its 10,000 limit; 10,001-24,999 is Enterprise, quoted custom.
                 "recommended_tier": "growth" if conversations <= 10_000 else "custom",
                 "growth_tier_cost_kobo": 8_000_000,
                 "growth_tier_cost_naira": 80_000,
@@ -178,17 +184,17 @@ class EnterprisePricingCalculator:
             }
 
         if conversations < cls.MIN_ENTERPRISE_CONVERSATIONS:
-            # Above Growth's cap, below where volume pricing starts: no standard plan fits.
+            # Above Growth's cap (Enterprise starts at 10,001), below the published volume schedule.
             return {
                 "recommended_tier": "custom",
                 "reason": (
                     f"Volume ({conversations:,}) is above the Growth limit "
-                    f"({growth_max_conversations:,}) and below the Enterprise minimum "
-                    f"({cls.MIN_ENTERPRISE_CONVERSATIONS:,})"
+                    f"({growth_max_conversations:,}): Enterprise (custom quote), below the "
+                    f"published volume schedule ({cls.MIN_ENTERPRISE_CONVERSATIONS:,})"
                 ),
                 "conversations": conversations,
                 "growth_tier": growth_tier,
-                "note": "No standard plan covers this volume; agree custom pricing with the customer",
+                "note": "Enterprise starts at 10,001 conversations; agree custom pricing with the customer",
                 "recommendation": "Quote custom pricing for this volume",
             }
 

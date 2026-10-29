@@ -275,6 +275,79 @@ def test_enterprise_plan_is_not_touched(db_session):
     assert list(plan.features) == before
 
 
+OLD_ENT_DESCRIPTION = "Volume-based pricing for high-scale operations (25K+ conversations)"
+NEW_ENT_DESCRIPTION = "Custom pricing for high-scale operations (10,001+ conversations a month)"
+OLD_ENT_FEATURE = "Volume-based pricing (25K-300K+)"
+NEW_ENT_FEATURE = "Custom pricing for 10,001+ conversations/month"
+
+
+def _make_old_enterprise_copy(db):
+    plan = _plan(db, "enterprise")
+    features = [OLD_ENT_FEATURE if f == NEW_ENT_FEATURE else f for f in plan.features]
+    db.query(SubscriptionPlan).filter_by(tier="enterprise").update(
+        {"description": OLD_ENT_DESCRIPTION}
+    )
+    _set_features(db, "enterprise", features)
+    db.commit()
+    db.expire_all()
+
+
+def test_the_catalog_enterprise_copy_is_the_new_copy():
+    row = next(r for r in build_plan_rows() if r["tier"] == "enterprise")
+    assert row["description"] == NEW_ENT_DESCRIPTION
+    assert NEW_ENT_FEATURE in row["features"] and OLD_ENT_FEATURE not in row["features"]
+
+
+def test_enterprise_copy_moves_to_10001_and_nothing_else_changes(db_session):
+    mod = _load()
+    _make_old_enterprise_copy(db_session)
+    before = list(_plan(db_session, "enterprise").features)
+    mod.rewrite_enterprise_copy(_conn(db_session))
+    plan = _plan(db_session, "enterprise")
+    assert plan.description == NEW_ENT_DESCRIPTION
+    assert list(plan.features) == [NEW_ENT_FEATURE if f == OLD_ENT_FEATURE else f for f in before]
+    assert plan.max_conversations_per_month is None
+
+
+def test_enterprise_copy_rewrite_is_idempotent_and_reverses(db_session):
+    mod = _load()
+    _make_old_enterprise_copy(db_session)
+    old = (
+        _plan(db_session, "enterprise").description,
+        list(_plan(db_session, "enterprise").features),
+    )
+    mod.rewrite_enterprise_copy(_conn(db_session))
+    once = (
+        _plan(db_session, "enterprise").description,
+        list(_plan(db_session, "enterprise").features),
+    )
+    mod.rewrite_enterprise_copy(_conn(db_session))
+    twice = (
+        _plan(db_session, "enterprise").description,
+        list(_plan(db_session, "enterprise").features),
+    )
+    assert once == twice != old
+    mod.rewrite_enterprise_copy(_conn(db_session), reverse=True)
+    back = (
+        _plan(db_session, "enterprise").description,
+        list(_plan(db_session, "enterprise").features),
+    )
+    assert back == old
+
+
+def test_hand_edited_enterprise_copy_is_left_alone(db_session):
+    mod = _load()
+    db_session.query(SubscriptionPlan).filter_by(tier="enterprise").update(
+        {"description": "Our own wording"}
+    )
+    _set_features(db_session, "enterprise", ["Something we wrote ourselves"])
+    db_session.commit()
+    mod.rewrite_enterprise_copy(_conn(db_session))
+    plan = _plan(db_session, "enterprise")
+    assert plan.description == "Our own wording"
+    assert list(plan.features) == ["Something we wrote ourselves"]
+
+
 def test_plan_rewrite_is_idempotent_and_silent_once_converged(db_session, capsys):
     mod = _load()
     _make_old_plan(db_session, "growth")

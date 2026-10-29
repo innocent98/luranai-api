@@ -155,7 +155,7 @@ _EXTRAS: dict[str, dict[str, Any]] = {
     "growth": {"support": ["Full support"]},
     "enterprise": {
         "support": [
-            "Volume-based pricing (25K-300K+)",
+            "Custom pricing for 10,001+ conversations/month",
             "Dedicated account manager",
             "Custom integrations",
             "SLA guarantees",
@@ -259,7 +259,7 @@ _IDENTITY: dict[str, dict[str, Any]] = {
     },
     "enterprise": {
         "display_name": "Enterprise",
-        "description": "Volume-based pricing for high-scale operations (25K+ conversations)",
+        "description": "Custom pricing for high-scale operations (10,001+ conversations a month)",
         "monthly_price_kobo": 0,  # Contact for pricing
         "annual_price_kobo": 0,  # Contact for pricing
         "sort_order": 4,

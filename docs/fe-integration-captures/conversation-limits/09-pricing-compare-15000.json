@@ -26,8 +26,8 @@
         "conversations_included": 10000,
         "price_per_conv_naira": 8.0
       },
-      "reason": "Volume (15,000) is above the Growth limit (10,000) and below the Enterprise minimum (25,000)",
-      "note": "No standard plan covers this volume; agree custom pricing with the customer"
+      "reason": "Volume (15,000) is above the Growth limit (10,000): Enterprise (custom quote), below the published volume schedule (25,000)",
+      "note": "Enterprise starts at 10,001 conversations; agree custom pricing with the customer"
     }
   }
 }

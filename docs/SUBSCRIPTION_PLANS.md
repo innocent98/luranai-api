@@ -172,7 +172,7 @@
 ### Features
 - Unlimited knowledge sources
 - Unlimited storage
-- Volume-based pricing (25K-300K+ conversations)
+- Custom pricing from 10,001 conversations/month (published volume schedule starts at 25,000)
 - Unlimited team members
 - Unlimited automation flows
 - Unlimited webhooks

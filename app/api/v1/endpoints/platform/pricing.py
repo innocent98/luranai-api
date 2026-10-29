@@ -268,7 +268,8 @@ async def calculate_enterprise_pricing(
     - 350,000 conversations/month = ₦770,000 (₦2.20/conv average - capped)
 
     **Raises:**
-    - 400: If conversation volume is below 25,000 (minimum for Enterprise)
+    - 400: If conversation volume is below 25,000 (the published volume schedule starts there;
+      Enterprise itself starts at 10,001 and 10,001-24,999 is quoted custom)
     """
     result = EnterprisePricingCalculator.calculate_monthly_cost(request.conversations)
 
@@ -312,7 +313,7 @@ async def compare_growth_vs_enterprise(
 
     **Logic:**
     - ≤10,000 conversations: Growth tier recommended (fixed ₦80K, its plan limit)
-    - 10,001-24,999 conversations: no standard plan fits; custom pricing is recommended
+    - 10,001-24,999 conversations: Enterprise, quoted custom (`recommended_tier: custom`)
     - ≥25,000 conversations: Compares Growth + overage vs Enterprise volume pricing
 
     **Example:**

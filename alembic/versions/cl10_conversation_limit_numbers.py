@@ -6,7 +6,8 @@ Create Date: 2026-10-29
 
 The owner approved lower monthly conversation limits (2026-10-29). The cost per conversation is
 small (about 7,050 tokens, under 6 naira in the worst case), so the new numbers are a packaging
-decision, not a cost one. Enterprise stays unlimited (NULL) and is not touched.
+decision, not a cost one. Enterprise stays unlimited (NULL); its limit is not touched, but its
+marketing copy moves from "25K+" to "10,001+" because Growth now stops at 10,000 (see below).
 
     tier          old      new
     trial         200      100
@@ -20,6 +21,9 @@ decision, not a cost one. Enterprise stays unlimited (NULL) and is not touched.
 * subscription_plans.features: the one "N conversations/month" element is swapped, only where
   the stored list holds exactly the old string (same rule: a hand-edited list is left alone). No
   other element is read or written, so the WhatsApp line wa30whatsappdefaulton rewrote is safe.
+* subscription_plans (enterprise row) copy: description and the one "Volume-based pricing" feature
+  element move from "25K+" to "10,001+" (Enterprise / custom quote starts where Growth ends), each
+  only where the stored text is exactly the old string, reversible under the same rule.
 * tenant_capabilities.max_conversations_per_month: set to the new number for tenants of that tier
   whose stored value is exactly the old plan value and whose override_flags has no
   `max_conversations_per_month` key. A platform-admin override (a tenant kept at a higher or lower
@@ -57,6 +61,17 @@ LIMITS: dict[str, tuple[int, int]] = {
     "professional": (10_000, 5_000),
     "growth": (25_000, 10_000),
 }
+
+
+# Enterprise copy (old, new). The description is a column; the feature is one list element.
+ENT_DESCRIPTION = (
+    "Volume-based pricing for high-scale operations (25K+ conversations)",
+    "Custom pricing for high-scale operations (10,001+ conversations a month)",
+)
+ENT_FEATURE = (
+    "Volume-based pricing (25K-300K+)",
+    "Custom pricing for 10,001+ conversations/month",
+)
 
 
 def _feature(limit: int) -> str:
@@ -116,6 +131,34 @@ def rewrite_plan_limits(bind, reverse: bool = False) -> None:
         )
 
 
+def rewrite_enterprise_copy(bind, reverse: bool = False) -> None:
+    """Swap the Enterprise description and its pricing feature string old -> new (or back)."""
+    d_src, d_dst = (ENT_DESCRIPTION[1], ENT_DESCRIPTION[0]) if reverse else ENT_DESCRIPTION
+    f_src, f_dst = (ENT_FEATURE[1], ENT_FEATURE[0]) if reverse else ENT_FEATURE
+    bind.execute(
+        sa.text(
+            "UPDATE subscription_plans SET description = :dst "
+            "WHERE tier = 'enterprise' AND description = :src"
+        ),
+        {"src": d_src, "dst": d_dst},
+    )
+    raw = bind.execute(
+        sa.text("SELECT features FROM subscription_plans WHERE tier = 'enterprise'")
+    ).scalar()
+    if raw is None:
+        return
+    current = _json_list(raw)
+    if f_src not in current:
+        return  # already converged, or edited by hand: leave it
+    updated = [f_dst if item == f_src else item for item in current]
+    bind.execute(
+        sa.text(
+            "UPDATE subscription_plans SET features = CAST(:f AS JSON) WHERE tier = 'enterprise'"
+        ),
+        {"f": json.dumps(updated)},
+    )
+
+
 def rewrite_tenants(bind, reverse: bool = False) -> dict[str, int]:
     """Move tenants of each tier from the old plan number to the new one (or back).
 
@@ -171,6 +214,7 @@ def upgrade() -> None:
     op.execute("SET LOCAL lock_timeout = '5s'")
 
     rewrite_plan_limits(bind)
+    rewrite_enterprise_copy(bind)
     rewrite_tenants(bind)
     warn_over_limit(bind)
 
@@ -181,3 +225,4 @@ def downgrade() -> None:
 
     rewrite_tenants(bind, reverse=True)
     rewrite_plan_limits(bind, reverse=True)
+    rewrite_enterprise_copy(bind, reverse=True)
