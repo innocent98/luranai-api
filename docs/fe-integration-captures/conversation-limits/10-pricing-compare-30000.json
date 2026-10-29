@@ -1,0 +1,44 @@
+{
+  "scenario": "pricing-compare-30000",
+  "note": "Growth vs Enterprise sales helper after Growth's limit became 10,000.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/pricing/enterprise/compare",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "conversations": 30000
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "recommended_tier": "enterprise",
+      "conversations": 30000,
+      "growth_tier_with_overage": {
+        "base_cost_kobo": 8000000,
+        "base_cost_naira": 80000,
+        "overage_conversations": 20000,
+        "overage_cost_kobo": 8000000,
+        "overage_cost_naira": 80000.0,
+        "total_cost_kobo": 16000000,
+        "total_cost_naira": 160000.0
+      },
+      "enterprise_tier": {
+        "total_cost_kobo": 9000000,
+        "total_cost_naira": 90000.0,
+        "average_price_per_conv_naira": 3.0
+      },
+      "savings": {
+        "amount_kobo": 7000000,
+        "amount_naira": 70000.0,
+        "percentage": 43.75
+      },
+      "recommendation": "Enterprise tier is more cost-effective for this volume",
+      "growth_tier": null,
+      "reason": null,
+      "note": null
+    }
+  }
+}

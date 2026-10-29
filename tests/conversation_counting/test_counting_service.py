@@ -126,7 +126,15 @@ def test_enforce_raises_the_402_body_clients_already_parse(db, tenant):
         cc.enforce_conversation_limit(db, tenant.id)
     assert exc.value.status_code == 402
     detail = exc.value.detail
-    assert set(detail) == {"error", "message", "current_count", "limit", "resets_at"}
+    assert set(detail) == {
+        "error",
+        "message",
+        "definition",
+        "current_count",
+        "limit",
+        "resets_at",
+    }
+    assert detail["definition"] == cc.conversation_definition()
     assert detail["error"] == "conversation_limit_reached"
     assert detail["message"] == "Monthly conversation limit of 2 reached."
     assert detail["current_count"] == 2 and detail["limit"] == 2

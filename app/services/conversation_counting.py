@@ -33,6 +33,25 @@ _ALWAYS_REUSABLE = (SessionStatus.ACTIVE, SessionStatus.ESCALATED)
 _CLOSED = (SessionStatus.ABANDONED, SessionStatus.RESOLVED)
 
 
+# What a conversation is, in words a customer reads. The window below is the setting
+# `CONVERSATION_REUSE_WINDOW_HOURS`: if that value changes, every copy of this text (knowledge base,
+# docs, the trial email) must change with it. tests/conversation_counting/test_definition_copy.py
+# fails until they match.
+CONVERSATION_DEFINITION = (
+    "A conversation is one continuous exchange between a customer and your AI or team, from their "
+    "first message until they have been quiet for {hours} hours. It is not counted per message: one "
+    "conversation can hold any number of messages, images and replies. If the same customer comes "
+    "back within {hours} hours it is still the same conversation; after {hours} hours it is a new "
+    "one. A conversation handed to a human agent stays one conversation until it is resolved. "
+    "Conversations are counted per calendar month (UTC) and the count resets on the 1st. WhatsApp "
+    "follows the same rule per chat."
+)
+
+
+def conversation_definition() -> str:
+    return CONVERSATION_DEFINITION.format(hours=settings.CONVERSATION_REUSE_WINDOW_HOURS)
+
+
 def month_start(now: datetime | None = None) -> datetime:
     """First instant of the current calendar month, naive UTC."""
     now = now or utcnow_naive()
@@ -134,6 +153,7 @@ class ConversationUsage:
         return {
             "error": "conversation_limit_reached",
             "message": f"Monthly conversation limit of {self.limit} reached.",
+            "definition": conversation_definition(),
             "current_count": self.count,
             "limit": self.limit,
             "resets_at": self.resets_at.isoformat(),

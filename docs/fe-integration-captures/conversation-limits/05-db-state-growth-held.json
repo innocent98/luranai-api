@@ -1,0 +1,10 @@
+{
+  "scenario": "db-state-growth-held",
+  "note": "The stored limit and the override record behind the admin edit.",
+  "tenant_capabilities": {
+    "max_conversations_per_month": 25000,
+    "override_flags": {
+      "max_conversations_per_month": true
+    }
+  }
+}

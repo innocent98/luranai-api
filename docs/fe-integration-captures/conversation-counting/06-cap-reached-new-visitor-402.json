@@ -6,7 +6,7 @@
     "path": "/api/v1/chat/message",
     "body": {
       "message": "hello",
-      "tenant_id": "1dea931d-95b0-4e43-928c-751d1c4d5ca6",
+      "tenant_id": "f53a4da1-718a-4769-adcd-b1da8ddbe970",
       "user_identifier": "someone-new"
     }
   },
@@ -16,6 +16,7 @@
       "detail": {
         "error": "conversation_limit_reached",
         "message": "Monthly conversation limit of 2 reached.",
+        "definition": "A conversation is one continuous exchange between a customer and your AI or team, from their first message until they have been quiet for 6 hours. It is not counted per message: one conversation can hold any number of messages, images and replies. If the same customer comes back within 6 hours it is still the same conversation; after 6 hours it is a new one. A conversation handed to a human agent stays one conversation until it is resolved. Conversations are counted per calendar month (UTC) and the count resets on the 1st. WhatsApp follows the same rule per chat.",
         "current_count": 2,
         "limit": 2,
         "resets_at": "2026-11-01T00:00:00"

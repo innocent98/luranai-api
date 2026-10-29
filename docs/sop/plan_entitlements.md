@@ -14,6 +14,8 @@ Branch `feature/plan-entitlements-backend` -> `develop` (PR linked from the hand
 
 **Conversation limit meter** (what counts as a conversation, the 6-hour same-conversation window, the single shared check): `docs/sop/conversation_counting.md` (2026-10-29). Plan *numbers* are unchanged by it.
 
+**Conversation limit numbers changed 2026-10-29** (Trial 200 -> 100, Lite 2,000 -> 1,000, Professional 10,000 -> 5,000, Growth 25,000 -> 10,000; Enterprise unlimited): migration `cl10conversationlimits`, SOP `docs/sop/conversation_limit_numbers.md`. Any "2,000" / "10,000" / "25,000 conversations" in older captures or sections below is the pre-change value; the plans capture `docs/fe-integration-captures/entitlements/01-public-plans.json` was refreshed from the live app. The parity test `tests/entitlements/test_plan_parity.py` now freezes ent10 + wa30 + cl10 against the catalog.
+
 FE contract: `docs/fe-integration-guide-entitlements.md` (all payloads from `docs/fe-integration-captures/entitlements/`). Master checklist: "Plan entitlements".
 
 ## Why

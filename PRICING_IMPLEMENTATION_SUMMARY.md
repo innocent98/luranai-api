@@ -1,5 +1,7 @@
 # Pricing Implementation Summary
 
+> **Superseded 2026-10-29 (conversation limits):** the monthly conversation limits quoted below (Trial 200, Lite 2,000, Professional 10,000, Growth 25,000) were replaced by Trial 100, Lite 1,000, Professional 5,000, Growth 10,000. This document is kept as the record of the original design; the live numbers are in `app/services/plan_catalog.py` and `docs/SUBSCRIPTION_PLANS.md`, and the change is described in `docs/sop/conversation_limit_numbers.md`.
+
 ## ✅ Implementation Complete
 
 Successfully implemented new subscription pricing structure with Growth tier and Enterprise volume-based pricing calculator.

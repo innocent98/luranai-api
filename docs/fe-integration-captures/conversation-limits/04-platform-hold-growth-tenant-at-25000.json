@@ -1,0 +1,48 @@
+{
+  "scenario": "platform-hold-growth-tenant-at-25000",
+  "note": "How to keep one tenant at its old number: an admin edit, recorded in override_flags.",
+  "request": {
+    "method": "PUT",
+    "path": "/api/v1/platform/tenants/483a1304-5141-4698-ac7e-cdeeb586669f/capabilities",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "max_conversations_per_month": 25000
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "can_create_tickets": true,
+      "can_access_analytics": true,
+      "can_upload_knowledge": true,
+      "max_knowledge_mb": 500,
+      "max_conversations_per_month": 25000,
+      "max_knowledge_sources": 100,
+      "can_use_url_sources": true,
+      "max_team_members": 20,
+      "max_automation_actions": 40,
+      "max_automation_executions_per_month": 25000,
+      "can_use_ai_chat_automation": true,
+      "can_use_lookup_chains": true,
+      "can_use_webhooks": true,
+      "max_flows": 25,
+      "max_webhooks_per_flow": 10,
+      "can_use_voice": false,
+      "max_voice_minutes_per_month": null,
+      "can_use_screen_recording": true,
+      "max_audit_pages_per_crawl": 500,
+      "max_audits_per_month": 30,
+      "can_use_sales_close": true,
+      "can_use_crm_notifications": true,
+      "can_export_ratings": true,
+      "can_use_whatsapp": true,
+      "max_whatsapp_numbers": 5,
+      "id": "7920bd0e-0fd5-4753-b972-86376561ea6a",
+      "tenant_id": "483a1304-5141-4698-ac7e-cdeeb586669f",
+      "created_at": "2026-10-29T19:59:34.286364Z",
+      "updated_at": "2026-10-29T19:59:35.517274Z"
+    }
+  }
+}

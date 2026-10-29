@@ -308,6 +308,7 @@ def test_create_session_endpoint_is_gated_with_the_same_402(client, db):
     assert resp.json()["detail"] == {
         "error": "conversation_limit_reached",
         "message": "Monthly conversation limit of 1 reached.",
+        "definition": cc.conversation_definition(),
         "current_count": 1,
         "limit": 1,
         "resets_at": cc.conversation_usage(db, tenant.id).resets_at.isoformat(),

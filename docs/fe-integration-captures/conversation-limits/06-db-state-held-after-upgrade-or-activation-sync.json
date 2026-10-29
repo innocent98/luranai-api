@@ -1,0 +1,10 @@
+{
+  "scenario": "db-state-held-after-upgrade-or-activation-sync",
+  "note": "After the sync an upgrade or activation runs (respect_overrides=True): kept at 25,000.",
+  "tenant_capabilities": {
+    "max_conversations_per_month": 25000,
+    "override_flags": {
+      "max_conversations_per_month": true
+    }
+  }
+}

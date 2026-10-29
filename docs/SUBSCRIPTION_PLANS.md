@@ -1,6 +1,6 @@
 # Luran Subscription Plans
 
-**Last Updated:** 2026-10-28 (Lite price and plan gates; the cost analysis below is from 2026-02 and uses the old Lite price in its per-conversation figures where not restated)
+**Last Updated:** 2026-10-29 (monthly conversation limits lowered to Trial 100 / Lite 1,000 / Professional 5,000 / Growth 10,000, see `docs/sop/conversation_limit_numbers.md`; earlier: Lite price and plan gates; the cost analysis below is from 2026-02 and uses the old Lite price in its per-conversation figures where not restated)
 **AI Model:** GPT-4o-mini ($0.150/1M input, $0.600/1M output)
 **Exchange Rate:** $1 = ₦1,500
 
@@ -10,11 +10,13 @@
 
 | Tier | Monthly Price | Annual Price | Conversations/Month | Price per Conversation |
 |------|--------------|--------------|---------------------|------------------------|
-| **Trial** | ₦0 | ₦0 | 200 | ₦0 (Free) |
-| **Lite** | ₦15,000 | ₦150,000 | 2,000 | ₦7.50 |
-| **Professional** | ₦40,000 | ₦400,000 | 10,000 | ₦4.00 |
-| **Growth** | ₦80,000 | ₦800,000 | 25,000 | ₦3.20 |
+| **Trial** | ₦0 | ₦0 | 100 | ₦0 (Free) |
+| **Lite** | ₦15,000 | ₦150,000 | 1,000 | ₦15.00 |
+| **Professional** | ₦40,000 | ₦400,000 | 5,000 | ₦8.00 |
+| **Growth** | ₦80,000 | ₦800,000 | 10,000 | ₦8.00 |
 | **Enterprise** | Custom | Custom | Unlimited | Custom |
+
+**What counts as a conversation?** A conversation is one continuous exchange between a customer and your AI or team, from their first message until they have been quiet for 6 hours. It is not counted per message: one conversation can hold any number of messages, images and replies. If the same customer comes back within 6 hours it is still the same conversation; after 6 hours it is a new one. A conversation handed to a human agent stays one conversation until it is resolved. Conversations are counted per calendar month (UTC) and the count resets on the 1st. WhatsApp follows the same rule per chat.
 
 ---
 
@@ -23,12 +25,13 @@
 | Tier | Avg. Input Tokens | Avg. Output Tokens | AI Cost/Convo | Revenue/Convo | Profit/Convo | Margin |
 |------|-------------------|--------------------|--------------:|---------------:|--------------:|-------:|
 | **Trial** | 1,000 | 560 | ₦0.74 | ₦0.00 | -₦0.74 | -100% |
-| **Lite** | 1,000 | 700 | ₦0.86 | ₦7.50 | ₦6.64 | 89% |
-| **Professional** | 1,000 | 1,050 | ₦1.17 | ₦4.00 | ₦2.83 | 71% |
-| **Growth** | 1,000 | 1,050 | ₦1.17 | ₦3.20 | ₦2.03 | 63% |
+| **Lite** | 1,000 | 700 | ₦0.86 | ₦15.00 | ₦14.14 | 94% |
+| **Professional** | 1,000 | 1,050 | ₦1.17 | ₦8.00 | ₦6.83 | 85% |
+| **Growth** | 1,000 | 1,050 | ₦1.17 | ₦8.00 | ₦6.83 | 85% |
 | **Enterprise** | 1,000 | 1,400 | ₦1.49 | Custom | Custom | ~60-70% |
 
 **Notes:**
+- 2026-10-29: the cost columns are the original gpt-4o-mini estimate. On gpt-6-luna a conversation is about 7,050 tokens ($0.10/M in, $0.50/M out), under ₦6 even if every token were output, so cost is not what sets the limits; the limits are packaging.
 - Input tokens = user query (~100) + retrieved context (~700) + system prompt (~200)
 - Output tokens = 70% of max_response_tokens (realistic average usage)
 - Costs exclude infrastructure (~₦2,000-4,000/tenant/month)
@@ -40,16 +43,16 @@
 
 | Tier | Conversations | Total AI Cost | Total Revenue | Gross Profit | Net Margin |
 |------|--------------|---------------|---------------|--------------|------------|
-| **Trial** | 200 | ₦148 | ₦0 | -₦148 | Loss (acquisition) |
-| **Lite** | 2,000 | ₦1,720 | ₦15,000 | ₦13,280 | 89% |
-| **Professional** | 10,000 | ₦11,700 | ₦40,000 | ₦28,300 | 71% |
-| **Growth** | 25,000 | ₦29,250 | ₦80,000 | ₦50,750 | 63% |
+| **Trial** | 100 | ₦74 | ₦0 | -₦74 | Loss (acquisition) |
+| **Lite** | 1,000 | ₦860 | ₦15,000 | ₦14,140 | 94% |
+| **Professional** | 5,000 | ₦5,850 | ₦40,000 | ₦34,150 | 85% |
+| **Growth** | 10,000 | ₦11,700 | ₦80,000 | ₦68,300 | 85% |
 | **Enterprise** | 50,000+ | ₦74,500+ | Custom | Custom | 60-70% |
 
 **After infrastructure costs (₦3,000/month):**
-- **Lite:** ₦10,280 net profit (69% margin)
-- **Professional:** ₦25,300 net profit (63% margin)
-- **Growth:** ₦47,750 net profit (60% margin)
+- **Lite:** ₦11,140 net profit (74% margin)
+- **Professional:** ₦31,150 net profit (78% margin)
+- **Growth:** ₦65,300 net profit (82% margin)
 
 ---
 
@@ -57,12 +60,12 @@
 
 **Price:** Free
 **Duration:** 30 days
-**Conversations:** 200/month
+**Conversations:** 100/month
 
 ### Features
 - 2 knowledge sources
 - 10MB storage
-- 200 conversations/month
+- 100 conversations/month
 - 1 team member
 - Email support
 - Max response tokens: 800
@@ -80,12 +83,12 @@
 ## Lite Tier
 
 **Price:** ₦15,000/month or ₦150,000/year (10 months of monthly; changed from ₦9,000 on 2026-10-28, new signups only)
-**Conversations:** 2,000/month
+**Conversations:** 1,000/month
 
 ### Features
 - 20 knowledge sources
 - 50MB storage
-- 2,000 conversations/month
+- 1,000 conversations/month
 - 3 team members
 - 3 flows
 - 2 AI actions
@@ -108,12 +111,12 @@
 ## Professional Tier
 
 **Price:** ₦40,000/month or ₦400,000/year (save ₦80,000)
-**Conversations:** 10,000/month
+**Conversations:** 5,000/month
 
 ### Features
 - 50 knowledge sources
 - 200MB storage
-- 10,000 conversations/month
+- 5,000 conversations/month
 - 10 team members
 - 10 automation flows
 - Webhook integrations (3/flow)
@@ -136,12 +139,12 @@
 ## Growth Tier
 
 **Price:** ₦80,000/month or ₦800,000/year (save ₦160,000)
-**Conversations:** 25,000/month
+**Conversations:** 10,000/month
 
 ### Features
 - 50 knowledge sources
 - 500MB storage
-- 25,000 conversations/month
+- 10,000 conversations/month
 - 20 team members
 - 25 automation flows
 - Advanced webhook integrations (10/flow)
@@ -169,7 +172,7 @@
 ### Features
 - Unlimited knowledge sources
 - Unlimited storage
-- Volume-based pricing (25K-300K+ conversations)
+- Custom pricing from 10,001 conversations/month (published volume schedule starts at 25,000)
 - Unlimited team members
 - Unlimited automation flows
 - Unlimited webhooks
@@ -244,7 +247,7 @@ flows keep their per-plan limits. Details: `docs/sop/plan_entitlements.md`.
 
 ### From Trial → Lite
 - **Unlock:** Analytics, URL scraping, 2 automation flows
-- **Increase:** 10x conversations (200 → 2,000), 7.5x knowledge sources
+- **Increase:** 10x conversations (100 → 1,000), 7.5x knowledge sources
 
 ### From Lite → Professional
 - **Unlock:** Webhooks (3/flow), advanced AI responses
@@ -252,7 +255,7 @@ flows keep their per-plan limits. Details: `docs/sop/plan_entitlements.md`.
 
 ### From Professional → Growth
 - **Unlock:** Advanced webhooks (10/flow), custom integrations
-- **Increase:** 2.5x conversations, 2.5x flows, 2x nodes/flow
+- **Increase:** 2x conversations, 2.5x flows, 2x nodes/flow
 
 ### From Growth → Enterprise
 - **Unlock:** Unlimited everything, dedicated support, SLA
