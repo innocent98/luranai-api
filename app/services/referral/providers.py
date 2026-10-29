@@ -119,9 +119,12 @@ class PaystackTransferProvider:
                     name=bank[0], account_number=bank[1], bank_code=bank[2]
                 )
             except PaystackTransferError as exc:
-                logger.warning(f"transfer recipient not created for marketer {marketer_id}")
+                logger.warning(
+                    f"transfer recipient not created for marketer {marketer_id} ({type(exc).__name__})"
+                )
+                # Fixed message: neither Paystack's text nor the bank details leave this function.
                 return TransferResult(
-                    status="failed", reference=reference, message=f"recipient_error: {exc}"[:200]
+                    status="failed", reference=reference, message="recipient_error"
                 )
             if not self._store_recipient(db, marketer_id, recipient_code, bank):
                 # The bank details changed while the recipient was being created: the code points
@@ -163,7 +166,12 @@ class PaystackTransferProvider:
         elif status in ("failed", "reversed"):
             mapped = "failed"
         else:
-            mapped = "pending"  # pending / queued / received / anything not yet final
+            # pending / queued / received, and anything we do not recognise (abandoned, blocked,
+            # rejected ...): the money may be moving, so never call it failed. The item stays
+            # `processing` with the raw status recorded; verify / the webhook resolves it.
+            mapped = "pending"
+            if status not in _PENDING_STATUSES:
+                logger.warning(f"transfer {reference}: unrecognised Paystack status {status!r}")
         return TransferResult(
             status=mapped,
             reference=reference,
@@ -208,7 +216,13 @@ class PaystackTransferProvider:
         elif provider_status in _PENDING_STATUSES:
             mapped = "pending"
         else:
-            raise PayoutProviderError(f"unknown transfer status {provider_status!r}")
+            # R39: an unknown status (abandoned, blocked, rejected ...) is never read as failure or
+            # as "does not exist": the item stays `processing` with this status recorded, and an
+            # admin sees it. Logged with the reference only.
+            logger.warning(
+                f"transfer {reference}: unrecognised Paystack status {provider_status!r}"
+            )
+            mapped = "pending"
         return TransferVerification(
             status=mapped,
             reference=reference,

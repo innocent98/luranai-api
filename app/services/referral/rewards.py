@@ -37,6 +37,7 @@ from app.db.models.referral import (
 )
 from app.db.models.tenant import Tenant
 from app.services.enhanced_audit_service import EnhancedAuditService
+from app.services.referral import payouts
 from app.services.referral.config import get_referral_config
 from app.services.referral.fraud import evaluate_flags
 
@@ -58,6 +59,16 @@ class RewardStateError(RewardError):
     """The reward is not in a state the requested transition allows. Nothing was changed."""
 
     code = "reward_state_invalid"
+
+
+class RewardInFlightError(RewardStateError):
+    """The reward is held but still tied to a payout batch whose transfer may be in flight.
+
+    Releasing or voiding it now could pay it twice (it would be batched again while the first
+    transfer can still succeed). It becomes releasable once the item is resolved. Nothing changed.
+    """
+
+    code = "reward_in_flight"
 
 
 def _aware(value: datetime) -> datetime:
@@ -353,6 +364,8 @@ def release(
         raise RewardStateError(
             f"reward {reward_id} is {reward.status.value}, only held can be released"
         )
+    if reward.payout_batch_id is not None:
+        raise RewardInFlightError(f"reward {reward_id} is still tied to a payout batch")
     moment = _aware(now) if now else datetime.now(UTC)
     reward.status = (
         RewardStatus.PAYABLE if _aware(reward.payable_after) <= moment else RewardStatus.PENDING
@@ -381,6 +394,8 @@ def void(
     previous = reward.status
     if previous not in (RewardStatus.HELD, RewardStatus.PENDING, RewardStatus.PAYABLE):
         raise RewardStateError(f"reward {reward_id} is {previous.value} and cannot be voided")
+    if reward.payout_batch_id is not None:
+        raise RewardInFlightError(f"reward {reward_id} is still tied to a payout batch")
     reward.status = RewardStatus.VOID
     db.flush()
     _audit_and_commit(db, "void_referral_reward", reward, admin_id, admin_name, previous, note)
@@ -417,10 +432,27 @@ def record_dispute(
 def hold_for_dispute(db: Session, tenant_id: UUID) -> ReferralReward | None:
     """Hold the tenant's unpaid reward after a payment dispute; returns it, or ``None`` if none.
 
-    ``pending``, ``payable`` and ``batched`` become ``held`` with reason ``payment_dispute`` (a
-    batched reward also leaves its payout batch). An already ``held`` reward keeps its status and
-    gains the reason once. ``paid`` and ``void`` rewards are untouched. Row-locked; does not commit.
+    ``pending``, ``payable`` and ``batched`` become ``held`` with reason ``payment_dispute``. An
+    already ``held`` reward keeps its status and gains the reason once. ``paid`` and ``void``
+    rewards are untouched. Row-locked; does not commit.
+
+    A ``batched`` reward is captured by its marketer's payout item, so the item decides what
+    happens to the batch link (R38): while the item is ``processing`` (a transfer may be in
+    flight) the reward is held but KEEPS ``payout_batch_id``, which also makes ``release``/``void``
+    refuse it until the item is resolved; for a ``pending``, ``awaiting_manual`` or ``failed``
+    item the link is cleared and the item is refreshed from the rewards still batched (an item
+    left with none is skipped). Locks are taken in the payout order: batch, marketer, item,
+    rewards.
     """
+    seen = db.scalar(
+        select(ReferralReward)
+        .where(ReferralReward.tenant_id == tenant_id)
+        .execution_options(populate_existing=True)
+    )
+    if seen is None:
+        return None
+    locked_batch_id = seen.payout_batch_id
+    item = payouts.lock_payout_context(db, seen.marketer_id, locked_batch_id)
     reward = db.scalar(
         select(ReferralReward)
         .where(ReferralReward.tenant_id == tenant_id)
@@ -431,11 +463,16 @@ def hold_for_dispute(db: Session, tenant_id: UUID) -> ReferralReward | None:
         return None
     if reward.status in (RewardStatus.PAID, RewardStatus.VOID):
         return reward
-    if reward.status == RewardStatus.BATCHED:
-        reward.payout_batch_id = None
+    if reward.payout_batch_id != locked_batch_id:
+        # Batched between our first read and the lock: take the payout locks (late) now.
+        item = payouts.lock_payout_context(db, reward.marketer_id, reward.payout_batch_id)
+    was_batched = reward.payout_batch_id is not None
     reward.status = RewardStatus.HELD
     if PAYMENT_DISPUTE not in (reward.review_reasons or []):
         reward.review_reasons = [*(reward.review_reasons or []), PAYMENT_DISPUTE]
     db.flush()
+    if was_batched:
+        payouts.release_held_reward_from_item(db, reward, item)
+        db.flush()
     logger.warning(f"referral reward {reward.id} held for payment dispute")
     return reward

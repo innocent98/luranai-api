@@ -5,11 +5,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from loguru import logger
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_platform_admin, get_current_super_admin, get_db
-from app.db.models.referral import BatchStatus, Marketer, MarketerStatus, PayoutBatch
+from app.db.models.referral import Marketer, MarketerStatus, PayoutBatch
 from app.schemas.platform_admin import PlatformAdminResponse
 from app.schemas.referral import (
     MarketerBankUpdateRequest,
@@ -284,7 +283,8 @@ def _audit_batch(
             metadata=metadata,
         )
     except Exception as exc:
-        db.rollback()
+        if not db.is_active:  # a failed commit/flush leaves the session unusable until rolled back
+            db.rollback()
         logger.error(
             f"Failed to write audit log for {action} on payout batch {batch_id} "
             f"(admin {admin.id}): {type(exc).__name__}"
@@ -352,21 +352,25 @@ def approve_batch(
     the small batches of v1 (a handful of marketers twice a month). A large batch would need a
     background worker that drains the ``pending`` items instead of blocking the request.
     """
-    before = db.scalar(select(PayoutBatch.status).where(PayoutBatch.id == batch_id))
-    try:
-        payouts.approve_batch(db, batch_id, current_admin.id)
-    except payouts.PayoutError as exc:
-        _raise_for_payout(exc)
-    detail = _detail(db, batch_id)
-    if before == BatchStatus.DRAFT:  # a repeat approval changed nothing, so it is not audited
+
+    def audit_approval(batch: PayoutBatch) -> None:
+        # Runs after the draft -> paying commit and BEFORE the first provider call, and only when
+        # this request actually performed the approval (a repeat approval is not audited).
+        detail = payout_queries.get_batch_detail(db, batch_id)
         _audit_batch(
             db,
             current_admin,
             "approve_payout_batch",
             batch_id,
             f"Approved payout batch {batch_id}",
-            _counts_metadata(detail),
+            _counts_metadata(detail) if detail is not None else {},
         )
+
+    try:
+        payouts.approve_batch(db, batch_id, current_admin.id, after_approval=audit_approval)
+    except payouts.PayoutError as exc:
+        _raise_for_payout(exc)
+    detail = _detail(db, batch_id)
     return detail
 
 

@@ -37,22 +37,30 @@ How a double or wrong payment is prevented:
   a ``processing`` claim that has gone stale, so a live worker is never raced).
 * The amount is computed at claim time from the rewards currently ``batched`` in this batch for
   the marketer (locked), and exactly those rewards are the ones marked ``paid``.
-* Lock order everywhere: marketer -> item -> rewards, then (last, only to refresh the batch total)
-  the batch row. approve_batch locks the batch first but only for a batch nobody can be paying
-  yet (it is still ``draft``); retry_batch and the status recompute lock the batch on its own,
-  holding nothing else, so no lock cycle can form.
+* A reward captured by an item that is not resolved (``processing``, ``awaiting_manual``,
+  ``failed``) cannot silently leave it (R38): a dispute hold on a ``processing`` item keeps the
+  reward's batch link (so ``release``/``void`` refuse it); on the other unresolved states the
+  link is cleared and the item is refreshed. A re-claim and ``mark_paid`` recompute the item from
+  the rewards still ``batched`` and detach held ones, and ``_pay_rewards`` refuses a reward that
+  is already paid, linked to another batch or in a disallowed status. One reward can therefore
+  never be paid by two items.
+* Lock order everywhere: batch -> marketer -> item -> rewards. The batch row is taken first
+  (approve_batch, hold_for_dispute) or ALONE after everything else was committed
+  (``_finalize_batch``, retry_batch); nothing ever waits for the batch while holding a marketer,
+  item or reward lock, so no lock cycle can form.
 
 Functions do their own commits (a payout must be durable step by step); callers just call them.
-Audit entries are the endpoint layer's job.
+The approval audit is written through the ``after_approval`` hook, before any provider call.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
 from loguru import logger
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -63,6 +71,7 @@ from app.db.models.referral import (
     PayoutBatch,
     PayoutItem,
     PayoutItemStatus,
+    ReferralAttribution,
     ReferralReward,
     RewardStatus,
 )
@@ -76,8 +85,12 @@ from app.services.referral.providers import (
 
 MARKETER_SUSPENDED = "marketer_suspended"
 NO_BATCHED_REWARDS = "no_batched_rewards"
+NON_POSITIVE_AMOUNT = "non_positive_amount"
 OTP_REQUIRED = "otp_required"
 PAID_IN_FLIGHT = "paid_in_flight"
+REVERSED = "reversed"
+REVERSED_AFTER_HOLD = "payment_reversed_after_hold"
+PAYMENT_DISPUTE = "payment_dispute"
 
 # A `processing` item whose claim is younger than this may belong to a worker that is in the
 # middle of its provider call, so a retry will not re-send it even when verify says not_found.
@@ -213,6 +226,46 @@ def _lock_rewards_by_id(db: Session, item: PayoutItem) -> list[ReferralReward]:
     )
 
 
+def _lock_claim_rewards(db: Session, item: PayoutItem) -> list[ReferralReward]:
+    """Lock, in one id-ordered pass, the marketer's rewards currently ``batched`` in the item's
+    batch plus the ones the item captured earlier (which may have been held since)."""
+    ids = [UUID(str(i)) for i in (item.reward_ids or [])]
+    in_batch = and_(
+        ReferralReward.payout_batch_id == item.batch_id,
+        ReferralReward.status == RewardStatus.BATCHED,
+    )
+    return list(
+        db.scalars(
+            select(ReferralReward)
+            .where(
+                ReferralReward.marketer_id == item.marketer_id,
+                or_(in_batch, ReferralReward.id.in_(ids)) if ids else in_batch,
+            )
+            .order_by(ReferralReward.id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+    )
+
+
+def _split_claim_rewards(
+    item: PayoutItem, locked: list[ReferralReward]
+) -> tuple[list[ReferralReward], list[ReferralReward]]:
+    """(rewards to pay now, previously captured rewards that were held since)."""
+    batched = [
+        r for r in locked if r.status == RewardStatus.BATCHED and r.payout_batch_id == item.batch_id
+    ]
+    held = [
+        r for r in locked if r.status == RewardStatus.HELD and r.payout_batch_id == item.batch_id
+    ]
+    return batched, held
+
+
+def _detach(rewards: list[ReferralReward]) -> None:
+    for reward in rewards:
+        reward.payout_batch_id = None
+
+
 def _hold_rewards(rewards: list[ReferralReward], reason: str) -> None:
     for reward in rewards:
         reasons = list(reward.review_reasons or [])
@@ -246,7 +299,6 @@ def _skip_item(
     if hold:
         _hold_rewards(rewards, reason)
     db.flush()
-    _refresh_total(db, item.batch_id)
 
 
 # --------------------------------------------------------------------------- batch status
@@ -260,12 +312,14 @@ def recompute_batch_status(db: Session, batch_id: UUID) -> BatchStatus:
     * else (something failed, or every item was skipped) -> ``failed``: an empty or all-skipped
       batch ends in a terminal non-paying state, and ``paid`` always means money really moved.
 
-    A ``draft`` batch is left alone (nothing has been approved yet). Call it only when the caller
-    holds no marketer/item/reward locks (see the module docstring).
+    Also refreshes ``total_kobo`` from the non-skipped items. A ``draft`` batch keeps its status
+    (nothing has been approved yet). Call it only when the caller holds no marketer/item/reward
+    locks (see the module docstring); ``_finalize_batch`` commits first to guarantee that.
     """
     batch = _lock_batch(db, batch_id)
     if batch is None:
         raise BatchNotFoundError(f"batch {batch_id} not found")
+    _refresh_total(db, batch_id)
     if batch.status == BatchStatus.DRAFT:
         return batch.status
     statuses = list(db.scalars(select(PayoutItem.status).where(PayoutItem.batch_id == batch_id)))
@@ -284,8 +338,74 @@ def recompute_batch_status(db: Session, batch_id: UUID) -> BatchStatus:
 
 
 def _finalize_batch(db: Session, batch_id: UUID) -> None:
+    db.commit()  # drop any marketer/item/reward locks first: the batch lock is taken alone
     recompute_batch_status(db, batch_id)
     db.commit()
+
+
+# --------------------------------------------------------------------------- dispute holds
+
+
+def lock_payout_context(db: Session, marketer_id: UUID, batch_id: UUID | None) -> PayoutItem | None:
+    """Lock batch -> marketer -> item -> the marketer's batched rewards; return the item.
+
+    Used by ``hold_for_dispute`` before it touches a reward that carries a batch link. ``None``
+    when there is no batch link or no item.
+    """
+    if batch_id is None:
+        return None
+    _lock_batch(db, batch_id)
+    _lock_marketer(db, marketer_id)
+    item = db.scalar(
+        select(PayoutItem)
+        .where(PayoutItem.batch_id == batch_id, PayoutItem.marketer_id == marketer_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    _lock_batched_rewards(db, batch_id, marketer_id)
+    return item
+
+
+def release_held_reward_from_item(
+    db: Session, reward: ReferralReward, item: PayoutItem | None
+) -> None:
+    """A batched reward was just held (R38). Decide what the batch link and the item become.
+
+    ``processing``: money may be in flight, so the reward KEEPS its batch link (``release`` and
+    ``void`` refuse it until the item is resolved). ``pending`` / ``awaiting_manual`` / ``failed``:
+    the link is cleared and the item is refreshed from the rewards still batched. The caller holds
+    the batch lock (``lock_payout_context``), so the total and the batch status are refreshed here.
+    """
+    if item is not None and item.status == _PS.PROCESSING:
+        logger.warning(f"reward {reward.id} held while item {item.id} is processing; link kept")
+        return
+    reward.payout_batch_id = None
+    if item is None or item.status not in (_PS.PENDING, _PS.AWAITING_MANUAL, _PS.FAILED):
+        return
+    _refresh_item(db, item)
+    recompute_batch_status(db, item.batch_id)
+
+
+def _refresh_item(db: Session, item: PayoutItem) -> None:
+    """Recompute ``reward_ids`` and ``amount_kobo`` from the rewards currently batched (R32).
+
+    An item left with none is ``skipped``, except a ``failed`` one: its transfer may still be live
+    at the provider (for example waiting for an OTP), so it stays ``failed`` with nothing to pay
+    and the verify-first retry resolves it. Does not touch the batch row (callers refresh the
+    total once they hold the batch lock or after committing).
+    """
+    rewards = _lock_batched_rewards(db, item.batch_id, item.marketer_id)
+    if rewards:
+        item.reward_ids = [str(r.id) for r in rewards]
+        item.amount_kobo = sum(r.amount_kobo for r in rewards)
+    elif item.status == _PS.FAILED:
+        item.reward_ids = []
+        item.amount_kobo = 0
+    else:
+        item.reward_ids = []
+        item.amount_kobo = 0
+        _skip_item(db, item, [], NO_BATCHED_REWARDS, hold=False)
+    db.flush()
 
 
 # --------------------------------------------------------------------------- prepare
@@ -395,7 +515,10 @@ def _claim(
         db.commit()
         return None
     batch = db.get(PayoutBatch, item.batch_id)
-    rewards = _lock_batched_rewards(db, item.batch_id, item.marketer_id)
+    rewards, stale_held = _split_claim_rewards(item, _lock_claim_rewards(db, item))
+    # Captured earlier but held since: this claim only happens once the previous transfer is
+    # known dead (or never existed), so they leave the batch and become releasable (R38).
+    _detach(stale_held)
 
     if marketer is None or marketer.status != MarketerStatus.ACTIVE:
         _skip_item(db, item, rewards, MARKETER_SUSPENDED, hold=True)
@@ -407,6 +530,10 @@ def _claim(
         return None
 
     amount = sum(r.amount_kobo for r in rewards)
+    if amount <= 0:  # never ask a provider to send nothing (or a negative sum)
+        _skip_item(db, item, rewards, NON_POSITIVE_AMOUNT, hold=True)
+        _finalize_batch(db, item.batch_id)
+        return None
     claimed_cond = (
         PayoutItem.claimed_at.is_(None)
         if item.claimed_at is None
@@ -441,7 +568,6 @@ def _claim(
     if claimed.rowcount != 1:
         db.commit()
         return None
-    _refresh_total(db, item.batch_id)
     period = batch.period_label if batch is not None else ""
     claim = _Claim(
         item_id=item_id,
@@ -452,7 +578,7 @@ def _claim(
         amount_kobo=amount,
         reason=f"Luran referral payout {period}".strip(),
     )
-    db.commit()
+    _finalize_batch(db, item.batch_id)  # commits (releasing every lock), then refreshes the total
     return claim
 
 
@@ -460,25 +586,43 @@ def _claim(
 
 
 def _pay_rewards(db: Session, item: PayoutItem, reference: str, now: datetime) -> None:
-    """Mark EXACTLY the item's captured rewards paid.
+    """Mark EXACTLY the item's captured rewards paid, refusing anything that does not fit.
 
-    A captured reward that is no longer ``batched`` (held by a dispute, or voided, after the claim)
-    is still paid: the money for it has already gone out, and leaving it payable would let it be
-    paid a second time. It gets the ``paid_in_flight`` review reason so an admin can see it.
+    A captured reward held by a dispute after the claim (``processing`` item: it keeps its batch
+    link) is still paid: the money for it has already gone out, and leaving it payable would let
+    it be paid a second time. It gets the ``paid_in_flight`` review reason.
+
+    Defensive guards (a violation is an anomaly: it is logged with ids only and that reward is
+    NOT touched): the reward must still be linked to THIS item's batch, be ``batched`` or
+    ``held``, and carry no transfer reference. A reward that is already ``paid`` is never paid a
+    second time. So one reward id can never end up paid by two items.
     """
     for reward in _lock_rewards_by_id(db, item):
         if reward.status == RewardStatus.PAID:
+            if reward.transfer_reference != reference:
+                logger.error(
+                    f"payout anomaly: reward {reward.id} already paid, item {item.id} not applied"
+                )
             continue
-        if reward.status != RewardStatus.BATCHED:
+        if (
+            reward.payout_batch_id != item.batch_id
+            or reward.status not in (RewardStatus.BATCHED, RewardStatus.HELD)
+            or reward.transfer_reference is not None
+        ):
+            logger.error(
+                f"payout anomaly: reward {reward.id} ({reward.status.value}) not payable by "
+                f"item {item.id}; left untouched"
+            )
+            continue
+        if reward.status == RewardStatus.HELD:
             reasons = list(reward.review_reasons or [])
             if PAID_IN_FLIGHT not in reasons:
                 reasons.append(PAID_IN_FLIGHT)
             reward.review_reasons = reasons
-            logger.warning(f"reward {reward.id} was {reward.status.value} when its transfer paid")
+            logger.warning(f"reward {reward.id} was held when its transfer paid")
         reward.status = RewardStatus.PAID
         reward.paid_at = now
         reward.transfer_reference = reference
-        reward.payout_batch_id = item.batch_id
 
 
 def _mark_item_paid(
@@ -550,6 +694,7 @@ def approve_batch(
     batch_id: UUID,
     admin_id: UUID,
     provider: PayoutProvider | None = None,
+    after_approval: Callable[[PayoutBatch], None] | None = None,
 ) -> PayoutBatch:
     """Approve a ``draft`` batch and pay its items; idempotent.
 
@@ -558,6 +703,10 @@ def approve_batch(
     approved -> paying, the approver is recorded, and every item whose marketer is not active is
     skipped with its still-batched rewards returned to ``held`` (R8). That commits; only then are
     the remaining items claimed and paid one by one (see ``_claim``).
+
+    ``after_approval(batch)`` runs right after that commit and before the first provider call, and
+    only when this call actually performed the approval, so the audit entry exists before any money
+    can move. It can never block or abort the payout: a failure is logged by exception class only.
     """
     batch = _lock_batch(db, batch_id)
     if batch is None:
@@ -587,8 +736,16 @@ def approve_batch(
                 _skip_item(db, locked, rewards, MARKETER_SUSPENDED, hold=True)
     batch.status = BatchStatus.PAYING
     db.flush()
+    _refresh_total(db, batch_id)  # we hold the batch lock
     db.commit()
 
+    if after_approval is not None:
+        try:
+            after_approval(batch)
+        except Exception as exc:  # noqa: BLE001 - the audit must never stop the money flow
+            logger.error(f"approval hook failed for batch {batch_id} ({type(exc).__name__})")
+            if not db.is_active:
+                db.rollback()
     provider = provider or get_payout_provider(db)
     _process_pending_items(db, batch_id, provider)
     _finalize_batch(db, batch_id)
@@ -765,6 +922,10 @@ def _apply_verified_success(
     ):
         db.commit()
         return
+    if item.failure_reason == REVERSED or item.provider_status == REVERSED:
+        logger.error(f"transfer for item {item_id} was reversed; a success is not honoured")
+        db.commit()
+        return
     if verification.amount_kobo is not None and verification.amount_kobo != item.amount_kobo:
         logger.error(
             f"transfer {reference}: verified amount differs from the item; not marking paid"
@@ -847,9 +1008,10 @@ def mark_paid(
                     "provider; refusing to mark it paid"
                 )
 
-    # Pass 1: lock everything (marketer -> item, in a fixed order) and validate; change nothing,
+    # Pass 1: lock everything (marketer -> item -> rewards, in a fixed order) and validate; change nothing,
     # so a refusal leaves no partial state and needs no rollback.
     locked: list[tuple[UUID, PayoutItem]] = []
+    fresh: dict[UUID, tuple[list[ReferralReward], list[ReferralReward]]] = {}
     refusal: PayoutError | None = None
     for marketer_id in sorted(cleaned):
         _lock_marketer(db, marketer_id)
@@ -871,6 +1033,17 @@ def mark_paid(
         elif item.status == _PS.FAILED and item.transfer_reference != to_verify.get(marketer_id):
             # Not the transfer we verified (it changed in between): nothing was confirmed.
             refusal = TransferUnverifiedError("the item changed while it was being verified; retry")
+        else:
+            # Never pay a stale claim: the set (and amount) is what is batched RIGHT NOW (R38).
+            batched, stale_held = _split_claim_rewards(item, _lock_claim_rewards(db, item))
+            if not batched:
+                refusal = ItemNotMarkableError(
+                    f"item for marketer {marketer_id} has no payable rewards left",
+                    marketer_id,
+                    item.status,
+                )
+            else:
+                fresh[marketer_id] = (batched, stale_held)
         if refusal is not None:
             db.commit()  # release the locks; nothing was modified
             raise refusal
@@ -892,6 +1065,10 @@ def mark_paid(
     now = datetime.now(UTC)
     try:
         for marketer_id, item in locked:
+            batched, stale_held = fresh[marketer_id]
+            _detach(stale_held)  # held since the claim: leaves the batch, releasable afterwards
+            item.reward_ids = [str(r.id) for r in batched]
+            item.amount_kobo = sum(r.amount_kobo for r in batched)
             item.transfer_reference = cleaned[marketer_id]
             _mark_item_paid(db, item, cleaned[marketer_id], now, "manual")
         db.flush()
@@ -963,6 +1140,18 @@ def apply_transfer_event(db: Session, event_type: str, data: Any) -> dict:
             outcome = _result("ignored", "amount_mismatch", item)
         elif item.status == _PS.PAID:
             outcome = _result("duplicate", None, item)
+        elif item.failure_reason == REVERSED or item.provider_status == REVERSED:
+            # A success arriving after the reversal (out of order, or a replayed signed body)
+            # must not mark the item paid again.
+            logger.error(f"transfer.success for reversed item {item.id} ignored")
+            outcome = _result("ignored", "item_reversed", item)
+        elif item.status == _PS.FAILED and not (
+            isinstance(amount, int) and not isinstance(amount, bool)
+        ):
+            # A late success on a failed item (e.g. an OTP finalised in the dashboard) is only
+            # honoured when the event proves the amount; the reference already matched.
+            logger.error(f"transfer.success for failed item {item.id} without an amount; ignored")
+            outcome = _result("ignored", "amount_missing", item)
         elif item.status in (_PS.PROCESSING, _PS.FAILED):
             _mark_item_paid(db, item, reference, now, "success")
             outcome = _result("processed", None, item)
@@ -1002,20 +1191,46 @@ def apply_transfer_event(db: Session, event_type: str, data: Any) -> dict:
 
 
 def _failure_text(data: dict, default: str) -> str:
-    message = data.get("message") or data.get("reason")
+    message = data.get("message")  # never our own transfer `reason` (it echoes what we sent)
     return str(message)[:200] if isinstance(message, str) and message else default
 
 
 def _unpay_item(db: Session, item: PayoutItem) -> None:
-    """A paid transfer was reversed: the item fails and its rewards go back to ``batched`` (R35)."""
+    """A paid transfer was reversed: the item fails and its rewards are re-opened (R35, R37).
+
+    A reward goes back to ``batched`` ONLY if it was batched when the item was claimed (it is not
+    ``paid_in_flight``) and its attribution carries no recorded dispute. Otherwise it goes to
+    ``held`` (``payment_reversed_after_hold``, or ``payment_dispute`` when a dispute is recorded)
+    with its batch link cleared, so it cannot be paid again without an admin's decision.
+    """
     reference = item.transfer_reference
     for reward in _lock_rewards_by_id(db, item):
-        if reward.status == RewardStatus.PAID and reward.transfer_reference == reference:
+        if reward.status != RewardStatus.PAID or reward.transfer_reference != reference:
+            continue
+        reward.paid_at = None
+        reward.transfer_reference = None
+        disputed = (
+            reward.tenant_id is not None
+            and db.scalar(
+                select(ReferralAttribution.disputed_at).where(
+                    ReferralAttribution.tenant_id == reward.tenant_id
+                )
+            )
+            is not None
+        )
+        in_flight = PAID_IN_FLIGHT in (reward.review_reasons or [])
+        if disputed or in_flight:
+            reasons = list(reward.review_reasons or [])
+            reason = PAYMENT_DISPUTE if disputed else REVERSED_AFTER_HOLD
+            if reason not in reasons:
+                reasons.append(reason)
+            reward.review_reasons = reasons
+            reward.status = RewardStatus.HELD
+            reward.payout_batch_id = None
+        else:
             reward.status = RewardStatus.BATCHED
             reward.payout_batch_id = item.batch_id
-            reward.paid_at = None
-            reward.transfer_reference = None
     item.status = _PS.FAILED
-    item.failure_reason = "reversed"
-    item.provider_status = "reversed"
+    item.failure_reason = REVERSED
+    item.provider_status = REVERSED
     item.paid_at = None
