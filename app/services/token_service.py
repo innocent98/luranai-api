@@ -325,7 +325,7 @@ class TokenService:
             logger.info(f"Created invite token for marketer {marketer_id}")
             return token
         except Exception as e:
-            logger.error(f"Failed to create marketer invite token: {e}")
+            logger.error(f"Failed to create marketer invite token: {type(e).__name__}")
             raise
 
     @staticmethod
@@ -355,7 +355,9 @@ class TokenService:
                 )
             )
         except Exception as e:
-            logger.error(f"Failed to set marketer reset cooldown for {marketer_id}: {e}")
+            logger.error(
+                f"Failed to set marketer reset cooldown for {marketer_id}: {type(e).__name__}"
+            )
             raise
 
     def invalidate_marketer_tokens(self, marketer_id: UUID) -> int:
@@ -376,7 +378,9 @@ class TokenService:
                 )
             )
         except Exception as e:
-            logger.error(f"Failed to invalidate marketer tokens for {marketer_id}: {e}")
+            logger.error(
+                f"Failed to invalidate marketer tokens for {marketer_id}: {type(e).__name__}"
+            )
             raise
 
     def verify_marketer_invite_token(self, token: str) -> dict | None:
@@ -406,7 +410,7 @@ class TokenService:
                 "email": data["email"],
             }
         except Exception as e:
-            logger.error(f"Failed to verify marketer invite token: {e}")
+            logger.error(f"Failed to verify marketer invite token: {type(e).__name__}")
             return None
 
     def invalidate_all_user_tokens(self, user_id: UUID) -> None:

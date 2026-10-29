@@ -15,8 +15,9 @@ from loguru import logger
 from app.core.config import settings
 
 # Socket timeout for every SMTP connection: some sends run right after a commit inside a request
-# (payment webhook, payout approval), and a dead mail server must not hang that request.
-SMTP_TIMEOUT_SECONDS = 10
+# (payment webhook, payout approval), and a dead mail server must not hang that request. 30 s
+# leaves room for slow handshakes and quote-PDF attachments, which share this code path.
+SMTP_TIMEOUT_SECONDS = 30
 
 
 class EmailService:
@@ -408,7 +409,7 @@ class EmailService:
             return self._send_email(marketer_email, subject, html_content)
 
         except Exception as e:
-            logger.error(f"Failed to send marketer invite email: {e}")
+            logger.error(f"Failed to send marketer invite email: {type(e).__name__}")
             return False
 
     def send_marketer_password_reset_email(
@@ -445,7 +446,7 @@ class EmailService:
             return self._send_email(marketer_email, subject, html_content)
 
         except Exception as e:
-            logger.error(f"Failed to send marketer password reset email: {e}")
+            logger.error(f"Failed to send marketer password reset email: {type(e).__name__}")
             return False
 
     @staticmethod

@@ -164,6 +164,13 @@ class PayoutBatchDetail(PayoutBatchSummary):
     items: list[PayoutItemResponse]
 
 
+class PrepareBatchResponse(BaseModel):
+    """Result of preparing a payout batch by hand: the new draft, or ``null`` when no reward was
+    payable (calling again is harmless)."""
+
+    batch: PayoutBatchDetail | None = None
+
+
 class MarkPaidEntry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -173,8 +180,9 @@ class MarkPaidEntry(BaseModel):
         ...,
         gt=0,
         description=(
-            "The amount actually paid, in kobo. Must equal the item's current amount; "
-            "a mismatch is refused with 409 amount_mismatch so the admin re-checks."
+            "The amount actually paid, in kobo. Must equal the item's current_amount_kobo or, "
+            "for an awaiting-manual item, its claimed amount_kobo; anything else is refused with "
+            "409 amount_mismatch so the admin re-checks."
         ),
     )
 

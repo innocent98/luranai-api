@@ -610,3 +610,157 @@ def test_invite_email_links_to_set_password_page(monkeypatch):
     assert "mary-1" in captured["html"]
     assert "Mary <b>" not in captured["html"]  # autoescaped
     assert "7 days" in captured["html"]
+
+
+# --- the change and its audit entry are one commit (M2) ----------------------------------------
+# These tests need a REAL rollback. The shared ``db_session`` joins the test's outer transaction,
+# so a ``rollback()`` would wipe the whole test (see the conftest follow-up in the SOP); the app
+# therefore gets its own session on the same connection that opens a SAVEPOINT per transaction.
+
+
+@pytest.fixture
+def sp_client(db_session):
+    from fastapi.testclient import TestClient
+    from sqlalchemy.orm import Session
+
+    from app.api.deps import get_db
+    from app.main import app
+
+    session = Session(bind=db_session.get_bind(), join_transaction_mode="create_savepoint")
+
+    def override_get_db():
+        yield session
+
+    app.dependency_overrides[get_db] = override_get_db
+    try:
+        with TestClient(app) as client:
+            client.session = session  # setup that must live inside the app's transactions
+            yield client
+    finally:
+        app.dependency_overrides.clear()
+        session.close()
+
+
+@pytest.fixture
+def audit_log(monkeypatch):
+    """Patch the audit write: ``mode["fail"]`` makes it raise (with sensitive text in it)."""
+    from app.services.enhanced_audit_service import EnhancedAuditService
+
+    real = EnhancedAuditService.log_action
+    mode = {"fail": True}
+
+    def maybe_explode(self, *args, **kwargs):
+        if mode["fail"]:
+            raise RuntimeError("audit-store-down 0000077777 SECRET-ACCOUNT-NAME")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(EnhancedAuditService, "log_action", maybe_explode)
+    return mode
+
+
+def _audit_rows(db, marketer_id):
+    from app.db.models.audit import AuditLog
+
+    db.expire_all()
+    return list(db.scalars(select(AuditLog).where(AuditLog.resource_id == marketer_id)))
+
+
+def test_a_successful_change_commits_with_exactly_one_audit_entry(
+    sp_client, auth, fake_email, db_session
+):
+    from uuid import UUID
+
+    mid = _create(sp_client, auth).json()["id"]
+    assert len(_audit_rows(db_session, UUID(mid))) == 1  # create_marketer
+    new_bank = {"bank_code": "111", "account_number": "0000077777", "account_name": "NEW NAME"}
+    assert sp_client.patch(f"{BASE}/{mid}/bank", json=new_bank, headers=auth).status_code == 200
+    assert sp_client.post(f"{BASE}/{mid}/suspend", headers=auth).status_code == 200
+    assert sp_client.post(f"{BASE}/{mid}/reactivate", headers=auth).status_code == 200
+
+    rows = _audit_rows(db_session, UUID(mid))
+    assert sorted(r.action for r in rows) == [
+        "create_marketer",
+        "reactivate_marketer",
+        "suspend_marketer",
+        "update_marketer_bank",
+    ]
+    assert "0000077777" not in str([r.changes for r in rows])  # never the bank details
+
+
+def test_bank_change_whose_audit_fails_is_rolled_back_with_a_fixed_500(
+    sp_client, auth, fake_email, db_session, audit_log
+):
+    from loguru import logger
+
+    audit_log["fail"] = False
+    mid = _create(sp_client, auth).json()["id"]
+    old = sp_client.session.get(Marketer, mid)
+    old.paystack_recipient_code = "RCP_old"
+    sp_client.session.commit()
+
+    audit_log["fail"] = True
+    messages: list[str] = []
+    sink = logger.add(lambda m: messages.append(str(m)), level="DEBUG")
+    try:
+        resp = sp_client.patch(
+            f"{BASE}/{mid}/bank",
+            json={"bank_code": "111", "account_number": "0000077777", "account_name": "SECRET"},
+            headers=auth,
+        )
+    finally:
+        logger.remove(sink)
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == {
+        "code": "bank_update_failed",
+        "message": "The change was not saved",
+    }
+    db_session.expire_all()
+    m = db_session.get(Marketer, mid)
+    assert m.account_number == FAKE_ACCOUNT and m.bank_code == FAKE_BANK  # payee unchanged
+    assert m.paystack_recipient_code == "RCP_old"
+    logged = "\n".join(messages)
+    assert "RuntimeError" in logged and mid in logged
+    assert "0000077777" not in logged and "SECRET" not in logged
+
+
+def test_suspend_and_reactivate_whose_audit_fails_change_nothing(
+    sp_client, auth, fake_email, db_session, audit_log
+):
+    audit_log["fail"] = False
+    mid = _create(sp_client, auth).json()["id"]
+    reward = _reward(sp_client.session, mid, RewardStatus.PENDING)
+    sp_client.session.commit()
+
+    audit_log["fail"] = True
+    resp = sp_client.post(f"{BASE}/{mid}/suspend", headers=auth)
+    assert resp.status_code == 500
+    assert resp.json()["detail"]["code"] == "marketer_suspend_failed"
+    db_session.expire_all()
+    assert db_session.get(Marketer, mid).status == MarketerStatus.ACTIVE
+    assert db_session.get(ReferralReward, reward.id).status == RewardStatus.PENDING
+
+    audit_log["fail"] = False
+    assert sp_client.post(f"{BASE}/{mid}/suspend", headers=auth).status_code == 200
+    audit_log["fail"] = True
+    resp = sp_client.post(f"{BASE}/{mid}/reactivate", headers=auth)
+    assert resp.status_code == 500
+    assert resp.json()["detail"]["code"] == "marketer_reactivate_failed"
+    db_session.expire_all()
+    assert db_session.get(Marketer, mid).status == MarketerStatus.SUSPENDED
+
+
+def test_create_whose_audit_fails_creates_nothing_and_sends_no_invite(
+    sp_client, auth, fake_email, db_session, audit_log
+):
+    payload = _payload()
+    resp = sp_client.post(f"{BASE}/", json=payload, headers=auth)
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"]["code"] == "marketer_create_failed"
+    assert fake_email.sent == []
+    db_session.expire_all()
+    found = db_session.scalar(
+        select(Marketer).where(Marketer.email_hash == hash_for_lookup(payload["email"]))
+    )
+    assert found is None

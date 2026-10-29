@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import OperationalError
 
 from app.db.models.payment import PaymentTransaction
 from app.db.models.referral import (
@@ -242,6 +243,123 @@ def test_prepare_batch_job_failure_rolls_back_closes_and_logs_class_only(db_sess
     logged = "\n".join(messages)
     assert "RuntimeError" in logged
     assert "secret-detail-in-exception" not in logged
+
+
+class _PgError(Exception):
+    """Stands in for a psycopg2 error: only ``pgcode`` matters."""
+
+    def __init__(self, pgcode: str, message: str = "boom"):
+        super().__init__(message)
+        self.pgcode = pgcode
+
+
+def _db_error(pgcode: str, message: str = "boom"):
+    from sqlalchemy.exc import OperationalError
+
+    return OperationalError(
+        "UPDATE secret_table SET x = :p", {"p": "SECRET-PARAM"}, _PgError(pgcode, message)
+    )
+
+
+class _CountingSession:
+    closed = False
+
+    def __init__(self):
+        self.rollbacks = 0
+        self.commits = 0
+
+    def rollback(self):
+        self.rollbacks += 1
+
+    def commit(self):
+        self.commits += 1
+
+    def close(self):
+        self.closed = True
+
+
+def test_prepare_batch_job_retries_a_deadlock_and_then_succeeds(monkeypatch):
+    session = _CountingSession()
+    monkeypatch.setattr(referral_worker, "SessionLocal", lambda: session)
+    monkeypatch.setattr(referral_worker, "PREPARE_RETRY_DELAY_SECONDS", 0)
+    calls = []
+
+    def flaky(db, now):
+        calls.append(now)
+        if len(calls) <= 2:
+            raise _db_error("40P01")  # deadlock_detected
+        return None
+
+    monkeypatch.setattr(referral_worker, "prepare_batch", flaky)
+
+    assert asyncio.run(referral_worker.referral_prepare_batch({})) is None
+
+    assert len(calls) == 3
+    assert session.rollbacks == 2 and session.closed is True
+
+
+def test_prepare_batch_job_retries_a_serialization_failure(monkeypatch):
+    session = _CountingSession()
+    monkeypatch.setattr(referral_worker, "SessionLocal", lambda: session)
+    monkeypatch.setattr(referral_worker, "PREPARE_RETRY_DELAY_SECONDS", 0)
+    calls = []
+
+    def flaky(db, now):
+        calls.append(1)
+        if len(calls) == 1:
+            raise _db_error("40001")
+        return None
+
+    monkeypatch.setattr(referral_worker, "prepare_batch", flaky)
+    assert asyncio.run(referral_worker.referral_prepare_batch({})) is None
+    assert len(calls) == 2
+
+
+def test_prepare_batch_job_gives_up_after_three_retries_logging_the_class_only(monkeypatch):
+    from loguru import logger
+
+    session = _CountingSession()
+    monkeypatch.setattr(referral_worker, "SessionLocal", lambda: session)
+    monkeypatch.setattr(referral_worker, "PREPARE_RETRY_DELAY_SECONDS", 0)
+    calls = []
+
+    def always(db, now):
+        calls.append(1)
+        raise _db_error("40P01", "deadlock detected SECRET-DETAIL")
+
+    monkeypatch.setattr(referral_worker, "prepare_batch", always)
+    messages: list[str] = []
+    sink = logger.add(lambda m: messages.append(str(m)), level="DEBUG")
+    try:
+        with pytest.raises(Exception) as exc:
+            asyncio.run(referral_worker.referral_prepare_batch({}))
+    finally:
+        logger.remove(sink)
+
+    assert type(exc.value).__name__ == "OperationalError"
+    assert len(calls) == 4  # the first try and three retries
+    assert session.closed is True
+    errors = [m for m in messages if "ERROR" in m.split("|")[1]] if messages else []
+    logged = "\n".join(messages)
+    assert "OperationalError" in logged
+    assert "SECRET-DETAIL" not in logged and "SECRET-PARAM" not in logged
+    assert any("preparation failed" in m for m in errors)
+
+
+def test_prepare_batch_job_does_not_retry_other_errors(monkeypatch):
+    session = _CountingSession()
+    monkeypatch.setattr(referral_worker, "SessionLocal", lambda: session)
+    monkeypatch.setattr(referral_worker, "PREPARE_RETRY_DELAY_SECONDS", 0)
+    calls = []
+
+    def other(db, now):
+        calls.append(1)
+        raise _db_error("23505")  # unique violation: not a lock conflict
+
+    monkeypatch.setattr(referral_worker, "prepare_batch", other)
+    with pytest.raises(OperationalError):
+        asyncio.run(referral_worker.referral_prepare_batch({}))
+    assert len(calls) == 1
 
 
 def test_prepare_batch_job_is_registered_on_the_1st_and_15th_at_0400_utc():

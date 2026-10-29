@@ -7,11 +7,11 @@ bank details are obviously fake placeholders.
 
 import json
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.db.models.audit import AuditLog
 from app.db.models.referral import (
@@ -142,6 +142,7 @@ def _all_calls(client, headers, batch_id):
             },
             **kw,
         ),
+        client.post(f"{BASE}/batches/prepare", **kw),
     ]
 
 
@@ -150,8 +151,8 @@ def test_no_token_and_tenant_token_are_401(db_session, pg_client, regular_user_t
     batch, _, _ = _batch_of(db_session)
     tenant_headers = {"Authorization": f"Bearer {regular_user_token}"}
 
-    assert [r.status_code for r in _all_calls(pg_client, None, batch.id)] == [401] * 5
-    assert [r.status_code for r in _all_calls(pg_client, tenant_headers, batch.id)] == [401] * 5
+    assert [r.status_code for r in _all_calls(pg_client, None, batch.id)] == [401] * 6
+    assert [r.status_code for r in _all_calls(pg_client, tenant_headers, batch.id)] == [401] * 6
     assert provider.pay_calls == []
 
 
@@ -163,7 +164,7 @@ def test_plain_admin_reads_but_cannot_write(
 
     got = _all_calls(pg_client, plain_admin_headers, batch.id)
 
-    assert [r.status_code for r in got] == [200, 200, 403, 403, 403]
+    assert [r.status_code for r in got] == [200, 200, 403, 403, 403, 403]
     assert provider.pay_calls == [] and provider.verify_calls == []
     db_session.expire_all()
     assert db_session.get(PayoutBatch, batch.id).status == BatchStatus.DRAFT
@@ -173,8 +174,9 @@ def test_super_admin_passes_the_role_gate(db_session, pg_client, auth, use_provi
     use_provider(FakeProvider())
     batch, _, _ = _batch_of(db_session)
     got = _all_calls(pg_client, auth, batch.id)
-    # approve ok; retry on a now-paid batch is a 200 no-op; mark-paid on a paid batch is a 409
-    assert [r.status_code for r in got] == [200, 200, 200, 200, 409]
+    # approve ok; retry on a now-paid batch is a 200 no-op; mark-paid on a paid batch is a 409;
+    # prepare has nothing payable (or prepares a new draft): 200 either way
+    assert [r.status_code for r in got] == [200, 200, 200, 200, 409, 200]
 
 
 # --- read shapes -----------------------------------------------------------------------------
@@ -707,6 +709,36 @@ def test_detail_shows_a_skipped_item_and_the_held_rewards_it_left_out(
     assert body["item_counts"]["skipped"] == 1 and body["item_counts"]["paid"] == 1
 
 
+def test_r49_mark_paid_accepts_the_claimed_or_the_current_amount_after_a_reward_was_held(
+    db_session, pg_client, auth, use_provider
+):
+    use_provider(FakeProvider(pay_fn=_manual_result))
+    m = _marketer(db_session)
+    r1 = _reward(db_session, m)
+    r2 = _reward(db_session, m, amount=300_000)
+    batch = prepare_batch(db_session, NOW)
+    assert _approve(pg_client, auth, batch.id).status_code == 200
+    db_session.expire_all()
+    db_session.get(ReferralReward, r2.id).status = RewardStatus.HELD  # a dispute, link kept
+    db_session.flush()
+
+    row = pg_client.get(f"{BASE}/batches/{batch.id}", headers=auth).json()["items"][0]
+    assert row["amount_kobo"] == 800_000 and row["current_amount_kobo"] == 500_000
+
+    wrong = _mark_paid(pg_client, auth, batch.id, [(m.id, "BANK-REF-X", 650_000)])
+    assert wrong.status_code == 409
+    detail = wrong.json()["detail"]
+    assert detail["code"] == "amount_mismatch"
+    assert detail["current_amount_kobo"] == 500_000 and detail["claimed_amount_kobo"] == 800_000
+
+    ok = _mark_paid(pg_client, auth, batch.id, [(m.id, "BANK-REF-X", 800_000)])
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["status"] == "paid"
+    db_session.expire_all()
+    assert db_session.get(ReferralReward, r1.id).status == RewardStatus.PAID
+    assert db_session.get(ReferralReward, r2.id).status == RewardStatus.PAID
+
+
 def test_mark_paid_with_an_amount_that_differs_is_409_amount_mismatch_and_changes_nothing(
     db_session, pg_client, auth, use_provider
 ):
@@ -720,6 +752,75 @@ def test_mark_paid_with_an_amount_that_differs_is_409_amount_mismatch_and_change
     detail = resp.json()["detail"]
     assert detail["code"] == "amount_mismatch"
     assert detail["marketer_id"] == str(a.id) and detail["current_amount_kobo"] == 500_000
+    assert detail["claimed_amount_kobo"] == 500_000  # awaiting_manual: the claimed amount too
     assert "123456" not in resp.text.replace("123_456", "")  # the submitted figure is not echoed
     assert _item(db_session, batch, a).status == PS.AWAITING_MANUAL
     assert _mark_paid(pg_client, auth, batch.id, [(a.id, "BANK-REF-A", 500_000)]).status_code == 200
+
+
+# --- prepare a batch by hand (M6) --------------------------------------------------------------
+
+
+def _unbatch(db):
+    """Other tests' leftovers must not be payable in the batch this test prepares."""
+    db.query(ReferralReward).filter(ReferralReward.status == RewardStatus.PAYABLE).update(
+        {"status": RewardStatus.HELD}
+    )
+    db.flush()
+
+
+def test_prepare_endpoint_creates_a_draft_batch_audits_ids_and_counts_and_is_idempotent(
+    db_session, pg_client, auth, use_provider, super_admin_user
+):
+    provider = use_provider(FakeProvider())
+    _unbatch(db_session)
+    a, b = _marketer(db_session), _marketer(db_session)
+    _reward(db_session, a)
+    _reward(db_session, b, amount=300_000)
+
+    first = pg_client.post(f"{BASE}/batches/prepare", headers=auth)
+
+    assert first.status_code == 200, first.text
+    body = first.json()
+    detail = body["batch"]
+    assert detail["status"] == "draft" and detail["total_kobo"] == 800_000
+    assert detail["item_counts"]["pending"] == 2 and len(detail["items"]) == 2
+    _no_leak(first)
+    batch_id = UUID(detail["id"])
+    rows = _audit_rows(db_session, batch_id)
+    assert [r.action for r in rows] == ["prepare_payout_batch"]
+    blob = json.dumps(rows[0].changes, default=str)
+    assert rows[0].changes["metadata"]["total_kobo"] == 800_000
+    assert rows[0].changes["performed_by_id"] == str(super_admin_user.id)
+    assert "0000000000" not in blob and "bank" not in blob
+    assert provider.pay_calls == []  # preparing never sends anything
+
+    second = pg_client.post(f"{BASE}/batches/prepare", headers=auth)  # idempotent
+    assert second.status_code == 200
+    assert second.json() == {"batch": None}
+
+
+def test_prepare_endpoint_with_nothing_payable_is_200_with_a_null_batch_and_no_audit(
+    db_session, pg_client, auth
+):
+    _unbatch(db_session)
+    before = db_session.scalar(
+        select(func.count()).select_from(AuditLog).where(AuditLog.action == "prepare_payout_batch")
+    )
+
+    resp = pg_client.post(f"{BASE}/batches/prepare", headers=auth)
+
+    assert resp.status_code == 200 and resp.json() == {"batch": None}
+    after = db_session.scalar(
+        select(func.count()).select_from(AuditLog).where(AuditLog.action == "prepare_payout_batch")
+    )
+    assert after == before
+
+
+def test_prepare_route_is_not_shadowed_by_the_batch_id_routes(pg_client, auth):
+    paths = [r.path for r in pg_client.app.routes if hasattr(r, "path")]
+    prepare = f"{BASE}/batches/prepare"
+    by_id = f"{BASE}/batches/{{batch_id:uuid}}"
+    assert prepare in paths
+    assert paths.index(prepare) < paths.index(by_id)
+    assert pg_client.get(f"{BASE}/batches/not-a-uuid", headers=auth).status_code == 404

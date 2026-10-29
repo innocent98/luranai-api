@@ -1,6 +1,7 @@
 """Platform-admin operations on marketers: onboard, edit payout details, suspend, reactivate."""
 
 import re
+from collections.abc import Callable
 from uuid import UUID
 
 from loguru import logger
@@ -36,6 +37,17 @@ class MarketerCodeTakenError(MarketerError):
 
 class MarketerEmailInUseError(MarketerError):
     code = "email_in_use"
+
+
+class MarketerAuditError(MarketerError):
+    """The audit entry for a change could not be written, so the change was rolled back."""
+
+    code = "audit_failed"
+
+
+# Writes the audit entry for a change; it must commit the session (``log_action`` does), so the
+# change and its record become durable in one commit.
+AuditHook = Callable[[Marketer], None]
 
 
 def normalise_email(email: str) -> str:
@@ -74,6 +86,28 @@ class MarketerService:
         if marketer is None:
             raise MarketerNotFoundError("Marketer not found")
         return marketer
+
+    def _commit_audited(self, marketer: Marketer, audit: AuditHook | None) -> None:
+        """Commit the already-flushed change; with ``audit`` the audit write carries that commit.
+
+        The change decides who is paid, so it must never be durable without its record: if the
+        audit fails the whole change is rolled back and ``MarketerAuditError`` is raised (class
+        and id only are logged, the exception text can embed the SQL parameters).
+        """
+        if audit is None:
+            self.db.commit()
+            return
+        marketer_id = marketer.id
+        try:
+            self.db.flush()
+            audit(marketer)
+        except Exception as exc:
+            self.db.rollback()
+            logger.error(
+                f"Audit write failed; change to marketer {marketer_id} rolled back "
+                f"({type(exc).__name__})"
+            )
+            raise MarketerAuditError("The change was not saved") from exc
 
     def _code_taken(self, code: str) -> bool:
         return (
@@ -151,8 +185,12 @@ class MarketerService:
         bank_code: str,
         account_number: str,
         account_name: str,
+        audit: AuditHook | None = None,
     ) -> Marketer:
         """Onboard a marketer and email the one-time set-password link.
+
+        With ``audit`` the marketer row and its audit entry commit together; if the audit fails
+        nothing is created and no invite is sent (``MarketerAuditError``).
 
         Raises ``ValueError`` (invalid code / bank details), ``MarketerCodeTakenError`` or
         ``MarketerEmailInUseError`` (also when the email belongs to a tenant user).
@@ -193,7 +231,7 @@ class MarketerService:
             if self._email_in_use(email):
                 raise MarketerEmailInUseError("Email already in use") from exc
             raise
-        self.db.commit()
+        self._commit_audited(marketer, audit)
         self.db.refresh(marketer)
 
         self._send_invite(marketer)
@@ -212,10 +250,17 @@ class MarketerService:
             if not sent:
                 logger.error(f"Marketer invite email was not sent for marketer {marketer.id}")
         except Exception as exc:
-            logger.error(f"Failed to send marketer invite for marketer {marketer.id}: {exc}")
+            logger.error(
+                f"Failed to send marketer invite for marketer {marketer.id}: {type(exc).__name__}"
+            )
 
     def update_bank_details(
-        self, marketer_id: UUID, bank_code: str, account_number: str, account_name: str
+        self,
+        marketer_id: UUID,
+        bank_code: str,
+        account_number: str,
+        account_name: str,
+        audit: AuditHook | None = None,
     ) -> Marketer:
         bank_code, account_number, account_name = self._validate_bank(
             bank_code, account_number, account_name
@@ -226,11 +271,11 @@ class MarketerService:
         marketer.account_name = account_name
         # A stored transfer recipient points at the old account: force re-creation on next payout.
         marketer.paystack_recipient_code = None
-        self.db.commit()
+        self._commit_audited(marketer, audit)
         self.db.refresh(marketer)
         return marketer
 
-    def suspend(self, marketer_id: UUID) -> Marketer:
+    def suspend(self, marketer_id: UUID, audit: AuditHook | None = None) -> Marketer:
         """Suspend and hold the marketer's unpaid rewards. Safe to call twice."""
         marketer = self._get_for_update(marketer_id)
         marketer.status = MarketerStatus.SUSPENDED
@@ -253,14 +298,14 @@ class MarketerService:
                 reasons.append(SUSPENDED_REASON)
             reward.review_reasons = reasons  # new list: JSON columns do not track in-place edits
             reward.status = RewardStatus.HELD
-        self.db.commit()
+        self._commit_audited(marketer, audit)
         self.db.refresh(marketer)
         return marketer
 
-    def reactivate(self, marketer_id: UUID) -> Marketer:
+    def reactivate(self, marketer_id: UUID, audit: AuditHook | None = None) -> Marketer:
         """Set the marketer active again. Held rewards stay held: an admin releases them."""
         marketer = self._get_for_update(marketer_id)
         marketer.status = MarketerStatus.ACTIVE
-        self.db.commit()
+        self._commit_audited(marketer, audit)
         self.db.refresh(marketer)
         return marketer

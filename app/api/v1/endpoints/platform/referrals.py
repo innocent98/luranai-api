@@ -1,5 +1,6 @@
 """Platform admin endpoints for onboarding and managing referral-program marketers."""
 
+from datetime import UTC, datetime
 from typing import Literal, NoReturn
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from app.schemas.referral import (
     MarkPaidRequest,
     PayoutBatchDetail,
     PayoutBatchListResponse,
+    PrepareBatchResponse,
     ReferralConfigResponse,
     ReferralConfigUpdate,
     RewardActionRequest,
@@ -33,6 +35,7 @@ from app.services.referral.config import (
     update_referral_config,
 )
 from app.services.referral.marketer_service import (
+    MarketerAuditError,
     MarketerCodeTakenError,
     MarketerEmailInUseError,
     MarketerError,
@@ -73,15 +76,23 @@ def _raise_for(exc: Exception) -> NoReturn:
     ) from exc
 
 
-def _audit(
-    db: Session,
-    admin: PlatformAdminResponse,
-    action: str,
-    marketer: Marketer,
-    description: str,
-) -> None:
-    """Record the admin action. Never carries bank details, and never fails the request."""
-    try:
+_FAILED_CODES = {
+    "create_marketer": "marketer_create_failed",
+    "update_marketer_bank": "bank_update_failed",
+    "suspend_marketer": "marketer_suspend_failed",
+    "reactivate_marketer": "marketer_reactivate_failed",
+}
+
+
+def _audit_hook(db: Session, admin: PlatformAdminResponse, action: str, description: str):
+    """The audit write for a marketer change, handed to ``MarketerService``.
+
+    It runs inside the service, which flushes the change first: ``log_action`` commits, so the
+    change and its record become durable in ONE commit (and a failure rolls the change back, see
+    ``MarketerService._commit_audited``). Never carries bank details.
+    """
+
+    def write(marketer: Marketer) -> None:
         EnhancedAuditService(db).log_action(
             action_type=action,
             performed_by_type="platform_admin",
@@ -89,16 +100,19 @@ def _audit(
             performed_by_name=admin.email,
             target_type="marketer",
             target_id=marketer.id,
-            description=description,
+            description=f"{description} {marketer.code}",
             severity="medium",
             metadata={"code": marketer.code},
         )
-    except Exception as exc:
-        db.rollback()
-        logger.error(
-            f"Failed to write audit log for {action} on marketer {marketer.id}: "
-            f"{type(exc).__name__}"
-        )
+
+    return write
+
+
+def _raise_audit_failed(action: str) -> NoReturn:
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail={"code": _FAILED_CODES[action], "message": "The change was not saved"},
+    )
 
 
 @router.post(
@@ -122,10 +136,12 @@ def create_marketer(
             bank_code=request.bank_code,
             account_number=request.account_number,
             account_name=request.account_name,
+            audit=_audit_hook(db, current_admin, "create_marketer", "Created marketer"),
         )
+    except MarketerAuditError:
+        _raise_audit_failed("create_marketer")
     except (MarketerError, ValueError) as exc:
         _raise_for(exc)
-    _audit(db, current_admin, "create_marketer", marketer, f"Created marketer {marketer.code}")
     return MarketerResponse.from_marketer(marketer)
 
 
@@ -184,16 +200,14 @@ def update_marketer_bank(
             bank_code=request.bank_code,
             account_number=request.account_number,
             account_name=request.account_name,
+            audit=_audit_hook(
+                db, current_admin, "update_marketer_bank", "Updated payout details for marketer"
+            ),
         )
+    except MarketerAuditError:
+        _raise_audit_failed("update_marketer_bank")
     except (MarketerError, ValueError) as exc:
         _raise_for(exc)
-    _audit(
-        db,
-        current_admin,
-        "update_marketer_bank",
-        marketer,
-        f"Updated payout details for marketer {marketer.code}",
-    )
     return MarketerResponse.from_marketer(marketer)
 
 
@@ -209,10 +223,14 @@ def suspend_marketer(
 ):
     """Suspend a marketer: the code stops attributing and unpaid rewards move to held."""
     try:
-        marketer = MarketerService(db).suspend(marketer_id)
+        marketer = MarketerService(db).suspend(
+            marketer_id,
+            audit=_audit_hook(db, current_admin, "suspend_marketer", "Suspended marketer"),
+        )
+    except MarketerAuditError:
+        _raise_audit_failed("suspend_marketer")
     except MarketerError as exc:
         _raise_for(exc)
-    _audit(db, current_admin, "suspend_marketer", marketer, f"Suspended marketer {marketer.code}")
     return MarketerResponse.from_marketer(marketer)
 
 
@@ -228,12 +246,14 @@ def reactivate_marketer(
 ):
     """Reactivate a marketer. Held rewards are not released automatically."""
     try:
-        marketer = MarketerService(db).reactivate(marketer_id)
+        marketer = MarketerService(db).reactivate(
+            marketer_id,
+            audit=_audit_hook(db, current_admin, "reactivate_marketer", "Reactivated marketer"),
+        )
+    except MarketerAuditError:
+        _raise_audit_failed("reactivate_marketer")
     except MarketerError as exc:
         _raise_for(exc)
-    _audit(
-        db, current_admin, "reactivate_marketer", marketer, f"Reactivated marketer {marketer.code}"
-    )
     return MarketerResponse.from_marketer(marketer)
 
 
@@ -252,8 +272,8 @@ _BATCH_ERROR_MESSAGES = {
         "The earlier transfer could not be confirmed as failed, so it was not marked paid"
     ),
     "amount_mismatch": (
-        "The amount differs from what the item is worth now (a reward may have been held); "
-        "check what you actually paid"
+        "The amount matches neither the item's current amount nor its claimed amount "
+        "(a reward may have been held); check what you actually paid"
     ),
     "bank_reference_in_use": "That bank reference is already recorded against another payment",
     "payout_state_invalid": "The request conflicts with the current state of the batch",
@@ -272,6 +292,7 @@ def _raise_for_payout(exc: payouts.PayoutError) -> NoReturn:
     if isinstance(exc, payouts.AmountMismatchError):
         detail["marketer_id"] = str(exc.marketer_id)
         detail["current_amount_kobo"] = exc.current_amount_kobo
+        detail["claimed_amount_kobo"] = exc.claimed_amount_kobo
     if isinstance(exc, payouts.ItemNotMarkableError):
         detail["marketer_id"] = str(exc.marketer_id)
         detail["item_status"] = exc.item_status.value
@@ -337,6 +358,48 @@ def list_batches(
 ):
     """Payout batches, newest first."""
     return payout_queries.list_batches(db, limit, offset)
+
+
+@router.post(
+    "/batches/prepare",
+    response_model=PrepareBatchResponse,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def prepare_batch(
+    db: Session = Depends(get_db),
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
+):
+    """Group every payable reward into a new ``draft`` batch right now (the 1st/15th cron does the
+    same; this is the re-run when that cron failed). Nothing is sent: a super admin still has to
+    approve the batch. Idempotent: with nothing payable it answers ``{"batch": null}``.
+
+    Declared before ``/batches/{batch_id:uuid}``; the uuid convertor means the literal can never
+    be read as a batch id either way. The audit entry carries the batch id, totals and counts.
+    """
+    try:
+        batch = payouts.prepare_batch(db, datetime.now(UTC))
+    except Exception as exc:
+        db.rollback()
+        logger.error(
+            f"Manual payout batch preparation failed (admin {current_admin.id}): "
+            f"{type(exc).__name__}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "prepare_failed", "message": "The batch was not prepared"},
+        ) from exc
+    if batch is None:
+        return PrepareBatchResponse(batch=None)
+    detail = _detail(db, batch.id)
+    _audit_batch(
+        db,
+        current_admin,
+        "prepare_payout_batch",
+        detail.id,
+        f"Prepared payout batch {detail.id}",
+        _counts_metadata(detail),
+    )
+    return PrepareBatchResponse(batch=detail)
 
 
 @router.get(
@@ -433,10 +496,11 @@ def mark_batch_paid(
     current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
 ):
     """Record payments made outside the system. All entries are applied together or none are.
-    Each entry carries the ``amount_kobo`` actually paid; if it differs from the item's current
-    amount (a reward may have been held since) the call is refused with 409 ``amount_mismatch``
-    and nothing changes. The audit entry carries the batch id and the number of items, never the
-    bank references."""
+    Each entry carries the ``amount_kobo`` actually paid. It must equal the item's current amount
+    (``current_amount_kobo``) or, for an awaiting-manual item, its claimed ``amount_kobo`` (the
+    admin may have paid it before a reward was held); anything else is refused with 409
+    ``amount_mismatch`` (carrying both figures) and nothing changes. The audit entry carries the
+    batch id and the number of items, never the bank references."""
     entries = [
         (entry.marketer_id, entry.bank_reference, entry.amount_kobo) for entry in request.items
     ]

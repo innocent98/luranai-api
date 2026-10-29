@@ -524,7 +524,8 @@ def test_smtp_connections_carry_a_socket_timeout(monkeypatch):
         assert EmailService()._send_email("to@example.com", "s", "<p>x</p>") is True
 
     assert seen == [email_module.SMTP_TIMEOUT_SECONDS] * 2
-    assert 0 < email_module.SMTP_TIMEOUT_SECONDS <= 30
+    # 30 s: quote-PDF attachments and slow handshakes share this path (a 10 s limit cut them off)
+    assert email_module.SMTP_TIMEOUT_SECONDS == 30
 
 
 def test_a_flush_failure_inside_the_reward_savepoint_cannot_break_the_payment(
@@ -567,3 +568,92 @@ def test_a_flush_failure_inside_the_reward_savepoint_cannot_break_the_payment(
     assert len(history) == 1
     assert _reward_of(db_session, tenant) is None
     assert _to(sent, marketer) == []  # no reward, so no notice
+
+
+# --------------------------------------------------------------------------- log hygiene (M7)
+
+LEAK = "secret-person@example.com sk_live_leaked_value"
+
+
+def _capture_log():
+    lines: list[str] = []
+    sink = logger.add(lambda message: lines.append(str(message)), level="DEBUG")
+    return lines, sink
+
+
+def test_marketer_email_senders_log_the_exception_class_only(monkeypatch):
+    def boom(self, *args, **kwargs):
+        raise RuntimeError(LEAK)
+
+    monkeypatch.setattr(EmailService, "_send_email", boom)
+    lines, sink = _capture_log()
+    try:
+        service = EmailService()
+        assert service.send_marketer_invite_email("m@example.com", "M", "code-x", "tok") is False
+        assert service.send_marketer_password_reset_email("m@example.com", "M", "tok") is False
+    finally:
+        logger.remove(sink)
+
+    log_text = "\n".join(lines)
+    assert "RuntimeError" in log_text
+    assert "secret-person" not in log_text and "sk_live_leaked_value" not in log_text
+
+
+def test_marketer_invite_and_reset_senders_log_the_exception_class_only(monkeypatch):
+    from uuid import uuid4
+
+    from app.services.referral import marketer_auth_service
+    from app.services.referral.marketer_service import MarketerService
+
+    def boom(*args, **kwargs):
+        raise RuntimeError(LEAK)
+
+    monkeypatch.setattr(
+        marketer_auth_service.token_service, "acquire_marketer_reset_cooldown", boom
+    )
+    monkeypatch.setattr(
+        "app.services.referral.marketer_service.token_service.create_marketer_invite_token", boom
+    )
+    marketer = SimpleNamespace(id=uuid4(), email="m@example.com", name="M", code="code-x")
+    lines, sink = _capture_log()
+    try:
+        MarketerService(None)._send_invite(marketer)
+        marketer_auth_service.send_password_reset(marketer.id, marketer.email, marketer.name)
+    finally:
+        logger.remove(sink)
+
+    log_text = "\n".join(lines)
+    assert log_text.count("RuntimeError") == 2
+    assert "secret-person" not in log_text and "sk_live_leaked_value" not in log_text
+
+
+def test_marketer_token_methods_log_the_exception_class_only(monkeypatch):
+    from uuid import uuid4
+
+    from app.services.token_service import TokenService
+
+    class BrokenRedis:
+        def __getattr__(self, name):
+            def fail(*args, **kwargs):
+                raise RuntimeError(LEAK)
+
+            return fail
+
+    service = TokenService.__new__(TokenService)
+    service.redis_client = BrokenRedis()
+    marketer_id = uuid4()
+    lines, sink = _capture_log()
+    try:
+        with pytest.raises(RuntimeError):
+            service.create_marketer_invite_token(marketer_id, "m@example.com")
+        with pytest.raises(RuntimeError):
+            service.acquire_marketer_reset_cooldown(marketer_id)
+        with pytest.raises(RuntimeError):
+            service.invalidate_marketer_tokens(marketer_id)
+        assert service.verify_marketer_invite_token("tok") is None
+    finally:
+        logger.remove(sink)
+
+    log_text = "\n".join(lines)
+    assert log_text.count("RuntimeError") >= 4
+    assert "secret-person" not in log_text and "sk_live_leaked_value" not in log_text

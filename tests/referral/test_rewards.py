@@ -855,6 +855,35 @@ def test_dispute_event_for_unknown_or_missing_reference_is_skipped(db_session):
     assert handler.handle_event("charge.dispute.create", {})["status"] == "skipped"
 
 
+def test_an_unmatched_dispute_is_logged_as_an_error_with_only_the_dispute_id(db_session):
+    from loguru import logger
+
+    handler = WebhookHandlerService(db_session)
+    records = []
+    sink = logger.add(lambda m: records.append(m.record), level="DEBUG")
+    try:
+        unknown = {
+            "id": 5551234,
+            "status": "awaiting-merchant-feedback",
+            "customer": {"email": "buyer-secret@example.com"},
+            "transaction": {"reference": "ref-not-ours"},
+        }
+        assert handler.handle_event("charge.dispute.create", unknown)["status"] == "skipped"
+        assert handler.handle_event("charge.dispute.create", {"id": 77})["status"] == "skipped"
+        assert handler.handle_event("charge.dispute.create", {"id": "not-numeric"})["status"] == (
+            "skipped"
+        )
+    finally:
+        logger.remove(sink)
+
+    errors = [r for r in records if r["level"].name == "ERROR"]
+    assert len(errors) == 3
+    assert "5551234" in errors[0]["message"] and "77" in errors[1]["message"]
+    assert "dispute unknown" in errors[2]["message"]
+    text = " ".join(r["message"] for r in errors)
+    assert "buyer-secret" not in text and "ref-not-ours" not in text
+
+
 def test_unknown_events_are_still_ignored(db_session):
     result = WebhookHandlerService(db_session).handle_event("charge.dispute.remind", {})
     assert result["status"] == "ignored"

@@ -14,17 +14,34 @@ Two idempotent steps, each in its own transaction so one failing never blocks th
   The marketer gets the conversion email for each reward created here, after the commit.
 """
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
 from loguru import logger
 from sqlalchemy import func, select
+from sqlalchemy.exc import DBAPIError
 
 from app.db.models.referral import PayoutItem
 from app.db.session import SessionLocal
 from app.services.referral.notifications import send_queued_conversion_notices
 from app.services.referral.payouts import prepare_batch
 from app.services.referral.rewards import promote_pending, reconcile_missing_rewards
+
+
+# prepare_batch locks rewards and then takes a key-share lock on the marketer (through the payout
+# item insert); a concurrent `suspend` locks the marketer and then the rewards, so Postgres can
+# abort one of them as a deadlock victim. The cron only fires again on the next 1st/15th, so the
+# job retries a lock conflict a few times before giving up.
+PREPARE_MAX_RETRIES = 3
+PREPARE_RETRY_DELAY_SECONDS = 2.0
+_LOCK_CONFLICT_PGCODES = frozenset({"40P01", "40001"})  # deadlock_detected, serialization_failure
+
+
+def _is_lock_conflict(exc: BaseException) -> bool:
+    return (
+        isinstance(exc, DBAPIError) and getattr(exc.orig, "pgcode", None) in _LOCK_CONFLICT_PGCODES
+    )
 
 
 async def referral_promote_pending(ctx: dict) -> dict[str, Any]:
@@ -53,12 +70,27 @@ async def referral_prepare_batch(ctx: dict) -> dict[str, Any] | None:
 
     Idempotent: ``prepare_batch`` returns ``None`` when no reward is payable, so a second run
     (or an overlapping manual one) creates nothing. Returns the batch id and totals, or ``None``.
+    A deadlock / serialization failure (a concurrent suspend) is retried up to
+    ``PREPARE_MAX_RETRIES`` times with a short sleep; then the class is logged and the error
+    re-raised. A super admin can re-run it by hand (``POST /platform/referrals/batches/prepare``).
     Only ids and counts are logged.
     """
     db = SessionLocal()
     now = datetime.now(UTC)
     try:
-        batch = prepare_batch(db, now)
+        for attempt in range(PREPARE_MAX_RETRIES + 1):
+            try:
+                batch = prepare_batch(db, now)
+                break
+            except DBAPIError as exc:
+                db.rollback()
+                if attempt == PREPARE_MAX_RETRIES or not _is_lock_conflict(exc):
+                    raise
+                logger.warning(
+                    f"referral payout batch preparation hit a lock conflict "
+                    f"({type(exc).__name__}); retry {attempt + 1}/{PREPARE_MAX_RETRIES}"
+                )
+                await asyncio.sleep(PREPARE_RETRY_DELAY_SECONDS * (attempt + 1))
         if batch is None:
             logger.info("referral payout batch: nothing payable")
             return None

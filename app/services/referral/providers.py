@@ -25,6 +25,11 @@ from app.services.paystack_service import PaystackService, PaystackTransferError
 TransferStatus = Literal["success", "pending", "failed", "otp", "manual"]
 VerifyStatus = Literal["success", "pending", "failed", "reversed", "not_found"]
 
+# Item references created by ``payouts.item_reference`` start with this; a human-recorded bank
+# reference (``mark_paid``) normally does not, and the manual provider stamps ``provider_status``.
+_ITEM_REFERENCE_PREFIX = "ref-"
+_MANUAL_STATUS = "manual"
+
 # Paystack verify statuses that mean the money is still moving or waiting on someone.
 _PENDING_STATUSES = frozenset({"pending", "otp", "received", "queued", "processing"})
 
@@ -72,7 +77,7 @@ class ManualPayoutProvider:
     def pay(
         self, marketer: Marketer, amount_kobo: int, reference: str, *, reason: str | None = None
     ) -> TransferResult:
-        return TransferResult(status="manual", reference=reference, provider_status="manual")
+        return TransferResult(status="manual", reference=reference, provider_status=_MANUAL_STATUS)
 
     def verify(self, reference: str) -> TransferVerification:
         # This provider never creates a transfer, so it cannot vouch that a Paystack-era
@@ -230,6 +235,43 @@ class PaystackTransferProvider:
             amount_kobo=amount if isinstance(amount, int) else None,
             message=raw.get("message"),
         )
+
+
+def is_paystack_item(reference: str | None, provider_status: str | None) -> bool:
+    """Was this item's transfer (possibly) sent through Paystack?
+
+    Its reference is an item reference (``ref-...``) and the manual provider never stamped it: the
+    manual provider records ``provider_status="manual"`` (and ``mark_paid`` stamps it on the bank
+    reference it records). A ``processing`` item whose answer was never recorded
+    (``provider_status`` None) counts as Paystack too: asking Paystack is the safe question, since
+    it answers ``not_found`` for a reference it never saw.
+    """
+    return (
+        bool(reference)
+        and reference.startswith(_ITEM_REFERENCE_PREFIX)
+        and provider_status != _MANUAL_STATUS
+    )
+
+
+def get_verifier(
+    db: Session | None,
+    reference: str | None,
+    provider_status: str | None,
+    current: PayoutProvider,
+) -> PayoutProvider:
+    """The provider that must answer ``verify`` for an item.
+
+    ``REFERRAL_PAYOUT_PROVIDER`` can be switched from ``paystack`` back to ``manual`` while
+    Paystack-era items are still ``failed`` / ``processing``; the manual provider cannot verify
+    them, so they could be neither retried nor marked paid. An item that went through Paystack is
+    therefore always verified with Paystack when the current provider is the manual one. Anything
+    else (a Paystack current provider, an injected one, a manual-era item) is verified by
+    ``current``; what happens AFTER the verification (a new attempt, a payment) still uses the
+    current provider.
+    """
+    if isinstance(current, ManualPayoutProvider) and is_paystack_item(reference, provider_status):
+        return PaystackTransferProvider(db)
+    return current
 
 
 def get_payout_provider(db: Session | None = None) -> PayoutProvider:

@@ -160,7 +160,6 @@ def list_referrals(
                 select(ReferralReward).where(
                     ReferralReward.tenant_id.in_(tenant_ids),
                     ReferralReward.marketer_id == marketer.id,
-                    ReferralReward.status != RewardStatus.VOID,
                 )
             )
         }
@@ -171,7 +170,9 @@ def list_referrals(
         reward = rewards.get(tenant.id)
         trial_days_left: int | None = None
         converted_at: datetime | None = None
-        if reward is not None:
+        if reward is not None and reward.status == RewardStatus.VOID:
+            status = "not_converted"  # R44: a voided reward never shows as converted or in trial
+        elif reward is not None:
             status = "converted"
             converted_at = reward.converted_at
         else:

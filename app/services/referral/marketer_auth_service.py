@@ -240,4 +240,7 @@ def send_password_reset(marketer_id: UUID, email: str, name: str) -> None:
         if not sent:
             logger.error(f"Marketer password reset email was not sent for marketer {marketer_id}")
     except Exception as exc:
-        logger.error(f"Failed to send marketer password reset for marketer {marketer_id}: {exc}")
+        logger.error(
+            f"Failed to send marketer password reset for marketer {marketer_id}: "
+            f"{type(exc).__name__}"
+        )

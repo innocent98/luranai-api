@@ -1,6 +1,7 @@
 """Paystack webhook event handler service."""
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -235,6 +236,17 @@ class WebhookHandlerService:
 
         return handler
 
+    @staticmethod
+    def _dispute_id(data: Any) -> str:
+        """Paystack's numeric dispute id as a string, or ``"unknown"``; nothing else is taken
+        from the payload, so the log line can safely say which dispute needs a manual hold."""
+        raw = data.get("id") if isinstance(data, dict) else None
+        if isinstance(raw, int) and not isinstance(raw, bool):
+            return str(raw)
+        if isinstance(raw, str) and raw.isascii() and raw.isdigit() and len(raw) <= 20:
+            return raw
+        return "unknown"
+
     def _handle_dispute_create(self, data: dict) -> dict:
         """Record a payment dispute: stamp the attribution and hold the tenant's referral reward.
 
@@ -248,6 +260,7 @@ class WebhookHandlerService:
         attributed tenant holds its reward (conservative; an admin can release it).
         """
         reference = None
+        dispute_id = self._dispute_id(data)
         if isinstance(data, dict):
             transaction_data = data.get("transaction")
             reference = (
@@ -256,7 +269,11 @@ class WebhookHandlerService:
                 or data.get("reference")
             )
         if not isinstance(reference, str) or not reference.strip() or len(reference) > 100:
-            logger.warning("charge.dispute.create without a usable transaction reference; ignored")
+            # ERROR, not warning: nothing was held, so the owner has to hold the reward by hand.
+            logger.error(
+                f"charge.dispute.create (dispute {dispute_id}) without a usable transaction "
+                "reference; no reward was held"
+            )
             return {"status": "skipped", "message": "Missing or invalid transaction reference"}
         reference = reference.strip()
 
@@ -266,7 +283,10 @@ class WebhookHandlerService:
             .first()
         )
         if not transaction:
-            logger.warning("Dispute for unknown transaction reference; ignored")
+            logger.error(
+                f"charge.dispute.create (dispute {dispute_id}) for an unknown transaction; "
+                "no reward was held"
+            )
             return {"status": "skipped", "message": "Transaction not found"}
 
         reward = referral_rewards.record_dispute(self.db, transaction.tenant_id)

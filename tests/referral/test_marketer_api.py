@@ -445,7 +445,9 @@ def test_a_reward_in_any_non_void_status_is_converted_and_held_looks_the_same(
     assert set(item) == ITEM_KEYS  # a held reward reveals nothing extra
 
 
-def test_a_void_reward_does_not_count_as_converted(db_session, pg_client, me, headers):
+def test_a_void_reward_shows_not_converted_even_while_the_trial_is_open(
+    db_session, pg_client, me, headers
+):
     now = datetime.now(UTC)
     _referred(
         db_session,
@@ -468,8 +470,10 @@ def test_a_void_reward_does_not_count_as_converted(db_session, pg_client, me, he
     )
     body = _get(pg_client, headers, "/referrals").json()
     items = _by_name(body)
-    assert items["Void In Trial"]["status"] == "signed_up"
+    # R44: a void reward is "not_converted" in every case, trial still open or not
+    assert items["Void In Trial"]["status"] == "not_converted"
     assert items["Void In Trial"]["converted_at"] is None
+    assert items["Void In Trial"]["trial_days_left"] is None
     assert items["Void After Trial"]["status"] == "not_converted"
     assert body["totals"]["converted"] == 0
 
