@@ -273,6 +273,11 @@ class Settings(BaseSettings):
     # How long an emailed public verification link stays valid.
     ACCOUNT_DELETION_VERIFICATION_TOKEN_TTL_HOURS: int = 24
 
+    # A customer returning within this many hours of a conversation's last message continues it
+    # (abandoned/resolved ones are reopened) instead of starting a new, separately counted one.
+    # See docs/sop/conversation_counting.md before changing it: it moves plan-limit consumption.
+    CONVERSATION_REUSE_WINDOW_HOURS: int = 6
+
     # AI Website Auditor (Stage 4)
     # Public teaser scan: small page budget keeps it fast + token-frugal (only
     # a score + teaser gaps are shown; the full scan runs later in-dashboard).

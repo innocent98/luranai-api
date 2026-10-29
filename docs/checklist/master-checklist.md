@@ -11,6 +11,8 @@ Snapshot (Sidecar on staging): deployed and healthy on staging since 2026-10-28 
 
 Snapshot (Referral program): backend Tasks 1-10 built and tested on branch `feature/referral-backend` (2026-10-29); PR to `develop` NOT yet opened, whole-branch CI parity still owed (the final Opus review ran and its findings are fixed, 2026-10-29); payouts default to the `manual` provider; dashboard stream, `luran_ref` cookie script, login-page fallback, privacy-policy text and a Paystack test-mode transfer run are NOT done. Counts for this module (2026-10-29): 26 ticked, 23 open (see its section). Prod untouched.
 
+Snapshot (Conversation counting): built on `feature/conversation-counting-window` (2026-10-29), PR to `develop` open, NOT merged; 6-hour same-conversation window + one shared limit check; no plan numbers changed, no migration; `luran-chat` must adopt a changed `session_id`. Prod untouched.
+
 Snapshot (WhatsApp default-on): backend built on `feature/whatsapp-default-on` (2026-10-29), PR to `develop` open, NOT merged; owner reversed the per-tenant grant (WhatsApp is now plan-driven for all tenants, `WHATSAPP_ENABLED` stays the prod kill switch, default false); capacity alert emails `PLATFORM_ALERT_EMAILS`. Dashboard work, production sidecar, `PLATFORM_ALERT_EMAILS` value and the pre-deploy override count are open. Prod untouched.
 
 Snapshot (WhatsApp module): spike, build, sidecar, dashboard, media and rating ALL merged to develop/staging; deployed on STAGING and live-tested with real phones 2026-10-28 (text, images both ways, escalation + agent app, join line, rating reply, resolve notice). Production NOT touched: see `docs/deployment/prod-release-plan-2026-10.md`.
@@ -274,6 +276,17 @@ Docs: SOP `docs/sop/whatsapp_default_on.md`; FE guide `docs/fe-integration-guide
 - [ ] Dashboard: hide the WhatsApp section unless `platform_available && enabled`; remove the "ask Luran to enable" state; relabel the admin "WhatsApp grant" as access/revoke; new capacity wording (separate task)
 - [ ] Admin cannot see or clear a `can_use_whatsapp` override (`override_flags` not in the platform response)
 - [ ] Contact exclusion list (T15) and the Terms wording (separate follow-ups)
+
+## Conversation counting (6-hour window, one shared limit check) — BUILT 2026-10-29, PR open to `develop`, not merged; no plan numbers changed
+Docs: SOP `docs/sop/conversation_counting.md`; FE guide `docs/fe-integration-guide-conversation-counting.md`; captures `docs/fe-integration-captures/conversation-counting/`. Branch `feature/conversation-counting-window`. Step 1 before the conversation-limit numbers change.
+- [x] One module `app/services/conversation_counting.py`; the five count copies replaced; dead `verify_conversation_limit` deleted
+- [x] `CONVERSATION_REUSE_WINDOW_HOURS` (default 6): anonymous + authed + WhatsApp continue an abandoned/resolved session inside the window (reopened in place, not recounted); beyond it a new counted session
+- [x] Getters made safe (latest by `last_message_at`, `LIMIT 1`)
+- [x] Gaps closed: `POST /chat/sessions` gated, voice mint gated, reactivation past the window counts as new
+- [x] Tests (boundary, anonymous/authed/WhatsApp, 402 shape, ungated paths, month rollover, multi-row getters) + live captures + FE guide + SOP
+- [ ] `luran-chat`: adopt a changed `session_id` from any response (server tolerates the old id meanwhile)
+- [ ] Re-baseline the proposed plan limits (Lite 1,000 / Pro 5,000 / Growth 10,000 / trial 100) on post-fix counts, then change them in a separate PR
+- [ ] Dashboard usage-meter wording
 
 ## Backlog / upcoming
 - [ ] Reconcile all earlier modules into this checklist

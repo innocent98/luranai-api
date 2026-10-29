@@ -3,7 +3,6 @@
 import asyncio
 import io
 import re
-from datetime import timedelta
 from typing import Any, cast
 from types import SimpleNamespace
 from uuid import UUID
@@ -74,6 +73,12 @@ from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.sales.config_view import SalesConfigView
 from app.sales.intent import is_trigger_intent
 from app.schemas.agent_app import AcknowledgeLost
+from app.services.conversation_counting import (
+    WELCOME_TRIGGERS,
+    enforce_conversation_limit,
+    is_stale_closed,
+    reopen_if_closed,
+)
 from app.services.conversation_service import (
     ConversationService,
     attachment_frames,
@@ -934,6 +939,9 @@ async def create_session(
     if not tenant:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
 
+    # A new session is a new counted conversation: same cap, same 402 as the message route.
+    enforce_conversation_limit(db, session_data.tenant_id)
+
     # Convert SessionCreateRequest to ConversationSessionCreate
     visitor_id, visitor_session_id = _resolve_bootstrapped_visitor_context(
         visitor_service,
@@ -1139,6 +1147,18 @@ async def _send_message_impl(
     # Step 1: Get or create session
     session_id = message_data.session_id
     session: SessionResponse | None
+    stale_origin: ConversationSession | None = None
+    if session_id:
+        # An abandoned/resolved session whose last message is outside the reuse window is a
+        # returning customer, not a continuation: it starts (and counts as) a new conversation.
+        candidate = db.get(ConversationSession, session_id)
+        if candidate is not None and is_stale_closed(candidate, message_data.message):
+            stale_origin = candidate
+            session_id = None
+            message_data.session_id = None
+            message_data.tenant_id = candidate.tenant_id
+            message_data.user_identifier = message_data.user_identifier or candidate.user_identifier
+            logger.info("Session past the reuse window; starting a new conversation")
     if not session_id:
         # Create new session if not provided
         if not message_data.tenant_id or not message_data.user_identifier:
@@ -1152,72 +1172,47 @@ async def _send_message_impl(
             message_data.tenant_id,
             message_data.metadata,
         )
+        if visitor_id is None and stale_origin is not None:
+            visitor_id = stale_origin.visitor_id
         customer_user_id = authed_customer_id
 
-        # If this public/browser visitor already has an active or escalated thread,
-        # continue that thread instead of opening a parallel conversation.
+        # If this customer already has a thread inside the reuse window (open, or abandoned /
+        # resolved with a recent last message), continue it instead of opening a parallel
+        # conversation. Reusing never creates a counted row.
         reused_session: SessionResponse | None = None
         if customer_user_id:
             reused_session = conversation_service.get_latest_session_for_customer(
                 tenant_id=message_data.tenant_id,
                 customer_user_id=customer_user_id,
-                allowed_statuses=[
-                    SessionStatus.ACTIVE,
-                    SessionStatus.ESCALATED,
-                    SessionStatus.RESOLVED,
-                ],
+                reuse_window=True,
             )
         elif visitor_id:
             reused_session = conversation_service.get_latest_session_for_visitor(
                 tenant_id=message_data.tenant_id,
                 visitor_id=visitor_id,
-                allowed_statuses=[SessionStatus.ACTIVE, SessionStatus.ESCALATED],
+                reuse_window=True,
+            )
+        elif stale_origin is not None:
+            # Clients that do not adopt a changed session_id keep sending the old one; point
+            # them at the conversation we already opened for them rather than counting again.
+            reused_session = conversation_service.get_active_session_for_user(
+                message_data.tenant_id, message_data.user_identifier
             )
 
         if reused_session:
-            session = reused_session
             session_id = reused_session.id
             existing_session_model = db.execute(
                 select(ConversationSession).where(ConversationSession.id == session_id)
             ).scalar_one_or_none()
-            if existing_session_model and visitor_session_id:
-                existing_session_model.visitor_session_id = visitor_session_id
+            if existing_session_model:
+                if visitor_session_id:
+                    existing_session_model.visitor_session_id = visitor_session_id
+                reopen_if_closed(existing_session_model, message_data.message)
                 db.commit()
+            session = conversation_service.get_session(session_id) or reused_session
             logger.info("Reusing existing visitor session")
         else:
-            # Check conversation limit before creating new session
-            capabilities = tenant_service.get_capabilities(message_data.tenant_id)
-
-            if capabilities and capabilities.max_conversations_per_month is not None:
-                # Get start of current month
-
-                now = utcnow_naive()
-                month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-
-                # Count conversations this month
-                monthly_count = (
-                    db.query(ConversationSession)
-                    .filter(
-                        ConversationSession.tenant_id == message_data.tenant_id,
-                        ConversationSession.created_at >= month_start,
-                    )
-                    .count()
-                )
-
-                # Check limit
-                if monthly_count >= capabilities.max_conversations_per_month:
-                    raise HTTPException(
-                        status_code=402,
-                        detail={
-                            "error": "conversation_limit_reached",
-                            "message": f"Monthly conversation limit of {capabilities.max_conversations_per_month} reached.",
-                            "current_count": monthly_count,
-                            "limit": capabilities.max_conversations_per_month,
-                            "resets_at": (month_start + timedelta(days=32))
-                            .replace(day=1)
-                            .isoformat(),
-                        },
-                    )
+            enforce_conversation_limit(db, message_data.tenant_id)
 
             # Convert to ConversationSessionCreate
             attribution = new_session_attribution.get()
@@ -1248,8 +1243,7 @@ async def _send_message_impl(
             )
             logger.info("Session reactivated from abandoned to active")
         elif session.status == SessionStatus.RESOLVED:
-            welcome_triggers = {"start", "hello", "hi", "hey", "welcome", "__init__", "__welcome__"}
-            if (message_data.message or "").lower().strip() not in welcome_triggers:
+            if (message_data.message or "").lower().strip() not in WELCOME_TRIGGERS:
                 logger.info("Reopening resolved session after customer reply")
                 session = conversation_service.update_session(
                     session_id, ConversationSessionUpdate(status=SessionStatus.ACTIVE)

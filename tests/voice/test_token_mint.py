@@ -429,3 +429,57 @@ def test_mint_accepts_owning_customer_by_dedicated_cookie(
     finally:
         pg_client.cookies.clear()
     assert resp.status_code == 200, resp.text
+
+
+def _limit_conversations(db_session, tenant, limit):
+    from app.db.models.tenant import TenantCapabilities
+
+    caps = db_session.query(TenantCapabilities).filter_by(tenant_id=tenant.id).one()
+    caps.max_conversations_per_month = limit
+    db_session.commit()
+
+
+def _close_session(db_session, session, hours_ago):
+    from datetime import timedelta
+
+    from app.db.models.conversation import SessionStatus
+    from app.utils.datetime import utcnow_naive
+
+    session.status = SessionStatus.RESOLVED
+    session.last_message_at = utcnow_naive() - timedelta(hours=hours_ago)
+    db_session.commit()
+
+
+def test_mint_402_when_stale_session_would_open_a_conversation_over_the_cap(
+    pg_client, db_session, voice_tenant_factory, voice_session_factory
+):
+    """Voice never creates a session, but a turn on a resolved session past the reuse window
+    opens a new counted conversation, so the mint is refused with the chat route's 402."""
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    session = voice_session_factory(tenant.id)
+    _limit_conversations(db_session, tenant, 1)
+    _close_session(db_session, session, hours_ago=7)
+
+    resp = pg_client.post("/api/v1/voice/session/token", json=_payload(tenant.id, session.id))
+
+    assert resp.status_code == 402
+    detail = resp.json()["detail"]
+    assert detail["error"] == "conversation_limit_reached"
+    assert detail["limit"] == 1 and detail["current_count"] == 1
+
+
+def test_mint_still_works_at_the_cap_inside_the_window(
+    pg_client, db_session, voice_tenant_factory, voice_session_factory
+):
+    tenant = voice_tenant_factory(can_use_voice=True, max_voice_minutes_per_month=None)
+    session = voice_session_factory(tenant.id)
+    _limit_conversations(db_session, tenant, 1)
+    _close_session(db_session, session, hours_ago=5)  # continues the same conversation
+
+    with patch(
+        "app.api.v1.endpoints.voice.ElevenLabsClient.mint_conversation_token",
+        new=AsyncMock(return_value="el-convo-token-abc"),
+    ):
+        resp = pg_client.post("/api/v1/voice/session/token", json=_payload(tenant.id, session.id))
+
+    assert resp.status_code == 200

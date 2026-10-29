@@ -31,6 +31,7 @@ from app.schemas.voice import (
     VoiceTokenRequest,
     VoiceTokenResponse,
 )
+from app.services.conversation_counting import enforce_conversation_limit, is_stale_closed
 from app.services.conversation_service import ConversationService, voice_channel
 from app.services.rag_service import RAGService
 from app.services.ticket_service import TicketService
@@ -189,6 +190,12 @@ async def mint_voice_session_token(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"reason": "invalid_customer_credential"},
         )
+
+    # Voice never creates a session, but its turns write through `send_message`, which opens a NEW
+    # (counted) conversation when this one is abandoned/resolved past the reuse window. Refuse the
+    # mint with the same 402 the chat route gives instead of failing mid-call.
+    if is_stale_closed(session):
+        enforce_conversation_limit(db, payload.tenant_id)
 
     gate = VoiceGate(db)
     store = VoiceSessionTokenStore()

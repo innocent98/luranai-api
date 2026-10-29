@@ -1,0 +1,50 @@
+{
+  "scenario": "visitor-bootstrap",
+  "note": "The widget bootstraps a visitor first; its token identifies the returning visitor.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/public/visitor/bootstrap",
+    "body": {
+      "workspace_slug": "cc-2e12d237",
+      "entry_point": "widget"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "tenant": {
+        "tenant_id": "1dea931d-95b0-4e43-928c-751d1c4d5ca6",
+        "public_slug": "cc-2e12d237",
+        "display_name": "Capture Co",
+        "is_private": false,
+        "description": null,
+        "long_description": null,
+        "support_headline": null,
+        "support_subheadline": null,
+        "support_hours": null,
+        "support_response_time": null,
+        "support_footer_note": null,
+        "widget_primary_color": "#2563eb",
+        "widget_accent_color": "#10b981",
+        "widget_logo_url": null,
+        "widget_greeting_message": "Hi! How can we help you today?",
+        "allow_file_upload": true,
+        "allow_screen_recording": false,
+        "collect_name_before_chat": false,
+        "collect_email_before_chat": false,
+        "first_responder": "ai"
+      },
+      "visitor_token": "<visitor-token-placeholder>",
+      "session_token": "<visitor-token-placeholder>",
+      "visitor": {
+        "name": null,
+        "email": null,
+        "phone": null,
+        "is_blocked": false,
+        "first_seen_at": "2026-10-29T18:53:56.203168Z",
+        "last_seen_at": "2026-10-29T18:53:56.206634Z"
+      },
+      "last_conversation": null
+    }
+  }
+}

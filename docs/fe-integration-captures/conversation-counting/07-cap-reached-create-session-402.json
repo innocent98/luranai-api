@@ -1,0 +1,24 @@
+{
+  "scenario": "cap-reached-create-session-402",
+  "note": "POST /chat/sessions was ungated before; it now returns the same 402 body.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/sessions",
+    "body": {
+      "tenant_id": "1dea931d-95b0-4e43-928c-751d1c4d5ca6",
+      "user_identifier": "someone-new"
+    }
+  },
+  "response": {
+    "status": 402,
+    "body": {
+      "detail": {
+        "error": "conversation_limit_reached",
+        "message": "Monthly conversation limit of 2 reached.",
+        "current_count": 2,
+        "limit": 2,
+        "resets_at": "2026-11-01T00:00:00"
+      }
+    }
+  }
+}

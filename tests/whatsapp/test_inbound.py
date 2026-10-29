@@ -22,7 +22,7 @@ from app.services.whatsapp_inbound import (
     UNSUPPORTED_MEDIA_PLACEHOLDER,
     handle_event,
 )
-from app.utils.datetime import utcnow_aware
+from app.utils.datetime import utcnow_aware, utcnow_naive
 from tests.whatsapp.conftest import connect, inbound, make_tenant, owner_typed
 
 pytestmark = pytest.mark.asyncio
@@ -103,13 +103,48 @@ async def test_same_message_id_on_two_connections_is_not_a_duplicate(db, fake_si
     assert await handle_event(db, inbound(two, mid="SAME")) == "ai_reply"
 
 
-async def test_second_message_reuses_the_session_resolved_starts_a_new_one(db, conn, queue, llm):
+async def test_second_message_reuses_the_session(db, conn, queue, llm):
     await handle_event(db, inbound(conn))
     await handle_event(db, inbound(conn))
-    chat = _chat(db, conn)
     assert db.execute(select(ConversationSession)).scalars().all().__len__() == 1
-    first = chat.session_id
-    db.get(ConversationSession, first).status = SessionStatus.RESOLVED
+
+
+async def test_resolved_inside_the_window_is_reopened_not_counted_again(db, conn, queue, llm):
+    await handle_event(db, inbound(conn))
+    first = _chat(db, conn).session_id
+    session = db.get(ConversationSession, first)
+    session.status = SessionStatus.RESOLVED
+    session.last_message_at = utcnow_naive() - timedelta(hours=5, minutes=59)
+    db.commit()
+    await handle_event(db, inbound(conn, text="one more thing"))
+    db.expire_all()
+    sessions = db.execute(select(ConversationSession)).scalars().all()
+    assert len(sessions) == 1 and _chat(db, conn).session_id == first
+    assert sessions[0].status == SessionStatus.ACTIVE
+
+
+async def test_abandoned_inside_the_window_is_reopened_not_counted_again(db, conn, queue, llm):
+    await handle_event(db, inbound(conn))
+    first = _chat(db, conn).session_id
+    session = db.get(ConversationSession, first)
+    session.status = SessionStatus.ABANDONED
+    session.last_message_at = utcnow_naive() - timedelta(hours=5, minutes=59)
+    db.commit()
+    await handle_event(db, inbound(conn, text="back"))
+    db.expire_all()
+    assert len(db.execute(select(ConversationSession)).scalars().all()) == 1
+    assert db.get(ConversationSession, first).status == SessionStatus.ACTIVE
+
+
+@pytest.mark.parametrize("closed", [SessionStatus.RESOLVED, SessionStatus.ABANDONED])
+async def test_closed_past_the_window_starts_a_new_counted_conversation(
+    db, conn, queue, llm, closed
+):
+    await handle_event(db, inbound(conn))
+    first = _chat(db, conn).session_id
+    session = db.get(ConversationSession, first)
+    session.status = closed
+    session.last_message_at = utcnow_naive() - timedelta(hours=6, minutes=1)
     db.commit()
     await handle_event(db, inbound(conn))
     db.expire_all()
@@ -213,7 +248,9 @@ async def test_plan_limit_402_stores_sends_nothing_and_alerts_debounced(
     db.commit()
     # existing chat, resolved session -> needs a NEW conversation -> 402
     chat = _chat(db, conn)
-    db.get(ConversationSession, chat.session_id).status = SessionStatus.RESOLVED
+    old = db.get(ConversationSession, chat.session_id)
+    old.status = SessionStatus.RESOLVED
+    old.last_message_at = utcnow_naive() - timedelta(hours=7)  # past the reuse window
     db.commit()
     llm.calls = 0
     out = await handle_event(db, inbound(conn, text="hello again"))
