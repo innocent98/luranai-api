@@ -1,0 +1,30 @@
+{
+  "scenario": "cap-reached-returning-beyond-window-402",
+  "note": "Beyond the window this would be a new conversation, so at the cap it is the same 402.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "body": {
+      "message": "Back after a long time",
+      "session_id": "1bf50d6d-e8da-4148-81de-d907a3fbbd35",
+      "tenant_id": "1dea931d-95b0-4e43-928c-751d1c4d5ca6",
+      "user_identifier": "capture-Zbi1MK",
+      "metadata": {
+        "visitor_token": "<visitor-token-placeholder>",
+        "entry_point": "widget"
+      }
+    }
+  },
+  "response": {
+    "status": 402,
+    "body": {
+      "detail": {
+        "error": "conversation_limit_reached",
+        "message": "Monthly conversation limit of 2 reached.",
+        "current_count": 2,
+        "limit": 2,
+        "resets_at": "2026-11-01T00:00:00"
+      }
+    }
+  }
+}

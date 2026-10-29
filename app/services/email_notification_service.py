@@ -11,13 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.db.models.conversation import ConversationSession, Ticket
+from app.db.models.conversation import Ticket
 from app.db.models.email_notification import EmailNotification
 from app.db.models.knowledge import KnowledgeSource
 from app.db.models.payment import PaymentTransaction
 from app.db.models.subscription_plan import SubscriptionPlan
 from app.db.models.tenant import Tenant
 from app.db.models.user import User, UserRole
+from app.services.conversation_counting import monthly_conversation_count_stmt
 from app.services.email_service import email_service
 
 
@@ -197,12 +198,7 @@ class EmailNotificationService:
         now = datetime.now(UTC)
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
-        conversations_query = select(func.count(ConversationSession.id)).where(
-            and_(
-                ConversationSession.tenant_id == tenant_id,
-                ConversationSession.created_at >= month_start,
-            )
-        )
+        conversations_query = monthly_conversation_count_stmt(tenant_id)
         tickets_query = select(func.count(Ticket.id)).where(
             and_(
                 Ticket.tenant_id == tenant_id,

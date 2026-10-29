@@ -35,7 +35,7 @@ from app.services.rating_request_service import (
 from app.services.review_service import ReviewService
 from app.services.whatsapp_inbound import handle_event
 from app.services.whatsapp_outbound import send_text
-from app.utils.datetime import utcnow_aware
+from app.utils.datetime import utcnow_aware, utcnow_naive
 from tests.whatsapp.conftest import connect, inbound, make_tenant
 from tests.whatsapp.test_outbound import _NoCloseSession
 
@@ -538,8 +538,10 @@ async def test_a_request_from_an_earlier_conversation_does_not_capture_a_digit_i
     await sc.deliver_prompt(manager, queue)
     old = db.get(ConversationSession, sc.session.id)
     old.status = __import__("app.db.models.conversation", fromlist=["x"]).SessionStatus.RESOLVED
+    # past the 6 h reuse window, so the customer coming back opens a NEW conversation
+    old.last_message_at = utcnow_naive() - timedelta(hours=7)
     db.commit()
-    # the customer comes back later: a NEW conversation, and answers the AI's question with "2"
+    # ... and answers the AI's question with "2"
     assert await handle_event(db, inbound(conn, text="hi again")) == "ai_reply"
     assert _chat(db, conn).session_id != sc.session.id
     assert await handle_event(db, inbound(conn, text="2")) == "ai_reply"

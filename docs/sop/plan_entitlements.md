@@ -12,6 +12,8 @@ Branch `feature/plan-entitlements-backend` -> `develop` (PR linked from the hand
 7. **New** `GET /api/v1/reviews/session/export` (CSV) so the `ratings_export` feature has something to gate (see Decisions).
 8. Downgrade conflicts for sales options, Slack/CRM and WhatsApp numbers.
 
+**Conversation limit meter** (what counts as a conversation, the 6-hour same-conversation window, the single shared check): `docs/sop/conversation_counting.md` (2026-10-29). Plan *numbers* are unchanged by it.
+
 FE contract: `docs/fe-integration-guide-entitlements.md` (all payloads from `docs/fe-integration-captures/entitlements/`). Master checklist: "Plan entitlements".
 
 ## Why
