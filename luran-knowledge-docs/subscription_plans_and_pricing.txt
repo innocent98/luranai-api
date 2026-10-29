@@ -57,6 +57,9 @@ Enterprise
 - conversation, storage, and flow limits are custom/unlimited by plan config
 - webhooks and team limits are custom
 
+What counts as a conversation?
+- A conversation is one continuous exchange between a customer and your AI or team, from their first message until they have been quiet for 6 hours. It is not counted per message: one conversation can hold any number of messages, images and replies. If the same customer comes back within 6 hours it is still the same conversation; after 6 hours it is a new one. A conversation handed to a human agent stays one conversation until it is resolved. Conversations are counted per calendar month (UTC) and the count resets on the 1st. WhatsApp follows the same rule per chat.
+
 How limits are enforced
 - Limits are checked at runtime. If your plan limit is reached, action is blocked.
 - When the monthly conversation limit is reached, new conversations are refused until the 1st of next month (UTC). Conversations already open or recently active continue, and nothing is deleted. Upgrading the plan raises the limit straight away.

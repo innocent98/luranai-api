@@ -791,6 +791,10 @@ _(from `01-public-plans.json`; status 200)_
 
 ### Monthly conversation limits (2026-10-29)
 
+**What counts as a conversation?** A conversation is one continuous exchange between a customer and your AI or team, from their first message until they have been quiet for 6 hours. It is not counted per message: one conversation can hold any number of messages, images and replies. If the same customer comes back within 6 hours it is still the same conversation; after 6 hours it is a new one. A conversation handed to a human agent stays one conversation until it is resolved. Conversations are counted per calendar month (UTC) and the count resets on the 1st. WhatsApp follows the same rule per chat.
+
+Show this text next to every place the dashboard or pricing page shows a conversation limit or a usage count (a tooltip or a line under the meter is enough). It is copied verbatim into the knowledge base and docs; the 402 `conversation_limit_reached` body now also carries it in `definition` (additive field, same words). The "6 hours" is the setting `CONVERSATION_REUSE_WINDOW_HOURS`: if it changes, this text must change in every place.
+
 The monthly conversation limit of each plan went down. Everything below is copied from the live captures in `docs/fe-integration-captures/conversation-limits/` (local app, migrated to head, plans seeded; re-run `scripts/capture_conversation_limits.py` to re-derive).
 
 | Plan | `capabilities.max_conversations_per_month` | Feature string | Was |

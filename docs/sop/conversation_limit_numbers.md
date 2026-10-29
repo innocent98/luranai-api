@@ -34,6 +34,22 @@ Owner decision 2026-10-29. Cost is not the reason: a conversation is about 7,050
 | **Pricing helper keeps Enterprise volume pricing at 25,000+** and adds `"custom"` for 10,001-24,999. **Decision for Adebayo**: do you want a plan or an Enterprise start below 25,000 now that Growth stops at 10,000? | Changing the Enterprise tiers is a pricing decision, not part of the approved numbers. Marketing copy `"Volume-based pricing (25K-300K+)"` and the Enterprise description `"(25K+ conversations)"` in the catalog are therefore unchanged. | A customer needing 10,001-24,999 conversations has no standard plan; sales sees "custom". Growth now costs 8 naira a conversation at its limit while Enterprise at 25,000 costs 3, so Growth looks expensive next to Enterprise. |
 | Fixed in passing: `compare_with_fixed_tiers` returned no `recommendation` for the Growth case, which the response model requires (the endpoint would have 500'd); it now returns one. | Same function, same lines. | n/a |
 
+## Conversation definition (added 2026-10-29, owner wording)
+Users must not read a "conversation" as a message or a chat bubble. One canonical text, identical everywhere:
+
+> A conversation is one continuous exchange between a customer and your AI or team, from their first message until they have been quiet for 6 hours. It is not counted per message: one conversation can hold any number of messages, images and replies. If the same customer comes back within 6 hours it is still the same conversation; after 6 hours it is a new one. A conversation handed to a human agent stays one conversation until it is resolved. Conversations are counted per calendar month (UTC) and the count resets on the 1st. WhatsApp follows the same rule per chat.
+
+| Where it lives | How it stays identical |
+|---|---|
+| `app/services/conversation_counting.py` `CONVERSATION_DEFINITION` (hours filled from the setting) | Source of the 402 `definition` field (additive; `message` is unchanged so clients that match it keep working). |
+| Knowledge base: `luran-knowledge-docs/subscription_plans_and_pricing.txt`, `LURAN_FAQ.md` (FAQ 18), `luran_platform_knowledge.txt` | Verbatim, each under a "What counts as a conversation?" heading. |
+| `app/templates/emails/trial_expiring.html`, `docs/SUBSCRIPTION_PLANS.md`, `docs/SUBSCRIPTION_PRICING_MODEL.md`, the 2026-10-27 spec addendum, `docs/fe-integration-guide-entitlements.md`, this SOP | Verbatim. |
+| `tests/conversation_counting/test_definition_copy.py` | Fails if any of those files stops containing the text, or if `CONVERSATION_REUSE_WINDOW_HOURS` is no longer 6. |
+
+* **The 6 hours is a setting** (`CONVERSATION_REUSE_WINDOW_HOURS`, default 6). If it changes, the copy must change in every place above, plus the frontends; the test fails until it does.
+* **Feature strings and plan descriptions were not changed** ("1,000 conversations/month" stays). They are matched exactly by the cl10, wa30 and pf10 migrations (hand-edit guard) and by clients, and a parenthetical would wrap on the pricing cards. The definition sits next to the number instead (FE guide: show it beside every limit and usage count). Cost if wrong: a pricing card without the sentence still shows the bare number; the frontend PR can add it.
+* The wording is a product statement, not a spec of the code: it matches the behaviour in `docs/sop/conversation_counting.md` (sliding window from the last message, escalated/active-with-agent sessions continued whatever their age, `created_at >= first of month UTC`).
+
 ## What's involved
 | Area | Path |
 |---|---|

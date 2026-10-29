@@ -33,9 +33,9 @@ session.
 ## 2. The 402 (captures 06, 07, 09)
 Status 402, body (identical on `/chat/message`, `/chat/sessions`, and the stale-session case):
 ```json
-{"detail":{"error":"conversation_limit_reached","message":"Monthly conversation limit of 2 reached.","current_count":2,"limit":2,"resets_at":"2026-11-01T00:00:00"}}
+{"detail":{"error":"conversation_limit_reached","message":"Monthly conversation limit of 2 reached.","definition":"A conversation is one continuous exchange between a customer and your AI or team, from their first message until they have been quiet for 6 hours. It is not counted per message: one conversation can hold any number of messages, images and replies. If the same customer comes back within 6 hours it is still the same conversation; after 6 hours it is a new one. A conversation handed to a human agent stays one conversation until it is resolved. Conversations are counted per calendar month (UTC) and the count resets on the 1st. WhatsApp follows the same rule per chat.","current_count":2,"limit":2,"resets_at":"2026-11-01T00:00:00"}}
 ```
-`resets_at` is a naive UTC ISO string (no `Z`); treat it as UTC. It is the same shape the widget already handled on
+`definition` (added 2026-10-29, additive) is the owner's plain-words meaning of "conversation"; show it with the limit message so nobody reads the limit as a message count. It uses the 6-hour setting (`CONVERSATION_REUSE_WINDOW_HOURS`); the other fields are unchanged. `resets_at` is a naive UTC ISO string (no `Z`); treat it as UTC. It is the same shape the widget already handled on
 `/chat/message`.
 
 ## 3. Traps
