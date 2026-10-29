@@ -165,7 +165,10 @@ def test_login_normalises_email(pg_client, db_session):
     resp = login(pg_client, "  ADA.Case@Example.COM ")
     assert resp.status_code == 200, resp.text
     assert set(cookies_from(resp)) == {ACCESS, REFRESH}
-    assert marketer.id
+    claims = jwt.decode(
+        cookies_from(resp)[ACCESS]["value"], settings.SECRET_KEY, algorithms=[settings.ALGORITHM]
+    )
+    assert claims["sub"] == str(marketer.id)
 
 
 def test_suspended_marketer_cannot_login(pg_client, db_session):
@@ -337,6 +340,11 @@ def test_suspended_marketers_live_session_stops_working(pg_client, db_session, p
     ],
 )
 def test_marketer_token_rejected_by_tenant_and_platform_dependencies(pg_client, db_session, path):
+    expected_detail = (
+        "Could not validate customer credentials"
+        if path.startswith("/api/v1/customer/")
+        else "Could not validate credentials"
+    )
     marketer = make_marketer(db_session)
     access, _ = logged_in(pg_client, marketer)
 
@@ -348,7 +356,9 @@ def test_marketer_token_rejected_by_tenant_and_platform_dependencies(pg_client, 
     )
     for headers in attempts:
         resp = pg_client.get(path, headers=headers)
-        assert resp.status_code in (401, 403), (path, headers, resp.text)
+        # Strictly 401 "no valid credentials": a 403 would mean the token got past authentication.
+        assert resp.status_code == 401, (path, headers, resp.text)
+        assert resp.json() == {"detail": expected_detail}, (path, headers)
 
 
 def test_marketer_token_rejected_by_tenant_admin_dependency(pg_client, db_session):
@@ -377,7 +387,8 @@ def test_marketer_token_rejected_by_tenant_admin_dependency(pg_client, db_sessio
                 {"Authorization": f"Bearer {access}"},
             ):
                 resp = pg_client.get(path, headers=headers)
-                assert resp.status_code in (401, 403), (path, resp.text)
+                assert resp.status_code == 401, (path, resp.text)
+                assert resp.json() == {"detail": "Could not validate credentials"}, path
     finally:
         app.router.routes[:] = [
             r for r in app.router.routes if getattr(r, "path", None) not in paths
@@ -395,10 +406,9 @@ def test_marketer_token_rejected_by_platform_admin_dependency(
     )
     assert ok.status_code == 200
     for headers in (cookie_header(access_token=access), {"Authorization": f"Bearer {access}"}):
-        assert pg_client.get("/api/v1/platform/referrals/", headers=headers).status_code in (
-            401,
-            403,
-        )
+        resp = pg_client.get("/api/v1/platform/referrals/", headers=headers)
+        assert resp.status_code == 401
+        assert resp.json() == {"detail": "Could not validate credentials"}
 
 
 # --- refresh / logout ------------------------------------------------------------------------
@@ -659,7 +669,85 @@ def test_reset_flow_changes_password_and_revokes_refresh_tokens(
         )
     ).scalar_one()
     assert record.revoked_at is not None
-    assert access_old  # short-lived access token ages out (same trade-off as tenant reset)
+    # Documented trade-off (same as the tenant reset flow): a password change revokes refresh
+    # tokens but an already-issued access token keeps working until it expires (short-lived).
+    still_ok = pg_client.get(probe_route, headers=cookie_header(**{ACCESS: access_old}))
+    assert still_ok.status_code == 200
+
+
+def _redis_ttl(token: str) -> int:
+    return token_service_module.token_service.redis_client.ttl(f"marketer_invite:{token}")
+
+
+def test_set_password_kills_every_other_outstanding_token(pg_client, db_session):
+    marketer = make_marketer(db_session, password=None)
+    other = make_marketer(db_session, password=None)
+    svc = token_service_module.token_service
+    invite = _invite(marketer)
+    second_invite = _invite(marketer)
+    reset = svc.create_marketer_invite_token(marketer.id, marketer.email, expiry_minutes=60)
+    unrelated = _invite(other)
+
+    ok = pg_client.post(f"{AUTH}/set-password", json={"token": invite, "new_password": PASSWORD})
+    assert ok.status_code == 200, ok.text
+
+    for stale in (second_invite, reset):
+        resp = pg_client.post(
+            f"{AUTH}/set-password", json={"token": stale, "new_password": NEW_PASSWORD}
+        )
+        assert (resp.status_code, resp.json()) == (400, INVALID_TOKEN)
+    assert login(pg_client, marketer, password=NEW_PASSWORD).status_code == 401
+    assert login(pg_client, marketer).status_code == 200
+    # Another marketer's link is untouched.
+    assert svc.redis_client.exists(f"marketer_invite:{unrelated}") == 1
+
+
+def test_new_forgot_password_link_kills_older_invite_and_reset_links(
+    pg_client, db_session, fake_email
+):
+    marketer = make_marketer(db_session, password=None)
+    invite = _invite(marketer)
+
+    pg_client.post(f"{AUTH}/forgot-password", json={"email": marketer.email})
+    first_reset = fake_email.sent[0]["reset_token"]
+    pg_client.post(f"{AUTH}/forgot-password", json={"email": marketer.email})
+    second_reset = fake_email.sent[1]["reset_token"]
+    assert len({invite, first_reset, second_reset}) == 3
+
+    for stale in (invite, first_reset):
+        resp = pg_client.post(
+            f"{AUTH}/set-password", json={"token": stale, "new_password": PASSWORD}
+        )
+        assert (resp.status_code, resp.json()) == (400, INVALID_TOKEN)
+    assert login(pg_client, marketer).status_code == 401  # nothing was set by the stale links
+
+    ok = pg_client.post(
+        f"{AUTH}/set-password", json={"token": second_reset, "new_password": PASSWORD}
+    )
+    assert ok.status_code == 200, ok.text
+    assert login(pg_client, marketer).status_code == 200
+
+
+def test_unknown_or_suspended_forgot_password_does_not_touch_existing_links(
+    pg_client, db_session, fake_email
+):
+    marketer = make_marketer(db_session, password=None)
+    invite = _invite(marketer)
+    pg_client.post(f"{AUTH}/forgot-password", json={"email": "nobody@example.com"})
+    assert token_service_module.token_service.redis_client.exists(f"marketer_invite:{invite}") == 1
+
+
+def test_reset_token_expires_in_sixty_minutes_and_invite_keeps_seven_days(
+    pg_client, db_session, fake_email
+):
+    marketer = make_marketer(db_session)
+    pg_client.post(f"{AUTH}/forgot-password", json={"email": marketer.email})
+    reset_ttl = _redis_ttl(fake_email.sent[0]["reset_token"])
+    assert 3500 <= reset_ttl <= 3600
+    assert fake_email.sent[0]["expiry_minutes"] == 60
+
+    invite_ttl = _redis_ttl(_invite(marketer))
+    assert 7 * 24 * 3600 - 100 <= invite_ttl <= 7 * 24 * 3600
 
 
 def test_reset_email_link_points_at_marketer_set_password_page(monkeypatch):

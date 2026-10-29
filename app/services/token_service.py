@@ -309,13 +309,55 @@ class TokenService:
             "email": email,
         }
 
+        index_key = self._marketer_index_key(marketer_id)
+        ttl = expiry_minutes * 60
+
         try:
-            self.redis_client.hset(key, mapping=data)
-            self.redis_client.expire(key, expiry_minutes * 60)
+            # Track every live token per marketer so they can all be killed at once (see
+            # invalidate_marketer_tokens). The index outlives its longest-lived member.
+            index_ttl = max(int(self.redis_client.ttl(index_key) or 0), ttl)
+            pipe = self.redis_client.pipeline(transaction=True)
+            pipe.hset(key, mapping=data)
+            pipe.expire(key, ttl)
+            pipe.sadd(index_key, key)
+            pipe.expire(index_key, index_ttl)
+            pipe.execute()
             logger.info(f"Created invite token for marketer {marketer_id}")
             return token
         except Exception as e:
             logger.error(f"Failed to create marketer invite token: {e}")
+            raise
+
+    @staticmethod
+    def _marketer_index_key(marketer_id: UUID) -> str:
+        return f"marketer_tokens:{marketer_id}"
+
+    # Deletes every token key listed in the marketer's index, then the index, atomically.
+    _INVALIDATE_MARKETER_TOKENS = """
+    local keys = redis.call('SMEMBERS', KEYS[1])
+    for _, k in ipairs(keys) do redis.call('DEL', k) end
+    redis.call('DEL', KEYS[1])
+    return #keys
+    """
+
+    def invalidate_marketer_tokens(self, marketer_id: UUID) -> int:
+        """
+        Delete ALL of a marketer's outstanding invite / reset tokens.
+
+        Called after a password is set and before a new reset link is issued, so older links
+        cannot be redeemed.
+
+        Returns:
+            Number of tokens deleted (stale index entries included)
+        """
+        try:
+            return int(
+                self.redis_client.eval(
+                    self._INVALIDATE_MARKETER_TOKENS, 1, self._marketer_index_key(marketer_id)
+                )
+            )
+        except Exception as e:
+            logger.error(f"Failed to invalidate marketer tokens for {marketer_id}: {e}")
             raise
 
     def verify_marketer_invite_token(self, token: str) -> dict | None:

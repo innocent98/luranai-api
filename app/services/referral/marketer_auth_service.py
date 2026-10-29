@@ -61,6 +61,9 @@ def _dummy_password_hash() -> str:
     return get_password_hash("dummy-password-for-constant-time-checks")
 
 
+_dummy_password_hash()  # warm at import so the first unknown-email login pays no extra bcrypt cost
+
+
 def marketer_id_from_claims(claims: dict) -> UUID | None:
     """The marketer id in a decoded JWT, or None unless it is strictly a marketer token."""
     if claims.get("admin_type") != MARKETER_TOKEN_TYPE:
@@ -201,6 +204,12 @@ class MarketerAuthService:
         marketer.password_hash = get_password_hash(new_password)
         self.revoke_all_refresh_tokens(marketer.id)
         self.db.commit()
+        # Any other outstanding invite / reset link is now stale: kill them all. The password is
+        # already set, so a Redis failure is logged rather than turned into a misleading 500.
+        try:
+            token_service.invalidate_marketer_tokens(marketer.id)
+        except Exception:
+            logger.error(f"Could not invalidate outstanding tokens for marketer {marketer.id}")
 
     def reset_target(self, email: str) -> tuple[UUID, str, str] | None:
         """(id, email, name) of the ACTIVE marketer behind this address, else None."""
@@ -213,6 +222,8 @@ class MarketerAuthService:
 def send_password_reset(marketer_id: UUID, email: str, name: str) -> None:
     """Create a one-time reset token and email it. Runs after the response; never raises."""
     try:
+        # A newer link replaces every older one (invite or reset) for this marketer.
+        token_service.invalidate_marketer_tokens(marketer_id)
         token = token_service.create_marketer_invite_token(
             marketer_id, email, expiry_minutes=RESET_LINK_MINUTES
         )
