@@ -11,6 +11,8 @@ Snapshot (Sidecar on staging): deployed and healthy on staging since 2026-10-28 
 
 Snapshot (Referral program): backend Tasks 1-10 built and tested on branch `feature/referral-backend` (2026-10-29); PR to `develop` NOT yet opened, whole-branch CI parity still owed (the final Opus review ran and its findings are fixed, 2026-10-29); payouts default to the `manual` provider; dashboard stream, `luran_ref` cookie script, login-page fallback, privacy-policy text and a Paystack test-mode transfer run are NOT done. Counts for this module (2026-10-29): 26 ticked, 23 open (see its section). Prod untouched.
 
+Snapshot (WhatsApp default-on): backend built on `feature/whatsapp-default-on` (2026-10-29), PR to `develop` open, NOT merged; owner reversed the per-tenant grant (WhatsApp is now plan-driven for all tenants, `WHATSAPP_ENABLED` stays the prod kill switch, default false); capacity alert emails `PLATFORM_ALERT_EMAILS`. Dashboard work, production sidecar, `PLATFORM_ALERT_EMAILS` value and the pre-deploy override count are open. Prod untouched.
+
 Snapshot (WhatsApp module): spike, build, sidecar, dashboard, media and rating ALL merged to develop/staging; deployed on STAGING and live-tested with real phones 2026-10-28 (text, images both ways, escalation + agent app, join line, rating reply, resolve notice). Production NOT touched: see `docs/deployment/prod-release-plan-2026-10.md`.
 
 Snapshot (WhatsApp media + rating): backend #168 (`c9cc846`) and sidecar #167 (`93154b6`) merged and deployed on staging 2026-10-28; live-proven on real phones the same day (image with and without caption to the AI, customer image to the agent app, agent image to WhatsApp, rating request + `5` recorded, resolve notice). Voice notes, video, documents, stickers still unsupported.
@@ -257,6 +259,21 @@ See the grouped list in `docs/sop/referral_program_backend.md` ("Known gaps / Fo
 - [ ] No single kill switch for the whole programme; batch days hardcoded to the 1st/15th
 - [ ] Refresh-reuse detection and a `password_changed_at` check for marketer tokens
 - [ ] SQL prefilter for the shared-domain sweep when the tenant count grows; periodic `tldextract` bump
+
+## WhatsApp default-on (plan-driven access + capacity alert) — BUILT 2026-10-29, PR open to `develop`, not merged; dashboard and prod rollout open
+Docs: SOP `docs/sop/whatsapp_default_on.md`; FE guide `docs/fe-integration-guide-whatsapp-default-on.md`; captures `docs/fe-integration-captures/whatsapp-default-on/`; plan `docs/superpowers/plans/2026-10-29-whatsapp-default-on.md`. Decision change by Adebayo 2026-10-29 (reverses the 2026-10-28 platform grant).
+- [x] `subscription_plans.can_use_whatsapp` (true on all tiers) + catalog + feature string; `can_use_whatsapp` leaves the tenant-only list
+- [x] Migration `wa30whatsappdefaulton` (backfill skips `override_flags`; up/down/up proven on scratch Postgres and by hand on a live local DB)
+- [x] Resolver: `whatsapp.enabled` follows plan/override; additive `platform_available` (kill switch); inbound gate via resolver; downgrade-conflict on the flag
+- [x] Admin revoke (`false` override) survives plan changes, downgrade, promotional grants and tier override (Opus review finding, fixed)
+- [x] Capacity alert: `PLATFORM_ALERT_EMAILS`, cron every 5 minutes, Redis dedupe 6 h per condition, post-create hook, SMTP failure never raised
+- [x] Stable tenant-facing 503 `capacity_exceeded` text
+- [x] Tests (override respected, backfill idempotent, new-tenant default, revoke survives migration, entitlements payload, alert thresholds and dedupe, email failure does not break create) + live captures + FE guide + SOP
+- [ ] Owner, before deploying anywhere real: count tenants that will stay dark (`override_flags` has `can_use_whatsapp` and stored false) - query in the SOP
+- [ ] Owner: set `PLATFORM_ALERT_EMAILS` and a realistic `WHATSAPP_MAX_CONNECTIONS` with the production sidecar release; `WHATSAPP_ENABLED` stays false until then
+- [ ] Dashboard: hide the WhatsApp section unless `platform_available && enabled`; remove the "ask Luran to enable" state; relabel the admin "WhatsApp grant" as access/revoke; new capacity wording (separate task)
+- [ ] Admin cannot see or clear a `can_use_whatsapp` override (`override_flags` not in the platform response)
+- [ ] Contact exclusion list (T15) and the Terms wording (separate follow-ups)
 
 ## Backlog / upcoming
 - [ ] Reconcile all earlier modules into this checklist
