@@ -1,8 +1,8 @@
 """wa40: the exclusion table is additive, matches the model, and reverses cleanly (real Postgres)."""
 
-import pytest
 from alembic import command
 from alembic.script import ScriptDirectory
+from sqlalchemy import text
 from sqlalchemy import inspect
 
 from app.db.base import Base
@@ -55,3 +55,35 @@ def test_upgrade_matches_the_model_and_downgrade_reverses(scratch_db):
 
     command.upgrade(cfg, "head")  # and it comes back cleanly
     assert inspect(scratch_db).has_table(TABLE)
+
+
+def test_upgrade_is_idempotent_over_tables_built_from_the_models(scratch_db):
+    """Environments and tests that create_all() first, then run alembic from an older revision,
+    must not hit DuplicateColumn / DuplicateTable; a second run and a double downgrade are no-ops.
+    """
+    cfg = _cfg()
+    command.upgrade(cfg, "cl10conversationlimits")
+    # What a create_all-built database looks like at that revision: the new table and column exist.
+    Base.metadata.create_all(bind=scratch_db)
+    with scratch_db.begin() as conn:
+        conn.execute(text("ALTER TABLE whatsapp_chats ADD COLUMN phone_hmac VARCHAR(64)"))
+        conn.execute(
+            text(
+                "CREATE INDEX ix_whatsapp_chats_connection_phone "
+                "ON whatsapp_chats (connection_id, phone_hmac)"
+            )
+        )
+    insp = inspect(scratch_db)
+    assert insp.has_table(TABLE)
+    assert "phone_hmac" in {c["name"] for c in insp.get_columns("whatsapp_chats")}
+
+    command.upgrade(cfg, "head")  # would raise DuplicateColumn if not idempotent
+    command.stamp(cfg, "cl10conversationlimits")
+    command.upgrade(cfg, "head")  # and again
+
+    command.downgrade(cfg, "cl10conversationlimits")
+    command.stamp(cfg, "wa40contactexclusion")
+    command.downgrade(cfg, "cl10conversationlimits")  # nothing left to drop: still fine
+    insp = inspect(scratch_db)
+    assert not insp.has_table(TABLE)
+    assert "phone_hmac" not in {c["name"] for c in insp.get_columns("whatsapp_chats")}

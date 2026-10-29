@@ -26,13 +26,30 @@ branch_labels = None
 depends_on = None
 
 
+def _has_column(insp, table: str, column: str) -> bool:
+    return column in {c["name"] for c in insp.get_columns(table)}
+
+
+def _has_index(insp, table: str, name: str) -> bool:
+    return name in {i["name"] for i in insp.get_indexes(table)}
+
+
 def upgrade() -> None:
+    # Idempotent: some environments (and tests) build tables from the models first, so every
+    # step checks before it creates.
+    bind = op.get_bind()
+    insp = sa.inspect(bind)
     # Nullable column on a small table; fail fast rather than queue behind a long lock.
     op.execute("SET LOCAL lock_timeout = '5s'")
-    op.add_column("whatsapp_chats", sa.Column("phone_hmac", sa.String(64), nullable=True))
-    op.create_index(
-        "ix_whatsapp_chats_connection_phone", "whatsapp_chats", ["connection_id", "phone_hmac"]
-    )
+    if not _has_column(insp, "whatsapp_chats", "phone_hmac"):
+        op.add_column("whatsapp_chats", sa.Column("phone_hmac", sa.String(64), nullable=True))
+    if not _has_index(insp, "whatsapp_chats", "ix_whatsapp_chats_connection_phone"):
+        op.create_index(
+            "ix_whatsapp_chats_connection_phone", "whatsapp_chats", ["connection_id", "phone_hmac"]
+        )
+
+    if insp.has_table("whatsapp_contact_exclusions"):
+        return
     op.create_table(
         "whatsapp_contact_exclusions",
         sa.Column("id", sa.Uuid(), primary_key=True),
@@ -73,6 +90,10 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("whatsapp_contact_exclusions")  # drops its indexes with it
-    op.drop_index("ix_whatsapp_chats_connection_phone", table_name="whatsapp_chats")
-    op.drop_column("whatsapp_chats", "phone_hmac")
+    insp = sa.inspect(op.get_bind())
+    if insp.has_table("whatsapp_contact_exclusions"):
+        op.drop_table("whatsapp_contact_exclusions")  # drops its indexes with it
+    if _has_index(insp, "whatsapp_chats", "ix_whatsapp_chats_connection_phone"):
+        op.drop_index("ix_whatsapp_chats_connection_phone", table_name="whatsapp_chats")
+    if _has_column(insp, "whatsapp_chats", "phone_hmac"):
+        op.drop_column("whatsapp_chats", "phone_hmac")
