@@ -1,5 +1,7 @@
 # FE integration guide: WhatsApp channel (quick connect, demo slice)
 
+> **Updated 2026-10-29:** WhatsApp is now plan-driven for every tenant (no per-tenant platform grant) and the capacity text changed. Where this guide says "grant", read `docs/fe-integration-guide-whatsapp-default-on.md` first; it wins on conflict.
+
 Backend PR: `feature/whatsapp-channel-backend` → `develop` (luranai-api). SOP: `docs/sop/whatsapp_channel_backend.md`. Plan: `docs/superpowers/plans/2026-10-27-whatsapp-channel-backend.md`.
 
 **Provenance.** Every JSON body below is pasted from `docs/fe-integration-captures/whatsapp-channel/`, recorded on 2026-10-27 against the real app (uvicorn + arq worker, Postgres 15, Redis 7, real Alembic-migrated schema) run **locally**, driven by `tests/fakes/live_capture.py`. Three things differ from production and are marked inline:
@@ -20,7 +22,7 @@ Things the user can do and should be told:
 - Use an **aged business number** that is only used for business. Fresh numbers get restricted quickly. (Copy suggestion, not a backend rule.)
 - Show the consent text verbatim and send back its `version`. Do **not** add your own "unofficial" or "not affiliated" wording on this screen (product decision; liability wording lives in the Terms of Service).
 
-Gating: the tenant needs the **platform grant** (`can_use_whatsapp` + `max_whatsapp_numbers`, set by a Luran platform admin) and the global switch `WHATSAPP_ENABLED` must be on. Otherwise every create call returns `403 whatsapp_not_enabled`: show an "ask Luran to enable WhatsApp" state, not an error.
+Gating (**changed 2026-10-29**): WhatsApp comes from the tenant's plan (`features.whatsapp.enabled` in `GET /tenant/entitlements`; Trial 1 number, Lite 1, Professional 2, Growth 5, Enterprise unlimited) unless a Luran platform admin revoked it, and the global switch `WHATSAPP_ENABLED` must be on (`features.whatsapp.platform_available`). Otherwise every create call returns `403 whatsapp_not_enabled`: show a "not available on your account" state, not an error. Details: `docs/fe-integration-guide-whatsapp-default-on.md`.
 
 ## 2. Conventions and traps (read first)
 
@@ -75,12 +77,12 @@ Errors (all captured, exact strings):
 
 | Status | `code` | `message` | Capture | What to show |
 |---|---|---|---|---|
-| 403 | `whatsapp_not_enabled` | `WhatsApp is not enabled for this account.` | 02 | "Ask Luran to enable WhatsApp" |
+| 403 | `whatsapp_not_enabled` | `WhatsApp is not enabled for this account.` | 02 | "Not available on your account" (admin revoke or platform switch off; see the default-on guide) |
 | 422 | `consent_required` | `Accept the current WhatsApp terms (version 2026-10-28-draft2) to continue.` (built from the current version; captures 05/06 pre-date the change and show `2026-10-27-draft1`) | 05 (missing), 06 (stale version) | Re-fetch consent, re-ask. Also returned when `accepted` is false |
 | 422 | `invalid_phone` | `Enter the number as digits with country code and no '+', e.g. 2348012345678.` | 07 | Inline field error |
 | 409 | `number_in_use` | `This number is already connected to a Luran account.` | 14 | Do not reveal which account |
-| 409 | `connection_limit` | `Your plan allows 2 WhatsApp number(s).` | 16 | Number reflects the grant |
-| 503 | `capacity_exceeded` | `WhatsApp is at capacity right now. Please try again later.` | 17 | Retry later; this is a platform-wide cap, not the tenant's fault |
+| 409 | `connection_limit` | `Your plan allows 2 WhatsApp number(s).` | 16 | Number reflects the plan (or an admin-set allowance) |
+| 503 | `capacity_exceeded` | `WhatsApp is temporarily at capacity. Please try again later.` (**text changed 2026-10-29**; capture 17 is the old wording, current one is `whatsapp-default-on/11-create-capacity-exceeded-503.json`) | 17 | Retry later; this is a platform-wide cap, not the tenant's fault |
 
 Check order: gating → consent → phone format → `number_in_use` → `connection_limit` → capacity. **NOT LIVE:** the `502 sidecar_unavailable` (`Could not reach WhatsApp. Please try again.`) and the sidecar-originated `503 capacity_exceeded` were exercised by tests only (`tests/whatsapp/test_connections_api.py`), not in the live run; their bodies come from the service code.
 
@@ -122,7 +124,7 @@ Only valid while `status` is `awaiting_pair` or `logged_out`. Otherwise **409** 
 ```
 After a successful call on a `logged_out` connection the status goes back to `awaiting_pair` (captures 28, 29).
 
-Other errors on this route: `403 whatsapp_not_enabled` if the grant was revoked, and `503 capacity_exceeded` when re-pairing a `logged_out` connection while the platform is at capacity (re-pairing makes it live again). **Rate limits** (HTTP `429` with the app's standard rate-limit body `{"detail": {"error": "Rate limit exceeded", "limit": …, "window_seconds": …, "retry_after_seconds": …}}` and a `Retry-After` header): 5 codes per 10 minutes per connection and per IP. Creating connections is limited to 10 per 10 minutes per tenant and 5 per day per phone number across all tenants (each create makes WhatsApp notify that number's owner). Show a "try again later" message using `retry_after_seconds`. **NOT LIVE:** the 429 responses for these routes (unit-tested with an in-memory counter and against real Redis for the limiter itself; their exact body is the shared rate-limit shape, not captured here).
+Other errors on this route: `403 whatsapp_not_enabled` if an admin revoked WhatsApp for the account, and `503 capacity_exceeded` when re-pairing a `logged_out` connection while the platform is at capacity (re-pairing makes it live again). **Rate limits** (HTTP `429` with the app's standard rate-limit body `{"detail": {"error": "Rate limit exceeded", "limit": …, "window_seconds": …, "retry_after_seconds": …}}` and a `Retry-After` header): 5 codes per 10 minutes per connection and per IP. Creating connections is limited to 10 per 10 minutes per tenant and 5 per day per phone number across all tenants (each create makes WhatsApp notify that number's owner). Show a "try again later" message using `retry_after_seconds`. **NOT LIVE:** the 429 responses for these routes (unit-tested with an in-memory counter and against real Redis for the limiter itself; their exact body is the shared rate-limit shape, not captured here).
 
 ### 3.5 `PATCH /whatsapp/connections/{id}`
 Request (capture 26): `{"ai_enabled": false, "label": "Support line"}`. Both fields optional; unknown fields are rejected with 422. Response **200**: the connection object (3.3). With `ai_enabled: false` the number stays linked, customer messages are stored and shown to agents, and the AI does not answer.

@@ -24,7 +24,7 @@ The matrix (what each tier includes; the endpoint is the source of truth, do not
 | `ai_actions` (max) | 2 | 2 | 15 | 40 | unlimited |
 | `lookup_chains`, `webhooks` | no | no | yes | yes | yes |
 | `analytics` | no | yes | yes | yes | yes |
-| `whatsapp` numbers (needs the platform grant too) | 1 | 1 | 2 | 5 | unlimited |
+| `whatsapp` numbers (plan-driven since 2026-10-29, no grant needed) | 1 | 1 | 2 | 5 | unlimited |
 | `voice` | platform grant only, never from a plan |||||
 
 Never gated (no lock, no check): human handoff, tickets, agent app, image upload, rating **collection**, lead capture/scoring/email notice, the web widget. Lite is 15,000 naira/month (`monthly_price_kobo` 1500000), annual 15000000 kobo.
@@ -379,7 +379,7 @@ _(from `28-entitlements-trial-expired.json`; status 200)_
 
 ### Traps (read these)
 
-1. **`whatsapp.enabled` is the platform grant, not the plan.** In every capture above `whatsapp.limit` is 1 or 2 but `enabled` is `false`: no grant is set on these tenants. `enabled=false` with `limit>0` means "not granted to your account; contact support", **not** "upgrade". The plan only decides how many numbers once granted. (The contract sketch showed `enabled: true` for a Lite tenant; the backend reports `true` only when the grant exists.)
+1. **SUPERSEDED 2026-10-29 (WhatsApp is now plan-driven; read `docs/fe-integration-guide-whatsapp-default-on.md`): `whatsapp.enabled` follows the plan/override and the entry gained `platform_available` (the global kill switch). The paragraph below describes the old grant model and the captures above predate it.** ~~**`whatsapp.enabled` is the platform grant, not the plan.** In every capture above `whatsapp.limit` is 1 or 2 but `enabled` is `false`: no grant is set on these tenants. `enabled=false` with `limit>0` means "not granted to your account; contact support", **not** "upgrade". The plan only decides how many numbers once granted. (The contract sketch showed `enabled: true` for a Lite tenant; the backend reports `true` only when the grant exists.)~~
 2. **Trial shows features as enabled with `min_tier: "professional"`.** The trial includes the sales features, Slack/CRM, recording and ratings export so a trial user can try them; `min_tier` says where they stay after the trial. Show "included in your trial; keep it with Professional", not a lock.
 3. **`analytics` is off on Trial** and the Analytics page answers 403 `"Analytics access not enabled for this tenant"` (a different, older error shape, see section 4). Use `analytics.enabled` to lock the sidebar item.
 4. **Overrides can exceed the tier.** Lite + override: `sales_close.enabled` is `true` while `min_tier` stays `professional`. Never derive `enabled` from `tier`.
@@ -607,7 +607,7 @@ So the visitor sees an empty picker / the same `BOOKING_DISABLED` a tenant with 
 | `GET /analytics/agents`, `GET /analytics/agents/{id}` | still 200 (analytics is a separate gate); the per-agent `ratings_count`, `average_rating`, `csat_percent` are `0`, `null`, `null` unless the plan has `ratings_export`, or an agent reads their own row |
 | `GET /widget/config` (admin) | `can_use_screen_recording` is the plan decision |
 | public widget config + `POST /chat/video/sign` / `register` + chat send with a video | recording is off: existing 403 `screen_recording_disabled` on the video endpoints, `allow_screen_recording: false` in the public config |
-| `POST /whatsapp/connections` | `connection_limit` (409) now uses the plan's number of lines; `whatsapp_not_enabled` (403) still means no platform grant |
+| `POST /whatsapp/connections` | `connection_limit` (409) now uses the plan's number of lines; `whatsapp_not_enabled` (403) now means an admin revoke or the global kill switch (was: no platform grant until 2026-10-29) |
 | AI action create | existing "Automation action limit reached" error, limit now plan-driven (Lite 2) |
 | `GET /analytics/*` | unchanged 403 string for tenants whose plan has no analytics |
 
@@ -786,6 +786,8 @@ Show each `action_required` string and block the downgrade until the tenant fixe
 ]
 ```
 _(from `01-public-plans.json`; status 200)_
+
+> **2026-10-29:** the plan captures above show the feature string `WhatsApp (beta, on request): N number(s)`; it is now `WhatsApp (beta): N number(s)` and each plan's `capabilities` also carries `can_use_whatsapp: true`.
 
 `capabilities` in each plan now also carries `can_use_sales_close`, `can_use_crm_notifications`, `can_use_screen_recording`, `can_export_ratings`, `max_whatsapp_numbers` (`null` = unlimited) and the audit limits. The prices only change in the database when the migration + seed run on that environment: see the SOP for the order of operations and the Paystack step.
 
