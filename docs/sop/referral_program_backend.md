@@ -1,0 +1,192 @@
+# SOP: Marketer referral program, backend (2026-10-29)
+
+## What shipped
+
+The backend of the marketer referral program: Luran admins onboard marketers; a signup that carries a marketer's code is attributed to them; the tenant's **first successful payment** (within 90 days of signup) creates a one-time **5,000 naira** reward; rewards cool down for 7 days, are checked for duplicate-account fraud, are grouped into payout batches on the 1st and 15th and are paid only after a super admin approves the batch.
+
+| Item | Reference |
+|---|---|
+| Feature PR (`feature/referral-backend` to `develop`) | `PR: <fill when opened>` |
+| Prerequisite: idempotent `charge.success` handler (`fix/charge-success-idempotent`) | #173 (its fix is cherry-picked here as `0101ae0` and drops out when #173 merges) |
+| Spec / plan | `docs/superpowers/specs/2026-10-28-referral-program-design.md`, `docs/superpowers/plans/2026-10-28-referral-program-backend.md` |
+| FE contract (built only from live captures) | `docs/fe-integration-guide-referral.md`, captures in `docs/fe-integration-captures/referral/` (78 files + `INDEX.md`), `scripts/capture_referral.py` |
+| Master checklist | `docs/checklist/master-checklist.md`, section "Referral program" |
+
+**Not shipped:** the dashboard (marketer page, admin screens), the `luran_ref` cookie script, the login-page fallback to the marketer login, the privacy-policy text. Backend only; production untouched; default payout provider is `manual`.
+
+## Why
+
+Luran wants people (marketers, influencers) to bring businesses, paid only after Luran has received money, so there is no up-front cost. Prod has 13 tenants, no payments yet and about 1.6 signups a month; paid acquisition through people is the cheapest lever. Anti-goals that shaped every decision: a marketer login must never reach tenant data or an admin endpoint; the same tenant must never be rewarded twice; no money leaves without an admin approving that batch; a repeat signup must not be rewarded again.
+
+## How
+
+### Design table
+
+| Area | Decision | Why / tradeoff |
+|---|---|---|
+| **Identity isolation** | Separate `marketers` table, JWT claim `admin_type="marketer"`, own cookies `marketer_access_token` / `marketer_refresh_token`, own dependency `get_current_marketer` (cookie only, no Bearer). Login at `POST /api/v1/auth/marketer/login`; the login page tries the tenant login first, then this one | a new platform-admin role would have been admitted by every endpoint that uses `get_current_platform_admin`. No existing tenant/platform dependency was changed; the isolation tests in `tests/referral/test_marketer_auth.py` pin exactly 401 for every cross-identity combination. Cost: marketer cookies/endpoints are a second system to maintain |
+| **Refresh cookie path** | `/api/v1/auth/marketer` (prefix), not `/refresh` | a `/refresh`-scoped cookie never reaches `/logout`, so logout could not revoke it server-side (platform admin has that flaw today). Cost: the cookie also rides on login/set-password/forgot-password (httpOnly, same origin) |
+| **Attribution** | optional `referral_code` / `referral_source` on `register-company`; unknown, suspended, blank, over-long codes are ignored with an identical 201; one attribution row per tenant (first wins); `self_referral` (same email, or same non-webmail email domain) is recorded but hidden and never rewarded; a salted-hash `signup_origins` row (HMAC of IP + user agent, key derived from `SECRET_KEY` with a domain-separation label, no new env var) is stored only when an attribution is created | signup is never blocked or changed by a bad code; no raw IP/UA stored. Weak signal only |
+| **Reward lifecycle** | `pending` (7-day hold) to `payable` (daily job) to `batched` to `paid`; `held` (flag, dispute, marketer suspended) and `void`. One reward per tenant (unique `tenant_id`); only the tenant's **earliest successful payment** within the commission window creates it; amount and `payable_after` are snapshots | replay-proof (unique constraint plus the idempotent handler). Creation runs in a SAVEPOINT inside `charge.success` and never raises into the payment path; a daily `reconcile_missing_rewards` repairs a lost one |
+| **Fraud flags** | `shared_domain` (registrable-domain match across audit domain, URL knowledge sources and the widget host, public-suffix aware, social/link-in-bio sites ignored), `shared_card` (same Paystack authorization signature on two tenants of one marketer), `shared_origin`, `self_referral`, `marketer_burst` (more than 10 attributed signups in 24 h). A flag **holds** the reward for a human; it never blocks a signup or a payment | one person may legitimately run several businesses. **Honest limits:** the same business under another domain, or a fresh domain bought to fool the check, is not caught; `widget` and `knowledge_url` evidence is weak (admins see the evidence source per match); `shared_origin` is weak; a fake tenant must still pay at least 15,000 naira to earn 5,000 |
+| **Payouts state machine** | batch `draft` to `paying` to `paid` / `failed`; item `pending`, `processing`, `awaiting_manual`, `paid`, `failed`, `skipped` (full table in the FE guide, 9.3). Draft batches are prepared by cron; **nothing moves until a super admin approves** | see the double-pay defences below |
+| **Providers** | `ManualPayoutProvider` (default, `REFERRAL_PAYOUT_PROVIDER=manual`: items become `awaiting_manual`, the admin pays by bank and records it with `mark-paid`) and `PaystackTransferProvider` (`paystack`) behind one interface | manual ships first so nothing blocks; Paystack is plugged in only after the owner actions below |
+| **Emails** | marketer invite, password reset, conversion notice, payout notice. Sent only on the transition that happened in this call, after the owning commit; failures are logged by exception class and ids, never raised; a rolled-back payment is never announced; a held reward sends the same generic notice (no fraud wording) | a mail failure must not roll back money |
+
+### Double-pay defences (payouts)
+
+1. `approve_batch` locks the batch `FOR UPDATE`; a non-draft batch returns unchanged with no provider call.
+2. Every item is **claimed** (conditional UPDATE on status, reference, attempt and `claimed_at`, `rowcount == 1`) and committed before any provider call, so only the winner calls the provider. The provider call runs with no row locks.
+3. Deterministic Paystack reference `ref-{batch}-{marketer}` (Paystack deduplicates on it); a retry first **verifies** the reference: success marks paid and never resends; pending/otp stays; failed/reversed gets attempt+1 (`-r2`); only a clearly-not-found result for an item whose claim is older than 15 minutes is re-sent.
+4. The amount is recomputed from the rewards currently `batched` in this batch under lock at claim, retry and mark-paid; a held, voided or detached reward can never be paid by a stale item.
+5. A reward held by a dispute while its item is `processing` or `failed` keeps its batch link and cannot be released or voided (`reward_in_flight`) until the item is resolved; only `pending` / `awaiting_manual` items detach it.
+6. `mark-paid` is allowed only from `awaiting_manual` or `failed` (a `failed` item only after the transfer is verified dead), carries the `amount_kobo` the admin paid and is refused with 409 `amount_mismatch` when it differs; all entries apply together or none do; duplicate bank references are refused.
+7. Transfer events: `transfer.success` on a reversed item is ignored; `transfer.reversed` returns paid rewards to `batched` (or to `held` when they were disputed or paid in flight); `transfer.*` and dispute handler failures answer 5xx so Paystack redelivers.
+
+### Key decisions and rejected alternatives (rulings in the SDD ledger)
+
+| Decision | Rejected alternative |
+|---|---|
+| Separate identity (above) | a "marketer" platform-admin role |
+| Write/money endpoints need `get_current_super_admin`; reads stay open to any platform admin (R16) | plan said plain platform admin for everything |
+| Reward is created in the webhook inside a savepoint, plus a daily reconcile (R26) | letting a creation failure fail the payment webhook, or relying on replay (the idempotent handler returns early on a replay) |
+| Dispute before the reward exists is stamped on the attribution (`disputed_at`) so the late reward is created `held` (R31) | a clean `pending` reward for a disputed payment |
+| Reactivating a marketer does not auto-release held rewards (R9) | auto-release (money-unsafe) |
+| Unknown Paystack statuses keep the item `processing` and are resolved by a runbook, no admin "resolve" endpoint in v1 (R39) | an endpoint that could be misused to pay twice |
+| `luran_ref` and the link base are not tied to `FRONTEND_URL`: `REFERRAL_LINK_BASE_URL` (default `https://luranai.com`) (R10) | using the dashboard host, which may be an app subdomain |
+| Approve/retry run the provider calls inside the request (small batches in v1) | a background worker draining `pending` items (needed beyond a handful of marketers) |
+| Unknown TLDs yield no domain (fail open) rather than a last-two-labels guess | a wrong boundary would merge unrelated tenants |
+| No refunds, no clawback (D5); refund events are not handled; a dispute after `paid` changes nothing | clawback logic |
+| `self_referral` and flagged rewards are hidden from the marketer; a held reward looks pending; a void looks not-converted (R44, R45) | showing marketers why a reward waits |
+
+## What's involved
+
+**Migration:** `alembic/versions/ref10_referral_program.py`, revision `ref10referral`, `down_revision = "wa20ratingreply"` (single head). Purely additive: tables `marketers`, `referral_attributions`, `referral_rewards`, `payout_batches`, `payout_items`, `signup_origins`, `referral_config` and five native enums (`marketer_status`, `attribution_source`, `reward_status`, `batch_status`, `payout_item_status`). `SET LOCAL lock_timeout`, existence-checked, reversible. All `*_kobo` columns are `BigInteger`. `referral_rewards.tenant_id` is nullable with `ON DELETE SET NULL` (money owed survives a tenant purge; the purge service detaches rewards explicitly).
+
+**Code:**
+
+| Area | Files |
+|---|---|
+| Models, schemas | `app/db/models/referral.py`, `app/schemas/referral.py`, `app/schemas/marketer_auth.py`, `app/schemas/marketer_portal.py`, `app/schemas/auth.py` (two optional signup fields) |
+| Services | `app/services/referral/` (`marketer_service`, `marketer_auth_service`, `attribution`, `domains`, `fraud`, `rewards`, `payouts`, `providers`, `payout_queries`, `review_queue`, `marketer_views`, `config`, `codes`, `masking`, `notifications`), `app/services/paystack_service.py` (transfer methods), `app/services/token_service.py` (marketer one-time tokens), `app/services/webhook_handler_service.py`, `app/services/company_registration_service.py`, `app/services/account_purge_service.py`, `app/services/email_service.py` |
+| Endpoints | `app/api/v1/endpoints/marketer_auth.py` (`/api/v1/auth/marketer/*`), `marketer.py` (`/api/v1/marketer/*`), `platform/referrals.py` (`/api/v1/platform/referrals/*`), `company_registration.py`, `webhooks.py`; wiring in `app/api/v1/api.py`; `app/api/deps.py` (`get_current_marketer`), `app/core/security.py` (two cookie-name constants) |
+| Workers | `app/workers/referral.py`, registered in `app/workers/document_processor.py` |
+| Templates | `app/templates/emails/marketer_invite.html`, `marketer_password_reset.html`, `referral_conversion.html`, `referral_payout.html` |
+| Dependency | `tldextract` pinned `5.3.1` in `pyproject.toml` |
+
+**Settings (names only):** `REFERRAL_REWARD_KOBO` (500000), `REFERRAL_HOLD_DAYS` (7), `REFERRAL_COMMISSION_WINDOW_DAYS` (90), `REFERRAL_COOKIE_DAYS` (30, informational; the cookie is a frontend matter), `REFERRAL_PAYOUT_PROVIDER` (`manual` or `paystack`, default `manual`), `REFERRAL_LINK_BASE_URL`. Admin overrides for the first three live in the `referral_config` table (`GET/PATCH /api/v1/platform/referrals/config`, bounds in the FE guide). Also relied on: `FRONTEND_URL` (invite and reset links), `FORWARDED_ALLOW_IPS` (real client IP for rate limits and origin hashes), `SECRET_KEY` (origin-hash key derivation), `ENCRYPTION_KEY` (bank fields at rest), the existing Paystack secret key setting (webhook signature and transfers).
+
+**Cron jobs** (arq, in `document_processor.py`): `referral_promote_pending` daily 03:00 UTC (promote pending past their hold, then `reconcile_missing_rewards`); `referral_prepare_batch` on days 1 and 15 at 04:00 UTC (creates a DRAFT batch only). Neither runs at startup.
+
+**Webhook events added** to `/api/v1/webhooks/paystack`: `charge.dispute.create`, `transfer.success`, `transfer.failed`, `transfer.reversed`.
+
+**Rate limits:** signup 3/hour/IP (existing); marketer login + forgot-password + set-password share 10 per 15 minutes per IP in production (100 in staging/development); marketer portal 60 per minute per marketer (300 in dev/staging); platform admin routes 60 per minute per admin; forgot-password also has a 120-second per-marketer cooldown.
+
+## Verification
+
+Test functions in the referral area (count of `def test_`, parametrised cases expand the executed number): attribution 19, codes/masking 6, domains 14, fraud flags 24, marketer admin 27, marketer API 37, marketer auth 37, models/migration 13, notifications 19, payout endpoints 24, payout webhook 5, payouts 83, review queue 28, rewards 53; plus 7 in `tests/workers/test_referral_jobs.py` and 4 in `tests/services/test_webhook_charge_success_idempotent.py`.
+
+Recorded run results (from the per-task reports): `tests/referral tests/workers tests/migrations` 612 passed after Task 9; `tests/referral tests/workers tests/migrations tests/services tests/api` 1325 passed, 7 skipped after Task 10a; Task 1 on its own branch: full suite 2379 passed / 33 skipped, SQLite regression job 14 passed. Final local CI parity on the whole branch (ruff 0.8.6, black 24.10.0, full pytest, SQLite regression job): `<fill in after the controller's parity run>`.
+
+**RED first, mutation checks.** Tasks 1 to 6 and 9 were written test-first with recorded RED runs (Task 7's report records the tests but no RED run). Task 8 was written implementation-first and proved by mutation instead: skipping the verify step on retry (5 tests fail), removing the draft guard (concurrency test fails; the claim still blocks double payment), computing the amount from the stale item (fails), letting `mark-paid` accept processing/pending/paid (fails), using the lesser-privileged admin dependency (fails), logging `{exc}` in audit (fails), reverting the dispute/hold fix (all C1 tests fail), removing the `release`/`void` guard (3 fail). Also: disabling the marketer `admin_type` check (isolation test fails), re-adding invalidation in forgot-password (fails), moving the conversion email before the final commit (fails), removing the attribution lock (dispute race test fails). Concurrency tests use two real Postgres sessions and ran repeatedly.
+
+**Live captures.** 78 real requests against a locally running app on a scratch database (script and captures in the repo; index in `docs/fe-integration-captures/referral/INDEX.md`); the FE guide was built only from them and checked block by block against the files.
+
+**Opus reviews and what they found**
+
+| Task | Finding | Outcome |
+|---|---|---|
+| 4 (identity) | Important: isolation tests accepted 403 as well as 401 | pinned to exactly 401 with exact bodies |
+| 7 (rewards) | I1: a dispute on a batched reward left stale item/batch totals (possible double pay); I2: release/void audit not atomic with the change | I1 became a hard requirement for payouts (R32); I2 made atomic (change + audit in one commit) |
+| 8 (payouts) | **Critical C1 (a double-pay defect): a reward captured by an unresolved payout item could be held by a dispute, then released by an admin and re-batched into a later batch, so it would be paid twice (probes proved it)**; I1 `transfer.success` after `transfer.reversed` marked paid; I2 a reward disputed after payment returned to `batched` on reversal; I3 a lost `transfer.*` webhook error answered 200 and was never redelivered; I4 unknown Paystack statuses left items needing DB surgery | fixed in fix round 1 and re-reviewed: a held reward on a `processing` item keeps its batch link and release/void refuse it (`reward_in_flight`); success after reversal ignored; reversal of a disputed reward goes to `held`; `transfer.*` failures answer 5xx; unknown statuses keep the item `processing` plus the runbook below |
+| 8 re-review | C1 still open for a held reward on a `failed` item (an OTP-pending transfer can still succeed); mark-paid race | fix round 2 (R41: a `failed` item is treated like `processing`; R42: one lock order batch, marketer, item, rewards; R43: `mark-paid` carries the amount and refuses a mismatch), re-reviewed clean |
+| 9 (marketer API) | Important (Sonnet review): cost amplification on `/marketer/referrals` | limit 50/100, per-marketer rate limit, savepoint around hints |
+| Whole branch | one Opus review over the full branch is scheduled after this documentation commit: `<fill in>` | |
+
+**Automated security-review findings and how each was ruled**
+
+| Finding | Ruling |
+|---|---|
+| T3: marketer writes were open to any platform admin | fixed: SUPER_ADMIN for all writes and money moves (R16) |
+| T4: outstanding invite/reset tokens stay valid after a password is set | fixed: per-marketer token index; a successful set-password retires all |
+| T4: unauthenticated forgot-password could invalidate an admin-issued invite (onboarding DoS) | fixed (R20): forgot-password only adds a 60-minute token and never retires anything, plus a 120-second cooldown |
+| T6: widget host and URL knowledge sources are weak, unverified domain evidence | accepted (R24): a flag only holds a reward for a human; each match carries its evidence source so admins can discount weak evidence; social/link-in-bio domains are ignored (R25) |
+| T7: a dispute arriving before the reward exists would leave it `pending` | fixed (R31): `disputed_at` on the attribution; a late reward is created `held` |
+| T8a: after `transfer.reversed`, a reward paid in flight (held/voided after claim) must not return to `batched` | fixed (R37): it goes to `held` for review |
+| T8 fix: a `failed` item may still hold a live transfer | fixed (R41) |
+
+## Operate / roll back
+
+**Run it.** Deploy the migration (`alembic upgrade head`, revision `ref10referral`). Defaults are safe: provider `manual`, nothing is paid without an approval.
+
+**Create a marketer.** Super admin: `POST /api/v1/platform/referrals/` (name, email, code, bank details). The marketer gets an invite email (7-day link). Invites cannot be re-sent; the marketer uses Forgot password.
+
+**Run a batch.** Cron prepares a draft on the 1st and 15th (04:00 UTC). Review it (`GET /batches/{id}`, shows each marketer's `current_amount_kobo` and `held_rewards_excluded`), then super admin `POST /batches/{id}/approve`. With `manual`: items become `awaiting_manual`; pay each marketer by bank transfer; then `POST /batches/{id}/mark-paid` with `{marketer_id, bank_reference, amount_kobo}` per item (the amount must equal `current_amount_kobo`, else 409 `amount_mismatch`). With `paystack`: approve sends the transfers; finals arrive by webhook; use `retry` for failed items.
+
+**Disable the feature.** There is no single kill switch (see follow-ups). To stop money: leave or set `REFERRAL_PAYOUT_PROVIDER=manual` and do not approve batches (cron only creates drafts). To stop new attribution: suspend the marketers (this also holds their unpaid rewards) or have the signup page stop sending `referral_code` (the field is optional). To remove everything: revert the PR and run the downgrade below.
+
+**Migration downgrade.** `alembic downgrade wa20ratingreply` drops the seven tables and five enums, **including every reward, payout record and audit-relevant row of money owed**. Export first. The ref10 migration was edited during development (BigInteger, `disputed_at`, `attempt`, `reward_ids`, `claimed_at`) before release; a database that ran an earlier draft is handled by existence-checked column adds.
+
+**Cron and UTC.** arq has no timezone setting; the schedule is in the container's timezone. The worker container must run in **UTC** (same assumption as the existing daily jobs): otherwise the 1st/15th 04:00 batch and the 03:00 promotion run at the wrong hour. Confirm `TZ` before the first batch.
+
+**Runbook: a payout item stuck in `processing` (R39).** Items stay `processing` when Paystack returns a status Luran does not map (abandoned, blocked, rejected, anything unknown) or an unreadable shape; nothing is re-sent in that case, which is the safe direction. The SQL below is an **outline that has not been run** in this PR; adapt it, take a backup first and run it in a transaction.
+
+1. Find them: `SELECT id, batch_id, marketer_id, amount_kobo, transfer_reference, provider_status, claimed_at FROM payout_items WHERE status = 'processing' AND claimed_at < now() - interval '1 day';`
+2. In the **Paystack dashboard** search the item's `transfer_reference` (Transfers) and read its real state; also check the balance ledger for the debit.
+3. Dashboard says **Success** (money sent): first try to have Paystack redeliver the `transfer.success` webhook (normal idempotent path) or run `POST /batches/{id}/retry` (it verifies first and records a success without re-paying). Only if both fail, in one transaction: `UPDATE payout_items SET status='paid', paid_at=now(), provider_status='success' WHERE id=:item AND status='processing';` then `UPDATE referral_rewards SET status='paid', paid_at=now(), transfer_reference=:ref WHERE id::text IN (SELECT jsonb_array_elements_text(reward_ids::jsonb) FROM payout_items WHERE id=:item) AND status IN ('batched','held') AND payout_batch_id=:batch;` then set the batch `paid` if every non-skipped item is paid. Never touch rewards of an item you have not confirmed.
+4. Dashboard says **Failed / Reversed** (money back): run `POST /batches/{id}/retry`; it verifies, sees the failure and sends attempt+1 with a new reference. If the status is one Luran does not map, instead `UPDATE payout_items SET status='awaiting_manual', failure_reason='manual_resolution' WHERE id=:item AND status='processing';`, pay the marketer by bank transfer and record it with `mark-paid`.
+5. Dashboard has **no record** of the reference (balance not debited): `retry` re-sends with the same reference after the claim is 15 minutes old, provided the not-found answer is recognised; if not, treat as step 4.
+6. Verify: `GET /batches/{id}` shows the item and batch consistent; `SELECT status, count(*), sum(amount_kobo) FROM referral_rewards WHERE payout_batch_id=:batch GROUP BY status;` agrees with the item amounts; the marketer's `/earnings` shows the payout; note the manual intervention in the ops log.
+
+## Owner actions before the first real payout
+
+1. **Paystack transfer OTP.** Decide how API transfers are finalised. If OTP is on, every transfer stops at `otp`, the item becomes `failed` with `otp_required` and the admin must finalise in the dashboard. Disable OTP for API transfers (or choose and document another approval route) before switching on `paystack`.
+2. **Keep the Paystack balance funded** for each batch (a short balance fails the transfers).
+3. **Run one small test-mode transfer first** through the real code path and capture the real shapes that this PR could not (the not-found 404 body, the `failed` / `reversed` verify statuses, the `transfer.failed` / `transfer.reversed` webhook payloads and amount fields). Also check a real `charge.dispute.create` payload (Paystack dashboard test events or logs) against what the handler reads. Update the code if they differ; `docs/fe-integration-captures/referral/` would gain the captures.
+4. **Privacy policy:** add a line about the `luran_ref` cookie (a public referral code kept for up to 30 days) and about paying referral commissions. Suggested wording for the owner to approve: "If you arrive through a referral link we keep a cookie named luran_ref for up to 30 days containing the referral code, so that we can credit the person who referred you. We pay referral commissions to approved partners."
+5. **Set `REFERRAL_PAYOUT_PROVIDER=paystack` only after 1 to 4.**
+6. **Confirm the worker and API containers run with `TZ=UTC`.**
+7. **Confirm gunicorn `FORWARDED_ALLOW_IPS` covers the real proxy**, so `request.client.host` is the visitor's IP (rate limits and origin hashes depend on it; `docker-compose.prod.yml` sets a default for the host nginx).
+8. Create the first marketers (super admin), and take the dashboard work (below) before announcing the program.
+
+## Known gaps / Follow-ups
+
+**Next:** the dashboard stream (marketer page `/marketer`, admin screens, login-page fallback, `luran_ref` script) against `docs/fe-integration-guide-referral.md`.
+
+**Open item for the final review:** capture `69` shows a company whose reward was **voided** as `signed_up` with `trial_days_left: 30` even though a payment row exists. By code this is the intended derivation (a void reward counts as no reward, and the company still reads as `trialing`), but a really upgraded tenant is `active` with the trial cleared, so the scratch run's directly inserted payment probably did not upgrade it (a swallowed upgrade error leaves the payment `success` with `error_message` set; check that column on the capture database). Also note that the ledger summary for R44 says "void shows not_converted"; the code shows `signed_up` while the trial is running.
+
+Deferred minors, grouped:
+
+| Group | Item |
+|---|---|
+| Money and payouts | approve/retry call the provider inside the request (a background worker beyond a handful of marketers); batch days (1st/15th) hardcoded although the spec lists them as config; `bank_reference` uniqueness is global (may block a legitimate shared reference); two concurrent first approvals could each write an audit row (money side stays single); `referral_prepare_batch` re-raises while the daily job swallows; bank details are read at claim time; `mark-paid` overwrites the Paystack reference of an earlier failed attempt; an `awaiting_manual` item whose reward was held after the claim still shows the claimed amount to pay (`current_amount_kobo` shows the true one); a reversed-then-paid-again transfer sends a second payout email; a dispute landing exactly while `prepare_batch` batches the reward takes its locks late (worst case a deadlock abort and a Paystack redelivery); webhook failure text is read from `data.message` (shape unverified) |
+| Identity and auth | access tokens survive a password change until they expire (15 minutes; no `password_changed_at` check); tenant refresh/logout do not scope `user_type` and there is no refresh-reuse detection (pre-existing); marketer-versus-tenant email collision check covers common casings only (`User.email_hash` hashes as typed); a test name over-claims in the unknown/suspended forgot-password test; the reset cooldown is set before the send (a 2-minute availability cost if SMTP fails); the invite cannot be re-sent; log lines that print `{exc}`: `marketer_service.py:215`, `marketer_auth_service.py:243`, non-atomic marketer audit in `platform/referrals.py:83`; the 422 for a bad `account_number` echoes the input (admin-only) |
+| Attribution and fraud | self-referral domain match is an exact string (no subdomain or gmail-alias logic); a valid code and an invalid one differ slightly in latency (rate limited); one weak assertion at `test_attribution.py:829`; `shared_domain` sweeps every tenant's domains (per queue row) and loads them in Python (add a SQL prefilter when tenant count grows); host regex rejects underscores; a test reads a `tldextract` private attribute; transitive dependencies float because `poetry.lock` is git-ignored project-wide; rotating `SECRET_KEY` changes future origin hashes only |
+| Rewards | `paid_at` is the webhook processing time, not Paystack's (a first payment redelivered after day 90 loses its reward; reconcile agrees); a crash between the payment commit and the reward is repaired by the daily job (up to 24 h, harmless against a 7-day hold); a reward is also created when `upgrade_subscription` failed internally (money was received); creation reads the marketer status without a lock (a suspension a moment earlier can leave a `pending` reward that `promote_pending` never pays); a released reward of a suspended marketer goes straight to `payable` while batching excludes suspended marketers; a misleading `PendingRollbackError` log when the upgrade already poisoned the session |
+| Marketer API | activation hints cost 4 to 6 queries per in-trial row on a page (bounded by 100); changing `commission_window_days` retroactively changes the displayed status of existing referrals; the first-ever concurrent `PATCH /config` of one key can hit the primary key once (500 `config_update_failed`, retry works); the release/void note lives in the audit entry (admin-only) |
+| Schema | no `CHECK (amount_kobo > 0)` constraints; no migration-schema test for duplicate inserts or for the `email_hash` / `transfer_reference` uniqueness; after a tenant purge the unique `tenant_id` no longer guards that tenant, which is safe only because reward creation requires an attribution row (also deleted) |
+| Process | there is no one-flag kill switch for the whole program; refunds and chargebacks after payment are deliberately not handled (no refunds at Luran); Task 1 (#173): a delivery whose upgrade raised is stored `success` with `error_message` set and a replay no longer retries it, the history row is committed separately from the upgrade, and no two-connection concurrency test exists |
+
+## Notes the ledger asked to record
+
+* **Public suffix list:** `tldextract` is pinned to `5.3.1`, offline (no suffix-list URLs, disk cache off, bundled snapshot, private domains included). The bundled snapshot is dated **2025-04-07**; TLDs delegated afterwards are unknown and yield no domain (fail open). The refresh path is a periodic dependency bump (the newer 5.4.0 ships the same snapshot version string).
+* **`authorization.signature` was not seen in a live Paystack payload.** The `shared_card` flag reads it from the stored `charge.success` data; Paystack's public examples include it, but no real payment has been captured. The flag counts only non-empty strings and ignores anything else.
+* **`paid_at`** used for the earliest-payment and day-90 rules is the webhook processing time (`datetime.now` at handling), not Paystack's timestamp.
+* **Config changes** apply to rewards created afterwards, but the marketer view measures the commission window with the current setting, so a window change retroactively flips displayed statuses.
+* **Forgot-password griefing:** anyone who knows a marketer's email can trigger reset emails; bounded by the per-IP limit and the 120-second per-marketer cooldown; it does not invalidate the invite or the password.
+* **Rate limits** are listed under "What's involved".
+
+## Not exercised live
+
+| Area | Why not | Basis |
+|---|---|---|
+| Paystack Transfers against the real API (recipient, initiate, verify, `transfer.*` webhooks) | no real or test-mode Paystack call was made; only the manual provider ran | 83 payout tests with a mocked HTTP transport; Paystack developer docs (docs pages on paystack.com returned 403 to the fetch tool, `docs-v2.paystack.com` was readable) |
+| OTP-required transfers | no account to test | mapped to item `failed` / `otp_required` |
+| `charge.dispute.create` payload | event name confirmed from public docs; payload fields read defensively (`data.transaction.reference`, `transaction_reference`, `reference`). **If Paystack sends only a numeric `transaction.id`, the event is skipped (answered 200, no hold), so a real payload must be checked before relying on dispute holds** | tests use shaped payloads |
+| Paystack "transfer not found" 404 body, `failed` / `reversed` verify bodies, `transfer.failed` / `transfer.reversed` payloads | not seen | handled defensively; unknown shapes keep the item `processing` |
+| Email delivery (invite, reset, conversion, payout) | SMTP pointed at an unused port; tokens read from Redis | templates and 19 notification tests; one run against a local SMTP sink counted 3 conversion emails and 1 payout email |
+| Real checkout and a real `charge.success` | calls the real Paystack | payment rows inserted directly; payload shaped from the handler |
+| `luran_ref` cookie, signup form, login-page fallback, UI | frontend work | FE guide sections 4 and 5 |
+| A real tenant login | needs an emailed temporary password | token minted with the project function |
+| The arq cron registration itself | only the job functions were called, with a shifted clock | registration asserted in `tests/workers/test_referral_jobs.py` |
+| Browser CORS and `Secure` cookie behaviour | cookies were sent by hand over http | standard semantics |

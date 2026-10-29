@@ -1,13 +1,15 @@
 # Luran backend — master build checklist
 
 Legend: `[x]` done and verified, `[ ]` not done. Status per module: DONE / IN PROGRESS / PLANNED.
-**Scope note:** this file was created on 2026-10-27 by the WhatsApp spike. It currently maps the WhatsApp module and the Activation module. Earlier modules (chat, flows, voice, tickets, billing, etc.) are tracked in `docs/sop/` and `docs/superpowers/plans/` and are **not yet reconciled here**; do that in a dedicated pass rather than guessing status.
+**Scope note:** this file was created on 2026-10-27 by the WhatsApp spike. It currently maps the WhatsApp, Activation, Plan entitlements and Referral program modules. Earlier modules (chat, flows, voice, tickets, billing, etc.) are tracked in `docs/sop/` and `docs/superpowers/plans/` and are **not yet reconciled here**; do that in a dedicated pass rather than guessing status.
 
 Snapshot (Activation module): backend (#158) and dashboard (#89) merged to develop/staging and running on staging 2026-10-28; prod NOT promoted.
 
 Snapshot (Plan entitlements): backend #159 + dashboard #90 merged and running on staging; Lite Paystack plans edited to 15,000 / 150,000 in staging AND prod by Adebayo (codes unchanged); test-mode Lite checkout on staging and the Growth-override read-only prod check still owed before promotion.
 
 Snapshot (Sidecar on staging): deployed and healthy on staging since 2026-10-28 (CD gate + smoke PASS); prod has NO sidecar and the prod CD job has no sidecar steps; see `docs/deployment/prod-release-plan-2026-10.md`.
+
+Snapshot (Referral program): backend Tasks 1-10 built and tested on branch `feature/referral-backend` (2026-10-29); PR to `develop` NOT yet opened, whole-branch CI parity and final Opus review still owed; payouts default to the `manual` provider; dashboard stream, `luran_ref` cookie script, login-page fallback, privacy-policy text and a Paystack test-mode transfer run are NOT done. Counts for this module (2026-10-29): 19 ticked, 22 open (see its section). Prod untouched.
 
 Snapshot (WhatsApp module): spike, build, sidecar, dashboard, media and rating ALL merged to develop/staging; deployed on STAGING and live-tested with real phones 2026-10-28 (text, images both ways, escalation + agent app, join line, rating reply, resolve notice). Production NOT touched: see `docs/deployment/prod-release-plan-2026-10.md`.
 
@@ -179,8 +181,78 @@ Why: plans differed only by volume plus five flags; the sales agent, Slack/CRM, 
 - [ ] Docs site and public pricing page copy (after prod promotion)
 - [ ] Prod promotion (migration + seed review) — lead / Adebayo
 
+## Referral program (marketer recruits) — IN PROGRESS (backend built 2026-10-29, PR not yet opened; dashboard stream and owner actions open; prod untouched)
+Why: Luran wants marketers and influencers to bring businesses, paid a one-time 5,000 naira only after the referred tenant's first successful payment (zero up-front cost; prod has 13 tenants, 0 payments, ~1.6 signups a month). Docs: SOP `docs/sop/referral_program_backend.md`; FE guide `docs/fe-integration-guide-referral.md`; captures `docs/fe-integration-captures/referral/` (78, from `scripts/capture_referral.py`); spec `docs/superpowers/specs/2026-10-28-referral-program-design.md`; plan `docs/superpowers/plans/2026-10-28-referral-program-backend.md`. Branch `feature/referral-backend` (migration `ref10referral`, down_revision `wa20ratingreply`). PR: `<fill when opened>`.
+
+### Task 1 prerequisite: idempotent `charge.success` (money path the reward hangs on)
+- [x] `_handle_charge_success` returns `already_processed` for a settled reference under a row lock (no second upgrade, history row or `paid_at` overwrite) — `fix/charge-success-idempotent`, PR #173 (CI green 2026-10-29); also cherry-picked into the feature branch as `0101ae0`
+- [ ] #173 merged to `develop` (lead); then drop the duplicate commit on rebase
+
+### Task 2: schema and settings
+- [x] Models: `Marketer`, `ReferralAttribution`, `ReferralReward`, `PayoutBatch`, `PayoutItem`, `SignupOrigin`, `ReferralConfig`; native enums; all `*_kobo` columns BigInteger
+- [x] Migration `ref10referral` (additive, `lock_timeout`, existence-checked, reversible; up/down/up proven on scratch Postgres; single head)
+- [x] Settings `REFERRAL_REWARD_KOBO`, `REFERRAL_HOLD_DAYS`, `REFERRAL_COMMISSION_WINDOW_DAYS`, `REFERRAL_COOKIE_DAYS`, `REFERRAL_PAYOUT_PROVIDER` (default `manual`), `REFERRAL_LINK_BASE_URL`; admin overrides in `referral_config`
+- [x] Account purge anonymises/detaches referral rows; a reward survives a tenant purge
+
+### Task 3: marketer onboarding (super admin)
+- [x] Create / list / get / bank update / suspend / reactivate under `/api/v1/platform/referrals/`; code rules (3-32, lowercase, reserved words, immutable); bank details encrypted and write-only (`bank_last4` only)
+- [x] One-time invite token (7 days) and invite email; suspend holds unpaid rewards; reactivate does not release them
+- [x] Writes require SUPER_ADMIN, reads any platform admin (security-review finding, fixed)
+
+### Task 4: marketer identity and auth
+- [x] Separate identity: `admin_type="marketer"`, own cookies, `get_current_marketer` (cookie only); login / refresh / logout / set-password / forgot-password; identical 401 for unknown email, wrong password and no password; 403 `account_suspended`
+- [x] Isolation proven in both directions (every cross-identity combination is exactly 401); invite/reset token retirement; forgot-password cannot kill an invite (Opus + security-review findings, fixed)
+
+### Task 5: attribution
+- [x] `referral_code` / `referral_source` on `register-company`; unknown or malformed code silently ignored (identical 201); first link wins; self-referral recorded and hidden; salted-hash signup origin
+
+### Task 6: fraud flags
+- [x] Registrable-domain matching (`tldextract` 5.3.1 offline, snapshot 2025-04-07); `shared_domain`, `shared_card`, `shared_origin`, `self_referral`, `marketer_burst`; social domains ignored; evidence source recorded per match
+- [ ] `authorization.signature` confirmed in a real Paystack payload (never seen live)
+
+### Task 7: reward lifecycle
+- [x] Reward on the first successful payment inside the commission window (savepoint in the webhook, daily reconcile); `pending` to `payable` after the hold; release / void with a mandatory note and atomic audit; dispute hold (`charge.dispute.create`)
+- [ ] A real `charge.dispute.create` payload checked against what the handler reads
+
+### Task 8: payouts
+- [x] Payout batches (cron on the 1st and 15th, 04:00 UTC), items, approve / retry / mark-paid, manual and Paystack Transfers providers, `transfer.*` webhook events
+- [x] Double-pay defences (claim-then-call, verify-first retry, amounts recomputed from batched rewards, `reward_in_flight`, `amount_mismatch`); the Opus-found double-pay defect fixed and re-reviewed
+- [ ] Paystack Transfers exercised in test mode (not-found / failed / reversed shapes, OTP handling) — owner action
+
+### Task 9: marketer API and admin queue
+- [x] `/api/v1/marketer/me|referrals|earnings` (allow-list responses, masked email, rate limited, bounded); admin reward queue with shared-domain evidence; config GET/PATCH with bounds
+
+### Task 10: notifications, captures, docs
+- [x] Emails: invite, reset, conversion notice, payout notice (once per transition, after commit, never raised)
+- [x] 78 live captures against a local app on scratch Postgres/Redis; FE guide built only from them and checked block by block
+- [x] SOP and this checklist entry (2026-10-29)
+- [ ] Local CI parity on the whole branch (ruff 0.8.6, black 24.10.0, full pytest, SQLite regression job)
+- [ ] Opus whole-branch security review and fix wave
+- [ ] PR opened to `develop`, reviewed and merged (lead)
+
+### Not done: frontend and owner items
+- [ ] Dashboard: marketer page `/marketer`, admin screens (marketers, review queue, payout batches, settings) against `docs/fe-integration-guide-referral.md`
+- [ ] `luran_ref` cookie script on `luranai.com` (30 days, first link wins) and the optional "Referral code" field on the signup form
+- [ ] Login page falls back from the tenant login to `POST /api/v1/auth/marketer/login`
+- [ ] Privacy-policy text for the `luran_ref` cookie and the commission programme
+- [ ] Owner: decide Paystack API transfer OTP handling (or disable it for API transfers); keep the balance funded
+- [ ] Owner: run one small Paystack test-mode transfer and capture the real shapes
+- [ ] Owner: confirm container `TZ=UTC` and `FORWARDED_ALLOW_IPS` covers the real proxy
+- [ ] Owner: set `REFERRAL_PAYOUT_PROVIDER=paystack` (only after the items above)
+- [ ] First live payout batch approved and reconciled
+- [ ] Prod promotion (migration `ref10referral`) — lead / Adebayo
+
+### Deferred follow-ups (Referral)
+See the grouped list in `docs/sop/referral_program_backend.md` ("Known gaps / Follow-ups"). Headlines:
+- [ ] Capture 69: a voided reward's company shows `signed_up` with 30 trial days left (check whether the capture's directly inserted payment upgraded the tenant)
+- [ ] Approve/retry run provider calls inside the request (background worker for larger batches)
+- [ ] No single kill switch for the whole programme; batch days hardcoded to the 1st/15th
+- [ ] Refresh-reuse detection and a `password_changed_at` check for marketer tokens
+- [ ] SQL prefilter for the shared-domain sweep when the tenant count grows; periodic `tldextract` bump
+
 ## Backlog / upcoming
 - [ ] Reconcile all earlier modules into this checklist
+- [ ] Referral program: dashboard stream (marketer page + admin screens) is next, against `docs/fe-integration-guide-referral.md`
 
 ## Production release (activation + entitlements + WhatsApp dark) — PLANNED, not started
 Plan: `docs/deployment/prod-release-plan-2026-10.md` (DRAFT 2026-10-28). Merging `develop` -> `main` deploys prod automatically; WhatsApp ships off by default.
