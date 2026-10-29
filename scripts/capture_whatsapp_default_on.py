@@ -137,8 +137,8 @@ def make_tenant(tag, tier):
     return str(tenant_id)
 
 
-def login(email, path="/api/v1/auth/login", password=PASSWORD):
-    r = http.post(API + path, json={"email": email, "password": password})
+def login(email, path="/api/v1/auth/login", password=None):
+    r = http.post(API + path, json={"email": email, "password": password or PASSWORD})
     r.raise_for_status()
     return r.json()["access_token"]
 
