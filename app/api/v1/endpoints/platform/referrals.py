@@ -240,6 +240,10 @@ _BATCH_ERROR_MESSAGES = {
     "transfer_unverified": (
         "The earlier transfer could not be confirmed as failed, so it was not marked paid"
     ),
+    "amount_mismatch": (
+        "The amount differs from what the item is worth now (a reward may have been held); "
+        "check what you actually paid"
+    ),
     "bank_reference_in_use": "That bank reference is already recorded against another payment",
     "payout_state_invalid": "The request conflicts with the current state of the batch",
 }
@@ -254,6 +258,9 @@ def _raise_for_payout(exc: payouts.PayoutError) -> NoReturn:
         http_status = status.HTTP_409_CONFLICT
     code = exc.code if exc.code in _BATCH_ERROR_MESSAGES else "payout_state_invalid"
     detail: dict = {"code": code, "message": _BATCH_ERROR_MESSAGES[code]}
+    if isinstance(exc, payouts.AmountMismatchError):
+        detail["marketer_id"] = str(exc.marketer_id)
+        detail["current_amount_kobo"] = exc.current_amount_kobo
     if isinstance(exc, payouts.ItemNotMarkableError):
         detail["marketer_id"] = str(exc.marketer_id)
         detail["item_status"] = exc.item_status.value
@@ -415,8 +422,13 @@ def mark_batch_paid(
     current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
 ):
     """Record payments made outside the system. All entries are applied together or none are.
-    The audit entry carries the batch id and the number of items, never the bank references."""
-    entries = [(entry.marketer_id, entry.bank_reference) for entry in request.items]
+    Each entry carries the ``amount_kobo`` actually paid; if it differs from the item's current
+    amount (a reward may have been held since) the call is refused with 409 ``amount_mismatch``
+    and nothing changes. The audit entry carries the batch id and the number of items, never the
+    bank references."""
+    entries = [
+        (entry.marketer_id, entry.bank_reference, entry.amount_kobo) for entry in request.items
+    ]
     try:
         payouts.mark_paid(db, batch_id, entries, current_admin.id)
     except payouts.PayoutError as exc:

@@ -54,6 +54,7 @@ from app.services.referral.providers import (
     get_payout_provider,
 )
 from app.services.referral.rewards import (
+    RewardError,
     RewardInFlightError,
     RewardStateError,
     hold_for_dispute,
@@ -627,7 +628,7 @@ def test_manual_mark_paid_records_reference(db_session, super_admin_user):
     result = mark_paid(
         db_session,
         batch.id,
-        [(a.id, "BANK-REF-0001"), (b.id, "BANK-REF-0002")],
+        [(a.id, "BANK-REF-0001", 500_000), (b.id, "BANK-REF-0002", 500_000)],
         super_admin_user.id,
     )
 
@@ -642,7 +643,7 @@ def test_manual_mark_paid_records_reference(db_session, super_admin_user):
 def test_mark_paid_partial_leaves_the_batch_paying(db_session, super_admin_user):
     batch, (a, b), _ = _batch_of(db_session)
     approve_batch(db_session, batch.id, super_admin_user.id, ManualPayoutProvider())
-    result = mark_paid(db_session, batch.id, [(a.id, "BANK-REF-A")], super_admin_user.id)
+    result = mark_paid(db_session, batch.id, [(a.id, "BANK-REF-A", 500_000)], super_admin_user.id)
     assert result.status == BatchStatus.PAYING
     assert _item(db_session, batch, b).status == AWAITING
 
@@ -662,7 +663,9 @@ def test_mark_paid_refuses_processing_pending_and_paid_items(db_session, super_a
 
     for marketer, state in ((a, PROCESSING), (b, PAID), (c, PENDING)):
         with pytest.raises(PayoutStateError):
-            mark_paid(db_session, batch.id, [(marketer.id, "BANK-REF-X")], super_admin_user.id)
+            mark_paid(
+                db_session, batch.id, [(marketer.id, "BANK-REF-X", 500_000)], super_admin_user.id
+            )
         item = _item(db_session, batch, marketer)
         assert item.status == state and item.transfer_reference != "BANK-REF-X"
     assert _reload(db_session, ra).status == RewardStatus.BATCHED
@@ -677,7 +680,10 @@ def test_mark_paid_is_all_or_nothing(db_session, super_admin_user):
 
     with pytest.raises(PayoutStateError):
         mark_paid(
-            db_session, batch.id, [(a.id, "BANK-REF-A"), (b.id, "BANK-REF-B")], super_admin_user.id
+            db_session,
+            batch.id,
+            [(a.id, "BANK-REF-A", 500_000), (b.id, "BANK-REF-B", 500_000)],
+            super_admin_user.id,
         )
     assert _item(db_session, batch, a).transfer_reference == f"ref-{batch.id}-{a.id}"
 
@@ -687,15 +693,15 @@ def test_mark_paid_validates_input(db_session, super_admin_user):
     approve_batch(db_session, batch.id, super_admin_user.id, ManualPayoutProvider())
     for entries in (
         [],
-        [(a.id, "  ")],
-        [(a.id, "x" * 101)],
-        [(a.id, "REF1"), (a.id, "REF2")],
-        [(a.id, "SAME"), (b.id, "SAME")],
+        [(a.id, "  ", 500_000)],
+        [(a.id, "x" * 101, 500_000)],
+        [(a.id, "REF1", 500_000), (a.id, "REF2", 500_000)],
+        [(a.id, "SAME", 500_000), (b.id, "SAME", 500_000)],
     ):
         with pytest.raises(PayoutStateError):
             mark_paid(db_session, batch.id, entries, super_admin_user.id)
     with pytest.raises(PayoutItemNotFoundError):
-        mark_paid(db_session, batch.id, [(uuid4(), "REF-NOPE")], super_admin_user.id)
+        mark_paid(db_session, batch.id, [(uuid4(), "REF-NOPE", 500_000)], super_admin_user.id)
     assert _item(db_session, batch, a).status == AWAITING
 
 
@@ -704,16 +710,16 @@ def test_mark_paid_refuses_a_bank_reference_already_used_by_another_item(
 ):
     batch, (a, b), _ = _batch_of(db_session)
     approve_batch(db_session, batch.id, super_admin_user.id, ManualPayoutProvider())
-    mark_paid(db_session, batch.id, [(a.id, "BANK-REF-SAME")], super_admin_user.id)
+    mark_paid(db_session, batch.id, [(a.id, "BANK-REF-SAME", 500_000)], super_admin_user.id)
     with pytest.raises(PayoutStateError):
-        mark_paid(db_session, batch.id, [(b.id, "BANK-REF-SAME")], super_admin_user.id)
+        mark_paid(db_session, batch.id, [(b.id, "BANK-REF-SAME", 500_000)], super_admin_user.id)
     assert _item(db_session, batch, b).status == AWAITING
 
 
 def test_mark_paid_on_a_draft_batch_is_refused(db_session, super_admin_user):
     batch, (a,), _ = _batch_of(db_session, 1)
     with pytest.raises(PayoutStateError):
-        mark_paid(db_session, batch.id, [(a.id, "BANK-REF-A")], super_admin_user.id)
+        mark_paid(db_session, batch.id, [(a.id, "BANK-REF-A", 500_000)], super_admin_user.id)
 
 
 def test_mark_paid_on_a_failed_item_needs_the_transfer_verified_as_not_successful(
@@ -736,12 +742,16 @@ def test_mark_paid_on_a_failed_item_needs_the_transfer_verified_as_not_successfu
     ]
     for provider in refusals:
         with pytest.raises(PayoutStateError):
-            mark_paid(db_session, batch.id, [(a.id, "BANK-REF-A")], super_admin_user.id, provider)
+            mark_paid(
+                db_session, batch.id, [(a.id, "BANK-REF-A", 500_000)], super_admin_user.id, provider
+            )
         assert _item(db_session, batch, a).status == FAILED
     assert _reload(db_session, ra).status == RewardStatus.BATCHED
 
     ok = FakeProvider(verify_fn=_verify_as("failed"))
-    result = mark_paid(db_session, batch.id, [(a.id, "BANK-REF-A")], super_admin_user.id, ok)
+    result = mark_paid(
+        db_session, batch.id, [(a.id, "BANK-REF-A", 500_000)], super_admin_user.id, ok
+    )
     assert ok.verify_calls == [ref]
     assert result.status == BatchStatus.PAID
     assert _item(db_session, batch, a).transfer_reference == "BANK-REF-A"
@@ -762,14 +772,14 @@ def test_otp_failed_item_can_fall_back_to_manual_only_once_the_transfer_is_dead(
         mark_paid(
             db_session,
             batch.id,
-            [(a.id, "BANK-REF-A")],
+            [(a.id, "BANK-REF-A", 500_000)],
             super_admin_user.id,
             FakeProvider(verify_fn=_verify_as("pending")),
         )
     mark_paid(
         db_session,
         batch.id,
-        [(a.id, "BANK-REF-A")],
+        [(a.id, "BANK-REF-A", 500_000)],
         super_admin_user.id,
         FakeProvider(verify_fn=_verify_as("failed")),
     )
@@ -1431,8 +1441,8 @@ def test_c1_dispute_on_an_awaiting_manual_item_cannot_get_a_reward_paid_twice(
     approve_batch(db_session, b2.id, super_admin_user.id, ManualPayoutProvider())
 
     with pytest.raises(PayoutStateError):  # the first batch has nothing left to mark paid
-        mark_paid(db_session, b1.id, [(m.id, "BANK-1")], super_admin_user.id)
-    mark_paid(db_session, b2.id, [(m.id, "BANK-2")], super_admin_user.id)
+        mark_paid(db_session, b1.id, [(m.id, "BANK-1", 500_000)], super_admin_user.id)
+    mark_paid(db_session, b2.id, [(m.id, "BANK-2", 500_000)], super_admin_user.id)
     paid = _reload(db_session, r)
     assert paid.status == RewardStatus.PAID and paid.transfer_reference == "BANK-2"
     assert _item(db_session, b1, m).status == SKIPPED
@@ -1511,24 +1521,70 @@ def test_c1_dispute_on_a_pending_item_refreshes_amount_total_and_reward_ids(db_s
     assert _reload(db_session, r2).payout_batch_id is None
 
 
-def test_c1_dispute_on_a_failed_item_detaches_but_does_not_skip_a_possibly_live_transfer(
+def test_r41_dispute_on_a_failed_item_keeps_the_link_and_the_otp_finalised_later_is_recorded(
     db_session, super_admin_user
 ):
-    batch, (a,), (ra,) = _batch_of(db_session, 1)
-    t = _tenant(db_session)
-    ra.tenant_id = t.id
-    db_session.flush()
+    """Probe r2: an OTP-pending transfer can still pay, so a held reward must stay tied to it."""
+    m, t = _marketer(db_session), _tenant(db_session)
+    r = _reward(db_session, m, tenant=t)
+    b1 = prepare_batch(db_session, NOW)
+    otp = FakeProvider(pay_fn=lambda mk, a, ref: TransferResult("otp", ref, "otp"))
+    approve_batch(db_session, b1.id, super_admin_user.id, otp)
+    item = _item(db_session, b1, m)
+    sent = otp.pay_calls[0][1]
+    assert item.status == FAILED and item.failure_reason == "otp_required"
+
+    hold_for_dispute(db_session, t.id)
+    db_session.commit()
+
+    # Unlike a pending/awaiting_manual item, nothing is refreshed and the link stays.
+    item = _item(db_session, b1, m)
+    assert item.status == FAILED and item.amount_kobo == sent and item.reward_ids == [str(r.id)]
+    held = _reload(db_session, r)
+    assert held.status == RewardStatus.HELD and held.payout_batch_id == b1.id
+    with pytest.raises(RewardInFlightError):
+        release(db_session, r.id, super_admin_user.id, "dispute irrelevant", now=NOW)
+    with pytest.raises(RewardInFlightError):
+        void(db_session, r.id, super_admin_user.id, "n")
+    assert prepare_batch(db_session, NOW) is None  # so it cannot be re-batched and paid twice
+
+    # The admin finalises the OTP in the Paystack dashboard: the original amount is recorded.
+    retry = FakeProvider(verify_fn=_verify_as("success", amount=sent))
+    result = retry_batch(db_session, b1.id, super_admin_user.id, retry)
+    assert retry.pay_calls == []
+    item = _item(db_session, b1, m)
+    assert item.status == PAID and item.amount_kobo == sent
+    paid = _reload(db_session, r)
+    assert paid.status == RewardStatus.PAID and "paid_in_flight" in paid.review_reasons
+    assert result.status == BatchStatus.PAID
+
+
+def test_r41_failed_item_whose_transfer_is_confirmed_dead_detaches_the_held_reward(
+    db_session, super_admin_user
+):
+    m = _marketer(db_session)
+    t1, t2 = _tenant(db_session), _tenant(db_session)
+    _reward(db_session, m, tenant=t1)
+    r2 = _reward(db_session, m, tenant=t2)
+    batch = prepare_batch(db_session, NOW)
     approve_batch(
         db_session,
         batch.id,
         super_admin_user.id,
-        FakeProvider(pay_fn=lambda m, amt, ref: TransferResult("otp", ref, "otp")),
+        FakeProvider(pay_fn=lambda mk, a, ref: TransferResult("otp", ref, "otp")),
     )
-    hold_for_dispute(db_session, t.id)
+    hold_for_dispute(db_session, t2.id)
     db_session.commit()
-    item = _item(db_session, batch, a)
-    assert item.status == FAILED and item.reward_ids == [] and item.amount_kobo == 0
-    assert _reload(db_session, ra).payout_batch_id is None
+    with pytest.raises(RewardInFlightError):
+        release(db_session, r2.id, super_admin_user.id, "n", now=NOW)
+
+    again = FakeProvider(verify_fn=_verify_as("failed"))  # Paystack confirms it is dead
+    retry_batch(db_session, batch.id, super_admin_user.id, again)
+
+    assert [a for _, a, _ in again.pay_calls] == [500_000]  # only the clean reward
+    held = _reload(db_session, r2)
+    assert held.status == RewardStatus.HELD and held.payout_batch_id is None
+    release(db_session, r2.id, super_admin_user.id, "n", now=NOW)  # releasable now
 
 
 def test_release_and_void_refuse_a_held_reward_still_tied_to_a_batch(db_session, super_admin_user):
@@ -1552,7 +1608,7 @@ def test_mark_paid_pays_the_refreshed_set_not_a_stale_claim(db_session, super_ad
     r2.status = RewardStatus.HELD  # held after the claim, link left behind
     db_session.commit()
 
-    result = mark_paid(db_session, batch.id, [(m.id, "BANK-REF-A")], super_admin_user.id)
+    result = mark_paid(db_session, batch.id, [(m.id, "BANK-REF-A", 500_000)], super_admin_user.id)
 
     item = _item(db_session, batch, m)
     assert item.status == PAID and item.amount_kobo == 500_000
@@ -1571,7 +1627,7 @@ def test_mark_paid_refuses_an_item_with_no_payable_rewards_left(db_session, supe
     ra.status = RewardStatus.HELD
     db_session.commit()
     with pytest.raises(PayoutStateError):
-        mark_paid(db_session, batch.id, [(a.id, "BANK-REF-A")], super_admin_user.id)
+        mark_paid(db_session, batch.id, [(a.id, "BANK-REF-A", 500_000)], super_admin_user.id)
     assert _item(db_session, batch, a).status == AWAITING
 
 
@@ -1871,3 +1927,173 @@ def test_m3_failure_text_never_falls__back_to_our_own_transfer_reason(db_session
         {"reference": ref, "reason": "Luran referral payout 2026-11-01"},
     )
     assert _item(db_session, batch, a).failure_reason == "transfer_failed"
+
+
+# --------------------------------------------------------------------------- fix round 2 (R41-R43)
+
+
+def test_r43_mark_paid_refuses_an_amount_that_differs_from_the_current_item(
+    db_session, super_admin_user
+):
+    """The admin paid what they saw (800k); a dispute then removed a reward: refuse, change nothing."""
+    m = _marketer(db_session)
+    r1 = _reward(db_session, m)
+    r2 = _reward(db_session, m, amount=300_000)
+    batch = prepare_batch(db_session, NOW)
+    approve_batch(db_session, batch.id, super_admin_user.id, ManualPayoutProvider())
+    r2 = _reload(db_session, r2)
+    r2.status = RewardStatus.HELD  # held after the claim, link left behind
+    db_session.commit()
+
+    with pytest.raises(payouts.AmountMismatchError) as exc:
+        mark_paid(db_session, batch.id, [(m.id, "BANK-REF-A", 800_000)], super_admin_user.id)
+    assert exc.value.code == "amount_mismatch" and exc.value.current_amount_kobo == 500_000
+    assert isinstance(exc.value, PayoutStateError)
+    item = _item(db_session, batch, m)
+    assert item.status == AWAITING and item.transfer_reference != "BANK-REF-A"
+    assert _reload(db_session, r1).status == RewardStatus.BATCHED
+    held = _reload(db_session, r2)
+    assert held.status == RewardStatus.HELD and held.payout_batch_id == batch.id  # untouched
+
+    mark_paid(db_session, batch.id, [(m.id, "BANK-REF-A", 500_000)], super_admin_user.id)
+    assert _item(db_session, batch, m).status == PAID
+
+
+def test_r43_mark_paid_requires_a_positive_integer_amount(db_session, super_admin_user):
+    batch, (a,), _ = _batch_of(db_session, 1)
+    approve_batch(db_session, batch.id, super_admin_user.id, ManualPayoutProvider())
+    for bad in (0, -1, 500_000.0, True, None, "500000"):
+        with pytest.raises(PayoutStateError):
+            mark_paid(db_session, batch.id, [(a.id, "BANK-REF-A", bad)], super_admin_user.id)
+    assert _item(db_session, batch, a).status == AWAITING
+
+
+def test_r4_transfer_event_redelivery_after_a_failed_finalize_still_recomputes_the_batch(
+    db_session, super_admin_user, monkeypatch
+):
+    batch, m, _, (r,) = _processing(db_session, super_admin_user)
+    ref = _item(db_session, batch, m).transfer_reference
+    body = {"reference": ref, "amount": 500_000}
+
+    def explode(db, batch_id):
+        raise RuntimeError("finalize failed after the commit")
+
+    real = payouts._finalize_batch
+    monkeypatch.setattr(payouts, "_finalize_batch", explode)
+    with pytest.raises(RuntimeError):
+        apply_transfer_event(db_session, "transfer.success", body)
+    monkeypatch.setattr(payouts, "_finalize_batch", real)
+    assert _item(db_session, batch, m).status == PAID
+    assert _reload(db_session, batch).status == BatchStatus.PAYING  # stale: the finalize was lost
+
+    redelivered = apply_transfer_event(db_session, "transfer.success", body)
+
+    assert redelivered["status"] == "duplicate"
+    assert _reload(db_session, batch).status == BatchStatus.PAID
+
+
+def test_i3_a_dispute_handler_failure_is_a_5xx_so_paystack_redelivers(
+    pg_client, db_session, monkeypatch
+):
+    from app.core.config import settings
+    from app.services.webhook_handler_service import WebhookHandlerService
+    from tests.referral.test_payout_webhook import TEST_SECRET, _post
+
+    monkeypatch.setattr(settings, "PAYSTACK_SECRET_KEY", TEST_SECRET)
+
+    def boom(self, data):
+        raise RuntimeError("secret internal detail")
+
+    monkeypatch.setattr(WebhookHandlerService, "_handle_dispute_create", boom)
+    monkeypatch.setattr(db_session, "rollback", lambda: None)  # shared savepoint-based session
+    resp = _post(pg_client, "charge.dispute.create", {"transaction": {"reference": "r"}})
+
+    assert resp.status_code == 500
+    assert "secret internal detail" not in resp.text and "RuntimeError" not in resp.text
+
+
+@pytest.fixture
+def committed_reward(pg_engine):
+    """A committed payable reward (with tenant) and two committed batches to flip its link to."""
+    factory = sessionmaker(bind=pg_engine)
+    session = factory()
+    try:
+        marketer = _marketer(session)
+        tenant = _tenant(session)
+        reward = _reward(session, marketer, tenant=tenant)
+        batches = [PayoutBatch(period_label="2026-11-01") for _ in range(2)]
+        session.add_all(batches)
+        session.commit()
+        ids = (marketer.id, tenant.id, reward.id, [b.id for b in batches])
+    finally:
+        session.close()
+    yield factory, ids
+    marketer_id, tenant_id, reward_id, batch_ids = ids
+    cleanup = factory()
+    try:
+        cleanup.execute(text("DELETE FROM referral_rewards WHERE id = :r"), {"r": reward_id})
+        cleanup.execute(text("DELETE FROM payout_batches WHERE id = ANY(:b)"), {"b": batch_ids})
+        cleanup.execute(
+            text("DELETE FROM tenant_capabilities WHERE tenant_id = :t"), {"t": tenant_id}
+        )
+        cleanup.execute(text("DELETE FROM tenants WHERE id = :t"), {"t": tenant_id})
+        cleanup.execute(text("DELETE FROM marketers WHERE id = :m"), {"m": marketer_id})
+        cleanup.commit()
+    finally:
+        cleanup.close()
+
+
+def _flipping(factory, reward_id, batch_ids, times):
+    """Wrap lock_payout_context so the reward's link moves under it ``times`` times."""
+    real = payouts.lock_payout_context
+    calls = []
+
+    def wrapper(db, marketer_id, link):
+        calls.append(link)
+        if len(calls) <= times:  # the link moves after hold_for_dispute read it, before it locks
+            other = factory()
+            try:
+                new = batch_ids[0] if link is None else None
+                other.execute(
+                    text(
+                        "UPDATE referral_rewards SET payout_batch_id = :b, status = :s WHERE id = :r"
+                    ),
+                    {"b": new, "s": "batched" if new else "payable", "r": reward_id},
+                )
+                other.commit()
+            finally:
+                other.close()
+        return real(db, marketer_id, link)
+
+    return wrapper, calls
+
+
+def test_r42_hold_retries_when_the_batch_link_moves_between_read_and_lock(
+    committed_reward, monkeypatch
+):
+    factory, (marketer_id, tenant_id, reward_id, batch_ids) = committed_reward
+    wrapper, calls = _flipping(factory, reward_id, batch_ids, times=1)
+    monkeypatch.setattr(payouts, "lock_payout_context", wrapper)
+    session = factory()
+    try:
+        hold_for_dispute(session, tenant_id)
+        session.commit()
+        held = session.get(ReferralReward, reward_id)
+        assert held.status == RewardStatus.HELD and held.payout_batch_id is None
+    finally:
+        session.close()
+    assert calls == [None, batch_ids[0]]  # second attempt took the locks for the NEW link
+
+
+def test_r42_hold_gives_up_cleanly_when_the_link_keeps_moving(committed_reward, monkeypatch):
+    factory, (marketer_id, tenant_id, reward_id, batch_ids) = committed_reward
+    wrapper, calls = _flipping(factory, reward_id, batch_ids, times=99)
+    monkeypatch.setattr(payouts, "lock_payout_context", wrapper)
+    session = factory()
+    try:
+        with pytest.raises(RewardError):
+            hold_for_dispute(session, tenant_id)
+        session.rollback()
+    finally:
+        session.close()
+    assert len(calls) == 3

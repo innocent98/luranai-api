@@ -95,7 +95,16 @@ def _approve(client, auth, batch_id):
 
 
 def _mark_paid(client, auth, batch_id, entries):
-    body = {"items": [{"marketer_id": str(m), "bank_reference": ref} for m, ref in entries]}
+    body = {
+        "items": [
+            {
+                "marketer_id": str(e[0]),
+                "bank_reference": e[1],
+                "amount_kobo": e[2] if len(e) > 2 else 500_000,
+            }
+            for e in entries
+        ]
+    }
     return client.post(f"{BASE}/batches/{batch_id}/mark-paid", json=body, headers=auth)
 
 
@@ -126,7 +135,11 @@ def _all_calls(client, headers, batch_id):
         client.post(f"{BASE}/batches/{batch_id}/retry", **kw),
         client.post(
             f"{BASE}/batches/{batch_id}/mark-paid",
-            json={"items": [{"marketer_id": str(uuid4()), "bank_reference": "R1"}]},
+            json={
+                "items": [
+                    {"marketer_id": str(uuid4()), "bank_reference": "R1", "amount_kobo": 500000}
+                ]
+            },
             **kw,
         ),
     ]
@@ -266,7 +279,11 @@ def test_unknown_batch_is_404_batch_not_found_on_every_route(db_session, pg_clie
         pg_client.post(f"{BASE}/batches/{unknown}/retry", headers=auth),
         pg_client.post(
             f"{BASE}/batches/{unknown}/mark-paid",
-            json={"items": [{"marketer_id": str(uuid4()), "bank_reference": "R1"}]},
+            json={
+                "items": [
+                    {"marketer_id": str(uuid4()), "bank_reference": "R1", "amount_kobo": 500000}
+                ]
+            },
             headers=auth,
         ),
     ]
@@ -451,18 +468,31 @@ def test_mark_paid_body_validation(db_session, pg_client, auth, use_provider):
         {},
         {"items": []},
         {"items": [{"marketer_id": mid}]},
-        {"items": [{"marketer_id": mid, "bank_reference": ""}]},
-        {"items": [{"marketer_id": mid, "bank_reference": "   "}]},
-        {"items": [{"marketer_id": mid, "bank_reference": "x" * 101}]},
-        {"items": [{"marketer_id": "not-a-uuid", "bank_reference": "R1"}]},
-        {"items": [{"marketer_id": mid, "bank_reference": "R1", "extra": 1}]},
-        {"items": [{"marketer_id": mid, "bank_reference": "R1"}] * 2},  # same marketer twice
+        {"items": [{"marketer_id": mid, "bank_reference": "", "amount_kobo": 500000}]},
+        {"items": [{"marketer_id": mid, "bank_reference": "   ", "amount_kobo": 500000}]},
+        {"items": [{"marketer_id": mid, "bank_reference": "x" * 101, "amount_kobo": 500000}]},
+        {"items": [{"marketer_id": "not-a-uuid", "bank_reference": "R1", "amount_kobo": 500000}]},
         {
             "items": [
-                {"marketer_id": mid, "bank_reference": "SAME"},
-                {"marketer_id": str(b.id), "bank_reference": "SAME"},
+                {"marketer_id": mid, "bank_reference": "R1", "amount_kobo": 500000, "extra": 1}
             ]
         },
+        {
+            "items": [{"marketer_id": mid, "bank_reference": "R1", "amount_kobo": 500000}] * 2
+        },  # same marketer twice
+        {
+            "items": [
+                {"marketer_id": mid, "bank_reference": "SAME", "amount_kobo": 500000},
+                {"marketer_id": str(b.id), "bank_reference": "SAME", "amount_kobo": 500000},
+            ]
+        },
+        # the amount is required, a positive integer number of kobo
+        {"items": [{"marketer_id": mid, "bank_reference": "R1"}]},
+        {"items": [{"marketer_id": mid, "bank_reference": "R1", "amount_kobo": 0}]},
+        {"items": [{"marketer_id": mid, "bank_reference": "R1", "amount_kobo": -5}]},
+        {"items": [{"marketer_id": mid, "bank_reference": "R1", "amount_kobo": "500000"}]},
+        {"items": [{"marketer_id": mid, "bank_reference": "R1", "amount_kobo": 5000.5}]},
+        {"items": [{"marketer_id": mid, "bank_reference": "R1", "amount_kobo": True}]},
     ]
     for body in bad_bodies:
         resp = pg_client.post(url, json=body, headers=auth)
@@ -471,7 +501,7 @@ def test_mark_paid_body_validation(db_session, pg_client, auth, use_provider):
 
     ok = pg_client.post(
         url,
-        json={"items": [{"marketer_id": mid, "bank_reference": "x" * 100}]},
+        json={"items": [{"marketer_id": mid, "bank_reference": "x" * 100, "amount_kobo": 500000}]},
         headers=auth,
     )
     assert ok.status_code == 200, ok.text  # 100 chars is allowed
@@ -674,3 +704,21 @@ def test_detail_shows_a_skipped_item_and_the_held_rewards_it_left_out(
     assert by_marketer[str(a.id)]["status"] == "paid"
     assert body["total_kobo"] == 500_000
     assert body["item_counts"]["skipped"] == 1 and body["item_counts"]["paid"] == 1
+
+
+def test_mark_paid_with_an_amount_that_differs_is_409_amount_mismatch_and_changes_nothing(
+    db_session, pg_client, auth, use_provider
+):
+    use_provider(FakeProvider(pay_fn=_manual_result))
+    batch, (a, _), (ra, _) = _batch_of(db_session)
+    _approve(pg_client, auth, batch.id)
+
+    resp = _mark_paid(pg_client, auth, batch.id, [(a.id, "BANK-REF-A", 123_456)])
+
+    assert resp.status_code == 409, resp.text
+    detail = resp.json()["detail"]
+    assert detail["code"] == "amount_mismatch"
+    assert detail["marketer_id"] == str(a.id) and detail["current_amount_kobo"] == 500_000
+    assert "123456" not in resp.text.replace("123_456", "")  # the submitted figure is not echoed
+    assert _item(db_session, batch, a).status == PS.AWAITING_MANUAL
+    assert _mark_paid(pg_client, auth, batch.id, [(a.id, "BANK-REF-A", 500_000)]).status_code == 200

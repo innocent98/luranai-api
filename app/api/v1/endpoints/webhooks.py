@@ -112,9 +112,10 @@ async def paystack_webhook(
         )
 
     except Exception as e:
-        if event_type.startswith("transfer."):
-            # Payout transfer events are idempotent, so a failure must make Paystack redeliver
-            # (5xx), not be swallowed as a 200. Never echo the exception into the body or logs.
+        if event_type.startswith("transfer.") or event_type == "charge.dispute.create":
+            # Payout transfer and dispute events are idempotent and money-relevant, so a failure
+            # must make Paystack redeliver (5xx), not be swallowed as a 200. Never echo the
+            # exception into the body or logs.
             try:
                 db.rollback()
             except Exception:  # noqa: BLE001 - nothing more to do for a broken session

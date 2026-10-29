@@ -143,6 +143,17 @@ class TransferUnverifiedError(PayoutStateError):
     code = "transfer_unverified"
 
 
+class AmountMismatchError(PayoutStateError):
+    """The amount the admin says they paid differs from what the item is worth right now."""
+
+    code = "amount_mismatch"
+
+    def __init__(self, message: str, marketer_id: UUID, current_amount_kobo: int):
+        super().__init__(message)
+        self.marketer_id = marketer_id
+        self.current_amount_kobo = current_amount_kobo
+
+
 class BankReferenceInUseError(PayoutStateError):
     """The bank reference is already recorded against another payment."""
 
@@ -371,16 +382,19 @@ def release_held_reward_from_item(
 ) -> None:
     """A batched reward was just held (R38). Decide what the batch link and the item become.
 
-    ``processing``: money may be in flight, so the reward KEEPS its batch link (``release`` and
-    ``void`` refuse it until the item is resolved). ``pending`` / ``awaiting_manual`` / ``failed``:
-    the link is cleared and the item is refreshed from the rewards still batched. The caller holds
-    the batch lock (``lock_payout_context``), so the total and the batch status are refreshed here.
+    ``processing`` and ``failed`` (R41): a transfer may be live at the provider (in flight, or an
+    OTP-pending / misclassified failure), so the reward KEEPS its batch link and the item is NOT
+    refreshed; ``release`` and ``void`` refuse it until the verify-first retry or ``mark_paid``
+    has confirmed the transfer dead and re-claimed or detached it. ``pending`` /
+    ``awaiting_manual``: nothing was sent, so the link is cleared and the item is refreshed from
+    the rewards still batched. The caller holds the batch lock (``lock_payout_context``), so the
+    total and the batch status are refreshed here.
     """
-    if item is not None and item.status == _PS.PROCESSING:
-        logger.warning(f"reward {reward.id} held while item {item.id} is processing; link kept")
+    if item is not None and item.status in (_PS.PROCESSING, _PS.FAILED):
+        logger.warning(f"reward {reward.id} held while item {item.id} is {item.status.value}; kept")
         return
     reward.payout_batch_id = None
-    if item is None or item.status not in (_PS.PENDING, _PS.AWAITING_MANUAL, _PS.FAILED):
+    if item is None or item.status not in (_PS.PENDING, _PS.AWAITING_MANUAL):
         return
     _refresh_item(db, item)
     recompute_batch_status(db, item.batch_id)
@@ -389,18 +403,14 @@ def release_held_reward_from_item(
 def _refresh_item(db: Session, item: PayoutItem) -> None:
     """Recompute ``reward_ids`` and ``amount_kobo`` from the rewards currently batched (R32).
 
-    An item left with none is ``skipped``, except a ``failed`` one: its transfer may still be live
-    at the provider (for example waiting for an OTP), so it stays ``failed`` with nothing to pay
-    and the verify-first retry resolves it. Does not touch the batch row (callers refresh the
-    total once they hold the batch lock or after committing).
+    An item left with none is ``skipped``. Only used for items nothing was sent for (``pending`` /
+    ``awaiting_manual``). Does not touch the batch row (callers refresh the total once they hold
+    the batch lock or after committing).
     """
     rewards = _lock_batched_rewards(db, item.batch_id, item.marketer_id)
     if rewards:
         item.reward_ids = [str(r.id) for r in rewards]
         item.amount_kobo = sum(r.amount_kobo for r in rewards)
-    elif item.status == _PS.FAILED:
-        item.reward_ids = []
-        item.amount_kobo = 0
     else:
         item.reward_ids = []
         item.amount_kobo = 0
@@ -943,11 +953,12 @@ def _apply_verified_success(
 def mark_paid(
     db: Session,
     batch_id: UUID,
-    entries: list[tuple[UUID, str]],
+    entries: list[tuple[UUID, str, int]],
     admin_id: UUID,
     provider: PayoutProvider | None = None,
 ) -> PayoutBatch:
-    """Record that an admin paid items outside the system; ``entries`` = (marketer_id, bank ref).
+    """Record that an admin paid items outside the system; ``entries`` = (marketer_id, bank ref,
+    amount_kobo the admin paid).
 
     Allowed ONLY from ``awaiting_manual`` or ``failed``; ``pending``, ``processing`` and ``paid``
     are refused (a live Paystack transfer could still succeed and pay twice). A ``failed`` item
@@ -956,9 +967,18 @@ def mark_paid(
     provider cannot verify) the whole call is refused. All entries are validated first and applied
     together or not at all. The bank reference becomes the item's ``transfer_reference`` and its
     captured rewards become ``paid``.
+
+    The item is first recomputed from the rewards batched right now (R38). If the amount the admin
+    says they paid differs from that, the call is refused with ``AmountMismatchError`` and nothing
+    changes (R43): a dispute may have removed a reward since the admin looked, and a smaller
+    recorded set would leave the already-paid reward free to be paid again.
     """
     cleaned: dict[UUID, str] = {}
-    for marketer_id, ref in entries:
+    paid_amounts: dict[UUID, int] = {}
+    for marketer_id, ref, amount in entries:
+        if isinstance(amount, bool) or not isinstance(amount, int) or amount <= 0:
+            raise PayoutStateError("a positive amount in kobo is required for every entry")
+        paid_amounts[marketer_id] = amount
         ref = (ref or "").strip()
         if not ref or len(ref) > 100:
             raise PayoutStateError("a bank reference of 1-100 characters is required")
@@ -1041,6 +1061,12 @@ def mark_paid(
                     f"item for marketer {marketer_id} has no payable rewards left",
                     marketer_id,
                     item.status,
+                )
+            elif sum(r.amount_kobo for r in batched) != paid_amounts[marketer_id]:
+                refusal = AmountMismatchError(
+                    f"amount for marketer {marketer_id} differs from the current item amount",
+                    marketer_id,
+                    sum(r.amount_kobo for r in batched),
                 )
             else:
                 fresh[marketer_id] = (batched, stale_held)
@@ -1184,7 +1210,9 @@ def apply_transfer_event(db: Session, event_type: str, data: Any) -> dict:
             outcome = _result("ignored", "unexpected_state", item)
     db.flush()
     db.commit()
-    if outcome["status"] == "processed":
+    if outcome["status"] in ("processed", "duplicate"):
+        # A duplicate also recomputes: the first delivery may have committed the item and then
+        # failed before the batch status was refreshed.
         _finalize_batch(db, batch_id)
         outcome["item_status"] = db.get(PayoutItem, item.id).status.value
     return outcome

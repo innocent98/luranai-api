@@ -43,6 +43,7 @@ from app.services.referral.fraud import evaluate_flags
 
 MARKETER_SUSPENDED = "marketer_suspended"
 PAYMENT_DISPUTE = "payment_dispute"
+_HOLD_LOCK_ATTEMPTS = 3
 
 
 class RewardError(Exception):
@@ -439,33 +440,46 @@ def hold_for_dispute(db: Session, tenant_id: UUID) -> ReferralReward | None:
     A ``batched`` reward is captured by its marketer's payout item, so the item decides what
     happens to the batch link (R38): while the item is ``processing`` (a transfer may be in
     flight) the reward is held but KEEPS ``payout_batch_id``, which also makes ``release``/``void``
-    refuse it until the item is resolved; for a ``pending``, ``awaiting_manual`` or ``failed``
-    item the link is cleared and the item is refreshed from the rewards still batched (an item
-    left with none is skipped). Locks are taken in the payout order: batch, marketer, item,
-    rewards.
+    refuse it until the item is resolved; a ``failed`` item is treated the same way (R41: its
+    transfer may still be live, e.g. waiting for an OTP); for a ``pending`` or ``awaiting_manual``
+    item nothing was sent, so the link is cleared and the item is refreshed from the rewards still
+    batched (an item left with none is skipped). Locks are taken in the payout order (batch,
+    marketer, item, rewards) and the link is re-checked after the reward lock (R42).
     """
-    seen = db.scalar(
-        select(ReferralReward)
-        .where(ReferralReward.tenant_id == tenant_id)
-        .execution_options(populate_existing=True)
-    )
-    if seen is None:
-        return None
-    locked_batch_id = seen.payout_batch_id
-    item = payouts.lock_payout_context(db, seen.marketer_id, locked_batch_id)
-    reward = db.scalar(
-        select(ReferralReward)
-        .where(ReferralReward.tenant_id == tenant_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    item = None
+    reward = None
+    for _ in range(_HOLD_LOCK_ATTEMPTS):
+        # Read the batch link WITHOUT a reward lock, take the payout locks in order (batch,
+        # marketer, item, batched rewards), then lock the reward and re-check the link. All of it
+        # runs in a savepoint: if the link moved in between (a batch was prepared or the reward was
+        # detached meanwhile) the savepoint rolls back, which releases every lock taken inside it,
+        # and we start over with the new link.
+        seen = db.scalar(
+            select(ReferralReward)
+            .where(ReferralReward.tenant_id == tenant_id)
+            .execution_options(populate_existing=True)
+        )
+        if seen is None:
+            return None
+        link = seen.payout_batch_id
+        savepoint = db.begin_nested()
+        item = payouts.lock_payout_context(db, seen.marketer_id, link)
+        reward = db.scalar(
+            select(ReferralReward)
+            .where(ReferralReward.tenant_id == tenant_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if reward is None or reward.payout_batch_id == link:
+            savepoint.commit()  # releasing a savepoint keeps its locks
+            break
+        savepoint.rollback()
+    else:
+        raise RewardError(f"reward lock for tenant {tenant_id} kept moving; retry")
     if reward is None:
         return None
     if reward.status in (RewardStatus.PAID, RewardStatus.VOID):
         return reward
-    if reward.payout_batch_id != locked_batch_id:
-        # Batched between our first read and the lock: take the payout locks (late) now.
-        item = payouts.lock_payout_context(db, reward.marketer_id, reward.payout_batch_id)
     was_batched = reward.payout_batch_id is not None
     reward.status = RewardStatus.HELD
     if PAYMENT_DISPUTE not in (reward.review_reasons or []):

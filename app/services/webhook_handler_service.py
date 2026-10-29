@@ -228,9 +228,10 @@ class WebhookHandlerService:
         payload fields, so the transaction reference is read defensively from
         ``data.transaction.reference``, then ``data.transaction_reference``, then
         ``data.reference``. A malformed payload (not a dict, non-string/over-long reference,
-        unknown transaction) is skipped with a log, never a 500 (which would only make Paystack
-        retry). A dispute on ANY recorded payment of an attributed tenant holds its reward
-        (conservative; an admin can release it).
+        unknown transaction) is skipped with a log: a redelivery cannot fix it. A genuine failure
+        while recording (database, lock contention) propagates and the endpoint answers 5xx, so
+        Paystack redelivers; recording is idempotent. A dispute on ANY recorded payment of an
+        attributed tenant holds its reward (conservative; an admin can release it).
         """
         reference = None
         if isinstance(data, dict):

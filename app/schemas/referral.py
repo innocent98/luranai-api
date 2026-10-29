@@ -3,7 +3,15 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    EmailStr,
+    Field,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 from app.db.models.referral import BatchStatus, Marketer, MarketerStatus, PayoutItemStatus
 from app.services.referral.codes import validate_marketer_code
@@ -146,6 +154,14 @@ class MarkPaidEntry(BaseModel):
 
     marketer_id: UUID
     bank_reference: str = Field(..., min_length=1, max_length=100)
+    amount_kobo: StrictInt = Field(
+        ...,
+        gt=0,
+        description=(
+            "The amount actually paid, in kobo. Must equal the item's current amount; "
+            "a mismatch is refused with 409 amount_mismatch so the admin re-checks."
+        ),
+    )
 
     @field_validator("bank_reference", mode="before")
     @classmethod
