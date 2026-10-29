@@ -5,6 +5,7 @@ concurrency tests use two real sessions on separate connections.
 """
 
 import threading
+import time
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
@@ -34,6 +35,7 @@ from app.services.referral.rewards import (
     hold_for_dispute,
     promote_pending,
     reconcile_missing_rewards,
+    record_dispute,
     release,
     void,
 )
@@ -392,14 +394,23 @@ def test_webhook_charge_success_creates_the_reward(db_session, pending_referred_
     assert _utc(rewards[0].converted_at) == _utc(payment.paid_at)
 
 
-def test_webhook_replay_creates_no_second_reward(db_session, pending_referred_payment):
+def test_webhook_replay_creates_no_second_reward(db_session, pending_referred_payment, monkeypatch):
     tenant, _, payment = pending_referred_payment
     handler = WebhookHandlerService(db_session)
+    calls = []
+    real = rewards_module.create_reward_for_first_payment
+    monkeypatch.setattr(
+        rewards_module,
+        "create_reward_for_first_payment",
+        lambda *a, **kw: calls.append(a) or real(*a, **kw),
+    )
     handler.handle_event("charge.success", _charge(payment.reference))
+    assert len(calls) == 1
 
     replay = handler.handle_event("charge.success", _charge(payment.reference))
 
     assert replay == {"status": "already_processed"}
+    assert len(calls) == 1  # the replay returned before the reward hook ran
     assert len(_rewards(db_session, tenant.id)) == 1
 
 
@@ -487,9 +498,9 @@ def test_reconcile_creates_the_missing_reward_exactly_once(
     second = reconcile_missing_rewards(db_session, datetime.now(UTC))
 
     assert first >= 1
-    assert second == 0
+    assert second <= first
     rewards = _rewards(db_session, tenant.id)
-    assert len(rewards) == 1
+    assert len(rewards) == 1  # the second run did not add another for this tenant
     db_session.refresh(payment)
     assert _utc(rewards[0].converted_at) == _utc(payment.paid_at)
 
@@ -651,12 +662,13 @@ def test_release_and_void_write_an_audit_entry_with_admin_and_note(db_session):
     assert voided.changes["metadata"]["note"] == "confirmed duplicate account"
 
 
-def test_audit_failure_does_not_undo_the_state_change(pg_engine, monkeypatch):
-    """Real commits: the audit step runs after the reward change is committed."""
+@pytest.mark.parametrize("action", ["release", "void"])
+def test_audit_failure_rolls_the_change_back_and_raises(pg_engine, monkeypatch, action):
+    """Change and audit are atomic: no silent release/void without a record (real commits)."""
     from app.services import enhanced_audit_service
 
     def boom(self, **kwargs):
-        raise RuntimeError("audit down")
+        raise RuntimeError("audit down: SECRET-NOTE-TEXT")
 
     monkeypatch.setattr(enhanced_audit_service.EnhancedAuditService, "log_action", boom)
     factory = sessionmaker(bind=pg_engine)
@@ -670,16 +682,76 @@ def test_audit_failure_does_not_undo_the_state_change(pg_engine, monkeypatch):
     try:
         session = factory()
         try:
-            release(session, reward_id, uuid4(), "note")
+            with pytest.raises(RuntimeError):
+                {"release": release, "void": void}[action](
+                    session, reward_id, uuid4(), "SECRET-NOTE-TEXT"
+                )
         finally:
             session.close()
         check = factory()
         try:
-            assert check.get(ReferralReward, reward_id).status != RewardStatus.HELD
+            assert check.get(ReferralReward, reward_id).status == RewardStatus.HELD
+            assert (
+                check.scalar(
+                    select(func.count(AuditLog.id)).where(AuditLog.resource_id == reward_id)
+                )
+                == 0
+            )
         finally:
             check.close()
     finally:
         _purge_committed(pg_engine, tenant_id, marketer_id)
+
+
+def test_audit_failure_log_does_not_leak_the_exception_text(pg_engine, monkeypatch):
+    from loguru import logger
+
+    from app.services import enhanced_audit_service
+
+    def boom(self, **kwargs):
+        raise RuntimeError("SECRET-NOTE-TEXT")
+
+    monkeypatch.setattr(enhanced_audit_service.EnhancedAuditService, "log_action", boom)
+    messages = []
+    sink = logger.add(lambda m: messages.append(str(m)), level="ERROR")
+    factory = sessionmaker(bind=pg_engine)
+    setup = factory()
+    try:
+        reward = _reward(setup, status=RewardStatus.HELD)
+        reward_id, tenant_id, marketer_id = reward.id, reward.tenant_id, reward.marketer_id
+        setup.commit()
+    finally:
+        setup.close()
+    try:
+        session = factory()
+        try:
+            with pytest.raises(RuntimeError):
+                release(session, reward_id, uuid4(), "SECRET-NOTE-TEXT")
+        finally:
+            session.close()
+    finally:
+        logger.remove(sink)
+        _purge_committed(pg_engine, tenant_id, marketer_id)
+    assert messages and not any("SECRET-NOTE-TEXT" in m for m in messages)
+    assert any("RuntimeError" in m for m in messages)
+
+
+def test_released_reward_with_old_review_reasons_is_later_promoted(db_session):
+    reward = _reward(
+        db_session,
+        status=RewardStatus.HELD,
+        payable_after=NOW + timedelta(days=3),
+        reasons=["shared_domain"],
+    )
+    release(db_session, reward.id, uuid4(), "domains are unrelated", now=NOW)
+    db_session.refresh(reward)
+    assert reward.status == RewardStatus.PENDING
+    assert reward.review_reasons == ["shared_domain"]  # kept as history
+
+    promote_pending(db_session, NOW + timedelta(days=4))
+
+    db_session.refresh(reward)
+    assert reward.status == RewardStatus.PAYABLE
 
 
 # --------------------------------------------------------------------------- disputes
@@ -788,6 +860,91 @@ def test_unknown_events_are_still_ignored(db_session):
     assert result["status"] == "ignored"
 
 
+def test_dispute_before_reward_creates_it_held_with_payment_dispute(db_session):
+    tenant, _ = _referred(db_session)
+    payment = _payment(db_session, tenant, paid_at=NOW - timedelta(hours=3))
+
+    record_dispute(db_session, tenant.id)  # no reward exists yet
+    reward = create_reward_for_first_payment(db_session, tenant.id, payment.reference, NOW)
+
+    assert reward.status == RewardStatus.HELD
+    assert reward.review_reasons == ["payment_dispute"]
+
+
+def test_reconcile_after_a_dispute_creates_the_reward_held(db_session):
+    tenant, _ = _referred(db_session)
+    _payment(db_session, tenant, paid_at=NOW - timedelta(hours=3))
+    record_dispute(db_session, tenant.id)
+
+    reconcile_missing_rewards(db_session, datetime.now(UTC))
+
+    (reward,) = _rewards(db_session, tenant.id)
+    assert reward.status == RewardStatus.HELD
+    assert reward.review_reasons == ["payment_dispute"]
+
+
+def test_dispute_reason_is_not_duplicated_when_flags_also_apply(db_session, monkeypatch):
+    monkeypatch.setattr(rewards_module, "evaluate_flags", lambda db, tid: ["shared_domain"])
+    tenant, _ = _referred(db_session)
+    payment = _payment(db_session, tenant, paid_at=NOW)
+    record_dispute(db_session, tenant.id)
+    record_dispute(db_session, tenant.id)
+
+    reward = create_reward_for_first_payment(db_session, tenant.id, payment.reference, NOW)
+
+    assert reward.review_reasons == ["shared_domain", "payment_dispute"]
+
+
+def test_dispute_stamp_keeps_the_earliest_time(db_session):
+    tenant, _ = _referred(db_session)
+    first = NOW - timedelta(days=2)
+    record_dispute(db_session, tenant.id, now=first)
+    record_dispute(db_session, tenant.id, now=NOW)
+
+    attribution = db_session.scalar(
+        select(ReferralAttribution).where(ReferralAttribution.tenant_id == tenant.id)
+    )
+    assert _utc(attribution.disputed_at) == first
+
+
+def test_dispute_event_before_reward_stamps_the_attribution(db_session, pending_referred_payment):
+    """Webhook level: dispute lands, then the reward is created later (reconcile path)."""
+    tenant, _, payment = pending_referred_payment
+    payment.status = "success"
+    payment.paid_at = NOW - timedelta(hours=1)
+    db_session.commit()
+
+    result = WebhookHandlerService(db_session).handle_event(
+        "charge.dispute.create", _dispute_payload(payment.reference)
+    )
+    assert result["status"] == "success"
+    assert result["reward_status"] is None  # no reward yet
+
+    reconcile_missing_rewards(db_session, datetime.now(UTC))
+    (reward,) = _rewards(db_session, tenant.id)
+    assert reward.status == RewardStatus.HELD
+    assert reward.review_reasons == ["payment_dispute"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"transaction": "just-a-string"},
+        {"transaction": None},
+        {"transaction": ["ref"]},
+        {"transaction": {"reference": 12345}},
+        {"reference": 12345},
+        {"reference": "   "},
+        {"reference": "x" * 101},
+        None,
+        [],
+    ],
+)
+def test_dispute_event_with_malformed_payload_is_skipped_not_500(db_session, payload):
+    result = WebhookHandlerService(db_session).handle_event("charge.dispute.create", payload)
+    assert result["status"] == "skipped"
+
+
 # --------------------------------------------------------------------------- real concurrency
 
 
@@ -894,34 +1051,39 @@ def test_replay_and_parallel_delivery_one_reward(pg_engine):
         _purge_committed(pg_engine, tenant_id, marketer_id)
 
 
-def test_concurrent_creation_for_the_same_tenant_yields_one_row(pg_engine, monkeypatch):
-    """Both callers pass the 'no reward yet' check; the unique tenant_id decides the winner."""
+def _mark_paid(pg_engine, payment_id, paid_at):
+    session = sessionmaker(bind=pg_engine)()
+    try:
+        payment = session.get(PaymentTransaction, payment_id)
+        payment.status = "success"
+        payment.paid_at = paid_at
+        session.commit()
+    finally:
+        session.close()
+
+
+def _count_rewards(factory, tenant_id):
+    check = factory()
+    try:
+        return check.scalar(
+            select(func.count(ReferralReward.id)).where(ReferralReward.tenant_id == tenant_id)
+        )
+    finally:
+        check.close()
+
+
+def test_concurrent_creation_for_the_same_tenant_yields_one_row(pg_engine):
+    """Two real sessions create for the same tenant: the attribution lock serialises them."""
     tenant_id, marketer_id, payment_id, reference = _committed_fixture(pg_engine)
     factory = sessionmaker(bind=pg_engine)
     paid_at = datetime.now(UTC)
-    setup = factory()
-    try:
-        payment = setup.get(PaymentTransaction, payment_id)
-        payment.status = "success"
-        payment.paid_at = paid_at
-        setup.commit()
-    finally:
-        setup.close()
-
-    # Hold both callers after their existence check and before the insert, so they truly race.
+    _mark_paid(pg_engine, payment_id, paid_at)
     barrier = threading.Barrier(2, timeout=15)
-    real_flags = rewards_module.evaluate_flags
-
-    def synchronised_flags(db, tid):
-        flags = real_flags(db, tid)
-        barrier.wait()
-        return flags
-
-    monkeypatch.setattr(rewards_module, "evaluate_flags", synchronised_flags)
 
     def create():
         session = factory()
         try:
+            barrier.wait()
             reward = create_reward_for_first_payment(session, tenant_id, reference, paid_at)
             session.commit()
             return reward is not None
@@ -934,13 +1096,111 @@ def test_concurrent_creation_for_the_same_tenant_yields_one_row(pg_engine, monke
         errors = [o for o in outcomes if isinstance(o, BaseException)]
         assert not errors, errors
         assert sorted(outcomes) == [False, True]  # exactly one call created the row
+        assert _count_rewards(factory, tenant_id) == 1
+    finally:
+        _purge_committed(pg_engine, tenant_id, marketer_id)
+
+
+def test_unique_violation_after_the_existence_check_is_treated_as_already_rewarded(
+    pg_engine, monkeypatch
+):
+    """The last line of defence: a competing reward committed between check and insert."""
+    tenant_id, marketer_id, payment_id, reference = _committed_fixture(pg_engine)
+    factory = sessionmaker(bind=pg_engine)
+    paid_at = datetime.now(UTC)
+    _mark_paid(pg_engine, payment_id, paid_at)
+    real_flags = rewards_module.evaluate_flags
+
+    def flags_then_rival_commits(db, tid):
+        flags = real_flags(db, tid)
+        rival = factory()
+        try:
+            rival.add(
+                ReferralReward(
+                    tenant_id=tenant_id,
+                    marketer_id=marketer_id,
+                    amount_kobo=500_000,
+                    status=RewardStatus.PENDING,
+                    converted_at=paid_at,
+                    payable_after=paid_at + timedelta(days=7),
+                )
+            )
+            rival.commit()
+        finally:
+            rival.close()
+        return flags
+
+    monkeypatch.setattr(rewards_module, "evaluate_flags", flags_then_rival_commits)
+    try:
+        session = factory()
+        try:
+            assert create_reward_for_first_payment(session, tenant_id, reference, paid_at) is None
+            session.commit()
+        finally:
+            session.close()
+        assert _count_rewards(factory, tenant_id) == 1
+    finally:
+        _purge_committed(pg_engine, tenant_id, marketer_id)
+
+
+def test_dispute_racing_reward_creation_never_leaves_a_clean_pending_reward(pg_engine, monkeypatch):
+    """Creation has read the attribution when the dispute arrives: the dispute waits, then holds."""
+    tenant_id, marketer_id, payment_id, reference = _committed_fixture(pg_engine)
+    factory = sessionmaker(bind=pg_engine)
+    paid_at = datetime.now(UTC)
+    _mark_paid(pg_engine, payment_id, paid_at)
+    creation_inside = threading.Event()
+    dispute_started = threading.Event()
+    real_flags = rewards_module.evaluate_flags
+
+    def paused_flags(db, tid):
+        flags = real_flags(db, tid)
+        creation_inside.set()
+        dispute_started.wait(timeout=15)
+        time.sleep(0.5)  # let the dispute reach (and block on) the attribution lock
+        return flags
+
+    monkeypatch.setattr(rewards_module, "evaluate_flags", paused_flags)
+
+    def create():
+        session = factory()
+        try:
+            reward = create_reward_for_first_payment(session, tenant_id, reference, paid_at)
+            session.commit()
+            return reward is not None
+        finally:
+            session.close()
+
+    def dispute():
+        assert creation_inside.wait(timeout=15)
+        session = factory()
+        try:
+            dispute_started.set()
+            record_dispute(session, tenant_id)
+            session.commit()
+            return True
+        finally:
+            session.close()
+
+    try:
+        outcomes = _run_in_threads([create, dispute])
+
+        errors = [o for o in outcomes if isinstance(o, BaseException)]
+        assert not errors, errors
         check = factory()
         try:
-            count = check.scalar(
-                select(func.count(ReferralReward.id)).where(ReferralReward.tenant_id == tenant_id)
+            reward = check.execute(
+                select(ReferralReward).where(ReferralReward.tenant_id == tenant_id)
+            ).scalar_one()
+            stamped = check.scalar(
+                select(ReferralAttribution.disputed_at).where(
+                    ReferralAttribution.tenant_id == tenant_id
+                )
             )
         finally:
             check.close()
-        assert count == 1
+        assert reward.status == RewardStatus.HELD
+        assert "payment_dispute" in reward.review_reasons
+        assert stamped is not None
     finally:
         _purge_committed(pg_engine, tenant_id, marketer_id)

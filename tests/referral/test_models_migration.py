@@ -283,6 +283,10 @@ def test_upgrade_creates_tables_and_downgrade_removes_them(alembic_config, scrat
         }
         assert reward_fks["tenant_id"] == "SET NULL"
         assert reward_fks["marketer_id"] == "RESTRICT"
+        disputed = {c["name"]: c for c in inspector.get_columns("referral_attributions")}[
+            "disputed_at"
+        ]
+        assert disputed["nullable"] is True
 
         command.downgrade(alembic_config, "wa20ratingreply")
         inspector = inspect(engine)
@@ -291,5 +295,21 @@ def test_upgrade_creates_tables_and_downgrade_removes_them(alembic_config, scrat
 
         command.upgrade(alembic_config, "head")  # forward path re-applies cleanly
         assert REFERRAL_TABLES <= set(inspect(engine).get_table_names())
+    finally:
+        engine.dispose()
+
+
+def test_upgrade_adds_disputed_at_to_an_existing_attributions_table(alembic_config, scratch_db):
+    """The migration is idempotent: a table created without the column gets it added."""
+    engine = create_engine(scratch_db)
+    try:
+        command.upgrade(alembic_config, "head")
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE referral_attributions DROP COLUMN disputed_at"))
+        # Pretend the revision never ran: the idempotent upgrade must re-add only what is missing.
+        command.stamp(alembic_config, "wa20ratingreply")
+        command.upgrade(alembic_config, "head")
+        columns = {c["name"] for c in inspect(engine).get_columns("referral_attributions")}
+        assert "disputed_at" in columns
     finally:
         engine.dispose()

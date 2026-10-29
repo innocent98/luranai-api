@@ -77,20 +77,21 @@ def create_reward_for_first_payment(
     qualify and when a reward already exists (including when a concurrent call won the race on the
     unique ``tenant_id``), so callers can count creations. A reward is created only when ALL hold:
 
-    * ``payment_reference`` is a ``success`` payment of this tenant, and no other successful
-      payment of the tenant has an earlier ``paid_at`` (the first payment earns it, never a later
-      one that was merely processed first);
+    * ``payment_reference`` is a ``success`` payment of this tenant with a ``paid_at`` (the row's
+      value is authoritative; the ``paid_at`` argument is kept for the documented signature and
+      ignored), and no other successful payment of the tenant has an earlier ``paid_at`` (the
+      first payment earns it, never a later one that was merely processed first);
     * the tenant has a referral attribution that is not ``self_referral`` (the attribution row is
       required: a reward whose ``tenant_id`` was NULLed by an account purge never counts);
     * ``paid_at <= tenant.created_at + commission_window_days`` (trial payments count);
     * the tenant has no reward yet.
 
-    The reward is ``held`` (never blocked) when the marketer is suspended or the fraud check
-    returns reasons, otherwise ``pending``. ``evaluate_flags`` errors propagate and nothing is
+    The reward is ``held`` (never blocked) when the marketer is suspended, the attribution already
+    carries a recorded dispute (``payment_dispute``) or the fraud check returns reasons, otherwise
+    ``pending``. ``evaluate_flags`` errors propagate and nothing is
     written (fail closed). The insert runs in its own SAVEPOINT, so a unique violation leaves the
     caller's transaction usable.
     """
-    paid_at = _aware(paid_at)
     db.flush()  # make a payment the caller just marked as success visible to the queries below
 
     payment = db.scalar(
@@ -100,8 +101,10 @@ def create_reward_for_first_payment(
             PaymentTransaction.status == "success",
         )
     )
-    if payment is None:
+    if payment is None or payment.paid_at is None:
         return None
+    # The payment row is the source of truth for when it was paid (the argument is ignored).
+    paid_at = _aware(payment.paid_at)
     earlier_payment = db.scalar(
         select(PaymentTransaction.id)
         .where(
@@ -115,8 +118,13 @@ def create_reward_for_first_payment(
     if earlier_payment is not None:
         return None
 
+    # Locked, so a dispute being recorded concurrently (record_dispute locks the same row first)
+    # either lands before this read (we see disputed_at) or after our reward commits (it holds it).
     attribution = db.scalar(
-        select(ReferralAttribution).where(ReferralAttribution.tenant_id == tenant_id)
+        select(ReferralAttribution)
+        .where(ReferralAttribution.tenant_id == tenant_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if attribution is None or attribution.self_referral:
         return None
@@ -136,6 +144,8 @@ def create_reward_for_first_payment(
     reasons = list(evaluate_flags(db, tenant_id))
     if marketer.status == MarketerStatus.SUSPENDED:
         reasons.append(MARKETER_SUSPENDED)
+    if attribution.disputed_at is not None and PAYMENT_DISPUTE not in reasons:
+        reasons.append(PAYMENT_DISPUTE)  # disputed before the reward existed: never clean pending
 
     reward = ReferralReward(
         tenant_id=tenant_id,
@@ -278,7 +288,7 @@ def _require_note(note: str | None) -> str:
     return cleaned
 
 
-def _audit(
+def _audit_and_commit(
     db: Session,
     action: str,
     reward: ReferralReward,
@@ -287,7 +297,14 @@ def _audit(
     from_status: RewardStatus,
     note: str,
 ) -> None:
-    """Record admin id + note. Runs after the change is committed; failure is logged, not raised."""
+    """Write the audit entry; its single commit carries the (already flushed) status change.
+
+    ``EnhancedAuditService.log_action`` commits the session, so the change and its record become
+    durable together. If the audit raises, the change is rolled back and the error re-raised: an
+    admin can never release or void a reward without a record. Logs ids and the exception class
+    only (the exception text can embed SQL parameters, including the note).
+    """
+    reward_id, marketer_id, to_status = reward.id, reward.marketer_id, reward.status
     try:
         EnhancedAuditService(db).log_action(
             action_type=action,
@@ -295,19 +312,23 @@ def _audit(
             performed_by_id=admin_id,
             performed_by_name=admin_name,
             target_type="referral_reward",
-            target_id=reward.id,
+            target_id=reward_id,
             description=f"{action.replace('_', ' ').capitalize()}",
             severity="medium",
             metadata={
                 "note": note,
                 "from_status": from_status.value,
-                "to_status": reward.status.value,
-                "marketer_id": str(reward.marketer_id),
+                "to_status": to_status.value,
+                "marketer_id": str(marketer_id),
             },
         )
-    except Exception as exc:  # noqa: BLE001 - the money change already committed
+    except Exception as exc:
         db.rollback()
-        logger.error(f"Failed to write audit log for {action} on reward {reward.id}: {exc}")
+        logger.error(
+            f"Audit write failed for {action} on reward {reward_id}; change rolled back "
+            f"({type(exc).__name__})"
+        )
+        raise
 
 
 def release(
@@ -322,7 +343,9 @@ def release(
     """Admin clears a ``held`` reward: ``payable`` if its hold date has passed, else ``pending``.
 
     ``payable_after`` is kept as is. Raises ``ValueError`` without a note, ``RewardNotFoundError``,
-    or ``RewardStateError`` (nothing changed) when the reward is not ``held``. Commits.
+    or ``RewardStateError`` (nothing changed) when the reward is not ``held``. The status change and
+    its audit entry commit together; if the audit fails the change is rolled back and the error
+    raised.
     """
     note = _require_note(note)
     reward = _locked_reward(db, reward_id)
@@ -334,8 +357,10 @@ def release(
     reward.status = (
         RewardStatus.PAYABLE if _aware(reward.payable_after) <= moment else RewardStatus.PENDING
     )
-    db.commit()
-    _audit(db, "release_referral_reward", reward, admin_id, admin_name, RewardStatus.HELD, note)
+    db.flush()
+    _audit_and_commit(
+        db, "release_referral_reward", reward, admin_id, admin_name, RewardStatus.HELD, note
+    )
     return reward
 
 
@@ -349,7 +374,7 @@ def void(
 ) -> ReferralReward:
     """Admin voids a ``held``, ``pending`` or ``payable`` reward; never one batched, paid or void.
 
-    Raises like ``release``. Commits.
+    Raises like ``release``, with the same atomic change + audit commit.
     """
     note = _require_note(note)
     reward = _locked_reward(db, reward_id)
@@ -357,12 +382,36 @@ def void(
     if previous not in (RewardStatus.HELD, RewardStatus.PENDING, RewardStatus.PAYABLE):
         raise RewardStateError(f"reward {reward_id} is {previous.value} and cannot be voided")
     reward.status = RewardStatus.VOID
-    db.commit()
-    _audit(db, "void_referral_reward", reward, admin_id, admin_name, previous, note)
+    db.flush()
+    _audit_and_commit(db, "void_referral_reward", reward, admin_id, admin_name, previous, note)
     return reward
 
 
 # --------------------------------------------------------------------------- disputes
+
+
+def record_dispute(
+    db: Session, tenant_id: UUID, now: datetime | None = None
+) -> ReferralReward | None:
+    """Record a payment dispute for the tenant and hold its reward; does not commit.
+
+    Stamps ``ReferralAttribution.disputed_at`` (idempotent, the earliest stamp is kept) so a reward
+    that does not exist yet is created ``held`` with ``payment_dispute`` later (creation failed and
+    reconcile repairs it, say). Then holds an existing reward via ``hold_for_dispute``. The
+    attribution row is locked first, the same order ``create_reward_for_first_payment`` uses, so
+    the two cannot interleave into a clean ``pending`` reward. Any recorded payment of an attributed
+    tenant counts (conservative: an admin releases it if the dispute is irrelevant).
+    """
+    attribution = db.scalar(
+        select(ReferralAttribution)
+        .where(ReferralAttribution.tenant_id == tenant_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if attribution is not None and attribution.disputed_at is None:
+        attribution.disputed_at = _aware(now) if now else datetime.now(UTC)
+        db.flush()
+    return hold_for_dispute(db, tenant_id)
 
 
 def hold_for_dispute(db: Session, tenant_id: UUID) -> ReferralReward | None:

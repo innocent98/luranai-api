@@ -10,6 +10,7 @@ existing table, no data step. Amounts are integer kobo.
 
 * marketers: encrypted email/bank fields, email_hash for lookups, unique index on lower(code).
 * referral_attributions / signup_origins: one row per tenant (unique tenant_id), CASCADE on tenant.
+  referral_attributions.disputed_at records a payment dispute that may precede the reward.
 * referral_rewards: one row per tenant (unique tenant_id = the replay guard). tenant_id is
   nullable with ON DELETE SET NULL: the reward is money owed to the marketer and must survive the
   tenant's hard purge instead of blocking it.
@@ -186,7 +187,15 @@ def upgrade() -> None:
                 server_default=sa.func.now(),
                 nullable=False,
             ),
+            sa.Column("disputed_at", sa.DateTime(timezone=True), nullable=True),
             sa.UniqueConstraint("tenant_id", name="uq_referral_attributions_tenant_id"),
+        )
+    elif "disputed_at" not in {
+        c["name"] for c in sa.inspect(bind).get_columns("referral_attributions")
+    }:
+        op.add_column(
+            "referral_attributions",
+            sa.Column("disputed_at", sa.DateTime(timezone=True), nullable=True),
         )
     _create_indexes(
         bind,

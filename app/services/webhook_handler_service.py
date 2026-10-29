@@ -205,22 +205,28 @@ class WebhookHandlerService:
             )
 
     def _handle_dispute_create(self, data: dict) -> dict:
-        """Hold the referral reward of the tenant whose payment was disputed.
+        """Record a payment dispute: stamp the attribution and hold the tenant's referral reward.
 
-        Event: ``charge.dispute.create`` (named in Paystack's docs). Paystack's docs do not publish
-        the payload fields, so the transaction reference is read defensively from
+        Event: ``charge.dispute.create`` (named in Paystack's docs). The docs do not publish the
+        payload fields, so the transaction reference is read defensively from
         ``data.transaction.reference``, then ``data.transaction_reference``, then
-        ``data.reference``. Anything unresolvable is skipped (a 500 would only make Paystack retry).
+        ``data.reference``. A malformed payload (not a dict, non-string/over-long reference,
+        unknown transaction) is skipped with a log, never a 500 (which would only make Paystack
+        retry). A dispute on ANY recorded payment of an attributed tenant holds its reward
+        (conservative; an admin can release it).
         """
-        transaction_data = data.get("transaction")
-        reference = (
-            (transaction_data.get("reference") if isinstance(transaction_data, dict) else None)
-            or data.get("transaction_reference")
-            or data.get("reference")
-        )
-        if not reference:
-            logger.warning("charge.dispute.create without a transaction reference; ignored")
-            return {"status": "skipped", "message": "Missing transaction reference"}
+        reference = None
+        if isinstance(data, dict):
+            transaction_data = data.get("transaction")
+            reference = (
+                (transaction_data.get("reference") if isinstance(transaction_data, dict) else None)
+                or data.get("transaction_reference")
+                or data.get("reference")
+            )
+        if not isinstance(reference, str) or not reference.strip() or len(reference) > 100:
+            logger.warning("charge.dispute.create without a usable transaction reference; ignored")
+            return {"status": "skipped", "message": "Missing or invalid transaction reference"}
+        reference = reference.strip()
 
         transaction = (
             self.db.query(PaymentTransaction)
@@ -228,10 +234,10 @@ class WebhookHandlerService:
             .first()
         )
         if not transaction:
-            logger.warning(f"Dispute for unknown transaction: {reference}")
+            logger.warning("Dispute for unknown transaction reference; ignored")
             return {"status": "skipped", "message": "Transaction not found"}
 
-        reward = referral_rewards.hold_for_dispute(self.db, transaction.tenant_id)
+        reward = referral_rewards.record_dispute(self.db, transaction.tenant_id)
         self.db.commit()
         return {
             "status": "success",

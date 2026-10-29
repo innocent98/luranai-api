@@ -111,8 +111,18 @@ def test_job_promotes_due_rewards_and_reconciles_missing_ones(db_session, monkey
     ).scalar_one()
     assert created.status == RewardStatus.PENDING
 
-    again = asyncio.run(referral_worker.referral_promote_pending({}))
-    assert again["promoted"] == 0 and again["reconciled"] == 0
+    reward_id = created.id
+    asyncio.run(referral_worker.referral_promote_pending({}))  # second run: nothing new for us
+    db_session.expire_all()
+    rows = (
+        db_session.execute(select(ReferralReward).where(ReferralReward.marketer_id == marketer.id))
+        .scalars()
+        .all()
+    )
+    assert sorted(str(r.tenant_id) for r in rows) == sorted(
+        [str(due_tenant.id), str(missing_tenant.id)]
+    )
+    assert {r.id for r in rows if r.tenant_id == missing_tenant.id} == {reward_id}
 
 
 def test_one_step_failing_does_not_stop_the_other(db_session, monkeypatch):

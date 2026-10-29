@@ -153,6 +153,10 @@ class ReferralAttribution(Base, UUIDMixin):
     attributed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    # Earliest time a payment dispute was recorded for this tenant. A dispute can arrive before
+    # the reward exists (creation failed, reconcile creates it later); the reward is then created
+    # held with reason payment_dispute instead of pending.
+    disputed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class PayoutBatch(Base, UUIDMixin, TimestampMixin):

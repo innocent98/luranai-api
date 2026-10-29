@@ -31,7 +31,7 @@ async def referral_promote_pending(ctx: dict) -> dict[str, Any]:
             except Exception as exc:  # noqa: BLE001 - keep the other step running
                 db.rollback()
                 result["errors"] += 1
-                logger.error(f"referral job step {key} failed: {type(exc).__name__}: {exc}")
+                logger.error(f"referral job step {key} failed: {type(exc).__name__}")
         logger.info(f"referral daily job: {result}")
         return result
     finally:
