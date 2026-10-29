@@ -36,6 +36,7 @@ from app.db.models.whatsapp import (
     WhatsAppProvider,
     WhatsAppStatus,
 )
+from app.services import whatsapp_capacity
 from app.services.entitlements import Entitlements, get_entitlements_for_tenant_id
 from app.utils.datetime import utcnow_aware
 from app.utils.http_rate_limiter import (
@@ -60,6 +61,9 @@ CONSENT_TEXT = (
     "pauses on that chat for a while. You can disconnect at any time."
 )
 
+
+# The one tenant-facing text for every `capacity_exceeded` 503 (backend guard and sidecar alike).
+CAPACITY_MESSAGE = "WhatsApp is temporarily at capacity. Please try again later."
 
 # An unpaired connection older than this is discarded when the next one is created.
 STALE_PAIRING_AFTER = timedelta(minutes=30)  # absolute, from created_at: new codes never extend it
@@ -239,7 +243,7 @@ class WhatsAppService:
             raise WhatsAppError(
                 503,
                 "capacity_exceeded",
-                "WhatsApp is at capacity right now. Please try again later.",
+                CAPACITY_MESSAGE,
             )
 
         # Only attempts that will really reach the sidecar spend the per-number budget, so
@@ -276,7 +280,7 @@ class WhatsAppService:
             raise WhatsAppError(
                 503,
                 "capacity_exceeded",
-                "WhatsApp is at capacity right now. Please try again later.",
+                CAPACITY_MESSAGE,
             ) from None
         except (SessionExists, SidecarUnavailable) as exc:
             self._discard(conn)
@@ -284,6 +288,7 @@ class WhatsAppService:
             raise WhatsAppError(
                 502, "sidecar_unavailable", "Could not reach WhatsApp. Please try again."
             ) from None
+        whatsapp_capacity.schedule_post_create_check()  # operator alert; never affects the response
         return CreatedConnection(connection=conn, pairing=pairing)
 
     def _discard(self, conn: WhatsAppConnection) -> None:
@@ -311,7 +316,7 @@ class WhatsAppService:
                 raise WhatsAppError(
                     503,
                     "capacity_exceeded",
-                    "WhatsApp is at capacity right now. Please try again later.",
+                    CAPACITY_MESSAGE,
                 )
         try:
             pairing = await get_adapter(conn.provider).new_pairing_code(conn.session_key)
@@ -323,15 +328,18 @@ class WhatsAppService:
             raise WhatsAppError(
                 503,
                 "capacity_exceeded",
-                "WhatsApp is at capacity right now. Please try again later.",
+                CAPACITY_MESSAGE,
             ) from None
         except (SessionNotFound, SidecarUnavailable) as exc:
             logger.warning("whatsapp new_pairing_code failed: {}", exc.code)
             raise WhatsAppError(
                 502, "sidecar_unavailable", "Could not reach WhatsApp. Please try again."
             ) from None
+        relive = conn.status == WhatsAppStatus.LOGGED_OUT.value
         conn.status = WhatsAppStatus.AWAITING_PAIR.value
         self.db.commit()
+        if relive:
+            whatsapp_capacity.schedule_post_create_check()
         return pairing
 
     # ------------------------------------------------------------------ patch / delete

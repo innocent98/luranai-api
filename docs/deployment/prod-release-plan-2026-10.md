@@ -1,5 +1,7 @@
 # Production release plan: activation, plan entitlements, WhatsApp (code, dark)
 
+> **2026-10-29 addendum:** `can_use_whatsapp` is no longer a per-tenant grant defaulting to false: migration `wa30whatsappdefaulton` (after `ref10referral`) makes it a plan capability for every tier. Prod stays dark only because `WHATSAPP_ENABLED` is false there. Add `wa30whatsappdefaulton` to the migration chain and run the pre-deploy check in `docs/sop/whatsapp_default_on.md` before it.
+
 Status: **DRAFT for Adebayo's review, 2026-10-28. Nothing in this document has been run against production.**
 Scope: promote everything on `develop` / dashboard `staging` / chat `stage` that production does not have yet. Source of truth for "what is different" is the git diff, checked 2026-10-28:
 

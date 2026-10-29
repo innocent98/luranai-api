@@ -1,0 +1,16 @@
+{
+  "scenario": "list-kill-switch-off",
+  "note": "",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/whatsapp/connections",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": []
+  }
+}

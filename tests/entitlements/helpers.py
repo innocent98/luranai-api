@@ -29,7 +29,11 @@ WHATSAPP = {"trial": 1, "lite": 1, "professional": 2, "growth": 5, "enterprise":
 TIERS = ("trial", "lite", "professional", "growth", "enterprise")
 
 
-def make_tenant(db, tier: str = "trial", *, with_caps: bool = True, whatsapp_grant: bool = False):
+def make_tenant(
+    db, tier: str = "trial", *, with_caps: bool = True, whatsapp_override: bool | None = None
+):
+    """A tenant on `tier`. WhatsApp follows the plan unless `whatsapp_override` is given: then the
+    stored flag holds that value and `override_flags` records it, as a platform-admin edit does."""
     prefix = uuid4().hex[:8]
     tenant = Tenant(
         id=uuid4(),
@@ -53,7 +57,9 @@ def make_tenant(db, tier: str = "trial", *, with_caps: bool = True, whatsapp_gra
     )
     if with_caps:
         caps = new_tenant_capabilities(db, tenant.id, tier)
-        caps.can_use_whatsapp = whatsapp_grant
+        if whatsapp_override is not None:
+            caps.can_use_whatsapp = whatsapp_override
+            caps.override_flags = {"can_use_whatsapp": True}
         db.add(caps)
     db.commit()
     return tenant

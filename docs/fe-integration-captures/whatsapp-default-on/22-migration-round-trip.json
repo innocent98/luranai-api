@@ -1,0 +1,252 @@
+{
+  "scenario": "migration-round-trip",
+  "note": "a: never granted, b: hand-granted by an admin, c: admin revoked, d: NULL override_flags. Tenant names carry the tag (wdo_<tag>_...).",
+  "0_seeded_old_state": [
+    {
+      "name": "wdo_a_3122d2",
+      "tier": "trial",
+      "stored_flag": false,
+      "override_flags": {}
+    },
+    {
+      "name": "wdo_b_2e6a48",
+      "tier": "lite",
+      "stored_flag": true,
+      "override_flags": {
+        "can_use_whatsapp": true,
+        "max_whatsapp_numbers": true
+      }
+    },
+    {
+      "name": "wdo_c_585210",
+      "tier": "professional",
+      "stored_flag": false,
+      "override_flags": {
+        "can_use_whatsapp": true
+      }
+    },
+    {
+      "name": "wdo_d_c3bf7e",
+      "tier": "growth",
+      "stored_flag": false,
+      "override_flags": null
+    }
+  ],
+  "1_alembic_downgrade_-1": [
+    "INFO  [alembic.runtime.migration] Running downgrade wa30whatsappdefaulton -> ref10referral, WhatsApp becomes a plan capability (on for every tier) instead of a platform grant"
+  ],
+  "1_after_downgrade": [
+    {
+      "name": "wdo_a_3122d2",
+      "tier": "trial",
+      "stored_flag": false,
+      "override_flags": {}
+    },
+    {
+      "name": "wdo_b_2e6a48",
+      "tier": "lite",
+      "stored_flag": true,
+      "override_flags": {
+        "can_use_whatsapp": true,
+        "max_whatsapp_numbers": true
+      }
+    },
+    {
+      "name": "wdo_c_585210",
+      "tier": "professional",
+      "stored_flag": false,
+      "override_flags": {
+        "can_use_whatsapp": true
+      }
+    },
+    {
+      "name": "wdo_d_c3bf7e",
+      "tier": "growth",
+      "stored_flag": false,
+      "override_flags": null
+    }
+  ],
+  "2_alembic_upgrade_head": [
+    "INFO  [alembic.runtime.migration] Running upgrade ref10referral -> wa30whatsappdefaulton, WhatsApp becomes a plan capability (on for every tier) instead of a platform grant"
+  ],
+  "2_after_upgrade": [
+    {
+      "name": "wdo_a_3122d2",
+      "tier": "trial",
+      "stored_flag": true,
+      "override_flags": {}
+    },
+    {
+      "name": "wdo_b_2e6a48",
+      "tier": "lite",
+      "stored_flag": true,
+      "override_flags": {
+        "can_use_whatsapp": true,
+        "max_whatsapp_numbers": true
+      }
+    },
+    {
+      "name": "wdo_c_585210",
+      "tier": "professional",
+      "stored_flag": false,
+      "override_flags": {
+        "can_use_whatsapp": true
+      }
+    },
+    {
+      "name": "wdo_d_c3bf7e",
+      "tier": "growth",
+      "stored_flag": true,
+      "override_flags": null
+    }
+  ],
+  "3_alembic_upgrade_head_again": [],
+  "3_after_second_upgrade": [
+    {
+      "name": "wdo_a_3122d2",
+      "tier": "trial",
+      "stored_flag": true,
+      "override_flags": {}
+    },
+    {
+      "name": "wdo_b_2e6a48",
+      "tier": "lite",
+      "stored_flag": true,
+      "override_flags": {
+        "can_use_whatsapp": true,
+        "max_whatsapp_numbers": true
+      }
+    },
+    {
+      "name": "wdo_c_585210",
+      "tier": "professional",
+      "stored_flag": false,
+      "override_flags": {
+        "can_use_whatsapp": true
+      }
+    },
+    {
+      "name": "wdo_d_c3bf7e",
+      "tier": "growth",
+      "stored_flag": true,
+      "override_flags": null
+    }
+  ],
+  "plan_flags": [
+    {
+      "tier": "trial",
+      "can_use_whatsapp": true,
+      "features": [
+        "2 knowledge sources",
+        "10MB storage",
+        "200 conversations/month",
+        "1 team member",
+        "1 flow",
+        "2 automation actions",
+        "100 automation executions/month",
+        "AI chat automation",
+        "Meeting booking and quotes",
+        "Slack and CRM notifications",
+        "Screen recording",
+        "Ratings breakdown and CSV export",
+        "WhatsApp (beta): 1 number",
+        "AI support widget",
+        "Email support"
+      ]
+    },
+    {
+      "tier": "lite",
+      "can_use_whatsapp": true,
+      "features": [
+        "20 knowledge sources",
+        "50MB storage",
+        "2,000 conversations/month",
+        "3 team members",
+        "3 flows",
+        "2 automation actions",
+        "500 automation executions/month",
+        "AI chat automation",
+        "URL scraping",
+        "Analytics dashboard",
+        "WhatsApp (beta): 1 number",
+        "Full support"
+      ]
+    },
+    {
+      "tier": "professional",
+      "can_use_whatsapp": true,
+      "features": [
+        "50 knowledge sources",
+        "200MB storage",
+        "10,000 conversations/month",
+        "10 team members",
+        "10 flows",
+        "15 automation actions",
+        "5,000 automation executions/month",
+        "AI chat automation",
+        "Lookup chains",
+        "Up to 3 webhooks per flow",
+        "URL scraping",
+        "Analytics dashboard",
+        "Meeting booking and quotes",
+        "Slack and CRM notifications",
+        "Screen recording",
+        "Ratings breakdown and CSV export",
+        "WhatsApp (beta): 2 numbers",
+        "Full support"
+      ]
+    },
+    {
+      "tier": "growth",
+      "can_use_whatsapp": true,
+      "features": [
+        "100 knowledge sources",
+        "500MB storage",
+        "25,000 conversations/month",
+        "20 team members",
+        "25 flows",
+        "40 automation actions",
+        "25,000 automation executions/month",
+        "AI chat automation",
+        "Lookup chains",
+        "Up to 10 webhooks per flow",
+        "URL scraping",
+        "Analytics dashboard",
+        "Meeting booking and quotes",
+        "Slack and CRM notifications",
+        "Screen recording",
+        "Ratings breakdown and CSV export",
+        "WhatsApp (beta): 5 numbers",
+        "Full support"
+      ]
+    },
+    {
+      "tier": "enterprise",
+      "can_use_whatsapp": true,
+      "features": [
+        "Unlimited knowledge sources",
+        "Unlimited storage",
+        "Unlimited conversations/month",
+        "Unlimited team members",
+        "Unlimited flows",
+        "Unlimited automation actions",
+        "Unlimited automation executions/month",
+        "AI chat automation",
+        "Lookup chains",
+        "Unlimited webhooks per flow",
+        "URL scraping",
+        "Analytics dashboard",
+        "Meeting booking and quotes",
+        "Slack and CRM notifications",
+        "Screen recording",
+        "Ratings breakdown and CSV export",
+        "WhatsApp (beta): unlimited numbers",
+        "Volume-based pricing (25K-300K+)",
+        "Dedicated account manager",
+        "Custom integrations",
+        "SLA guarantees",
+        "24/7 premium support"
+      ]
+    }
+  ]
+}

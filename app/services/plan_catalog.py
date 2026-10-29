@@ -36,6 +36,7 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         can_use_crm_notifications=True,
         can_use_screen_recording=True,
         can_export_ratings=True,
+        can_use_whatsapp=True,
         max_whatsapp_numbers=1,
         max_flows=1,
         max_nodes_per_flow=0,
@@ -60,6 +61,7 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         can_use_crm_notifications=False,
         can_use_screen_recording=False,
         can_export_ratings=False,
+        can_use_whatsapp=True,
         max_whatsapp_numbers=1,
         max_flows=3,
         max_nodes_per_flow=20,
@@ -84,6 +86,7 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         can_use_crm_notifications=True,
         can_use_screen_recording=True,
         can_export_ratings=True,
+        can_use_whatsapp=True,
         max_whatsapp_numbers=2,
         max_flows=10,
         max_nodes_per_flow=50,
@@ -108,6 +111,7 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         can_use_crm_notifications=True,
         can_use_screen_recording=True,
         can_export_ratings=True,
+        can_use_whatsapp=True,
         max_whatsapp_numbers=5,
         max_flows=25,
         max_nodes_per_flow=100,
@@ -132,6 +136,7 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         can_use_crm_notifications=True,
         can_use_screen_recording=True,
         can_export_ratings=True,
+        can_use_whatsapp=True,
         max_whatsapp_numbers=None,
         max_flows=None,
         max_nodes_per_flow=None,
@@ -215,9 +220,9 @@ def build_feature_strings(tier: str, caps: dict[str, Any]) -> list[str]:
         features.append("Ratings breakdown and CSV export")
     whatsapp = caps["max_whatsapp_numbers"]
     features.append(
-        "WhatsApp (beta, on request): unlimited numbers"
+        "WhatsApp (beta): unlimited numbers"
         if whatsapp is None
-        else f"WhatsApp (beta, on request): {whatsapp} number{'' if whatsapp == 1 else 's'}"
+        else f"WhatsApp (beta): {whatsapp} number{'' if whatsapp == 1 else 's'}"
     )
     features.extend(_EXTRAS[tier]["support"])
     return features

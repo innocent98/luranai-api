@@ -1,7 +1,12 @@
 """Entitlements: the one place that decides what a tenant's plan allows.
 
 Every gate (HTTP endpoints, the chat pipeline, the notification worker, the WhatsApp service) and
-`GET /tenant/entitlements` call `get_entitlements`. Resolution order per capability:
+`GET /tenant/entitlements` call `get_entitlements`. WhatsApp is plan-driven like the other features
+(`can_use_whatsapp` + `max_whatsapp_numbers` on the plan row; a platform-admin edit stays as an
+override). The global `WHATSAPP_ENABLED` kill switch is not part of `enabled()`: the services check
+it separately and `to_response()` reports it as `platform_available` on the `whatsapp` entry.
+
+Resolution order per capability:
 
 1. the plan row of the tenant's effective tier (an active promotional grant's tier wins over the
    tenant's own tier; the grant service also writes the tier onto the tenant, so they agree),
@@ -25,6 +30,7 @@ from uuid import UUID
 from sqlalchemy import func, null, select
 from sqlalchemy.orm import Session, object_session
 
+from app.core.config import settings
 from app.db.models.subscription_plan import PLAN_ONLY_CAPABILITY_FIELDS, SubscriptionPlan
 from app.db.models.tenant import Tenant, TenantCapabilities
 from app.services.plan_catalog import TIER_ORDER, plan_capabilities
@@ -99,7 +105,7 @@ FEATURES: dict[str, FeatureDef] = {
             flag="can_use_ai_chat_automation",
             limit="max_automation_actions",
         ),
-        FeatureDef("whatsapp", "WhatsApp", limit="max_whatsapp_numbers", grant="can_use_whatsapp"),
+        FeatureDef("whatsapp", "WhatsApp", flag="can_use_whatsapp", limit="max_whatsapp_numbers"),
         FeatureDef("voice", "voice chat", grant="can_use_voice"),
     )
 }
@@ -261,6 +267,10 @@ class Entitlements:
                 entry["limit"] = self.limit(key)
                 entry["used"] = self.usage(key)
             entry["min_tier"] = self.min_tier(key)
+            if key == "whatsapp":
+                # The global kill switch, kept out of `enabled` so a tenant's plan state stays
+                # readable; the dashboard hides the section while this is false.
+                entry["platform_available"] = bool(settings.WHATSAPP_ENABLED)
             features[key] = entry
         return {
             "tier": self.tier,
@@ -374,6 +384,11 @@ def _gate_message(key: str, min_tier: str | None) -> str:
     return f"Your plan does not include {label}. Upgrade to {_TIER_NAMES.get(min_tier, min_tier)} to use it."
 
 
+# Fields where a stored False under an override key is an admin revocation (switching a tenant
+# off for abuse), not just a manual tweak. Forced tier syncs must not undo it.
+REVOCATION_FIELDS = frozenset({"can_use_whatsapp"})
+
+
 def apply_plan_to_capabilities(
     capabilities: TenantCapabilities,
     plan_config: dict[str, Any],
@@ -386,7 +401,13 @@ def apply_plan_to_capabilities(
     override, promotional grant and its expiry). With `respect_overrides` a field listed in
     `override_flags` keeps its manual value; without it every plan field is written and the
     flags of the fields this call overwrote are cleared, so a downgrade cannot keep a
-    manually-raised limit. Returns the fields that were written.
+    manually-raised limit.
+
+    One exception, even without `respect_overrides`: a `REVOCATION_FIELDS` field whose override
+    key is present and whose stored value is False is neither written nor unflagged. An admin
+    revocation is a safety action; a downgrade, a promotional grant starting or ending, or a
+    platform tier change must not switch the feature back on. (An admin grant, stored True, is
+    reset like any other field.) Returns the fields that were written.
     """
     existing_flags = capabilities.override_flags or {}
     protected = existing_flags if respect_overrides else {}
@@ -395,6 +416,12 @@ def apply_plan_to_capabilities(
     cleared: list[str] = []
     for field in plan_capability_fields():
         if field not in plan_config or field in protected:
+            continue
+        if (
+            field in REVOCATION_FIELDS
+            and field in existing_flags
+            and getattr(capabilities, field) is False
+        ):
             continue
         setattr(capabilities, field, plan_config[field])
         written.append(field)

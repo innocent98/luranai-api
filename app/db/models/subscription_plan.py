@@ -85,8 +85,13 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
     can_export_ratings: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )  # admin ratings breakdown + CSV
+    # WhatsApp is plan-driven (every tier includes it; a platform admin can still switch it off or
+    # on for one tenant through an override). `WHATSAPP_ENABLED` stays the global kill switch.
+    can_use_whatsapp: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     # None = unlimited (no column default on purpose: the ORM would turn an explicit None into the
-    # default). Only usable when the tenant also holds the can_use_whatsapp grant.
+    # default); 0 or less switches WhatsApp off for the plan.
     max_whatsapp_numbers: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Flow capabilities

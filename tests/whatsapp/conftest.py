@@ -366,3 +366,14 @@ def image_limiter(monkeypatch):
     limiter = MemoryLimiter(whatsapp_inbound.IMAGE_RATE_MAX)
     monkeypatch.setattr(whatsapp_inbound, "_image_limiter", limiter)
     return limiter
+
+
+@pytest.fixture(autouse=True)
+def capacity_hook_calls(monkeypatch):
+    """The post-create capacity alert opens its own DB session and talks to Redis/SMTP: stub it
+    for every WhatsApp test (test_capacity_alert.py restores the real one where it matters)."""
+    from app.services import whatsapp_capacity
+
+    calls: list[int] = []
+    monkeypatch.setattr(whatsapp_capacity, "schedule_post_create_check", lambda: calls.append(1))
+    return calls

@@ -2,6 +2,8 @@
 
 **What shipped.** The Python/FastAPI side of the WhatsApp linked-device channel: a tenant enters a number, gets a pairing code, links it as a linked device, and the existing Luran AI/human pipeline answers their customers on WhatsApp. Text only, one tenant granted by hand. Branch `feature/whatsapp-channel-backend` → `develop` (PR linked from the hand-back). The sidecar (Node/Baileys) and the dashboard are separate tracks; this track ships a **fake sidecar** so everything is testable without Node.
 
+> **Updated 2026-10-29:** access is plan-driven for every tenant (no per-tenant grant) and the capacity message is now "WhatsApp is temporarily at capacity. Please try again later." plus an operator email alert; the grant/capacity statements below are superseded by `docs/sop/whatsapp_default_on.md`.
+
 > **Updated 2026-10-28:** images (both ways), the rating prompt/reply and the "human owns the chat" fallback fix changed parts of this slice; the text-only statements below (media placeholder, `IMAGE_NOTICE`, the fixed reply text, the outbound frame list) are superseded by `docs/sop/whatsapp_media_and_rating.md`.
 
 Related: spike `docs/sop/whatsapp_pairing_spike.md`; plan `docs/superpowers/plans/2026-10-27-whatsapp-channel-backend.md` (with the agreed amendments at the top); FE guide `docs/fe-integration-guide-whatsapp-channel.md`; captures `docs/fe-integration-captures/whatsapp-channel/`.

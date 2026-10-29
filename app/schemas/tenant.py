@@ -189,7 +189,8 @@ class TenantCapabilitiesBase(BaseModel):
         default=False, description="Admin ratings breakdown and CSV export (plan-driven)"
     )
     can_use_whatsapp: bool = Field(
-        default=False, description="Whether the tenant may link WhatsApp numbers (grant-only)"
+        default=False,
+        description="Whether the tenant may link WhatsApp numbers (plan-driven; a platform-admin edit is an override)",
     )
     max_whatsapp_numbers: int | None = Field(
         default=0, ge=0, description="WhatsApp numbers the tenant may link; null = unlimited"

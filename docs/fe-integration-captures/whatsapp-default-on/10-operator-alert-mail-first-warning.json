@@ -1,0 +1,10 @@
+{
+  "scenario": "operator-alert-mail-first-warning",
+  "note": "WHATSAPP_MAX_CONNECTIONS=2: the warning fires with the FIRST live connection (one slot short of the limit), once; the second connection sends nothing (6-hour dedupe). Local SMTP sink; the recipient comes from PLATFORM_ALERT_EMAILS (a placeholder address).",
+  "mails_received_by_local_sink_since_before_first_create": 1,
+  "last_mail": {
+    "to": "ops-placeholder@example.com",
+    "subject": "[Luran] WhatsApp capacity: connections near the limit",
+    "body_text": "WhatsApp capacity: connections near the limit Luran WhatsApp capacity: connections near the limit The WhatsApp channel is approaching a platform limit. New tenant connections will be refused once it is reached. Live WhatsApp connections: 1 of 2 allowed (50%). Alert threshold: 80% or one connection short of the limit. What to do Check the sidecar host (memory and live sessions) before more tenants connect Raise WHATSAPP_MAX_CONNECTIONS or the sidecar capacity only once the host has room This alert is sent at most once every 6 hours per condition. Questions? Reply to this email or contact us at support@luranai.com &copy; 2026 Luran. All rights reserved."
+  }
+}

@@ -91,7 +91,7 @@
 - 2 AI actions
 - URL scraping
 - Analytics dashboard
-- WhatsApp (beta, on request): 1 number
+- WhatsApp (beta): 1 number
 - Not included: meeting booking and quotes, Slack and CRM notifications, screen recording, ratings breakdown and CSV export, lookup chains, webhooks (these start at Professional)
 - Max response tokens: 800
 
@@ -203,7 +203,7 @@ The single definition of every plan row is `app/services/plan_catalog.py`; the `
 | AI actions (max) | 2 | 2 | 15 | 40 | unlimited |
 | Lookup chains and webhook nodes | no | no | yes | yes | yes |
 | Analytics | no | yes | yes | yes | yes |
-| WhatsApp numbers (also needs the platform grant) | 1 | 1 | 2 | 5 | unlimited |
+| WhatsApp numbers (every plan includes WhatsApp since 2026-10-29; no grant) | 1 | 1 | 2 | 5 | unlimited |
 | Voice | platform grant only, never from a plan | | | | |
 
 Never gated: human handoff, tickets, the agent app, image upload, rating collection, lead capture,

@@ -43,6 +43,7 @@ from app.db.models.whatsapp import (
 from app.schemas.conversation import ConversationSessionCreate, MessageRequest
 from app.schemas.explore import ConversationSource
 from app.services import whatsapp_enqueue
+from app.services.entitlements import get_entitlements_for_tenant_id
 from app.services.review_service import RatingSubmitError, ReviewService
 from app.services.conversation_service import (
     ConversationService,
@@ -283,10 +284,15 @@ def _plan_blocks_conversation(db: Session, conn: WhatsAppConnection, *, new_sess
 
 
 def _tenant_may_use(db: Session, tenant_id: UUID) -> bool:
-    caps = db.execute(
-        select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant_id)
-    ).scalar_one_or_none()
-    return settings.WHATSAPP_ENABLED and bool(caps and caps.can_use_whatsapp)
+    """Kill switch on and the plan (or a platform-admin override) allows WhatsApp.
+
+    Reads `value("can_use_whatsapp")`, not `enabled("whatsapp")`, like the create path: a lapsed
+    account keeps today's inbound behaviour and the 402 path handles it.
+    """
+    if not settings.WHATSAPP_ENABLED:
+        return False
+    entitlements = get_entitlements_for_tenant_id(db, tenant_id)
+    return bool(entitlements and entitlements.value("can_use_whatsapp"))
 
 
 async def _enqueue_reply(conn: WhatsAppConnection, chat: WhatsAppChat, text: str, key: str) -> None:
