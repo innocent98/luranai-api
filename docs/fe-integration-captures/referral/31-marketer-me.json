@@ -1,0 +1,25 @@
+{
+  "description": "The marketer's profile: name, code and the shareable signup link.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/marketer/me",
+    "query": {},
+    "headers": {
+      "cookies_sent": [
+        "marketer_access_token"
+      ]
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "name": "Ada Placeholder",
+      "code": "ada-placeholder",
+      "link": "https://luranai.com/register?ref=ada-placeholder"
+    }
+  }
+}

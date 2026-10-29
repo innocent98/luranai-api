@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}You're invited to the Luran referral program{% endblock %}
+
+{% block content %}
+<h1>Welcome to the Luran referral program</h1>
+
+<p>Hi {{ marketer_name }},</p>
+
+<p>
+    You've been set up as a Luran referral partner. When a business signs up through your
+    link and makes its first payment, you earn a reward. Set your password to open your
+    dashboard and get your link.
+</p>
+
+<div class="credential-box">
+    <div class="credential-label">Your referral code</div>
+    <div class="credential-value">{{ code }}</div>
+</div>
+
+<center>
+    <a href="{{ set_password_link }}" class="button">
+        Set your password
+    </a>
+</center>
+
+<p style="color: #6b7280; font-size: 14px; margin-top: 20px;">
+    Or copy and paste this link into your browser: <br>
+    <span style="word-break: break-all;">{{ set_password_link }}</span>
+</p>
+
+<div class="warning">
+    <strong>⏰ This link expires in {{ expiry_days }} days</strong> and can be used once.
+    If it expires, ask your Luran contact to send a new invite.
+</div>
+
+<p style="margin-top: 30px; color: #6b7280;">
+    <strong>Weren't expecting this?</strong><br>
+    You can safely ignore this email. No account is active until a password is set.
+</p>
+{% endblock %}

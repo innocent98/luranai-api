@@ -1,6 +1,7 @@
 """Paystack webhook event handler service."""
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from fastapi import HTTPException, status
@@ -10,6 +11,9 @@ from sqlalchemy.orm import Session
 from app.db.models.payment import PaymentTransaction
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant
+from app.services.referral import notifications as referral_notifications
+from app.services.referral import payouts as referral_payouts
+from app.services.referral import rewards as referral_rewards
 from app.services.subscription_service import SubscriptionService
 
 
@@ -43,6 +47,10 @@ class WebhookHandlerService:
             "subscription.not_renew": self._handle_subscription_not_renew,
             "invoice.create": self._handle_invoice_create,
             "invoice.payment_failed": self._handle_invoice_payment_failed,
+            "charge.dispute.create": self._handle_dispute_create,
+            "transfer.success": self._handle_transfer_event("transfer.success"),
+            "transfer.failed": self._handle_transfer_event("transfer.failed"),
+            "transfer.reversed": self._handle_transfer_event("transfer.reversed"),
         }
 
         handler = handlers.get(event_type)
@@ -164,13 +172,130 @@ class WebhookHandlerService:
             transaction.error_message = f"Subscription upgrade failed: {str(e)}"
             # Don't raise - we got the payment, will fix subscription manually
 
+        # Referral reward for the tenant's first payment. After the upgrade (which commits
+        # internally) and before the final commit, so the reward row commits with the history row.
+        new_reward_id = self._create_referral_reward(transaction)
+
         self.db.commit()
+
+        # After the commit, so the reward is durable first; a failure here is logged, never raised.
+        if new_reward_id is not None:
+            referral_notifications.send_conversion_notices(self.db, [new_reward_id])
 
         return {
             "status": "success",
             "message": "Payment processed and subscription upgraded",
             "transaction_id": str(transaction.id),
             "tenant_id": str(transaction.tenant_id),
+        }
+
+    def _create_referral_reward(self, transaction: PaymentTransaction) -> UUID | None:
+        """Create the referral reward for a just-settled payment, without ever affecting it.
+
+        Runs inside a SAVEPOINT and swallows every failure (including a failed SQL statement,
+        which would otherwise abort the Postgres transaction): the payment, the upgrade and the
+        history row are already in the session and must still commit. Logs ids only. A reward lost
+        here is recreated by the daily ``reconcile_missing_rewards`` job, because a replay of this
+        event returns early and would never retry it.
+
+        Returns the id of the reward this call newly created, or ``None`` (not earned, already
+        rewarded, or a swallowed failure), so the caller sends the conversion notice once, after
+        its own commit.
+        """
+        tenant_id, reference, paid_at = (
+            transaction.tenant_id,
+            transaction.reference,
+            transaction.paid_at,
+        )
+        reward_id: UUID | None = None
+        try:
+            with self.db.begin_nested():
+                reward = referral_rewards.create_reward_for_first_payment(
+                    self.db, tenant_id, reference, paid_at
+                )
+                if reward is not None:
+                    reward_id = reward.id  # read inside the block: attributes expire on release
+        except Exception as exc:  # noqa: BLE001 - rewarding must never break the payment path
+            logger.error(
+                f"Referral reward creation failed for tenant {tenant_id}, payment {reference}: "
+                f"{type(exc).__name__}"
+            )
+            return None
+        return reward_id
+
+    def _handle_transfer_event(self, event_type: str):
+        """Referral payout transfers: delegate to the payout module.
+
+        The endpoint has already verified the HMAC signature. ``apply_transfer_event`` is
+        idempotent and treats an unknown reference or a malformed payload as ``ignored`` (a 200
+        for Paystack, never a 500 that would only make it retry).
+        """
+
+        def handler(data: dict) -> dict:
+            return referral_payouts.apply_transfer_event(self.db, event_type, data)
+
+        return handler
+
+    @staticmethod
+    def _dispute_id(data: Any) -> str:
+        """Paystack's numeric dispute id as a string, or ``"unknown"``; nothing else is taken
+        from the payload, so the log line can safely say which dispute needs a manual hold."""
+        raw = data.get("id") if isinstance(data, dict) else None
+        if isinstance(raw, int) and not isinstance(raw, bool):
+            return str(raw)
+        if isinstance(raw, str) and raw.isascii() and raw.isdigit() and len(raw) <= 20:
+            return raw
+        return "unknown"
+
+    def _handle_dispute_create(self, data: dict) -> dict:
+        """Record a payment dispute: stamp the attribution and hold the tenant's referral reward.
+
+        Event: ``charge.dispute.create`` (named in Paystack's docs). The docs do not publish the
+        payload fields, so the transaction reference is read defensively from
+        ``data.transaction.reference``, then ``data.transaction_reference``, then
+        ``data.reference``. A malformed payload (not a dict, non-string/over-long reference,
+        unknown transaction) is skipped with a log: a redelivery cannot fix it. A genuine failure
+        while recording (database, lock contention) propagates and the endpoint answers 5xx, so
+        Paystack redelivers; recording is idempotent. A dispute on ANY recorded payment of an
+        attributed tenant holds its reward (conservative; an admin can release it).
+        """
+        reference = None
+        dispute_id = self._dispute_id(data)
+        if isinstance(data, dict):
+            transaction_data = data.get("transaction")
+            reference = (
+                (transaction_data.get("reference") if isinstance(transaction_data, dict) else None)
+                or data.get("transaction_reference")
+                or data.get("reference")
+            )
+        if not isinstance(reference, str) or not reference.strip() or len(reference) > 100:
+            # ERROR, not warning: nothing was held, so the owner has to hold the reward by hand.
+            logger.error(
+                f"charge.dispute.create (dispute {dispute_id}) without a usable transaction "
+                "reference; no reward was held"
+            )
+            return {"status": "skipped", "message": "Missing or invalid transaction reference"}
+        reference = reference.strip()
+
+        transaction = (
+            self.db.query(PaymentTransaction)
+            .filter(PaymentTransaction.reference == reference)
+            .first()
+        )
+        if not transaction:
+            logger.error(
+                f"charge.dispute.create (dispute {dispute_id}) for an unknown transaction; "
+                "no reward was held"
+            )
+            return {"status": "skipped", "message": "Transaction not found"}
+
+        reward = referral_rewards.record_dispute(self.db, transaction.tenant_id)
+        self.db.commit()
+        return {
+            "status": "success",
+            "message": "Dispute recorded",
+            "tenant_id": str(transaction.tenant_id),
+            "reward_status": reward.status.value if reward else None,
         }
 
     def _handle_subscription_create(self, data: dict) -> dict:

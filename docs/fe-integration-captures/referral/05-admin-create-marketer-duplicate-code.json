@@ -1,0 +1,34 @@
+{
+  "description": "Error: the referral code is already taken (different email, same code).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "name": "Bola Placeholder",
+      "email": "bola.placeholder@example.com",
+      "code": "ada-placeholder",
+      "bank_code": "000",
+      "account_number": "0000000000",
+      "account_name": "Bola Placeholder"
+    }
+  },
+  "response": {
+    "status": 409,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": {
+        "code": "code_taken",
+        "message": "That referral code is already in use"
+      }
+    }
+  }
+}

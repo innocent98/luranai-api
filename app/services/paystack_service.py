@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import json
+import re
 from typing import Any, cast
 from uuid import uuid4
 
@@ -13,6 +14,27 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.services.plan_service import PlanService
+
+
+# Paystack: lowercase letters, digits, "-" and "_"; at least 16 characters; we cap at 100.
+_TRANSFER_REFERENCE_RE = re.compile(r"^[a-z0-9_-]{16,100}$")
+_TRANSFER_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
+
+
+class PaystackTransferError(Exception):
+    """A Paystack Transfers call did not give a usable answer.
+
+    ``definitive`` is True only when Paystack answered with an HTTP 4xx, i.e. it refused the
+    request, so a transfer was NOT created by it. Timeouts, connection errors, 5xx and unreadable
+    2xx bodies are ambiguous (``definitive=False``): the request may or may not have been acted on,
+    so the caller must not assume either way. The message never contains the request body, the
+    account details or the Authorization header.
+    """
+
+    def __init__(self, message: str, *, definitive: bool, status_code: int | None = None):
+        super().__init__(message)
+        self.definitive = definitive
+        self.status_code = status_code
 
 
 class PaystackService:
@@ -28,8 +50,10 @@ class PaystackService:
         "growth_annual": "PLN_372yln228q6ngfs",
     }
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, transport: httpx.BaseTransport | None = None):
         self.db = db
+        # Only the sync Transfers client uses it (tests inject an httpx.MockTransport here).
+        self._transport = transport
         self.plan_service = PlanService(db)
         self.base_url = settings.PAYSTACK_BASE_URL
         self.secret_key = settings.PAYSTACK_SECRET_KEY
@@ -602,3 +626,147 @@ class PaystackService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to cancel subscription: {str(e)}",
             ) from e
+
+    # ------------------------------------------------------------------ Transfers (payouts)
+    # Synchronous on purpose: the payout code runs in a plain worker/endpoint session, and it must
+    # be able to commit a claim before the call and record the result after it.
+
+    def _transfers_request(
+        self, method: str, path: str, *, json_body: dict[str, Any] | None = None
+    ) -> tuple[int, dict[str, Any]]:
+        """Send one Transfers API request; returns (http_status, parsed_json_object).
+
+        Raises ``PaystackTransferError`` for transport failures and for any non-2xx answer other
+        than 404 on a GET (the caller decides what a 404 means). Never logs headers or bodies.
+        """
+        try:
+            with httpx.Client(timeout=_TRANSFER_TIMEOUT, transport=self._transport) as client:
+                response = client.request(
+                    method, f"{self.base_url}{path}", headers=self.headers, json=json_body
+                )
+        except httpx.HTTPError as exc:
+            # Timeout / connection reset: Paystack may or may not have processed the request.
+            raise PaystackTransferError(
+                f"Paystack request failed ({type(exc).__name__})", definitive=False
+            ) from exc
+
+        payload = self._extract_response_json(response)
+        message = str(payload.get("message", ""))[:200]
+        if response.status_code == 404 and method == "GET":
+            return response.status_code, payload
+        if 400 <= response.status_code < 500:
+            raise PaystackTransferError(
+                f"Paystack rejected the request ({response.status_code}): {message}",
+                definitive=True,
+                status_code=response.status_code,
+            )
+        if not 200 <= response.status_code < 300:
+            raise PaystackTransferError(
+                f"Paystack error ({response.status_code})",
+                definitive=False,
+                status_code=response.status_code,
+            )
+        return response.status_code, payload
+
+    def create_transfer_recipient(
+        self, *, name: str, account_number: str, bank_code: str, currency: str = "NGN"
+    ) -> str:
+        """Create a NUBAN transfer recipient and return its ``recipient_code``.
+
+        ``POST /transferrecipient``. Paystack returns the existing recipient for a duplicate
+        account, so a repeat call is harmless.
+        """
+        _, payload = self._transfers_request(
+            "POST",
+            "/transferrecipient",
+            json_body={
+                "type": "nuban",
+                "name": name,
+                "account_number": account_number,
+                "bank_code": bank_code,
+                "currency": currency,
+            },
+        )
+        data = payload.get("data")
+        code = data.get("recipient_code") if isinstance(data, dict) else None
+        if not payload.get("status") or not isinstance(code, str) or not code:
+            raise PaystackTransferError("Paystack returned no recipient code", definitive=False)
+        return code
+
+    def initiate_transfer(
+        self,
+        *,
+        amount_kobo: int,
+        recipient_code: str,
+        reference: str,
+        reason: str,
+        currency: str = "NGN",
+    ) -> dict[str, Any]:
+        """Initiate a transfer from the Paystack balance. ``POST /transfer``.
+
+        Returns ``{"status": <data.status>, "reference", "transfer_code", "message"}``; the status
+        is one of Paystack's values (``success``, ``pending``, ``otp``, ``failed`` ...). Paystack
+        transfers are asynchronous: ``pending`` is the normal answer and the final state arrives by
+        webhook or ``verify_transfer``. Re-sending the same ``reference`` never creates a second
+        transfer. See ``PaystackTransferError`` for how failures are classified.
+        """
+        if not _TRANSFER_REFERENCE_RE.fullmatch(reference):
+            raise ValueError("Transfer reference must be 16-100 chars of [a-z0-9_-]")
+        if amount_kobo <= 0:
+            raise ValueError("Transfer amount must be positive")
+        _, payload = self._transfers_request(
+            "POST",
+            "/transfer",
+            json_body={
+                "source": "balance",
+                "amount": amount_kobo,
+                "recipient": recipient_code,
+                "reference": reference,
+                "reason": reason,
+                "currency": currency,
+            },
+        )
+        data = payload.get("data")
+        if not payload.get("status") or not isinstance(data, dict) or not data.get("status"):
+            raise PaystackTransferError(
+                "Paystack returned an unreadable transfer", definitive=False
+            )
+        return {
+            "status": str(data["status"]).lower(),
+            "reference": data.get("reference") or reference,
+            "transfer_code": data.get("transfer_code"),
+            "message": str(payload.get("message", ""))[:200],
+        }
+
+    def verify_transfer(self, reference: str) -> dict[str, Any]:
+        """Look a transfer up by reference. ``GET /transfer/verify/:reference``.
+
+        Returns ``{"status": "not_found"}`` ONLY for an HTTP 404 whose body is a Paystack error
+        saying the transfer was not found; any other unexpected answer raises
+        ``PaystackTransferError`` so an unreadable reply can never be mistaken for "no transfer
+        exists" (which would let the caller send the money again).
+        """
+        status_code, payload = self._transfers_request("GET", f"/transfer/verify/{reference}")
+        if status_code == 404:
+            message = str(payload.get("message", "")).lower()
+            if payload.get("status") is False and "not found" in message:
+                return {"status": "not_found", "reference": reference}
+            raise PaystackTransferError(
+                "Paystack 404 that is not a 'transfer not found' answer",
+                definitive=False,
+                status_code=404,
+            )
+        data = payload.get("data")
+        if not payload.get("status") or not isinstance(data, dict) or not data.get("status"):
+            raise PaystackTransferError(
+                "Paystack returned an unreadable transfer", definitive=False
+            )
+        amount = data.get("amount")
+        return {
+            "status": str(data["status"]).lower(),
+            "reference": data.get("reference") or reference,
+            "amount_kobo": (
+                amount if isinstance(amount, int) and not isinstance(amount, bool) else None
+            ),
+            "message": str(payload.get("message", ""))[:200],
+        }

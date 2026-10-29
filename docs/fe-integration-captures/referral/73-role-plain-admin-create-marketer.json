@@ -1,0 +1,31 @@
+{
+  "description": "Role matrix: a plain ADMIN cannot create a marketer (403).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "name": "Cy Placeholder",
+      "email": "cy.placeholder@example.com",
+      "code": "cy-placeholder",
+      "bank_code": "000",
+      "account_number": "0000000000",
+      "account_name": "Cy Placeholder"
+    }
+  },
+  "response": {
+    "status": 403,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "Not enough permissions. Super admin access required."
+    }
+  }
+}

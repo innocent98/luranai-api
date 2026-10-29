@@ -1,0 +1,59 @@
+{
+  "description": "Approving again is idempotent: 200 with the batch unchanged.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/batches/1abf244b-1478-4866-a8e8-5c71033dac16/approve",
+    "query": {},
+    "headers": {
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "id": "1abf244b-1478-4866-a8e8-5c71033dac16",
+      "period_label": "2026-11-06",
+      "status": "paying",
+      "total_kobo": 1000000,
+      "item_counts": {
+        "pending": 0,
+        "processing": 0,
+        "paid": 0,
+        "failed": 0,
+        "skipped": 0,
+        "awaiting_manual": 1
+      },
+      "approved_at": "2026-10-29T11:06:02.952893Z",
+      "approved_by_admin_id": "494f0196-ca17-4ab5-b146-f502ca51291b",
+      "created_at": "2026-10-29T11:06:02.908991Z",
+      "items": [
+        {
+          "id": "67b10382-335e-4931-9302-1b3115ddcafe",
+          "marketer_id": "8ea86181-0cfa-4149-a975-bd113db4265e",
+          "marketer_name": "Ada Placeholder",
+          "marketer_code": "ada-placeholder",
+          "amount_kobo": 1000000,
+          "current_amount_kobo": 1000000,
+          "status": "awaiting_manual",
+          "failure_reason": null,
+          "provider_status": "manual",
+          "attempt": 1,
+          "transfer_reference": "ref-1abf244b-1478-4866-a8e8-5c71033dac16-8ea86181-0cfa-4149-a975-bd113db4265e",
+          "reward_count": 2,
+          "reward_ids": [
+            "44c54f25-9d4c-41f3-b344-376e4c332566",
+            "989b87c9-9fc1-4d90-ba4c-d22b666ecc45"
+          ],
+          "bank_last4": "0000",
+          "held_rewards_excluded": 0
+        }
+      ]
+    }
+  }
+}

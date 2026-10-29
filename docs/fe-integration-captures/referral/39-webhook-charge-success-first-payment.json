@@ -1,0 +1,49 @@
+{
+  "description": "The first Paystack charge.success of the referred tenant: subscription upgraded and the referral reward created (nothing in the response says so; read it via the marketer API).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/webhooks/paystack",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "x-paystack-signature": "<redacted>"
+    },
+    "body": {
+      "event": "charge.success",
+      "data": {
+        "reference": "capture-ref-placeholder-a",
+        "amount": 1000000,
+        "currency": "NGN",
+        "channel": "card",
+        "customer": {
+          "email": "billing.placeholder@example.com",
+          "customer_code": "CUS_placeholder"
+        },
+        "authorization": {
+          "authorization_code": "AUTH_placeholder",
+          "signature": "SIG_placeholder_a"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "status": "success",
+      "message": "Webhook processed",
+      "result": {
+        "status": "success",
+        "message": "Payment processed and subscription upgraded",
+        "transaction_id": "57ea2d7f-2632-4bac-a8c2-05100f30dd84",
+        "tenant_id": "32f02ca4-a6b0-4391-928e-337b1387e7e4"
+      }
+    }
+  },
+  "note": "The pending PaymentTransaction was inserted directly into the scratch database (the normal checkout, POST /api/v1/subscription/upgrade/initialize, calls the real Paystack API). The payload is shaped from what the handler reads (reference, channel, customer, authorization); it is NOT a captured Paystack delivery. It was signed with the same HMAC-SHA512 the endpoint verifies, using the local test PAYSTACK_SECRET_KEY.",
+  "redacted": [
+    "request.header.x-paystack-signature"
+  ]
+}

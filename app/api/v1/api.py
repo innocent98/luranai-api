@@ -22,6 +22,8 @@ from app.api.v1.endpoints import (
     jobs,
     knowledge,
     leads,
+    marketer,
+    marketer_auth,
     meetings,
     notifications,
     platform_admin_auth,
@@ -48,6 +50,7 @@ from app.api.v1.endpoints.platform import financials as platform_financials
 from app.api.v1.endpoints.platform import health as platform_health
 from app.api.v1.endpoints.platform import pricing as platform_pricing
 from app.api.v1.endpoints.platform import promotional_grants as platform_promotional_grants
+from app.api.v1.endpoints.platform import referrals as platform_referrals
 from app.api.v1.endpoints.platform import reviews as platform_reviews
 from app.api.v1.endpoints.platform import subscriptions as platform_subscriptions
 from app.api.v1.endpoints.platform import tenants as platform_tenants
@@ -67,6 +70,20 @@ api_router.include_router(
     platform_admin_auth.router,
     prefix="/platform/auth",
     tags=["platform-admin-auth"],
+)
+
+# Referral-program marketer authentication (separate identity; own cookies)
+api_router.include_router(
+    marketer_auth.router,
+    prefix="/auth/marketer",
+    tags=["marketer-auth"],
+)
+
+# Referral-program marketer dashboard API (marketer cookie only, read-only)
+api_router.include_router(
+    marketer.router,
+    prefix="/marketer",
+    tags=["marketer"],
 )
 
 # Company registration endpoints (self-service signup)
@@ -221,6 +238,13 @@ api_router.include_router(
     platform_promotional_grants.router,
     prefix="/platform/promotional-grants",
     tags=["platform: promotional grants"],
+)
+
+# Platform admin referral program (marketer onboarding)
+api_router.include_router(
+    platform_referrals.router,
+    prefix="/platform/referrals",
+    tags=["platform: referrals"],
 )
 
 # Test-only fixture endpoints (env-gated — 404 outside test/local)

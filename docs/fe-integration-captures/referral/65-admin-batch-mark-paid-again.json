@@ -1,0 +1,35 @@
+{
+  "description": "Error: marking the same batch paid again (409, the batch is no longer open).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/batches/1abf244b-1478-4866-a8e8-5c71033dac16/mark-paid",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "items": [
+        {
+          "marketer_id": "8ea86181-0cfa-4149-a975-bd113db4265e",
+          "bank_reference": "BANK-REF-PLACEHOLDER-002",
+          "amount_kobo": 1000000
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 409,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": {
+        "code": "batch_state_invalid",
+        "message": "The batch is not in a state that allows this action"
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "description": "Login while suspended: 403 account_suspended (distinct from the 401 credential errors).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/auth/marketer/login",
+    "query": {},
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "email": "ada.placeholder@example.org",
+      "password": "Placeholder-Pass-123!"
+    }
+  },
+  "response": {
+    "status": 403,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": {
+        "code": "account_suspended",
+        "message": "This account has been suspended. Contact Luran support."
+      }
+    }
+  }
+}

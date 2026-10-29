@@ -53,6 +53,10 @@ def create_refresh_token() -> tuple[str, str]:
 CUSTOMER_ACCESS_COOKIE = "customer_access_token"
 CUSTOMER_REFRESH_COOKIE = "customer_refresh_token"
 
+# Referral-program marketers are a third identity with their own cookie names, for the same reason.
+MARKETER_ACCESS_COOKIE = "marketer_access_token"
+MARKETER_REFRESH_COOKIE = "marketer_refresh_token"
+
 
 def set_auth_cookies(
     response: Any,

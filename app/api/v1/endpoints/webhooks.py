@@ -32,6 +32,10 @@ router = APIRouter()
     - subscription.disable: Subscription cancelled
     - subscription.not_renew: Subscription set to not renew
     - invoice.payment_failed: Recurring payment failed
+    - charge.dispute.create: Payment disputed (holds the tenant's referral reward)
+    - transfer.success: Referral payout transfer succeeded
+    - transfer.failed: Referral payout transfer failed
+    - transfer.reversed: Referral payout transfer reversed (the marketer's rewards are batched again)
 
     Webhook URL: {BASE_URL}/api/v1/webhooks/paystack
     """,
@@ -108,6 +112,22 @@ async def paystack_webhook(
         )
 
     except Exception as e:
+        if event_type.startswith("transfer.") or event_type == "charge.dispute.create":
+            # Payout transfer and dispute events are idempotent and money-relevant, so a failure
+            # must make Paystack redeliver (5xx), not be swallowed as a 200. Never echo the
+            # exception into the body or logs.
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001 - nothing more to do for a broken session
+                pass
+            logger.error(
+                f"Failed to process transfer webhook {event_type}: {type(e).__name__}; "
+                "Paystack will retry"
+            )
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"status": "error", "message": "Event processing failed; retry"},
+            )
         logger.error(f"Failed to process webhook: {e}")
         # Return 200 to prevent Paystack from retrying
         # Log error for manual investigation

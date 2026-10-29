@@ -1,0 +1,27 @@
+{
+  "description": "No earnings yet.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/marketer/earnings",
+    "query": {},
+    "headers": {
+      "cookies_sent": [
+        "marketer_access_token"
+      ]
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "this_month_earned_kobo": 0,
+      "pending_kobo": 0,
+      "payable_kobo": 0,
+      "paid_total_kobo": 0,
+      "payouts": []
+    }
+  }
+}
