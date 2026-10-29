@@ -6,10 +6,13 @@ from loguru import logger
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.services.entitlements import new_tenant_capabilities
 from app.core.encryption import hash_for_lookup
 from app.core.security import get_password_hash
-from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
+from app.db.models.tenant import Tenant, TenantAIConfig, TenantStatus
 from app.db.models.user import User, UserRole
+from app.services.referral.attribution import attribute_signup, origin_hash
+from app.db.models.referral import AttributionSource
 from app.schemas.auth import (
     CompanyRegistrationRequest,
     CompanyRegistrationResponse,
@@ -48,7 +51,11 @@ class CompanyRegistrationService:
             suffix += 1
 
     def register_company(
-        self, registration_data: CompanyRegistrationRequest
+        self,
+        registration_data: CompanyRegistrationRequest,
+        referral_code: str | None = None,
+        client_ip: str | None = None,
+        user_agent: str | None = None,
     ) -> CompanyRegistrationResponse:
         """
         Register a new company with self-service signup.
@@ -61,6 +68,10 @@ class CompanyRegistrationService:
 
         Args:
             registration_data: Company registration data
+            referral_code: Optional marketer referral code. Attribution runs after the tenant
+                is committed and can never fail or alter the signup.
+            client_ip: Caller IP, used only to derive a keyed hash (never stored raw)
+            user_agent: Caller user agent, same treatment
 
         Returns:
             Registration response with tenant ID and verification status
@@ -133,26 +144,7 @@ class CompanyRegistrationService:
             self.db.add(ai_config)
 
             # Create trial tier capabilities
-            capabilities = TenantCapabilities(
-                tenant_id=tenant.id,
-                can_create_tickets=True,
-                can_access_analytics=False,  # No analytics in trial
-                can_upload_knowledge=True,
-                max_knowledge_mb=10,  # 10 MB for trial
-                max_conversations_per_month=200,  # 200 conversations/month for trial
-                max_knowledge_sources=2,  # Only 2 sources for trial
-                can_use_url_sources=False,  # Files only, no URLs in trial
-                max_team_members=1,  # Only 1 user (admin) for trial
-                max_automation_actions=2,  # Starter automation access in trial
-                max_automation_executions_per_month=100,  # Starter monthly automation usage in trial
-                can_use_ai_chat_automation=True,  # Trial should experience real AI chat automation
-                can_use_lookup_chains=False,  # Lookup-first chaining starts on higher plans
-                can_use_webhooks=False,  # Direct API/webhook nodes start on higher plans
-                max_flows=1,  # Allow one flow on trial
-                max_webhooks_per_flow=0,  # No webhook nodes on trial
-                max_audits_per_month=2,  # 2 dashboard audits/month on trial
-                max_audit_pages_per_crawl=20,  # Shallow crawl depth on trial
-            )
+            capabilities = new_tenant_capabilities(self.db, tenant.id, "trial")
             self.db.add(capabilities)
 
             # Create admin user (inactive until email verified)
@@ -195,7 +187,7 @@ class CompanyRegistrationService:
                 f"with tenant_id={tenant.id}, admin={admin_user.email}"
             )
 
-            return CompanyRegistrationResponse(
+            response = CompanyRegistrationResponse(
                 message="Company registered successfully. Please check your email to verify your account.",
                 tenant_id=tenant.id,
                 admin_email=admin_user.email,
@@ -206,6 +198,48 @@ class CompanyRegistrationService:
             self.db.rollback()
             logger.error(f"Failed to register company: {e}")
             raise
+
+        self._attribute_referral(
+            tenant, response.admin_email, registration_data, referral_code, client_ip, user_agent
+        )
+        return response
+
+    def _attribute_referral(
+        self,
+        tenant: Tenant,
+        admin_email: str,
+        registration_data: CompanyRegistrationRequest,
+        referral_code: str | None,
+        client_ip: str | None,
+        user_agent: str | None,
+    ) -> None:
+        """Best-effort referral attribution after the tenant commit. Swallows every failure."""
+        if not referral_code:
+            return
+        tenant_id = None
+        try:
+            tenant_id = tenant.id
+            source = AttributionSource(registration_data.referral_source or "form")
+            attribution = attribute_signup(
+                self.db,
+                tenant,
+                admin_email,
+                referral_code,
+                source,
+                origin_hash(client_ip, user_agent),
+            )
+            if attribution is not None:
+                self.db.commit()
+        except Exception as exc:
+            # Id-level only: no code, email or raw IP/UA in the log.
+            logger.warning(
+                f"Referral attribution failed for tenant {tenant_id}: "
+                f"{type(exc).__name__} — signup unaffected"
+            )
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
 
     def verify_email(
         self, verification_request: EmailVerificationRequest

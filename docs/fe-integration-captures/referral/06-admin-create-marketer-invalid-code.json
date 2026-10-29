@@ -1,0 +1,44 @@
+{
+  "description": "Error: the code fails validation (too short and not a-z0-9-).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "name": "Bola Placeholder",
+      "email": "bola.placeholder@example.com",
+      "code": "A!",
+      "bank_code": "000",
+      "account_number": "0000000000",
+      "account_name": "Bola Placeholder"
+    }
+  },
+  "response": {
+    "status": 422,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": [
+        {
+          "type": "value_error",
+          "loc": [
+            "body",
+            "code"
+          ],
+          "msg": "Value error, Referral code must be 3-32 characters long",
+          "input": "A!",
+          "ctx": {
+            "error": {}
+          }
+        }
+      ]
+    }
+  }
+}

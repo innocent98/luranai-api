@@ -1,0 +1,27 @@
+{
+  "scenario": "sales-config-lite-enable-crm-channel",
+  "note": "Turning the CRM channel on is the same gate.",
+  "request": {
+    "method": "PATCH",
+    "path": "/sales/config",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "notify_channels": {
+        "email": true,
+        "crm": true
+      }
+    }
+  },
+  "response": {
+    "status": 403,
+    "content_type": "application/json",
+    "body": {
+      "code": "feature_not_in_plan",
+      "feature": "crm_notifications",
+      "min_tier": "professional",
+      "message": "Your plan does not include Slack and CRM notifications. Upgrade to Professional to use it."
+    }
+  }
+}

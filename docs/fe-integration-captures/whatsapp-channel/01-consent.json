@@ -1,0 +1,19 @@
+{
+  "scenario": "consent",
+  "note": "",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/whatsapp/consent",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "version": "2026-10-27-draft1",
+      "text": "DRAFT - wording pending approval.\nLuran connects your WhatsApp number as a linked device (like WhatsApp Web), which is not an official WhatsApp integration. WhatsApp may restrict or ban a number that is used this way, and Luran is not liable for that or for any resulting loss of the number. We recommend an aged business number that you use only for business. Luran only replies to customers who message you first. You can keep using WhatsApp on your phone or WhatsApp Web at the same time: when you type a reply yourself, the AI pauses on that chat for a while. You can disconnect at any time."
+    }
+  }
+}

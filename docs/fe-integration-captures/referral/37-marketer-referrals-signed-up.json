@@ -1,0 +1,39 @@
+{
+  "description": "The referred company appears as signed_up, with a masked email.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/marketer/referrals",
+    "query": {},
+    "headers": {
+      "cookies_sent": [
+        "marketer_access_token"
+      ]
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "items": [
+        {
+          "company_name": "Placeholder Stores Ltd",
+          "masked_email": "t***@e***.com",
+          "signed_up_at": "2026-10-29T11:05:59.849187Z",
+          "status": "signed_up",
+          "trial_days_left": 30,
+          "kb_uploaded": false,
+          "widget_installed": false,
+          "converted_at": null
+        }
+      ],
+      "totals": {
+        "signed_up": 1,
+        "converted": 0,
+        "conversion_rate": 0.0
+      }
+    }
+  }
+}

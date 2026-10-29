@@ -13,6 +13,7 @@ if not os.environ.get("ENCRYPTION_KEY"):
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event, text
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import sessionmaker
 
 from app.db.base import Base
@@ -184,7 +185,13 @@ def db_session(pg_engine):
     @event.listens_for(session, "after_transaction_end")
     def restart_savepoint(sess, trans):
         if trans.nested and not trans._parent.nested:
-            sess.begin_nested()
+            try:
+                sess.begin_nested()
+            except InvalidRequestError:
+                # A savepoint opened with ``with session.begin_nested():`` is closing right now;
+                # a new one cannot start inside that context manager. Skipping the restart is
+                # safe: the outer connection transaction is still rolled back at teardown.
+                pass
 
     try:
         yield session

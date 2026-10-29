@@ -283,6 +283,136 @@ class TokenService:
             logger.error(f"Failed to verify platform admin reset token: {e}")
             return None
 
+    # Marketer invite tokens (set-password link emailed when an admin onboards a marketer)
+    def create_marketer_invite_token(
+        self,
+        marketer_id: UUID,
+        email: str,
+        expiry_minutes: int = 7 * 24 * 60,
+    ) -> str:
+        """
+        Create a one-time invite token a marketer redeems to set their first password.
+
+        Args:
+            marketer_id: UUID of the marketer
+            email: Marketer's (normalised) email address
+            expiry_minutes: Token expiry in minutes (default 7 days)
+
+        Returns:
+            Generated token string
+        """
+        token = self._generate_token()
+        key = f"marketer_invite:{token}"
+
+        data = {
+            "marketer_id": str(marketer_id),
+            "email": email,
+        }
+
+        index_key = self._marketer_index_key(marketer_id)
+        ttl = expiry_minutes * 60
+
+        try:
+            # Track every live token per marketer so they can all be killed at once (see
+            # invalidate_marketer_tokens). The index outlives its longest-lived member.
+            index_ttl = max(int(self.redis_client.ttl(index_key) or 0), ttl)
+            pipe = self.redis_client.pipeline(transaction=True)
+            pipe.hset(key, mapping=data)
+            pipe.expire(key, ttl)
+            pipe.sadd(index_key, key)
+            pipe.expire(index_key, index_ttl)
+            pipe.execute()
+            logger.info(f"Created invite token for marketer {marketer_id}")
+            return token
+        except Exception as e:
+            logger.error(f"Failed to create marketer invite token: {type(e).__name__}")
+            raise
+
+    @staticmethod
+    def _marketer_index_key(marketer_id: UUID) -> str:
+        return f"marketer_tokens:{marketer_id}"
+
+    # Deletes every token key listed in the marketer's index, then the index, atomically.
+    _INVALIDATE_MARKETER_TOKENS = """
+    local keys = redis.call('SMEMBERS', KEYS[1])
+    for _, k in ipairs(keys) do redis.call('DEL', k) end
+    redis.call('DEL', KEYS[1])
+    return #keys
+    """
+
+    def acquire_marketer_reset_cooldown(self, marketer_id: UUID, seconds: int = 120) -> bool:
+        """
+        Claim the per-marketer reset-email cooldown (atomic SET NX EX).
+
+        Returns:
+            True if the caller may send a reset email now, False if one was issued within
+            the last ``seconds`` seconds.
+        """
+        try:
+            return bool(
+                self.redis_client.set(
+                    f"marketer_reset_cooldown:{marketer_id}", "1", nx=True, ex=seconds
+                )
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to set marketer reset cooldown for {marketer_id}: {type(e).__name__}"
+            )
+            raise
+
+    def invalidate_marketer_tokens(self, marketer_id: UUID) -> int:
+        """
+        Delete ALL of a marketer's outstanding invite / reset tokens.
+
+        Called only after a password is successfully set (an authenticated-by-token action).
+        Never call it from an unauthenticated path: anyone who knows the email could otherwise
+        kill an admin-issued invite.
+
+        Returns:
+            Number of tokens deleted (stale index entries included)
+        """
+        try:
+            return int(
+                self.redis_client.eval(
+                    self._INVALIDATE_MARKETER_TOKENS, 1, self._marketer_index_key(marketer_id)
+                )
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to invalidate marketer tokens for {marketer_id}: {type(e).__name__}"
+            )
+            raise
+
+    def verify_marketer_invite_token(self, token: str) -> dict | None:
+        """
+        Verify a marketer invite token and consume it (one-time use).
+
+        Args:
+            token: Token to verify
+
+        Returns:
+            Dict with marketer_id and email if valid, None otherwise
+        """
+        key = f"marketer_invite:{token}"
+
+        try:
+            # Read and delete in one MULTI/EXEC so two concurrent redemptions cannot both win.
+            pipe = self.redis_client.pipeline(transaction=True)
+            pipe.hgetall(key)
+            pipe.delete(key)
+            data, _ = pipe.execute()
+            if not data:
+                logger.warning("Invalid or expired marketer invite token")
+                return None
+
+            return {
+                "marketer_id": UUID(data["marketer_id"]),
+                "email": data["email"],
+            }
+        except Exception as e:
+            logger.error(f"Failed to verify marketer invite token: {type(e).__name__}")
+            return None
+
     def invalidate_all_user_tokens(self, user_id: UUID) -> None:
         """
         Invalidate all tokens for a specific user.

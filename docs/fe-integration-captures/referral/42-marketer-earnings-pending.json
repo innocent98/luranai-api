@@ -1,0 +1,27 @@
+{
+  "description": "Earnings after conversion: the reward is pending (inside the hold period).",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/marketer/earnings",
+    "query": {},
+    "headers": {
+      "cookies_sent": [
+        "marketer_access_token"
+      ]
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "this_month_earned_kobo": 500000,
+      "pending_kobo": 500000,
+      "payable_kobo": 0,
+      "paid_total_kobo": 0,
+      "payouts": []
+    }
+  }
+}

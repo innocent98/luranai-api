@@ -1,0 +1,26 @@
+{
+  "description": "Error: the company name already exists (a plain 400 string detail).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/auth/register-company",
+    "query": {},
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "company_name": "Placeholder Stores Ltd",
+      "admin_full_name": "Tola Again",
+      "admin_email": "tola.again@example.com",
+      "referral_code": "ada-placeholder"
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "Company with name 'Placeholder Stores Ltd' already exists"
+    }
+  }
+}

@@ -1,0 +1,82 @@
+{
+  "scenario": "sources-list-with-failed",
+  "note": "The failed source shows failure_reason.",
+  "request": {
+    "method": "GET",
+    "path": "/knowledge/tenants/3c60c339-7a7b-4c34-966b-a108c6e3694b/sources",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": [
+      {
+        "name": "during-outage",
+        "source_type": "help_doc",
+        "meta": {},
+        "id": "9d3f87f1-c173-4d1b-9491-339a6bafdcd6",
+        "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+        "file_url": null,
+        "content_hash": "a88ffdfc6497e65c73a00b4e7815d57a1a60b3e993093915082e1f61317bb39e",
+        "version": 3,
+        "status": "failed",
+        "chunk_count": 0,
+        "uploaded_by": "a6e88c8d-0a1f-4e33-b9a6-015271a404f5",
+        "source_category": "file",
+        "source_url": null,
+        "file_size_bytes": null,
+        "created_at": "2026-10-27T22:31:01.765465Z",
+        "updated_at": "2026-10-27T22:31:01.777647Z",
+        "failure_reason": {
+          "code": "vector_store_unavailable",
+          "message": "We could not save this document to the AI's knowledge store right now. Please try uploading it again in a few minutes."
+        }
+      },
+      {
+        "name": "menu.txt",
+        "source_type": "faq",
+        "meta": {
+          "original_filename": "menu.txt",
+          "file_size": 394,
+          "content_type": "text/plain",
+          "uploaded_by": "a6e88c8d-0a1f-4e33-b9a6-015271a404f5"
+        },
+        "id": "be8de611-9392-408a-bf74-d4beccea51df",
+        "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+        "file_url": null,
+        "content_hash": "a88ffdfc6497e65c73a00b4e7815d57a1a60b3e993093915082e1f61317bb39e",
+        "version": 2,
+        "status": "active",
+        "chunk_count": 4,
+        "uploaded_by": "a6e88c8d-0a1f-4e33-b9a6-015271a404f5",
+        "source_category": "file",
+        "source_url": null,
+        "file_size_bytes": 394,
+        "created_at": "2026-10-27T22:30:42.819355Z",
+        "updated_at": "2026-10-27T22:30:47.635450Z",
+        "failure_reason": null
+      },
+      {
+        "name": "hours-one-liner",
+        "source_type": "faq",
+        "meta": {},
+        "id": "3285002f-71fd-481b-8947-5e639c13ac2c",
+        "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+        "file_url": null,
+        "content_hash": "9d95f3e05a122944e96c3f958f82a0b9f2a042578543e8ff22ec9b71826fed73",
+        "version": 1,
+        "status": "active",
+        "chunk_count": 1,
+        "uploaded_by": "a6e88c8d-0a1f-4e33-b9a6-015271a404f5",
+        "source_category": "file",
+        "source_url": null,
+        "file_size_bytes": null,
+        "created_at": "2026-10-27T22:30:39.002584Z",
+        "updated_at": "2026-10-27T22:30:39.665830Z",
+        "failure_reason": null
+      }
+    ]
+  }
+}

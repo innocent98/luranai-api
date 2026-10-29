@@ -1,0 +1,32 @@
+{
+  "scenario": "widget-config-second-site-within-10-min",
+  "note": "Throttled: a second fetch inside 10 minutes writes nothing.",
+  "request": {
+    "method": "GET",
+    "path": "/widget/public/config/3c60c339-7a7b-4c34-966b-a108c6e3694b",
+    "headers": {
+      "Origin": "https://other-site.example.org",
+      "X-API-Key": "<public-api-key-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+      "company_name": "Demo Bakery a c41db1",
+      "company_description": null,
+      "primary_color": "#2563eb",
+      "accent_color": "#10b981",
+      "logo_url": null,
+      "greeting_message": "Hi! How can we help you today?",
+      "position": "bottom-right",
+      "show_unread_badge": true,
+      "allow_file_upload": true,
+      "allow_screen_recording": true,
+      "collect_name_before_chat": false,
+      "collect_email_before_chat": false,
+      "first_responder": "ai_with_handoff"
+    }
+  }
+}

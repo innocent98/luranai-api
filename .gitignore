@@ -47,6 +47,8 @@ coverage.xml
 .env.key
 .env.staging
 .env.production
+.env.sidecar
+.whatsapp-staging-secrets.env
 # NOTE: .env.staging.enc and .env.production.enc ARE safe to commit (encrypted)
 .venv
 env/

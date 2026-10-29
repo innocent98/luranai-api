@@ -47,6 +47,7 @@ def _session(db):
             can_access_analytics=True,
             can_upload_knowledge=True,
             max_conversations_per_month=1000,
+            can_use_screen_recording=True,
         )
     )
     s = ConversationSession(

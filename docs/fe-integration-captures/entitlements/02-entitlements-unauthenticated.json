@@ -1,0 +1,17 @@
+{
+  "scenario": "entitlements-unauthenticated",
+  "note": "No token.",
+  "request": {
+    "method": "GET",
+    "path": "/tenant/entitlements",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "content_type": "application/json",
+    "body": {
+      "detail": "Could not validate credentials"
+    }
+  }
+}

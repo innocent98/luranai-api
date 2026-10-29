@@ -1,0 +1,59 @@
+{
+  "description": "Referrals at the end of the run: three referred companies; the unknown-code and self-referral signups are not listed.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/marketer/referrals",
+    "query": {},
+    "headers": {
+      "cookies_sent": [
+        "marketer_access_token"
+      ]
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "items": [
+        {
+          "company_name": "Placeholder Mart Ltd",
+          "masked_email": "c***@e***.com",
+          "signed_up_at": "2026-10-29T11:06:01.717405Z",
+          "status": "signed_up",
+          "trial_days_left": 30,
+          "kb_uploaded": false,
+          "widget_installed": false,
+          "converted_at": null
+        },
+        {
+          "company_name": "Placeholder Traders Ltd",
+          "masked_email": "b***@e***.com",
+          "signed_up_at": "2026-10-29T11:06:01.204904Z",
+          "status": "converted",
+          "trial_days_left": null,
+          "kb_uploaded": false,
+          "widget_installed": false,
+          "converted_at": "2026-10-29T11:06:02.737031Z"
+        },
+        {
+          "company_name": "Placeholder Stores Ltd",
+          "masked_email": "t***@e***.com",
+          "signed_up_at": "2026-10-29T11:05:59.849187Z",
+          "status": "converted",
+          "trial_days_left": null,
+          "kb_uploaded": false,
+          "widget_installed": false,
+          "converted_at": "2026-10-29T11:06:01.036080Z"
+        }
+      ],
+      "totals": {
+        "signed_up": 3,
+        "converted": 2,
+        "conversion_rate": 0.6667
+      }
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}A business you referred is now a paying customer{% endblock %}
+
+{% block content %}
+<h1>A business you referred became a paying customer</h1>
+
+<p>Hi {{ marketer_name }},</p>
+
+<p>
+    Good news: {% if company_name %}<strong>{{ company_name }}</strong>, a business that signed up
+    through your referral link,{% else %}a business that signed up through your referral link{% endif %}
+    has made its first payment on Luran.
+</p>
+
+<div class="credential-box">
+    <div class="credential-label">Your reward</div>
+    <div class="credential-value">&#8358;{{ amount }}</div>
+</div>
+
+<p>
+    Rewards are paid out in regular payout batches. You can follow this reward and your
+    earnings from your referral dashboard.
+</p>
+
+<p style="margin-top: 30px; color: #6b7280;">
+    Thank you for spreading the word about Luran.
+</p>
+{% endblock %}

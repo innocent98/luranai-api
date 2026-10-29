@@ -1,0 +1,49 @@
+{
+  "description": "First payment of the referred tenant C, which shares a website domain with another referred tenant: the reward is created held.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/webhooks/paystack",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "x-paystack-signature": "<redacted>"
+    },
+    "body": {
+      "event": "charge.success",
+      "data": {
+        "reference": "capture-ref-placeholder-c",
+        "amount": 1000000,
+        "currency": "NGN",
+        "channel": "card",
+        "customer": {
+          "email": "billing.placeholder@example.com",
+          "customer_code": "CUS_placeholder"
+        },
+        "authorization": {
+          "authorization_code": "AUTH_placeholder",
+          "signature": "SIG_placeholder_c"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "status": "success",
+      "message": "Webhook processed",
+      "result": {
+        "status": "success",
+        "message": "Payment processed and subscription upgraded",
+        "transaction_id": "cb547149-9a12-4b7e-9804-4a190cb3ae88",
+        "tenant_id": "7f18f5f9-5267-4828-8bac-370d5f320b0c"
+      }
+    }
+  },
+  "note": "The pending PaymentTransaction was inserted directly into the scratch database (the normal checkout, POST /api/v1/subscription/upgrade/initialize, calls the real Paystack API). The payload is shaped from what the handler reads (reference, channel, customer, authorization); it is NOT a captured Paystack delivery. It was signed with the same HMAC-SHA512 the endpoint verifies, using the local test PAYSTACK_SECRET_KEY. The shared domain was set by writing tenants.widget_last_seen_host in the scratch database for the three referred tenants (the widget normally records it when it loads on the customer's site).",
+  "redacted": [
+    "request.header.x-paystack-signature"
+  ]
+}

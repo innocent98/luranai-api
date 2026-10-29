@@ -1,0 +1,26 @@
+{
+  "scenario": "create-connection-limit",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "phone_number": "2348000000003",
+      "label": "Main line",
+      "consent": {
+        "version": "2026-10-27-draft1",
+        "accepted": true
+      }
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "code": "connection_limit",
+      "message": "Your plan allows 2 WhatsApp number(s)."
+    }
+  }
+}

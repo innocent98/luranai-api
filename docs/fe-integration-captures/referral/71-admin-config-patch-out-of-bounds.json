@@ -1,0 +1,39 @@
+{
+  "description": "Error: a value outside the allowed bounds (422).",
+  "request": {
+    "method": "PATCH",
+    "path": "/api/v1/platform/referrals/config",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "reward_kobo": 1
+    }
+  },
+  "response": {
+    "status": 422,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": [
+        {
+          "type": "greater_than_equal",
+          "loc": [
+            "body",
+            "reward_kobo"
+          ],
+          "msg": "Input should be greater than or equal to 10000",
+          "input": 1,
+          "ctx": {
+            "ge": 10000
+          }
+        }
+      ]
+    }
+  }
+}

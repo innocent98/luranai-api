@@ -114,10 +114,114 @@ def test_detail_has_required_fields(pg_client, db_session):
     resp = pg_client.get(f"/api/v1/leads/{lead.id}", headers=_auth(token))
     assert resp.status_code == 200
     b = resp.json()["data"]
-    assert {"id", "name", "company", "intent", "lead_score", "tier", "status",
-             "source_label", "created_at", "email", "team_size", "industry",
-             "conversation_id", "score_breakdown", "source", "meeting", "quote",
-             "crm"} <= b.keys()
+    assert {
+        "id",
+        "name",
+        "company",
+        "intent",
+        "lead_score",
+        "tier",
+        "status",
+        "source_label",
+        "created_at",
+        "email",
+        "team_size",
+        "industry",
+        "conversation_id",
+        "score_breakdown",
+        "source",
+        "meeting",
+        "quote",
+        "crm",
+    } <= b.keys()
+
+
+def _seed_meeting_and_quote(db_session, tenant_id, lead):
+    """Book a meeting and generate a quote for ``lead`` (not linked via lead.meeting_id/quote_id)."""
+    from datetime import UTC, datetime
+
+    from app.db.models.meeting import Meeting, MeetingStatus
+    from app.db.models.quote import Quote, QuoteStatus
+
+    meeting = Meeting(
+        tenant_id=tenant_id,
+        lead_id=lead.id,
+        scheduled_at=datetime(2026, 11, 3, 10, 0, tzinfo=UTC),
+        duration_min=45,
+        visitor_timezone="Africa/Lagos",
+        use_case="Product walkthrough",
+        status=MeetingStatus.SCHEDULED,
+    )
+    quote = Quote(
+        tenant_id=tenant_id,
+        lead_id=lead.id,
+        currency="NGN",
+        line_items=[{"label": "Pro plan", "amount": 40000}],
+        total=40000,
+        status=QuoteStatus.SENT,
+    )
+    db_session.add_all([meeting, quote])
+    db_session.flush()
+    return meeting, quote
+
+
+def test_detail_includes_booked_meeting_and_quote(pg_client, db_session):
+    """The lead detail used to hard-code meeting/quote to None; it must return the real ones."""
+    user, token = _make_tenant_user(db_session)
+    lead = _seed_leads(db_session, user.tenant_id, n=1)[0]
+    meeting, quote = _seed_meeting_and_quote(db_session, user.tenant_id, lead)
+
+    resp = pg_client.get(f"/api/v1/leads/{lead.id}", headers=_auth(token))
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["meeting"]["id"] == str(meeting.id)
+    assert data["meeting"]["duration_min"] == 45
+    assert data["meeting"]["visitor_timezone"] == "Africa/Lagos"
+    assert data["meeting"]["use_case"] == "Product walkthrough"
+    assert data["meeting"]["scheduled_at"].startswith("2026-11-03T10:00")
+    assert data["quote"]["id"] == str(quote.id)
+    assert data["quote"]["currency"] == "NGN"
+    assert data["quote"]["total"] == 40000
+    assert data["quote"]["line_items"] == [{"label": "Pro plan", "amount": 40000}]
+
+
+def test_detail_meeting_and_quote_are_none_when_absent(pg_client, db_session):
+    user, token = _make_tenant_user(db_session)
+    lead = _seed_leads(db_session, user.tenant_id, n=1)[0]
+
+    data = pg_client.get(f"/api/v1/leads/{lead.id}", headers=_auth(token)).json()["data"]
+    assert data["meeting"] is None
+    assert data["quote"] is None
+
+
+def test_detail_never_returns_another_tenants_meeting_or_quote(pg_client, db_session):
+    """Meeting/quote lookups are tenant-scoped: rows owned by another tenant never leak in."""
+    user_me, token_me = _make_tenant_user(db_session, "me")
+    user_other, _ = _make_tenant_user(db_session, "other")
+    my_lead = _seed_leads(db_session, user_me.tenant_id, n=1)[0]
+    # A meeting and quote that point at MY lead but belong to the OTHER tenant.
+    _seed_meeting_and_quote(db_session, user_other.tenant_id, my_lead)
+
+    data = pg_client.get(f"/api/v1/leads/{my_lead.id}", headers=_auth(token_me)).json()["data"]
+    assert data["meeting"] is None
+    assert data["quote"] is None
+
+
+def test_status_patch_and_score_responses_carry_meeting_and_quote(pg_client, db_session):
+    user, token = _make_tenant_user(db_session)
+    lead = _seed_leads(db_session, user.tenant_id, n=1)[0]
+    meeting, quote = _seed_meeting_and_quote(db_session, user.tenant_id, lead)
+
+    patched = pg_client.patch(
+        f"/api/v1/leads/{lead.id}", json={"status": "contacted"}, headers=_auth(token)
+    )
+    assert patched.status_code == 200
+    assert patched.json()["data"]["meeting"]["id"] == str(meeting.id)
+    assert patched.json()["data"]["quote"]["id"] == str(quote.id)
+
+    scored = pg_client.post(f"/api/v1/leads/{lead.id}/score", headers=_auth(token))
+    assert scored.status_code == 200
+    assert scored.json()["data"]["meeting"]["id"] == str(meeting.id)
 
 
 def test_detail_unauthenticated_returns_401(pg_client, db_session):

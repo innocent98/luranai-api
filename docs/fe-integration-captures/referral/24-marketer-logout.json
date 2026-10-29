@@ -1,0 +1,31 @@
+{
+  "description": "Logout revokes the session server-side and clears the cookies. Always 200.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/auth/marketer/logout",
+    "query": {},
+    "headers": {
+      "cookies_sent": [
+        "marketer_access_token",
+        "marketer_refresh_token"
+      ]
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "set-cookie": [
+        "marketer_access_token=<redacted>; expires=Thu, 29 Oct 2026 11:05:58 GMT; Max-Age=0; Path=/; SameSite=lax",
+        "marketer_refresh_token=<redacted>; expires=Thu, 29 Oct 2026 11:05:58 GMT; Max-Age=0; Path=/api/v1/auth/marketer; SameSite=lax"
+      ]
+    },
+    "body": {
+      "message": "Logged out"
+    }
+  },
+  "redacted": [
+    "response.set-cookie values"
+  ]
+}

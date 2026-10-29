@@ -99,7 +99,7 @@ If storage is cleared or expired, a new session starts.
 
 ## 17) What are current starter pricing references?
 Current public pricing references:
-- Lite: ₦9,000/month
+- Lite: ₦15,000/month
 - Professional: ₦40,000/month
 - Growth: ₦80,000/month
 - Enterprise: custom pricing

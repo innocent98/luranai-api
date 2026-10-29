@@ -1,0 +1,89 @@
+{
+  "scenario": "sales-config-turn-gated-options-off",
+  "note": "Switch the gated options off (a downgrade is blocked while they are on).",
+  "request": {
+    "method": "PATCH",
+    "path": "/sales/config",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "meeting_booking_enabled": false,
+      "quotation_enabled": false,
+      "notify_channels": {
+        "email": true,
+        "slack": false,
+        "in_app": false,
+        "crm": false
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "success": true,
+      "data": {
+        "id": "39e2ff39-8fea-46f1-ab07-1f651899e156",
+        "tenant_id": "072ea545-94a6-4421-ae28-91e2e4eed161",
+        "agent_enabled": true,
+        "lead_capture_enabled": true,
+        "meeting_booking_enabled": false,
+        "quotation_enabled": false,
+        "crm_provider": null,
+        "calendar_provider": null,
+        "notify_channels": {
+          "email": true,
+          "slack": false,
+          "in_app": false,
+          "crm": false
+        },
+        "notification_email": null,
+        "slack_webhook_url": "https://hooks.slack.com/services/T000/B000/placeholder",
+        "crm_webhook_url": null,
+        "trigger_intents": [
+          "PRICING_INQUIRY",
+          "DEMO_REQUEST",
+          "PURCHASE_INTENT",
+          "ENTERPRISE_PROSPECT"
+        ],
+        "qualification_questions": [
+          {
+            "key": "company_size",
+            "question": "How large is your team?",
+            "type": "text"
+          },
+          {
+            "key": "use_case",
+            "question": "What problem are you trying to solve?",
+            "type": "text"
+          },
+          {
+            "key": "timeline",
+            "question": "What is your expected timeline to get started?",
+            "type": "text"
+          }
+        ],
+        "pricing_tiers": [],
+        "currency": "NGN",
+        "annual_discount_pct": 0,
+        "availability": {
+          "weekdays": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "start": "09:00",
+          "end": "17:00",
+          "slot_minutes": 30,
+          "buffer_minutes": 15,
+          "tenant_timezone": "UTC"
+        },
+        "created_at": "2026-10-28T09:29:03.635012+00:00",
+        "updated_at": "2026-10-28T09:29:03.667022+00:00"
+      }
+    }
+  }
+}

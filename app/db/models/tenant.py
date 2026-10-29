@@ -168,6 +168,23 @@ class Tenant(Base, UUIDMixin, TimestampMixin):
         comment="Tenant's own on/off for customer screen recordings (grant: TenantCapabilities)",
     )
 
+    # Widget install tracking (set when the public widget config is fetched; hostname only)
+    widget_first_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="First time the embedded widget fetched its config from a customer site",
+    )
+    widget_last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="Last recorded widget config fetch (written at most once per 10 minutes)",
+    )
+    widget_last_seen_host: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Hostname (no scheme, port, path or query) of the site that last loaded the widget",
+    )
+
     # Subscription & Trial Tracking
     subscription_tier: Mapped[str] = mapped_column(
         String(50),
@@ -378,6 +395,25 @@ class TenantAIConfig(Base, UUIDMixin, TimestampMixin):
         return f"<TenantAIConfig(tenant_id={self.tenant_id}, max_response_tokens={self.max_response_tokens})>"
 
 
+# tenant_capabilities columns that are NOT copied from the plan: identity, tenant-only grants
+# and bookkeeping. Every other column must exist, with the same type, on subscription_plans
+# (tests/services/test_plan_capability_parity.py fails when the two tables drift).
+TENANT_ONLY_CAPABILITY_FIELDS = frozenset(
+    {
+        "id",
+        "created_at",
+        "updated_at",
+        "tenant_id",
+        "can_create_tickets",
+        "can_upload_knowledge",
+        "can_use_voice",
+        "max_voice_minutes_per_month",
+        "can_use_whatsapp",
+        "override_flags",
+    }
+)
+
+
 class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
     """
     Feature flags and usage limits for each tenant.
@@ -416,11 +452,11 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
     )
 
     # Resource Limits
-    max_knowledge_mb: Mapped[int] = mapped_column(
+    max_knowledge_mb: Mapped[int | None] = mapped_column(
         Integer,
         default=100,
-        nullable=False,
-        comment="Maximum knowledge base storage in MB",
+        nullable=True,
+        comment="Maximum knowledge base storage in MB (null = unlimited)",
     )
     max_conversations_per_month: Mapped[int | None] = mapped_column(
         Integer,
@@ -461,10 +497,10 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
     )
     can_use_screen_recording: Mapped[bool] = mapped_column(
         Boolean,
-        default=True,
+        default=False,
         nullable=False,
-        server_default="true",
-        comment="Platform grant for customer screen recordings (on for every plan today)",
+        server_default="false",
+        comment="Customer screen recordings (plan-driven; copied from the plan on every tier sync)",
     )
     max_voice_minutes_per_month: Mapped[int | None] = mapped_column(
         Integer,
@@ -475,6 +511,42 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
         Integer,
         nullable=True,
         comment="Maximum automation executions allowed per month (null = unlimited)",
+    )
+    can_use_whatsapp: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default="false",
+        comment="Can link WhatsApp numbers (grant-only, set by a platform admin)",
+    )
+    max_whatsapp_numbers: Mapped[int | None] = mapped_column(
+        Integer,
+        default=0,
+        nullable=True,
+        server_default="0",
+        comment="WhatsApp numbers the tenant may link; plan-driven, null = unlimited "
+        "(only usable with the can_use_whatsapp grant)",
+    )
+    can_use_sales_close: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default="false",
+        comment="Sales meeting booking and quotes (plan-driven)",
+    )
+    can_use_crm_notifications: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default="false",
+        comment="Slack and CRM webhook notifications (plan-driven)",
+    )
+    can_export_ratings: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+        server_default="false",
+        comment="Admin ratings breakdown and CSV export (plan-driven)",
     )
     can_use_ai_chat_automation: Mapped[bool] = mapped_column(
         Boolean,

@@ -171,7 +171,28 @@ class TenantCapabilitiesBase(BaseModel):
         None, ge=0, description="Monthly voice-minute cap; None = unlimited"
     )
     can_use_screen_recording: bool = Field(
-        default=True, description="Platform grant for customer screen recordings"
+        default=False, description="Customer screen recordings (plan-driven)"
+    )
+    max_audit_pages_per_crawl: int | None = Field(
+        None, ge=0, description="Max pages an audit crawl may scan (null = unlimited)"
+    )
+    max_audits_per_month: int | None = Field(
+        None, ge=0, description="Max dashboard audits per month (null = unlimited)"
+    )
+    can_use_sales_close: bool = Field(
+        default=False, description="Sales meeting booking and quotes (plan-driven)"
+    )
+    can_use_crm_notifications: bool = Field(
+        default=False, description="Slack and CRM webhook notifications (plan-driven)"
+    )
+    can_export_ratings: bool = Field(
+        default=False, description="Admin ratings breakdown and CSV export (plan-driven)"
+    )
+    can_use_whatsapp: bool = Field(
+        default=False, description="Whether the tenant may link WhatsApp numbers (grant-only)"
+    )
+    max_whatsapp_numbers: int | None = Field(
+        default=0, ge=0, description="WhatsApp numbers the tenant may link; null = unlimited"
     )
 
 
@@ -269,6 +290,13 @@ class TenantCapabilitiesUpdate(BaseModel):
     can_use_voice: bool | None = None
     max_voice_minutes_per_month: int | None = Field(None, ge=0)
     can_use_screen_recording: bool | None = None
+    max_audit_pages_per_crawl: int | None = Field(None, ge=0)
+    max_audits_per_month: int | None = Field(None, ge=0)
+    can_use_sales_close: bool | None = None
+    can_use_crm_notifications: bool | None = None
+    can_export_ratings: bool | None = None
+    can_use_whatsapp: bool | None = None
+    max_whatsapp_numbers: int | None = Field(None, ge=0)
 
 
 # Response schemas

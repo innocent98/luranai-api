@@ -1,0 +1,81 @@
+# WhatsApp linked-device sidecar. Override file: layer it on top of the base stack. STAGING ONLY today:
+# cd.yml's staging-deploy job is the only thing that ships this file (production-deploy copies docker-compose.prod.yml alone).
+#   docker compose --env-file .env --env-file .env.sidecar -f docker-compose.prod.yml -f docker-compose.whatsapp.yml up -d --no-deps whatsapp-sidecar
+# Does NOT publish a port: the backend reaches it as http://whatsapp-sidecar:8787 on the project's own compose network
+# (luran_staging_default), which production's network (luran_default) cannot see.
+# Sidecar-only secrets (master key, DB password) live in .env.sidecar so the api/worker env_file (.env) never carries them.
+# Runbook, capacity notes and the staging plan: docs/sop/whatsapp_sidecar.md, docs/superpowers/plans/2026-10-28-sidecar-staging-deploy.md
+services:
+  whatsapp-sidecar:
+    build:
+      context: ./whatsapp-sidecar
+    image: ${WHATSAPP_SIDECAR_IMAGE:-luran-whatsapp-sidecar:latest}
+    container_name: ${COMPOSE_PROJECT_NAME:?set COMPOSE_PROJECT_NAME}_whatsapp_sidecar
+    restart: unless-stopped
+    # One session measured 45-152 MB RSS; an idle process 95-101 MB. More sessions are UNMEASURED, so this is a guard, not a
+    # sizing. memswap = mem: no swap, a runaway process is OOM-killed and restarts (sessions restore from Postgres without
+    # re-pairing) instead of thrashing the VPS that production shares.
+    mem_limit: ${WHATSAPP_SIDECAR_MEM_LIMIT:-384m}
+    memswap_limit: ${WHATSAPP_SIDECAR_MEM_LIMIT:-384m}
+    cpus: ${WHATSAPP_SIDECAR_CPUS:-0.5}
+    pids_limit: 256
+    # Under host memory pressure the kernel kills this container before anything else (production shares the host).
+    oom_score_adj: 500
+    read_only: true
+    # 32m: Baileys writes an encrypted copy AND an original copy of an outgoing image under /tmp while it uploads
+    # (measured: 2 x 10 MB for a 10 MB image). The sidecar serialises image uploads process-wide. tmpfs counts toward mem_limit.
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 20s            # SIGTERM flushes creds, closes sockets, releases leases
+    environment:
+      WHATSAPP_SIDECAR_TOKEN: ${WHATSAPP_SIDECAR_TOKEN:?set WHATSAPP_SIDECAR_TOKEN}
+      WHATSAPP_WEBHOOK_SECRET: ${WHATSAPP_WEBHOOK_SECRET:?set WHATSAPP_WEBHOOK_SECRET}
+      WHATSAPP_WEBHOOK_SECRET_PREVIOUS: ${WHATSAPP_WEBHOOK_SECRET_PREVIOUS:-}
+      WHATSAPP_AUTH_MASTER_KEY: ${WHATSAPP_AUTH_MASTER_KEY:?set WHATSAPP_AUTH_MASTER_KEY}
+      BACKEND_BASE: ${WHATSAPP_BACKEND_BASE:-http://api:8000}
+      # Direct to Postgres (not pgbouncer): the schema bootstrap takes a session-level advisory lock, and pgbouncer
+      # (transaction pooling) does not know this role. Dedicated least-privilege role, created by whatsapp-db-init below,
+      # which refuses to run without WHATSAPP_SIDECAR_DB_PASSWORD (the CD gate checks it first).
+      WHATSAPP_SIDECAR_DATABASE_URL: postgresql://whatsapp_sidecar:${WHATSAPP_SIDECAR_DB_PASSWORD}@db:5432/${POSTGRES_DB}
+      # Logical Redis DB 1: the backend and arq use DB 0. Keys are prefixed `wa:`.
+      WHATSAPP_SIDECAR_REDIS_URL: ${WHATSAPP_SIDECAR_REDIS_URL:-redis://redis:6379/1}
+      MAX_SESSIONS: ${WHATSAPP_MAX_SESSIONS:-2}
+      RSS_REFUSE_MB: ${WHATSAPP_RSS_REFUSE_MB:-300}
+      # Images: hosts the backend may ask the sidecar to fetch from (comma separated, exact names), and the cap of the
+      # in-memory store of inbound images (never on disk, 10 minute TTL, 8 per session).
+      MEDIA_URL_ALLOWLIST: ${WHATSAPP_MEDIA_URL_ALLOWLIST:-res.cloudinary.com}
+      MEDIA_STORE_MAX_MB: ${WHATSAPP_MEDIA_STORE_MAX_MB:-32}
+    # No compose healthcheck here on purpose: the image's HEALTHCHECK (GET /health with the bearer token read from the
+    # container's own env) is the single source, so the token is never written into a compose file or a CD log.
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # One-shot: creates/updates the sidecar's own Postgres role and its schema. Run explicitly, never started by `up -d`:
+  #   docker compose ... run --rm --no-deps whatsapp-db-init
+  # Idempotent; also re-syncs the role password after a rotation.
+  whatsapp-db-init:
+    profiles: ["init"]
+    image: postgres:15-alpine
+    restart: "no"
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      WHATSAPP_SIDECAR_DB_PASSWORD: ${WHATSAPP_SIDECAR_DB_PASSWORD:?set WHATSAPP_SIDECAR_DB_PASSWORD}
+    volumes:
+      - ./scripts/whatsapp_sidecar_db_init.sql:/init.sql:ro
+    entrypoint: ["psql", "--no-psqlrc", "--set=ON_ERROR_STOP=1", "--file=/init.sql"]
+    mem_limit: 64m

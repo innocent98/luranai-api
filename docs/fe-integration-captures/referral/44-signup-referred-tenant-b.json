@@ -1,0 +1,30 @@
+{
+  "description": "Another referred company (Placeholder Traders Ltd) signs up with the same code.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/auth/register-company",
+    "query": {},
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "company_name": "Placeholder Traders Ltd",
+      "admin_full_name": "Bisi Placeholder",
+      "admin_email": "bisi.placeholder@example.com",
+      "referral_code": "ada-placeholder",
+      "referral_source": "form"
+    }
+  },
+  "response": {
+    "status": 201,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "message": "Company registered successfully. Please check your email to verify your account.",
+      "tenant_id": "fd7f6096-83a5-436c-a3dd-00bc07b61032",
+      "admin_email": "bisi.placeholder@example.com",
+      "verification_required": true
+    }
+  }
+}

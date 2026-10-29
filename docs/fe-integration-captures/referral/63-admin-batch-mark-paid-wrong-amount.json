@@ -1,0 +1,37 @@
+{
+  "description": "Error: the amount the admin says they paid differs from the item's current amount (409 amount_mismatch, with current_amount_kobo). Nothing changes.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/batches/1abf244b-1478-4866-a8e8-5c71033dac16/mark-paid",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "items": [
+        {
+          "marketer_id": "8ea86181-0cfa-4149-a975-bd113db4265e",
+          "bank_reference": "BANK-REF-PLACEHOLDER-001",
+          "amount_kobo": 999999
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 409,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": {
+        "code": "amount_mismatch",
+        "message": "The amount differs from what the item is worth now (a reward may have been held); check what you actually paid",
+        "marketer_id": "8ea86181-0cfa-4149-a975-bd113db4265e",
+        "current_amount_kobo": 1000000
+      }
+    }
+  }
+}

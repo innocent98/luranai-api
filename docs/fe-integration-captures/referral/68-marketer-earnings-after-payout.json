@@ -1,0 +1,33 @@
+{
+  "description": "Earnings after the payout: paid_total and the payouts history list.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/marketer/earnings",
+    "query": {},
+    "headers": {
+      "cookies_sent": [
+        "marketer_access_token"
+      ]
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "this_month_earned_kobo": 1000000,
+      "pending_kobo": 0,
+      "payable_kobo": 0,
+      "paid_total_kobo": 1000000,
+      "payouts": [
+        {
+          "date": "2026-10-29T11:06:03.012625Z",
+          "amount_kobo": 1000000,
+          "batch": "2026-11-06"
+        }
+      ]
+    }
+  }
+}

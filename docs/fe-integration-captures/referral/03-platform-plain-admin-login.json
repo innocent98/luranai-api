@@ -1,0 +1,34 @@
+{
+  "description": "The plain ADMIN signs in.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/auth/login",
+    "query": {},
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "email": "admin.placeholder@example.com",
+      "password": "Placeholder-Pass-123!"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json",
+      "set-cookie": [
+        "access_token=<redacted>; HttpOnly; Max-Age=900; Path=/; SameSite=lax; Secure",
+        "refresh_token=<redacted>; HttpOnly; Max-Age=604800; Path=/api/v1/platform/auth/refresh; SameSite=lax; Secure"
+      ]
+    },
+    "body": {
+      "access_token": "<redacted>",
+      "token_type": "bearer",
+      "expires_in": 900
+    }
+  },
+  "redacted": [
+    "body.access_token",
+    "response.set-cookie values"
+  ]
+}

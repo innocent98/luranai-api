@@ -1,0 +1,22 @@
+{
+  "scenario": "upload-into-other-tenant-forbidden",
+  "note": "B uploading into A's tenant id is refused.",
+  "request": {
+    "method": "POST",
+    "path": "/knowledge/upload",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+      "document_name": "x",
+      "document_text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "detail": "Access denied. You don't have permission to access this tenant."
+    }
+  }
+}

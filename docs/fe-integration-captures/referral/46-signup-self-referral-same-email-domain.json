@@ -1,0 +1,30 @@
+{
+  "description": "A signup whose admin email shares the marketer's email domain: the same 201 shape, but it is treated as a self-referral (never rewarded, hidden from the marketer's list).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/auth/register-company",
+    "query": {},
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "company_name": "Placeholder Partners Ltd",
+      "admin_full_name": "Dayo Placeholder",
+      "admin_email": "dayo.placeholder@example.org",
+      "referral_code": "ada-placeholder",
+      "referral_source": "form"
+    }
+  },
+  "response": {
+    "status": 201,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "message": "Company registered successfully. Please check your email to verify your account.",
+      "tenant_id": "a8f34595-8b87-421b-9164-73d5f2c1bbcd",
+      "admin_email": "dayo.placeholder@example.org",
+      "verification_required": true
+    }
+  }
+}

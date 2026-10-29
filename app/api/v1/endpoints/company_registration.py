@@ -1,7 +1,7 @@
 """Company registration endpoints for self-service signup."""
 
 from loguru import logger
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
@@ -30,6 +30,7 @@ router = APIRouter()
 )
 async def register_company(
     registration_data: CompanyRegistrationRequest,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """
@@ -44,8 +45,12 @@ async def register_company(
     is logged as a warning and silently swallowed — signup is never blocked by
     a bad claim token.
 
+    An optional ``referral_code`` attributes the tenant to a marketer. It is best-effort: an
+    unknown, suspended, malformed or over-long code is ignored and never changes the response.
+
     Args:
         registration_data: Company and admin information
+        request: Incoming request (caller IP and user agent, hashed for fraud signals)
         db: Database session
 
     Returns:
@@ -57,7 +62,13 @@ async def register_company(
     registration_service = CompanyRegistrationService(db)
 
     try:
-        response = registration_service.register_company(registration_data)
+        response = registration_service.register_company(
+            registration_data,
+            referral_code=registration_data.referral_code,
+            # Same source of the caller IP as the rate limiter (request.client.host).
+            client_ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

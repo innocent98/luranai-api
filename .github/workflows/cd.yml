@@ -37,7 +37,9 @@ jobs:
       (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging') ||
       (github.event_name == 'workflow_run' &&
        github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.head_branch == 'develop')
+       github.event.workflow_run.head_branch == 'develop' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     environment:
       name: staging
     outputs:
@@ -74,6 +76,23 @@ jobs:
             echo "No .env.staging.enc or key — server .env must already exist"
           fi
 
+      # Staging only (the production-deploy job has no equivalent). Raises the staging api memory floor, keeps the
+      # sidecar-only secrets out of the api/worker env file, and decides whether the WhatsApp sidecar can be deployed.
+      # Prints variable NAMES and pass/fail only. Missing names => sidecar skipped, rest of the deploy unaffected.
+      - name: Prepare staging env (api memory floor, WhatsApp sidecar gate)
+        id: sidecar_env
+        run: bash scripts/prepare_staging_whatsapp_env.sh .env .env.sidecar
+
+      - name: Build and save WhatsApp sidecar image
+        id: sidecar_build
+        if: steps.sidecar_env.outputs.sidecar_enabled == 'true'
+        continue-on-error: true
+        env:
+          IMAGE_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          docker build -t "luran-whatsapp-sidecar:${IMAGE_TAG}" whatsapp-sidecar
+          docker save "luran-whatsapp-sidecar:${IMAGE_TAG}" | gzip > sidecar-image.tar.gz
+
       - name: Copy files to staging stack directory
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -97,6 +116,8 @@ jobs:
             set -euo pipefail
             mkdir -p "${{ secrets.DEPLOY_PATH }}"
             cd "${{ secrets.DEPLOY_PATH }}"
+            # The env file arrives readable (the shipping container cannot read a 600 file); tighten it here.
+            chmod 600 .env
             docker load < api-image.tar.gz
             export API_IMAGE="luran-api:${{ github.event.workflow_run.head_sha || github.sha }}"
             docker compose -f docker-compose.prod.yml pull db redis qdrant pgbouncer
@@ -167,6 +188,95 @@ jobs:
             chmod +x scripts/backup_cron.sh 2>/dev/null || true
             (crontab -l 2>/dev/null | grep -v -F "${{ secrets.DEPLOY_PATH }}/scripts/backup_cron.sh" | grep -v "scripts/backup_db.sh"; echo "0 2 * * * ${{ secrets.DEPLOY_PATH }}/scripts/backup_cron.sh >> ${{ secrets.DEPLOY_PATH }}/backups/backup.log 2>&1") | crontab -
             echo "Backup cron installed: daily at 2 AM"
+
+      # WhatsApp sidecar (staging only, optional). Runs only when the gate step found every required name. A failure
+      # here is reported as a warning and never fails the staging deploy: the API above is already live and healthy.
+      - name: Copy WhatsApp sidecar files to staging stack directory
+        id: sidecar_copy
+        if: steps.sidecar_env.outputs.sidecar_enabled == 'true' && steps.sidecar_build.outcome == 'success'
+        continue-on-error: true
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "sidecar-image.tar.gz,docker-compose.whatsapp.yml,.env.sidecar,scripts/whatsapp_sidecar_db_init.sql,scripts/smoke_whatsapp_sidecar.sh"
+          target: ${{ secrets.DEPLOY_PATH }}
+
+      - name: Deploy WhatsApp sidecar to staging
+        id: sidecar_deploy
+        if: steps.sidecar_env.outputs.sidecar_enabled == 'true' && steps.sidecar_copy.outcome == 'success'
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            # Tighten first: the files arrive readable (the shipping container cannot read a 600 file), so no guard
+            # failure below may leave them world-readable on the server.
+            chmod 600 .env .env.sidecar
+            # Production-isolation guard: container and network names derive from COMPOSE_PROJECT_NAME.
+            grep -Eq "^COMPOSE_PROJECT_NAME=[\"']?luran_staging[\"']?[[:space:]]*$" .env || {
+              echo "COMPOSE_PROJECT_NAME is not luran_staging; refusing to deploy the sidecar" >&2
+              exit 1
+            }
+            docker load < sidecar-image.tar.gz
+            export WHATSAPP_SIDECAR_IMAGE="luran-whatsapp-sidecar:${{ github.event.workflow_run.head_sha || github.sha }}"
+            dc() {
+              docker compose --env-file .env --env-file .env.sidecar \
+                -f docker-compose.prod.yml -f docker-compose.whatsapp.yml "$@"
+            }
+            # Role + schema owner for the sidecar (idempotent), then start ONLY the sidecar: --no-deps so no
+            # other staging service is touched or recreated by this step.
+            dc run --rm --no-deps whatsapp-db-init
+            dc up -d --no-deps whatsapp-sidecar
+            cid="$(dc ps -q whatsapp-sidecar)"
+            for attempt in $(seq 1 20); do
+              status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid")"
+              if [ "$status" = healthy ]; then
+                echo "WhatsApp sidecar is healthy."
+                break
+              fi
+              if [ "$attempt" -eq 20 ]; then
+                echo "WhatsApp sidecar not healthy (status: $status); stopping it so it does not restart-loop." >&2
+                docker logs --tail=60 "$cid" >&2 || true
+                dc stop whatsapp-sidecar >&2 || true
+                exit 1
+              fi
+              echo "Waiting for sidecar health ($attempt/20, status: $status)..."
+              sleep 5
+            done
+            bash scripts/smoke_whatsapp_sidecar.sh "$cid"
+            # Bound disk use: keep images used by any container plus the 3 newest sidecar images (rollback).
+            in_use="$(docker ps -a --format '{{.Image}}' | sort -u)"
+            docker images luran-whatsapp-sidecar --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' \
+              | sort -r | awk -F'\t' 'NR>3 {print $2}' \
+              | while read -r img; do
+                  echo "$in_use" | grep -qxF "$img" || docker rmi "$img" >/dev/null 2>&1 || true
+                done
+            rm -f sidecar-image.tar.gz
+
+      - name: WhatsApp sidecar status
+        if: always() && steps.sidecar_env.outputs.sidecar_enabled == 'true'
+        env:
+          BUILD: ${{ steps.sidecar_build.outcome }}
+          COPY: ${{ steps.sidecar_copy.outcome }}
+          DEPLOY: ${{ steps.sidecar_deploy.outcome }}
+        run: |
+          if [ "$DEPLOY" = success ]; then
+            echo "WhatsApp sidecar deployed and smoke-tested on staging."
+            echo "**WhatsApp sidecar:** deployed and smoke-tested." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::WhatsApp sidecar did NOT deploy cleanly (build=$BUILD copy=$COPY deploy=$DEPLOY). Staging API deploy is unaffected; see the step logs above."
+            echo "**WhatsApp sidecar: NOT deployed cleanly** (build=$BUILD copy=$COPY deploy=$DEPLOY)." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Capture staging deployment context
         run: |

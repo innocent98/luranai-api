@@ -1,0 +1,23 @@
+{
+  "scenario": "text-upload-vector-store-down",
+  "note": "Qdrant unreachable: 503, source is kept as FAILED with a reason.",
+  "request": {
+    "method": "POST",
+    "path": "/knowledge/upload",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+      "document_name": "during-outage",
+      "document_text": "Opening hours\nWe are open Monday to Saturday from 7am to 6pm, and on Sundays from 8am to 2pm.\n\nDelivery\nWe deliver within 10km of the shop. Delivery costs 1,500 naira and takes about 45 minutes.\n\nPrices\nA loaf of bread is 1,200 naira. Birthday cakes start at 15,000 naira and need two days' notice.\n\nReturns\nIf your order is wrong, tell us within 24 hours and we will replace it or refund you.\n"
+    }
+  },
+  "response": {
+    "status": 503,
+    "body": {
+      "code": "vector_store_unavailable",
+      "message": "We could not save this document to the AI's knowledge store right now. Please try uploading it again in a few minutes."
+    }
+  }
+}

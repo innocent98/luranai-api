@@ -65,6 +65,20 @@ from app.db.models.platform_email_campaign import (
     PlatformEmailCampaignRecipient,
 )
 from app.db.models.promotional_grant import AutoSignupGrantConfig, PromotionalGrant
+from app.db.models.referral import (
+    AttributionSource,
+    BatchStatus,
+    Marketer,
+    MarketerStatus,
+    PayoutBatch,
+    PayoutItem,
+    PayoutItemStatus,
+    ReferralAttribution,
+    ReferralConfig,
+    ReferralReward,
+    RewardStatus,
+    SignupOrigin,
+)
 from app.db.models.review import FeedbackCategory, PlatformFeedback, RatingRequest, SessionRating
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.subscription_plan import SubscriptionPlan
@@ -79,6 +93,7 @@ from app.db.models.visit_analytics import DailyVisit
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
 from app.db.models.user import AvailabilityStatus, DeletionStatus, User, UserRole
 from app.db.models.visitor import DeviceType, Visitor, VisitorSession, VisitorSource
+from app.db.models.whatsapp import WhatsAppChat, WhatsAppConnection, WhatsAppInboundMessage
 
 __all__ = [
     "Base",
@@ -91,6 +106,9 @@ __all__ = [
     "VisitorSession",
     "VisitorSource",
     "DeviceType",
+    "WhatsAppConnection",
+    "WhatsAppChat",
+    "WhatsAppInboundMessage",
     # Knowledge models
     "KnowledgeSource",
     "KnowledgeChunk",
@@ -159,6 +177,19 @@ __all__ = [
     # Promotional grant models
     "PromotionalGrant",
     "AutoSignupGrantConfig",
+    # Referral program models
+    "Marketer",
+    "MarketerStatus",
+    "AttributionSource",
+    "ReferralAttribution",
+    "ReferralReward",
+    "RewardStatus",
+    "PayoutBatch",
+    "BatchStatus",
+    "PayoutItem",
+    "PayoutItemStatus",
+    "SignupOrigin",
+    "ReferralConfig",
     # Visit analytics models
     "DailyVisit",
     # Email notification models

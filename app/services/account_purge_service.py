@@ -58,7 +58,10 @@ Design choices worth knowing before extending this file
   history``, ``promotional_grants``, ``audit_logs`` and
   ``analytics_metrics`` are deleted along with everything else. The one
   exception is ``deletion_requests`` itself (see above) — the PII-free
-  audit trail that proves the purge ran.
+  audit trail that proves the purge ran. Referral rows follow the same
+  rule except ``referral_rewards``: a reward is money owed to a marketer,
+  so it is kept with ``tenant_id`` set to NULL (PII-free), while
+  ``referral_attributions`` and ``signup_origins`` are deleted.
 
 * **``purge_tenant`` commits once, at the end.** Every delete/de-identify
   step runs against the same open transaction; a failure partway through
@@ -213,7 +216,7 @@ import uuid
 from uuid import UUID
 
 from passlib.context import CryptContext
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.db.models.agent_device import AgentDevice
@@ -240,6 +243,7 @@ from app.db.models.payment import PaymentTransaction
 from app.db.models.platform_email_campaign import PlatformEmailCampaignRecipient
 from app.db.models.promotional_grant import PromotionalGrant
 from app.db.models.quote import Quote
+from app.db.models.referral import ReferralAttribution, ReferralReward, SignupOrigin
 from app.db.models.refresh_token import RefreshToken
 from app.db.models.review import PlatformFeedback, RatingRequest, SessionRating
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
@@ -247,6 +251,11 @@ from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
 from app.db.models.user import DeletionStatus, User
 from app.db.models.visit_analytics import DailyVisit
+from app.db.models.whatsapp import (
+    WhatsAppChat,
+    WhatsAppConnection,
+    WhatsAppInboundMessage,
+)
 from app.db.models.visitor import Visitor, VisitorSession
 from app.utils.cloudinary_client import cloudinary_manager
 
@@ -303,6 +312,19 @@ class AccountPurgeService:
         # FKs also cascade at the DB level (ondelete="CASCADE"), but
         # deleting explicitly keeps this auditable and still correct even
         # if a future migration ever drops that constraint. ---
+        # WhatsApp: contact refs are PII. Ledger and chats go before the connection, and all
+        # of them before visitors/sessions (chats reference both).
+        connection_ids = select(WhatsAppConnection.id).where(
+            WhatsAppConnection.tenant_id == tenant_id
+        )
+        self.db.execute(
+            delete(WhatsAppInboundMessage).where(
+                WhatsAppInboundMessage.connection_id.in_(connection_ids)
+            )
+        )
+        self.db.execute(delete(WhatsAppChat).where(WhatsAppChat.tenant_id == tenant_id))
+        self.db.execute(delete(WhatsAppConnection).where(WhatsAppConnection.tenant_id == tenant_id))
+
         self.db.execute(delete(SessionRating).where(SessionRating.tenant_id == tenant_id))
         # session_ratings.rating_request_id -> rating_requests is SET NULL; ratings go first.
         self.db.execute(delete(RatingRequest).where(RatingRequest.tenant_id == tenant_id))
@@ -360,6 +382,20 @@ class AccountPurgeService:
         self.db.execute(delete(PromotionalGrant).where(PromotionalGrant.tenant_id == tenant_id))
         self.db.execute(delete(AuditLog).where(AuditLog.tenant_id == tenant_id))
         self.db.execute(delete(AnalyticsMetric).where(AnalyticsMetric.tenant_id == tenant_id))
+
+        # Referral program: attribution and signup origin describe the tenant, so they go.
+        # The reward is money owed to the marketer: it survives, detached from the tenant. The
+        # tenant row is anonymised, not deleted, so the FK's ON DELETE SET NULL never fires on this
+        # path; this explicit UPDATE is what detaches it.
+        self.db.execute(
+            delete(ReferralAttribution).where(ReferralAttribution.tenant_id == tenant_id)
+        )
+        self.db.execute(delete(SignupOrigin).where(SignupOrigin.tenant_id == tenant_id))
+        self.db.execute(
+            update(ReferralReward)
+            .where(ReferralReward.tenant_id == tenant_id)
+            .values(tenant_id=None)
+        )
 
         self.db.execute(delete(TenantAIConfig).where(TenantAIConfig.tenant_id == tenant_id))
         self.db.execute(delete(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant_id))

@@ -1,0 +1,53 @@
+MIN_SCORE_THRESHOLD = 0.35   (before = origin/develop, after = working tree)
+
+=== FAQ pasted as: sections (393 chars) ===
+
+  BEFORE: 1 chunk(s), sizes [390] chars
+  question                               best  >=0.35  right chunk
+  What time do you open?                0.341    NO   yes
+  Are you open on Sunday?               0.322    NO   yes
+  Do you deliver?                       0.344    NO   yes
+  How much is delivery?                 0.388    yes  yes
+  How long does delivery take?          0.341    NO   yes
+  How much is a loaf of bread?          0.417    yes  yes
+  Do you make birthday cakes?           0.367    yes  yes
+  Can I return my order?                0.248    NO   yes
+  -> 3/8 questions would be answered from the right chunk
+
+  AFTER : 4 chunk(s), sizes [93, 99, 102, 93] chars
+  question                               best  >=0.35  right chunk
+  What time do you open?                0.503    yes  yes
+  Are you open on Sunday?               0.526    yes  yes
+  Do you deliver?                       0.432    yes  yes
+  How much is delivery?                 0.482    yes  yes
+  How long does delivery take?          0.487    yes  yes
+  How much is a loaf of bread?          0.549    yes  yes
+  Do you make birthday cakes?           0.404    yes  yes
+  Can I return my order?                0.530    yes  yes
+  -> 8/8 questions would be answered from the right chunk
+
+=== FAQ pasted as: q_and_a (476 chars) ===
+
+  BEFORE: 1 chunk(s), sizes [476] chars
+  question                               best  >=0.35  right chunk
+  What time do you open?                0.428    yes  yes
+  Are you open on Sunday?               0.386    yes  yes
+  Do you deliver?                       0.414    yes  yes
+  How much is delivery?                 0.430    yes  yes
+  How long does delivery take?          0.378    yes  yes
+  How much is a loaf of bread?          0.400    yes  yes
+  Do you make birthday cakes?           0.397    yes  yes
+  Can I return my order?                0.272    NO   yes
+  -> 7/8 questions would be answered from the right chunk
+
+  AFTER : 4 chunk(s), sizes [114, 112, 127, 120] chars
+  question                               best  >=0.35  right chunk
+  What time do you open?                0.624    yes  yes
+  Are you open on Sunday?               0.560    yes  yes
+  Do you deliver?                       0.599    yes  yes
+  How much is delivery?                 0.536    yes  yes
+  How long does delivery take?          0.512    yes  yes
+  How much is a loaf of bread?          0.584    yes  yes
+  Do you make birthday cakes?           0.414    yes  yes
+  Can I return my order?                0.562    yes  yes
+  -> 8/8 questions would be answered from the right chunk

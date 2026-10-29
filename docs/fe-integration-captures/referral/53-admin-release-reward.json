@@ -1,0 +1,27 @@
+{
+  "description": "Super admin releases a held reward after review.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/rewards/44c54f25-9d4c-41f3-b344-376e4c332566/release",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "note": "Checked the domain evidence: unrelated businesses."
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "id": "44c54f25-9d4c-41f3-b344-376e4c332566",
+      "status": "pending"
+    }
+  }
+}

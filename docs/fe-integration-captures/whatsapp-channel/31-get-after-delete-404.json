@@ -1,0 +1,19 @@
+{
+  "scenario": "get-after-delete-404",
+  "note": "",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/whatsapp/connections/2fd1dab1-0990-4f1c-b41c-5c35976daa46",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "code": "not_found",
+      "message": "WhatsApp connection not found"
+    }
+  }
+}

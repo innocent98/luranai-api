@@ -24,6 +24,7 @@ from app.services.job_service import JobService
 from app.services.knowledge_service import KnowledgeService
 from app.services.url_scraper_service import URLScraperService
 from app.utils.http_rate_limiter import upload_rate_limit
+from app.utils.knowledge_failures import FailureCode, KnowledgeError
 
 router = APIRouter()
 
@@ -223,11 +224,11 @@ async def upload_knowledge_file(
         logger.info(f"Extracting text from {file.filename}...")
         document_text = extract_text_from_file(file)
 
-        if not document_text or len(document_text.strip()) < 10:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Could not extract meaningful text from file",
-            )
+        # Nothing readable at all (e.g. a scanned PDF): extraction is synchronous here, so say so
+        # now. Text that is readable but too short is judged by the worker and surfaces as
+        # `failure_reason: document_too_short` on the job.
+        if not any(ch.isalnum() for ch in (document_text or "")):
+            raise KnowledgeError(FailureCode.NO_TEXT_EXTRACTED)
 
         logger.info(f"Extracted {len(document_text)} characters")
 
@@ -296,7 +297,7 @@ async def upload_knowledge_file(
             estimated_time_seconds=estimated_time_seconds,
         )
 
-    except HTTPException:
+    except (HTTPException, KnowledgeError):
         raise
     except ValueError as e:
         raise HTTPException(

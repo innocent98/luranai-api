@@ -1,0 +1,24 @@
+{
+  "description": "Role matrix: a marketer's token on a platform route (401).",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/platform/referrals/",
+    "query": {},
+    "headers": {
+      "authorization": "Bearer <redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "Could not validate credentials"
+    }
+  },
+  "redacted": [
+    "request.header.authorization"
+  ]
+}

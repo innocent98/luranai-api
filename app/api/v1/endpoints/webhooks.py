@@ -3,10 +3,16 @@
 from fastapi import APIRouter, Depends, Header, Request, status
 from fastapi.responses import JSONResponse
 from loguru import logger
+from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.channels import signing as whatsapp_signing
+from app.core.config import settings
+from app.schemas.whatsapp import WebhookEvent
+from app.services import whatsapp_enqueue
 from app.services.paystack_service import PaystackService
+from app.services.whatsapp_inbound import get_connection_by_session_key
 from app.services.webhook_handler_service import WebhookHandlerService
 from app.utils.http_rate_limiter import webhook_rate_limit
 
@@ -26,6 +32,10 @@ router = APIRouter()
     - subscription.disable: Subscription cancelled
     - subscription.not_renew: Subscription set to not renew
     - invoice.payment_failed: Recurring payment failed
+    - charge.dispute.create: Payment disputed (holds the tenant's referral reward)
+    - transfer.success: Referral payout transfer succeeded
+    - transfer.failed: Referral payout transfer failed
+    - transfer.reversed: Referral payout transfer reversed (the marketer's rewards are batched again)
 
     Webhook URL: {BASE_URL}/api/v1/webhooks/paystack
     """,
@@ -102,6 +112,22 @@ async def paystack_webhook(
         )
 
     except Exception as e:
+        if event_type.startswith("transfer.") or event_type == "charge.dispute.create":
+            # Payout transfer and dispute events are idempotent and money-relevant, so a failure
+            # must make Paystack redeliver (5xx), not be swallowed as a 200. Never echo the
+            # exception into the body or logs.
+            try:
+                db.rollback()
+            except Exception:  # noqa: BLE001 - nothing more to do for a broken session
+                pass
+            logger.error(
+                f"Failed to process transfer webhook {event_type}: {type(e).__name__}; "
+                "Paystack will retry"
+            )
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={"status": "error", "message": "Event processing failed; retry"},
+            )
         logger.error(f"Failed to process webhook: {e}")
         # Return 200 to prevent Paystack from retrying
         # Log error for manual investigation
@@ -132,3 +158,60 @@ async def webhook_health():
         "status": "ok",
         "message": "Webhook endpoint is configured and ready to receive events",
     }
+
+
+MAX_WHATSAPP_WEBHOOK_BYTES = 256 * 1024
+
+
+@router.post(
+    "/whatsapp/linked",
+    status_code=status.HTTP_200_OK,
+    summary="WhatsApp linked-device sidecar webhook",
+    description="Signed sidecar events (session.status, message.inbound, "
+    "message.outbound_external). Header `X-Luran-Signature: t=<unix>,v1=<hmac>`.",
+)
+async def whatsapp_linked_webhook(
+    request: Request,
+    x_luran_signature: str | None = Header(None, alias=whatsapp_signing.SIGNATURE_HEADER),
+    db: Session = Depends(get_db),
+):
+    """Verify, validate, resolve the tenant server-side, enqueue, answer 200 fast.
+
+    Authenticated only by the HMAC (no IP rate limit: a bad signature costs one HMAC). The
+    event never names a tenant: `session_key` is looked up here and again in the job.
+    Nothing derived from the signature (expected or received) is ever logged.
+    """
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_WHATSAPP_WEBHOOK_BYTES:
+        return JSONResponse(status_code=413, content={"error": "payload_too_large"})
+    chunks: list[bytes] = []
+    received = 0
+    async for chunk in request.stream():  # stop reading as soon as the cap is passed
+        received += len(chunk)
+        if received > MAX_WHATSAPP_WEBHOOK_BYTES:
+            return JSONResponse(status_code=413, content={"error": "payload_too_large"})
+        chunks.append(chunk)
+    raw = b"".join(chunks)
+
+    secrets = [settings.WHATSAPP_WEBHOOK_SECRET, settings.WHATSAPP_WEBHOOK_SECRET_PREVIOUS]
+    if not settings.WHATSAPP_ENABLED or not any(secrets):
+        return JSONResponse(status_code=503, content={"error": "whatsapp_disabled"})
+    if not whatsapp_signing.verify(secrets, raw, x_luran_signature):
+        logger.warning("Invalid WhatsApp webhook signature")
+        return JSONResponse(status_code=401, content={"error": "invalid_signature"})
+
+    try:
+        event = TypeAdapter(WebhookEvent).validate_json(raw)
+    except ValidationError:
+        return JSONResponse(status_code=400, content={"error": "invalid_event"})
+
+    if get_connection_by_session_key(db, event.session_key) is None:
+        # Unknown session (deleted connection, stale sidecar): acknowledge, do nothing.
+        return {"status": "ignored"}
+
+    try:
+        await whatsapp_enqueue.enqueue_event(event.model_dump(mode="json"))
+    except Exception:  # noqa: BLE001
+        logger.exception("whatsapp webhook enqueue failed")
+        return JSONResponse(status_code=503, content={"error": "queue_unavailable"})
+    return {"status": "accepted"}

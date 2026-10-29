@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_db
-from app.db.models.tenant import Tenant, TenantCapabilities
+from app.db.models.tenant import Tenant
 from app.schemas.user import UserResponse
 from app.schemas.widget import (
     PublicWidgetConfigResponse,
@@ -26,16 +26,15 @@ from app.schemas.widget import (
     WidgetInstallCodeResponse,
 )
 from app.services.api_key_service import APIKeyService
+from app.services.entitlements import get_entitlements
 from app.services.screen_recording.gating import screen_recording_allowed
+from app.services.widget_seen_service import record_widget_seen
 from app.services.visit_analytics_service import VisitAnalyticsService
 
 router = APIRouter()
 
 
 def _widget_config_response(db: Session, tenant: Tenant) -> WidgetConfigResponse:
-    caps = db.execute(
-        select(TenantCapabilities).where(TenantCapabilities.tenant_id == tenant.id)
-    ).scalar_one_or_none()
     return WidgetConfigResponse(
         tenant_id=tenant.id,
         company_name=tenant.display_name,
@@ -47,7 +46,7 @@ def _widget_config_response(db: Session, tenant: Tenant) -> WidgetConfigResponse
         widget_show_unread_badge=tenant.widget_show_unread_badge,
         widget_allow_file_upload=tenant.widget_allow_file_upload,
         widget_allow_screen_recording=tenant.widget_allow_screen_recording,
-        can_use_screen_recording=bool(caps and caps.can_use_screen_recording),
+        can_use_screen_recording=get_entitlements(tenant, db).enabled("screen_recording"),
     )
 
 
@@ -427,6 +426,9 @@ def get_public_widget_config(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="API key does not belong to this tenant",
         )
+
+    # Remember that the widget is live on a customer site (hostname only, throttled)
+    record_widget_seen(db, tenant, request.headers.get("origin"), request.headers.get("referer"))
 
     # Track chat widget visit for platform analytics
     request_host = request.client.host if request and request.client else "unknown"

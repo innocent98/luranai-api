@@ -66,6 +66,8 @@ def _make_tenant(
         can_access_analytics=True,
         can_upload_knowledge=True,
         max_conversations_per_month=1000,
+        can_use_sales_close=True,
+        can_use_crm_notifications=True,
     )
     db.add(capabilities)
 

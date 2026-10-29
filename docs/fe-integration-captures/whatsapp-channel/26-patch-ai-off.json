@@ -1,0 +1,27 @@
+{
+  "scenario": "patch-ai-off",
+  "note": "",
+  "request": {
+    "method": "PATCH",
+    "path": "/api/v1/whatsapp/connections/801152e2-0db2-42bf-946d-a3219009ff90",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "ai_enabled": false,
+      "label": "Support line"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "id": "801152e2-0db2-42bf-946d-a3219009ff90",
+      "label": "Support line",
+      "status": "connected",
+      "phone_masked": "+234\u2022\u2022\u2022\u2022\u2022\u20220001",
+      "ai_enabled": false,
+      "last_connected_at": "2026-10-27T18:16:57.003243Z",
+      "last_disconnect_reason": null
+    }
+  }
+}

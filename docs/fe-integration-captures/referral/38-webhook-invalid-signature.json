@@ -1,0 +1,41 @@
+{
+  "description": "Error: a webhook with a wrong signature is refused (400) and changes nothing.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/webhooks/paystack",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "x-paystack-signature": "<redacted>"
+    },
+    "body": {
+      "event": "charge.success",
+      "data": {
+        "reference": "capture-ref-placeholder-a",
+        "amount": 1000000,
+        "currency": "NGN",
+        "channel": "card",
+        "customer": {
+          "email": "billing.placeholder@example.com",
+          "customer_code": "CUS_placeholder"
+        },
+        "authorization": {
+          "authorization_code": "AUTH_placeholder",
+          "signature": "SIG_placeholder_a"
+        }
+      }
+    }
+  },
+  "response": {
+    "status": 400,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "error": "Invalid signature"
+    }
+  },
+  "redacted": [
+    "request.header.x-paystack-signature"
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "description": "Admin records the manual bank transfer with the correct amount: item and batch paid.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/batches/1abf244b-1478-4866-a8e8-5c71033dac16/mark-paid",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "items": [
+        {
+          "marketer_id": "8ea86181-0cfa-4149-a975-bd113db4265e",
+          "bank_reference": "BANK-REF-PLACEHOLDER-001",
+          "amount_kobo": 1000000
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "id": "1abf244b-1478-4866-a8e8-5c71033dac16",
+      "period_label": "2026-11-06",
+      "status": "paid",
+      "total_kobo": 1000000,
+      "item_counts": {
+        "pending": 0,
+        "processing": 0,
+        "paid": 1,
+        "failed": 0,
+        "skipped": 0,
+        "awaiting_manual": 0
+      },
+      "approved_at": "2026-10-29T11:06:02.952893Z",
+      "approved_by_admin_id": "494f0196-ca17-4ab5-b146-f502ca51291b",
+      "created_at": "2026-10-29T11:06:02.908991Z",
+      "items": [
+        {
+          "id": "67b10382-335e-4931-9302-1b3115ddcafe",
+          "marketer_id": "8ea86181-0cfa-4149-a975-bd113db4265e",
+          "marketer_name": "Ada Placeholder",
+          "marketer_code": "ada-placeholder",
+          "amount_kobo": 1000000,
+          "current_amount_kobo": 0,
+          "status": "paid",
+          "failure_reason": null,
+          "provider_status": "manual",
+          "attempt": 1,
+          "transfer_reference": "BANK-REF-PLACEHOLDER-001",
+          "reward_count": 2,
+          "reward_ids": [
+            "44c54f25-9d4c-41f3-b344-376e4c332566",
+            "989b87c9-9fc1-4d90-ba4c-d22b666ecc45"
+          ],
+          "bank_last4": "0000",
+          "held_rewards_excluded": 0
+        }
+      ]
+    }
+  }
+}

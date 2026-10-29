@@ -211,6 +211,21 @@ class Settings(BaseSettings):
     PAYSTACK_WEBHOOK_SECRET: str | None = None  # Not used - kept for backwards compatibility
     PAYSTACK_BASE_URL: str = "https://api.paystack.co"
 
+    # Marketer referral program (see docs/superpowers/specs/2026-10-28-referral-program-design.md).
+    # Reward/hold/window can be overridden at runtime by admins (referral_config table).
+    # One reward per referred tenant, integer kobo (NGN).
+    REFERRAL_REWARD_KOBO: int = 500_000
+    # Days a reward waits after the first payment before it is payable.
+    REFERRAL_HOLD_DAYS: int = 7
+    # The first payment must land within this many days of signup.
+    REFERRAL_COMMISSION_WINDOW_DAYS: int = 90
+    # Lifetime of the first-party attribution cookie (luran_ref).
+    REFERRAL_COOKIE_DAYS: int = 30
+    # "manual": an admin pays outside and records the bank reference; "paystack": Paystack Transfers.
+    REFERRAL_PAYOUT_PROVIDER: Literal["paystack", "manual"] = "manual"
+    # Marketer links are <base>/register?ref=<code>.
+    REFERRAL_LINK_BASE_URL: str = "https://luranai.com"
+
     # Backup Configuration (for database backups)
     ENABLE_CLOUD_BACKUP: bool = False
     CLOUD_PROVIDER: str | None = None
@@ -247,6 +262,10 @@ class Settings(BaseSettings):
     # Optional explicit allowlist for automation outbound hosts (comma-separated).
     # Use with caution; empty by default for safer SSRF posture.
     AUTOMATION_OUTBOUND_HOST_ALLOWLIST: str = ""
+    # Widget-install tracking ignores Luran's own origins (dashboard, preview, docs). The hosts of
+    # FRONTEND_URL / CUSTOMER_FRONTEND_URL / FRONTEND_DOC_URL are always ignored; list extra
+    # hostnames here, comma-separated. A leading "*." matches any subdomain.
+    WIDGET_SEEN_IGNORED_HOSTS: str = ""
 
     # Account deletion (Google Play / GDPR right-to-erasure)
     # Cancellable grace period between a verified deletion request and purge.
@@ -321,6 +340,29 @@ class Settings(BaseSettings):
     # Platform-wide simultaneous voice sessions (EL plan cap ~20 Pro / ~40 Business).
     VOICE_MAX_CONCURRENT_SESSIONS: int = 20
 
+    # --- WhatsApp channel (linked-device sidecar) ----------------------------
+    # Global kill switch: off by default; a tenant additionally needs the
+    # `can_use_whatsapp` capability granted by hand (platform admin).
+    WHATSAPP_ENABLED: bool = False
+    WHATSAPP_SIDECAR_URL: str = ""
+    WHATSAPP_SIDECAR_TOKEN: str = ""
+    WHATSAPP_SIDECAR_TIMEOUT_S: float = 10.0
+    # Signed sidecar -> backend webhook. `_PREVIOUS` is accepted during rotation.
+    WHATSAPP_WEBHOOK_SECRET: str = ""
+    WHATSAPP_WEBHOOK_SECRET_PREVIOUS: str = ""
+    # Pepper for the contact / phone HMAC lookup keys (NOT the unsalted
+    # `hash_for_lookup`: phone numbers are low entropy and brute-forceable).
+    WHATSAPP_CONTACT_PEPPER: str = ""
+    # Platform-wide simultaneous linked sessions; checked before calling the
+    # sidecar (the VPS is 8 GB total, per-session RAM beyond one is unmeasured).
+    WHATSAPP_MAX_CONNECTIONS: int = 3
+    # Owner typed from the phone/WhatsApp Web: AI stays silent this long.
+    WHATSAPP_OWNER_PAUSE_MINUTES: int = 120
+    # Images: the only hosts an outbound image URL may point at (comma separated; the sidecar
+    # enforces its own MEDIA_URL_ALLOWLIST too) and the inbound byte cap (matches web chat).
+    WHATSAPP_MEDIA_URL_HOSTS: str = "res.cloudinary.com"
+    WHATSAPP_MEDIA_MAX_BYTES: int = 10 * 1024 * 1024
+
     def get_trial_expiry_reminder_days(self) -> list[int]:
         """Parse and validate reminder windows from env setting."""
         try:
@@ -368,6 +410,21 @@ class Settings(BaseSettings):
             for item in self.AUTOMATION_OUTBOUND_HOST_ALLOWLIST.split(",")
             if item.strip()
         }
+
+    def get_widget_seen_ignored_hosts(self) -> set[str]:
+        """Hostnames (or `*.suffix` patterns) whose widget loads are not customer installs."""
+        from urllib.parse import urlparse
+
+        hosts = {
+            item.strip().lower()
+            for item in self.WIDGET_SEEN_IGNORED_HOSTS.split(",")
+            if item.strip()
+        }
+        for url in (self.FRONTEND_URL, self.CUSTOMER_FRONTEND_URL, self.FRONTEND_DOC_URL):
+            host = urlparse(url).hostname if url else None
+            if host:
+                hosts.add(host.lower())
+        return hosts
 
     model_config = SettingsConfigDict(
         case_sensitive=True,

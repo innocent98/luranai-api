@@ -1,0 +1,22 @@
+{
+  "scenario": "create-consent-missing",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "phone_number": "2348000000001",
+      "label": "Main line"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "consent_required",
+      "message": "Accept the current WhatsApp terms (version 2026-10-27-draft1) to continue."
+    }
+  }
+}

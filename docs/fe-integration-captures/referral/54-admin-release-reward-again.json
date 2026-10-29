@@ -1,0 +1,29 @@
+{
+  "description": "Error: releasing a reward that is no longer held (409 reward_state_invalid).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/rewards/44c54f25-9d4c-41f3-b344-376e4c332566/release",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "note": "Second attempt."
+    }
+  },
+  "response": {
+    "status": 409,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": {
+        "code": "reward_state_invalid",
+        "message": "The reward is not in a state that allows this action"
+      }
+    }
+  }
+}

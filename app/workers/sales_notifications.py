@@ -13,6 +13,7 @@ from app.db.models.quote import Quote
 from app.db.models.notification_log import NotificationLog, NotifEvent, NotifStatus
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.services.email_service import EmailService
+from app.services.entitlements import tenant_has
 from app.services.quote_pdf_service import render_quote_pdf
 from app.utils.pinned_http import ResponseRejectedError, UnsafeOutboundURLError, apinned_request
 
@@ -243,6 +244,13 @@ async def send_slack_notification(ctx, notification_log_id: str) -> None:
         ).scalar_one_or_none()
         url = cfg.slack_webhook_url if cfg else None
 
+        if not tenant_has(db, log.tenant_id, "crm_notifications"):
+            # Queued before a downgrade: the plan no longer includes Slack, so do not send.
+            log.status = NotifStatus.FAILED
+            log.error = "plan does not include slack notifications"
+            db.commit()
+            return
+
         if not url:
             log.status = NotifStatus.FAILED
             log.error = "no slack webhook configured"
@@ -359,6 +367,12 @@ async def sync_lead_to_crm(ctx, notification_log_id: str) -> None:
             select(TenantSalesAgentConfig).where(TenantSalesAgentConfig.tenant_id == log.tenant_id)
         ).scalar_one_or_none()
         url = cfg.crm_webhook_url if cfg else None
+
+        if not tenant_has(db, log.tenant_id, "crm_notifications"):
+            log.status = NotifStatus.FAILED
+            log.error = "plan does not include crm notifications"
+            db.commit()
+            return
 
         if not url:
             log.status = NotifStatus.FAILED

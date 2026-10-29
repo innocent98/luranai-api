@@ -14,6 +14,11 @@ from loguru import logger
 
 from app.core.config import settings
 
+# Socket timeout for every SMTP connection: some sends run right after a commit inside a request
+# (payment webhook, payout approval), and a dead mail server must not hang that request. 30 s
+# leaves room for slow handshakes and quote-PDF attachments, which share this code path.
+SMTP_TIMEOUT_SECONDS = 30
+
 
 class EmailService:
     """Service for sending transactional emails with HTML templates."""
@@ -85,13 +90,16 @@ class EmailService:
                     settings.SMTP_HOST or "",
                     settings.SMTP_PORT,
                     context=context,
+                    timeout=SMTP_TIMEOUT_SECONDS,
                 ) as server:
                     if settings.SMTP_USER and settings.SMTP_PASSWORD:
                         server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                     server.send_message(msg)
             else:
                 # Use STARTTLS (port 587)
-                with smtplib.SMTP(settings.SMTP_HOST or "", settings.SMTP_PORT) as server:
+                with smtplib.SMTP(
+                    settings.SMTP_HOST or "", settings.SMTP_PORT, timeout=SMTP_TIMEOUT_SECONDS
+                ) as server:
                     if settings.SMTP_TLS:
                         context = ssl.create_default_context()
                         server.starttls(context=context)
@@ -360,6 +368,165 @@ class EmailService:
 
         except Exception as e:
             logger.error(f"Failed to send password reset email: {e}")
+            return False
+
+    def send_marketer_invite_email(
+        self,
+        marketer_email: str,
+        marketer_name: str,
+        code: str,
+        invite_token: str,
+        expiry_days: int = 7,
+    ) -> bool:
+        """
+        Send a referral-program marketer their one-time set-password link.
+
+        Args:
+            marketer_email: Marketer's email
+            marketer_name: Marketer's name
+            code: The marketer's referral code
+            invite_token: One-time invite token (see TokenService.create_marketer_invite_token)
+            expiry_days: Days until the link expires (shown in the email)
+
+        Returns:
+            True if sent successfully
+        """
+        try:
+            template = self.jinja_env.get_template("marketer_invite.html")
+            set_password_link = (
+                f"{settings.FRONTEND_URL}/marketer/set-password?token={invite_token}"
+            )
+
+            html_content = template.render(
+                marketer_name=marketer_name,
+                code=code,
+                set_password_link=set_password_link,
+                expiry_days=expiry_days,
+                current_year=datetime.now().year,
+            )
+
+            subject = "Set up your Luran referral partner account"
+            return self._send_email(marketer_email, subject, html_content)
+
+        except Exception as e:
+            logger.error(f"Failed to send marketer invite email: {type(e).__name__}")
+            return False
+
+    def send_marketer_password_reset_email(
+        self,
+        marketer_email: str,
+        marketer_name: str,
+        reset_token: str,
+        expiry_minutes: int = 60,
+    ) -> bool:
+        """
+        Send a referral-program marketer a one-time password-reset link.
+
+        Args:
+            marketer_email: Marketer's email
+            marketer_name: Marketer's name
+            reset_token: One-time token (see TokenService.create_marketer_invite_token)
+            expiry_minutes: Minutes until the link expires (shown in the email)
+
+        Returns:
+            True if sent successfully
+        """
+        try:
+            template = self.jinja_env.get_template("marketer_password_reset.html")
+            reset_link = f"{settings.FRONTEND_URL}/marketer/set-password?token={reset_token}"
+
+            html_content = template.render(
+                marketer_name=marketer_name,
+                reset_link=reset_link,
+                expiry_minutes=expiry_minutes,
+                current_year=datetime.now().year,
+            )
+
+            subject = "Reset your Luran referral partner password"
+            return self._send_email(marketer_email, subject, html_content)
+
+        except Exception as e:
+            logger.error(f"Failed to send marketer password reset email: {type(e).__name__}")
+            return False
+
+    @staticmethod
+    def _naira(amount_kobo: int) -> str:
+        """Format kobo as naira with thousands separators, e.g. 500000 -> '5,000.00'."""
+        return f"{amount_kobo / 100:,.2f}"
+
+    def send_referral_conversion_email(
+        self,
+        marketer_email: str,
+        marketer_name: str,
+        amount_kobo: int,
+        company_name: str | None = None,
+    ) -> bool:
+        """
+        Tell a marketer that a business they referred became a paying customer.
+
+        The same generic notice goes out whether the reward is pending or held for review: it
+        names the reward amount (and the company, which the marketer may know) and nothing else.
+        It never carries the customer's email, plan, payment details or any review wording.
+
+        Args:
+            marketer_email: Marketer's email
+            marketer_name: Marketer's name
+            amount_kobo: The reward, in kobo
+            company_name: The referred company's display name (optional)
+
+        Returns:
+            True if sent successfully
+        """
+        try:
+            template = self.jinja_env.get_template("referral_conversion.html")
+            html_content = template.render(
+                marketer_name=marketer_name,
+                amount=self._naira(amount_kobo),
+                company_name=company_name,
+                current_year=datetime.now().year,
+            )
+            subject = "A business you referred became a paying customer"
+            return self._send_email(marketer_email, subject, html_content)
+
+        except Exception as e:
+            logger.error(f"Failed to send referral conversion email: {type(e).__name__}")
+            return False
+
+    def send_referral_payout_email(
+        self,
+        marketer_email: str,
+        marketer_name: str,
+        amount_kobo: int,
+        period_label: str,
+        reference: str,
+    ) -> bool:
+        """
+        Tell a marketer that their referral payout has been paid.
+
+        Args:
+            marketer_email: Marketer's email
+            marketer_name: Marketer's name
+            amount_kobo: The amount paid, in kobo
+            period_label: The payout batch's period label
+            reference: The transfer / bank reference of the payment
+
+        Returns:
+            True if sent successfully
+        """
+        try:
+            template = self.jinja_env.get_template("referral_payout.html")
+            html_content = template.render(
+                marketer_name=marketer_name,
+                amount=self._naira(amount_kobo),
+                period_label=period_label,
+                reference=reference,
+                current_year=datetime.now().year,
+            )
+            subject = "Your Luran referral payout has been sent"
+            return self._send_email(marketer_email, subject, html_content)
+
+        except Exception as e:
+            logger.error(f"Failed to send referral payout email: {type(e).__name__}")
             return False
 
     def send_password_changed_email(

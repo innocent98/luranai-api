@@ -40,6 +40,7 @@ def make_tenant(db) -> Tenant:
             can_access_analytics=True,
             can_upload_knowledge=True,
             max_conversations_per_month=1000,
+            can_export_ratings=True,
         )
     )
     db.commit()

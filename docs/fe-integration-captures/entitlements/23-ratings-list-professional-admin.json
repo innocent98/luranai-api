@@ -1,0 +1,24 @@
+{
+  "scenario": "ratings-list-professional-admin",
+  "note": "Empty list, 200.",
+  "request": {
+    "method": "GET",
+    "path": "/reviews/session",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "content_type": "application/json",
+    "body": {
+      "ratings": [],
+      "total": 0,
+      "average_score": null,
+      "csat_percent": null,
+      "page": 1,
+      "page_size": 50
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "description": "Role matrix: a tenant admin's token on /marketer/me (401).",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/marketer/me",
+    "query": {},
+    "headers": {
+      "cookies_sent": [
+        "access_token"
+      ],
+      "authorization": "Bearer <redacted>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "Could not validate credentials"
+    }
+  },
+  "note": "The tenant token was minted with the project's create_access_token for the signed-up tenant's admin user (a real tenant login needs the temporary password that is only emailed). It is sent both as a cookie and as a Bearer header.",
+  "redacted": [
+    "request.header.authorization"
+  ]
+}

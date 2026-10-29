@@ -1,0 +1,30 @@
+{
+  "description": "A signup with an unknown code: the identical success shape (a bad code never fails or changes a signup).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/auth/register-company",
+    "query": {},
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "company_name": "Placeholder Unknown Ltd",
+      "admin_full_name": "Uche Placeholder",
+      "admin_email": "uche.placeholder@example.com",
+      "referral_code": "no-such-code",
+      "referral_source": "form"
+    }
+  },
+  "response": {
+    "status": 201,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "message": "Company registered successfully. Please check your email to verify your account.",
+      "tenant_id": "d9b16207-04a0-41ad-950a-5b520c047cb0",
+      "admin_email": "uche.placeholder@example.com",
+      "verification_required": true
+    }
+  }
+}

@@ -56,6 +56,13 @@ from app.db.models.notification_log import NotifChannel, NotificationLog, NotifE
 from app.db.models.payment import PaymentTransaction
 from app.db.models.promotional_grant import PromotionalGrant
 from app.db.models.quote import Quote
+from app.db.models.referral import (
+    AttributionSource,
+    Marketer,
+    ReferralAttribution,
+    ReferralReward,
+    SignupOrigin,
+)
 from app.db.models.refresh_token import RefreshToken
 from app.db.models.review import PlatformFeedback, RatingRequest, SessionRating
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
@@ -63,6 +70,7 @@ from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantCapabilities, TenantStatus
 from app.db.models.user import DeletionStatus, User, UserRole
 from app.db.models.visit_analytics import DailyVisit
+from app.db.models.whatsapp import WhatsAppChat, WhatsAppConnection, WhatsAppInboundMessage
 from app.db.models.visitor import Visitor, VisitorSession, VisitorSource
 from app.services.account_purge_service import AccountPurgeService
 from app.utils.datetime import utcnow_aware
@@ -935,6 +943,33 @@ def _seed_every_tenant_scoped_table(db_session, tenant: Tenant, agent: User) -> 
         created_from=VisitorSource.WIDGET,
     )
     _add(visitor, "visitors")
+    wa_connection = WhatsAppConnection(
+        tenant_id=tenant.id,
+        status="connected",
+        phone_e164="2348000000001",
+        phone_hmac=uuid4().hex + uuid4().hex,
+        session_key=f"sk_{uuid4().hex}",
+        consent_version="v",
+        consent_accepted_at=utcnow_aware(),
+    )
+    _add(wa_connection, "whatsapp_connections")
+    _add(
+        WhatsAppChat(
+            tenant_id=tenant.id,
+            connection_id=wa_connection.id,
+            contact_hmac=uuid4().hex + uuid4().hex,
+            contact_ref="198765432100@lid",
+            visitor_id=visitor.id,
+        ),
+        "whatsapp_chats",
+    )
+    db_session.add(
+        WhatsAppInboundMessage(
+            connection_id=wa_connection.id,
+            provider_message_id="PURGE-GUARD",
+            received_at=utcnow_aware(),
+        )
+    )
     _add(
         VisitorSession(
             visitor_id=visitor.id,
@@ -1139,6 +1174,30 @@ def _seed_every_tenant_scoped_table(db_session, tenant: Tenant, agent: User) -> 
     )
     _add(_make_attachment(tenant.id, session_id), "message_attachments")
 
+    marketer = Marketer(
+        name="Purge Marketer",
+        email=f"marketer-{uuid4().hex[:8]}@example.com",
+        code=f"purge-{uuid4().hex[:8]}",
+    )
+    _add(marketer, "marketers")
+    _add(
+        ReferralAttribution(
+            tenant_id=tenant.id, marketer_id=marketer.id, source=AttributionSource.COOKIE
+        ),
+        "referral_attributions",
+    )
+    _add(
+        ReferralReward(
+            tenant_id=tenant.id,
+            marketer_id=marketer.id,
+            amount_kobo=500_000,
+            converted_at=utcnow_aware(),
+            payable_after=utcnow_aware(),
+        ),
+        "referral_rewards",
+    )
+    _add(SignupOrigin(tenant_id=tenant.id, origin_hash="0" * 64), "signup_origins")
+
     return seeded
 
 
@@ -1158,6 +1217,9 @@ def test_purge_tenant_completeness_guard_zero_pii_bearing_rows_survive(db_sessio
     tables = _tenant_scoped_tables()
     table_names = {t.name for t in tables}
     seeded = _seed_every_tenant_scoped_table(db_session, tenant, agent)
+    reward_id = db_session.execute(
+        select(ReferralReward.id).where(ReferralReward.tenant_id == tenant.id)
+    ).scalar_one()
 
     # Every discovered table except the allowlist must have an actual row
     # for this tenant — otherwise the assertion loop below would pass
@@ -1187,3 +1249,19 @@ def test_purge_tenant_completeness_guard_zero_pii_bearing_rows_survive(db_sessio
         .where(User.tenant_id == tenant.id, User.deletion_status != DeletionStatus.PURGED)
     ).scalar_one()
     assert remaining_active == 0
+    # The referral reward survives the purge, detached from the (PII-free) tenant.
+    kept = db_session.execute(
+        select(func.count())
+        .select_from(ReferralReward)
+        .where(ReferralReward.id == reward_id, ReferralReward.tenant_id.is_(None))
+    ).scalar_one()
+    assert kept == 1
+    # whatsapp_inbound_messages has no tenant_id (so the schema-discovered loop skips it)
+    assert (
+        db_session.execute(
+            select(func.count())
+            .select_from(WhatsAppInboundMessage)
+            .where(WhatsAppInboundMessage.provider_message_id == "PURGE-GUARD")
+        ).scalar_one()
+        == 0
+    )

@@ -1,0 +1,30 @@
+{
+  "scenario": "file-upload-at-cap",
+  "note": "At the cap with FAILED sources present: a new file is refused (cap counts live sources only).",
+  "request": {
+    "method": "POST",
+    "path": "/knowledge/upload-file",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "multipart_file": {
+        "file": "one-more.txt"
+      },
+      "tenant_id": "3c60c339-7a7b-4c34-966b-a108c6e3694b",
+      "source_type": "faq"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "detail": {
+        "error": "knowledge_limit_reached",
+        "message": "Knowledge source limit reached (2/2).",
+        "current_count": 2,
+        "limit": 2,
+        "upgrade_message": "Upgrade to Professional for 30 sources or Enterprise for unlimited."
+      }
+    }
+  }
+}

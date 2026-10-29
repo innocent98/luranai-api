@@ -1,0 +1,9 @@
+{
+  "fake_sidecar_received": [
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432100@lid",
+      "text": "You're now chatting with Alpha."
+    }
+  ]
+}

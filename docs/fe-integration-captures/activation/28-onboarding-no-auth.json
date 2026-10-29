@@ -1,0 +1,16 @@
+{
+  "scenario": "onboarding-no-auth",
+  "note": "No token.",
+  "request": {
+    "method": "GET",
+    "path": "/tenant/onboarding",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "body": {
+      "detail": "Could not validate credentials"
+    }
+  }
+}
