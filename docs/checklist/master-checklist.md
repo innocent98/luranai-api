@@ -105,7 +105,7 @@ Docs: SOP `docs/sop/whatsapp_media_and_rating.md`; FE guide `docs/fe-integration
   - [x] Dockerfile (node 22.23.4 slim, non-root), `docker-compose.whatsapp.yml` (512m, no published port), CI job `whatsapp-sidecar`
   - [x] Opus security review of store, lease, webhook signing, API auth
   - [x] Live pairing through the new multi-session code (2026-10-27, local, one session; pair, KB answer, photo fallback, owner pause, unlink all proven)
-  - [ ] N-session RAM soak (`whatsapp-sidecar/scripts/soak.mjs` is a skeleton)
+  - [ ] N-session RAM soak — **tooling + runbook built 2026-10-28 (`test/whatsapp-sidecar-soak`, SOP `docs/sop/whatsapp_sidecar_soak.md`); the real run is NOT done** (needs 6 dedicated test numbers + a person with the phones)
 
 ### Sidecar on staging (branch `feature/sidecar-staging-deploy`, PR to `develop`) — built 2026-10-28
 Docs: plan `docs/superpowers/plans/2026-10-28-sidecar-staging-deploy.md` (evidence, budget, owner runbook); SOP `docs/sop/whatsapp_sidecar_staging_deploy.md`. Production untouched.
@@ -137,6 +137,15 @@ Docs: plan `docs/superpowers/plans/2026-10-28-sidecar-staging-deploy.md` (eviden
 - [ ] T10 Dashboard Channels -> WhatsApp (luran-dashboard repo; dashboard track)
 - [ ] T11 FE integration guide re-capture against the real sidecar
 - [ ] T12 Soak and deploy-restore drill
+  - [x] Soak harness: collector (`/health` + container cgroup memory + step marker to CSV), analysis with recommended limits, image generator, fake-socket dry run; 27 unit tests on synthetic CSV fixtures; probe verified inside `node:22.23.4-slim` under cgroup v2 — 2026-10-28, SOP `docs/sop/whatsapp_sidecar_soak.md`
+  - [x] Runbook with exact commands (baseline, 1/2/4/6, text load, image burst, 24 h hold, restart storm)
+  - [ ] RUN on staging: baseline at 0 sessions
+  - [ ] RUN: marginal RSS at 1 / 2 / 4 / 6 paired test numbers
+  - [ ] RUN: image burst at the highest N (inbound photos; outbound 9.5 MiB if the product allows)
+  - [ ] RUN: idle hold, 1 h and 24 h marks
+  - [ ] RUN: reconnect storm (restart), time to all sessions restored + peak RSS
+  - [ ] Attach the report to the memory snapshot SOP; then size the production sidecar (limit, `MAX_SESSIONS`)
+  - [ ] Deploy-restore drill (separate from the RAM soak)
 - [ ] T13 Opus security review of the sidecar + beta fixes (backend demo review is done, see SOP)
 - [ ] T14 Option B Cloud API adapter (blocked on Meta Tech Provider approval)
 - [ ] T15 Per-tenant contact exclusion list (AI never answers personal contacts), beta, not in the demo
@@ -180,13 +189,13 @@ Plan: `docs/deployment/prod-release-plan-2026-10.md` (DRAFT 2026-10-28). Merging
 - [ ] Owner: test-mode Lite checkout on staging (15,000 / 150,000); fix GitHub Actions spending limit; re-private `luranai-api`
 - [ ] Manual DB dump + `docker stats` baseline, then PR `develop` -> `main`; verify health, migrations at `wa20ratingreply`, pricing, entitlements, worker functions
 - [ ] Dashboard `staging` -> `main` (15 commits) right after the backend; `luran-chat` `stage` -> `main` (3 commits)
-- [ ] Production sidecar job (separate PR + separate go): prod compose/CD steps with a prod guard, secrets in `.env.production.enc`, soak-based sizing, consent/ToS wording, per-tenant grant
+- [ ] Production sidecar job (separate PR + separate go): prod compose/CD steps with a prod guard, secrets in `.env.production.enc`, soak-based sizing (soak tooling ready, run pending), consent/ToS wording, per-tenant grant
 
 ## Memory and capacity — OPEN (snapshot `docs/sop/memory_and_capacity_snapshot_2026-10-28.md`)
 - [ ] Split prod/staging API memory (anon vs cache vs slab) now and after 24 h
 - [ ] Explain the prod API's 1.94 GB of block reads; test the 30 s Python healthcheck as a cause
 - [ ] Decide worker count / `--preload` from measurements (prod stays at 2 workers, 1.172 GiB until then)
-- [ ] Sidecar soak at 1/2/4/6 sessions with load, then size the prod sidecar limit and `MAX_SESSIONS`
+- [ ] Sidecar soak at 1/2/4/6 sessions with load, then size the prod sidecar limit and `MAX_SESSIONS` — tooling + runbook built (`docs/sop/whatsapp_sidecar_soak.md`), **run pending**
 
 ## Deferred follow-ups (WhatsApp)
 - [ ] Sidecar: purge long-dormant `logged_out` session rows; persist the daily send counter beyond Redis; second Baileys-version re-vet on every bump
