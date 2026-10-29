@@ -57,7 +57,7 @@ _(Set-Cookie headers of `01-platform-admin-login.json`)_
 | Action | `ADMIN` | `SUPER_ADMIN` | no / wrong credentials |
 |---|---|---|---|
 | Read (list marketers, get marketer, rewards queue, batches, config) | 200 | 200 | 401 |
-| Write (create marketer, bank update, suspend, reactivate, release, void, approve, retry, mark-paid, PATCH config) | **403** | 200 | 401 |
+| Write (create marketer, bank update, suspend, reactivate, release, void, approve, retry, mark-paid, prepare batch, PATCH config) | **403** | 200 | 401 |
 
 The 403 body is a plain string, see section 10. Hide write buttons for plain admins (the dashboard already knows the admin's role); still handle the 403.
 
@@ -125,7 +125,7 @@ _(response body of `34-signup-with-referral-code.json`, status 201)_
 ```
 _(response body of `35-signup-with-unknown-code.json`, status 201)_
 
-From code and tests, **not captured**: a non-string, blank or over-64-character `referral_code`, or any `referral_source` other than `cookie`/`form`, is treated as "no code" instead of a 422; a code is matched case-insensitively and trimmed; a suspended marketer's code is ignored the same way. The form must not tell the visitor whether the code was accepted: the response is deliberately identical.
+From code and tests, **not captured**: a non-string, blank or over-64-character `referral_code` is treated as "no code" instead of a 422, and any `referral_source` other than `cookie`/`form` is **dropped** (not rejected): the attribution then proceeds as `form` (when the code itself is usable); a code is matched case-insensitively and trimmed; a suspended marketer's code is ignored the same way. The form must not tell the visitor whether the code was accepted: the response is deliberately identical.
 
 The signup 400 for a taken company name is a plain string (`36-signup-company-name-taken.json`, status 400):
 
@@ -378,7 +378,7 @@ Field rules:
 
 | Field | Rule |
 |---|---|
-| `status` | `signed_up` (in trial, commission window open), `converted` (a reward exists that is not void), `not_converted` (trial over unpaid, or window closed). `not_converted` was **NOT CAPTURED**; it is from code |
+| `status` | `signed_up` (still in trial, commission window open, no reward yet), `converted` (a reward exists that is not void), `not_converted` (everything else: trial over unpaid, window closed, **a reward that was voided**, or a company that has already paid and upgraded but whose reward has not been created yet, see below). `not_converted` was **NOT CAPTURED live**; it is from code and tests |
 | `trial_days_left` | integer (rounded up) only while `signed_up`; **`null`** otherwise (present, not absent) |
 | `converted_at` | timestamp only when `converted`; **`null`** otherwise |
 | `kb_uploaded`, `widget_installed` | activation hints, computed only for `signed_up` rows; always `false` for the others. A failure computing them degrades to `false`, it never errors the page |
@@ -388,7 +388,12 @@ Field rules:
 
 Self-referral attributions are not listed and not counted. Totals cover all pages, not just the page returned.
 
-**Voided rewards look like "not paid" in this list.** At the end of the run (`69-marketer-referrals-final.json`) three companies are listed; the one whose reward was **voided** by an admin (`Placeholder Mart Ltd`, capture 55) shows as `signed_up` with `trial_days_left: 30`, even though a payment row exists:
+**`not_converted` is not the same as "never paid".** The status is decided in this order: a reward that is `void` gives `not_converted` (a marketer cannot tell void from never-converted); any other reward gives `converted` (held and pending included); with no reward, the company is `signed_up` only while its trial is still running and the commission window is open, otherwise `not_converted`. Two cases are worth knowing:
+
+* A company that **has paid** is upgraded at that moment (`subscription_status` becomes `active`, the trial end is cleared), so it is no longer in trial. If its reward does not exist yet (the reward is created behind the payment and a failure there is repaired by the daily reconcile job, 03:00 UTC), it shows `not_converted` until the reward exists, then `converted`. Do not present that as a failed referral; it self-corrects within a day.
+* A company with a **void** reward shows `not_converted` with `trial_days_left: null` and `converted_at: null`, whether or not its trial is still open (tests: `test_a_void_reward_shows_not_converted_even_while_the_trial_is_open`). `signed_up` next to a void reward can only appear if the company's upgrade itself failed (the tenant is still `trialing`); that is a tenant-billing problem, not a referral one.
+
+**Observed in the live run, and why (capture 69).** In `69-marketer-referrals-final.json` the company whose reward an admin voided (`Placeholder Mart Ltd`, capture 55) is listed as `signed_up` with `trial_days_left: 30`:
 
 ```json
 {
@@ -433,7 +438,7 @@ Self-referral attributions are not listed and not counted. Totals cover all page
 ```
 _(response body of `69-marketer-referrals-final.json`, status 200)_
 
-That is the documented rule (void means not converted; held or pending means converted), but see the verification table: the `30` days left may be an artifact of how the capture inserted the payment (a really upgraded tenant is no longer in trial), so do **not** read `signed_up` as "has not paid", and do not build logic on `trial_days_left` for a company whose reward is void. A marketer cannot tell void from never-converted, and cannot see held or flagged rewards at all (a held reward is shown as converted and its money as pending).
+This capture is **not** the rule, it is an artifact of the scratch run: the capture script inserted that company's payment directly and the tenant's upgrade failed there (the real `upgrade_subscription` sets `subscription_status = active` and clears `trial_ends_at`, so a really upgraded tenant is never `signed_up`). With the rule above, the same company reads `not_converted` (`trial_days_left: null`). The capture is kept unedited. Do not read `signed_up` as "has not paid" in general, and do not build logic on `trial_days_left` for a company whose reward is void. A marketer cannot see held or flagged rewards at all (a held reward is shown as converted and its money as pending).
 
 ### 6.3 `GET /earnings`
 
@@ -585,6 +590,16 @@ The invalid-code 422 (`06-admin-create-marketer-invalid-code.json`). Note the me
 }
 ```
 _(response body of `06-admin-create-marketer-invalid-code.json`, status 422)_
+
+**Slow or failed mail.** The invite is emailed inside this request, after the marketer is saved. The SMTP socket timeout is **30 seconds** (it was 10; quote-PDF attachments share the same sender), so in the worst case the call takes about that long: keep the button disabled and the spinner up. A mail failure never fails the request; `invite_pending: true` is how you see that the marketer has not set a password yet.
+
+**Writes are audited atomically.** Create, bank update, suspend and reactivate commit **together with their audit entry**. If the audit entry cannot be written, nothing is changed (no marketer, no new bank account, no status change, no invite) and the response is a `500` with a fixed body (**NOT CAPTURED**; from tests `test_bank_change_whose_audit_fails_is_rolled_back_with_a_fixed_500` and siblings):
+
+```json
+{"detail": {"code": "bank_update_failed", "message": "The change was not saved"}}
+```
+
+`code` is `marketer_create_failed`, `bank_update_failed`, `marketer_suspend_failed` or `marketer_reactivate_failed` depending on the call. Show "not saved, try again"; re-read the marketer before retrying.
 
 ### 7.2 List, get, suspend, reactivate
 
@@ -814,7 +829,22 @@ _(response body of `56-admin-release-reward-not-found.json`, status 404)_
 
 * Daily 03:00 UTC: rewards whose hold has passed (and with no flag) become `payable`; missing rewards are repaired.
 * The 1st and 15th, 04:00 UTC: a **draft** batch is prepared from every payable reward of every active marketer. **Nothing is paid until a super admin approves the batch.**
+* If the 1st/15th job hits a database lock conflict (for example a marketer is being suspended at that very second) it retries up to 3 times with a short pause, then logs an error and gives up; the next scheduled run would be two weeks later, so a super admin can run it by hand (section 9.1A).
 * The default payout provider is `manual`. With it, approving marks every item `awaiting_manual` and sends nothing anywhere; the admin pays by bank transfer outside Luran and records it with `mark-paid`. The automatic Paystack provider is switched on by configuration later (section 13).
+
+**Switching the provider back to `manual`.** If the configuration was `paystack` and is set back to `manual`, items that were already sent through Paystack and are still `failed` or `processing` keep working: the server verifies them **with Paystack** (not with the manual provider) when you retry or mark them paid. A retry after Paystack confirms the transfer is dead claims a new attempt (`-r2`) and, because the setting is manual, parks it as `awaiting_manual` for a human to pay. The FE does nothing different; just do not assume that "provider is manual" means "no Paystack call can happen".
+
+### 9.1A Prepare a batch by hand (super admin)
+
+`POST /api/v1/platform/referrals/batches/prepare`, no body, super admin only (403 for an ordinary admin, 401 without a session), rate limited like the other admin routes. It does what the 1st/15th job does: groups every payable reward of every active marketer into a new **draft** batch. Nothing is sent; the batch still needs approval. **Added after the live capture run; verified by tests only (no capture).**
+
+The response is always an object with a `batch` key: the full batch detail (same shape as `GET /batches/{id}`, section 9.2) or `null`:
+
+```json
+{"batch": null}
+```
+
+`{"batch": null}` with status 200 means nothing was payable (also what a second click returns, so the call is safe to repeat); otherwise `batch` is the draft (`status: "draft"`, every item `pending`). Failure is a `500` `{"detail": {"code": "prepare_failed", "message": "The batch was not prepared"}}`; try again. The audit entry (`prepare_payout_batch`) carries the batch id, status, total and item counts only.
 
 ### 9.2 Batches and items
 
@@ -908,7 +938,7 @@ _(response body of `67-admin-batch-not-found.json`, status 404)_
 Field-nesting and value traps:
 
 * `item_counts` always carries all six states, with zeros.
-* `amount_kobo` is what was **claimed** when the item was prepared. **`current_amount_kobo`** is what that marketer's rewards currently batched in this batch add up to, and it is the number to show and to send back to `mark-paid`. It is lower when a reward was held after the batch was prepared, and it becomes `0` once the item is paid (compare `64`/`66`).
+* `amount_kobo` is what was **claimed** when the item was approved (the amount the admin was shown and may already have paid at the bank). **`current_amount_kobo`** is what that marketer's rewards currently batched in this batch add up to. They differ when a reward was held (a payment dispute) after the item was claimed. `mark-paid` accepts either number for an `awaiting_manual` item (see 9.5), and `current_amount_kobo` becomes `0` once the item is paid (compare `64`/`66`).
 * `held_rewards_excluded` is the marketer's held rewards that are not in this batch.
 * `transfer_reference` is `null` in a draft, the system reference (`ref-<batch id>-<marketer id>`, with `-r2`, `-r3` after retries) once approved, and the **bank reference you typed** after a manual `mark-paid`.
 * `failure_reason`, `provider_status`, `approved_at`, `approved_by_admin_id` are present as `null` when not set, never absent.
@@ -932,7 +962,7 @@ Payout item status (admin only):
 |---|---|---|
 | `pending` | prepared, not yet approved or claimed | nothing (approve the batch) |
 | `processing` | handed to the provider, answer not final (Paystack transfers are asynchronous) | nothing; wait or poll. **Never** offer manual payment here, a live transfer could still succeed |
-| `awaiting_manual` | manual provider: waiting for the admin to pay and record it | Mark paid |
+| `awaiting_manual` | manual provider: waiting for the admin to pay and record it. A reward disputed meanwhile **stays locked to this item** (it is `held` with its batch link, so release and void answer `409 reward_in_flight`): the admin may already have paid it at the bank | Mark paid |
 | `paid` | done | nothing |
 | `failed` | the provider failed, needed an OTP (`failure_reason` `otp_required`), or the transfer was reversed (`reversed`) | Retry the batch; or Mark paid, which the server only allows after it has confirmed the transfer is dead |
 | `skipped` | marketer suspended, no batched rewards left, or a non-positive amount | nothing |
@@ -1041,9 +1071,14 @@ A plain admin gets the 403 plain string (`60`).
 
 `POST /batches/{id}/retry` (no body) re-drives the unfinished items of an approved batch: each item is looked up at Paystack first and only re-sent when no live transfer exists. It returns the batch detail shape above; a draft batch is a `409 batch_state_invalid`. **NOT CAPTURED** (it needs the Paystack provider).
 
-`POST /batches/{id}/mark-paid` records payments made outside the system. The body lists one entry per marketer; all entries apply together or none do. **`amount_kobo` is required and must equal that item's `current_amount_kobo`**: show the amount as naira, make the admin confirm they actually paid that amount, and send it back in kobo.
+`POST /batches/{id}/mark-paid` records payments made outside the system. The body lists one entry per marketer; all entries apply together or none do. **`amount_kobo` is required: the amount the admin actually paid, in kobo.** For an `awaiting_manual` item the server accepts **either** of two figures, and refuses everything else with `409 amount_mismatch`:
 
-Wrong amount (`63-admin-batch-mark-paid-wrong-amount.json`): request, then the 409. Nothing changes. Refresh the batch, show the new `current_amount_kobo` from the error, and ask the admin to check what they really paid:
+* the item's claimed `amount_kobo`: the admin paid what they were shown at approval. Every claimed reward is recorded as paid, including one that was disputed (held) after the claim (it gets the review reason `paid_in_flight`), so nothing is left that could be paid a second time;
+* the item's `current_amount_kobo`: the admin paid only the undisputed part. That set is recorded and the disputed reward is released from the batch for an admin to handle in the review queue.
+
+When no reward was held the two numbers are equal. For a `failed` item only `current_amount_kobo` is accepted. Show both numbers as naira when they differ, make the admin confirm which one they actually paid, and send that one back in kobo. **A reward disputed while its item is `awaiting_manual` cannot be released or voided until the item is marked paid** (`409 reward_in_flight`).
+
+Wrong amount (`63-admin-batch-mark-paid-wrong-amount.json`): request, then the 409. Nothing changes. Refresh the batch, show the figures from the error, and ask the admin to check what they really paid. This capture predates the two-amount rule: its body lacks `claimed_amount_kobo` and carries the older message (kept verbatim below; the current body follows it):
 
 ```json
 {
@@ -1069,6 +1104,20 @@ _(request body of `63-admin-batch-mark-paid-wrong-amount.json`)_
 }
 ```
 _(response body of `63-admin-batch-mark-paid-wrong-amount.json`, status 409)_
+
+Current body of the same refusal (changed after the live run; **verified by tests only**, test `test_r49_mark_paid_accepts_the_claimed_or_the_current_amount_after_a_reward_was_held`). `claimed_amount_kobo` is the item's claimed amount for an `awaiting_manual` item and **`null`** for a `failed` item (where only the current amount is accepted); the `message` is fixed text, the submitted amount is never echoed:
+
+```json
+{
+  "detail": {
+    "code": "amount_mismatch",
+    "message": "The amount matches neither the item's current amount nor its claimed amount (a reward may have been held); check what you actually paid",
+    "marketer_id": "<placeholder-marketer-uuid>",
+    "current_amount_kobo": 500000,
+    "claimed_amount_kobo": 800000
+  }
+}
+```
 
 Correct amount (`64-admin-batch-mark-paid.json`). Note `transfer_reference` is now the bank reference, `current_amount_kobo` is `0` and the batch is `paid`:
 
@@ -1255,7 +1304,7 @@ These are consequences a user or admin would find surprising or wrong if shown s
 
 **Marketer page**
 8. All money is kobo; show naira with two decimals.
-9. `signed_up` does not mean "has not paid" (a company with a voided reward still shows `signed_up`) and `totals.signed_up` counts every referred company. The page never shows why a reward is waiting: a held reward is just part of "pending".
+9. `not_converted` covers a voided reward and a paid company whose reward is not created yet (it turns `converted` after the daily reconcile); `totals.signed_up` counts every referred company. The page never shows why a reward is waiting: a held reward is just part of "pending".
 10. `trial_days_left` and `converted_at` are `null` when not applicable; handle null, not absence.
 11. `this_month_earned_kobo` is the Lagos calendar month and does not drop after a payout.
 
@@ -1269,10 +1318,10 @@ These are consequences a user or admin would find surprising or wrong if shown s
 
 **Admin: payouts**
 16. **Approve processes the items inside the request**: disable the button while the call is pending and never fire it twice. Approving again is harmless (200, unchanged), but the first call can be slow.
-17. **Mark paid requires `amount_kobo`.** Pre-fill nothing silently: show the item's `current_amount_kobo` as naira, make the admin confirm they paid that amount, and send it. On `409 amount_mismatch`, refresh the batch and show the `current_amount_kobo` from the error (a reward was held since the batch was prepared).
+17. **Mark paid requires `amount_kobo`.** Pre-fill nothing silently: show the item's `current_amount_kobo` and, when different, its claimed `amount_kobo` as naira, make the admin confirm which one they paid, and send it. On `409 amount_mismatch`, refresh the batch and show `current_amount_kobo` and `claimed_amount_kobo` from the error (a reward was held since the batch was approved).
 18. Offer Mark paid only for `awaiting_manual` and `failed` items. Never for `processing` or `pending`: a live transfer could still succeed and pay twice. The server enforces this too.
 19. Under the Paystack provider an item can stay `processing` for a while; poll as in section 9.3 and do not show it as failed.
-20. Show `current_amount_kobo`, not `amount_kobo`, as "what this marketer is owed now".
+20. Show `current_amount_kobo` as "what this marketer is owed now" and, for an `awaiting_manual` item where it differs from `amount_kobo`, explain that `amount_kobo` is what was approved and may already have been paid.
 21. Warn before saving settings: a change affects rewards created afterwards; a new commission window also changes what existing referrals show to marketers.
 22. There are no refunds and no clawback: a paid commission is kept, and a dispute after payment changes nothing. Do not build a "claw back" action.
 
@@ -1300,6 +1349,7 @@ These are consequences a user or admin would find surprising or wrong if shown s
 | The arq cron jobs themselves | only the functions were called, with a shifted clock (captures `57`, `58`) | cron registration is asserted in `tests/workers/test_referral_jobs.py` |
 | Browser behaviour (CORS, `Secure` cookies) | the script sent cookies by hand over plain http | standard cookie semantics |
 | `not_converted` status, 429 on marketer or admin routes, refresh failure, bank PATCH, batch retry, extra mark-paid error codes | no capture | code and tests, labelled inline |
+| `POST /batches/prepare`, the two-amount `mark-paid` rule (claimed or current), the `claimed_amount_kobo` field of the 409, the `500` audit-failure bodies of the marketer writes, provider switched back to `manual` | added or changed after the live run | tests (`tests/referral/test_payout_endpoints.py`, `test_payouts.py`, `test_marketer_admin.py`), labelled inline |
 
 ## 14. Verification table
 
@@ -1329,10 +1379,15 @@ These are consequences a user or admin would find surprising or wrong if shown s
 | `mark-paid` amount mismatch 409 with `current_amount_kobo`; correct amount pays; repeat 409 | verified live | `63`, `64`, `65`, `66` |
 | Marketer earnings buckets and payout history after payment | verified live | `33`, `42`, `57`, `68` |
 | Marketer list status `signed_up` / `converted`, `trial_days_left` and `converted_at` null vs set, masked email | verified live | `37`, `41`, `69` |
-| A voided reward's company shows `signed_up` with `trial_days_left: 30` although a payment row exists | observed behaviour; see known issues | `69`; open item in the SOP: the company still read as `trialing` with 30 days left, whereas a real upgrade sets the tenant `active` and clears the trial, so the scratch run's directly inserted payment may not have upgraded it; to be checked by the final review |
+| A voided reward's company is `not_converted` (R44); a paid company without a reward yet is `not_converted` until the reconcile creates it | not exercised live; tests | `test_a_void_reward_shows_not_converted_even_while_the_trial_is_open`. Capture `69` shows `signed_up` / `trial_days_left: 30` for the voided company because the scratch run's directly inserted payment did not upgrade the tenant (the real `upgrade_subscription` sets `active` and clears the trial), see section 6.2 |
 | Config read, partial change, bounds 422 | verified live | `70`, `71`, `72` |
 | Role matrix: plain admin reads 200 and writes 403; 401 for no, tenant, platform or wrong-kind tokens | verified live | `52`, `60`, `73` to `78`, `19` |
 | Paystack Transfers (initiate, verify, webhooks), OTP transfers, batch retry | NOT exercised live | section 13 |
 | Dispute hold and `reward_in_flight` 409 | NOT exercised live | section 13 |
 | Emails (invite, reset, conversion, payout) | NOT exercised live | section 13 |
 | `not_converted` status; 429 on portal and admin routes; bank PATCH; other mark-paid errors | NOT exercised live | code and tests, labelled inline |
+| `mark-paid` accepts the claimed OR the current amount for an `awaiting_manual` item; a dispute on such an item keeps the reward locked (`reward_in_flight`); a third amount is 409 with both figures | NOT exercised live (added after the run); tests | `test_r49_*` in `tests/referral/test_payouts.py` and `test_payout_endpoints.py`, section 9.5 |
+| `POST /batches/prepare` (draft or `{"batch": null}`, idempotent, super admin only, audited) | NOT exercised live (added after the run); tests | `tests/referral/test_payout_endpoints.py`, section 9.1A |
+| Atomic audit for marketer create / bank / suspend / reactivate (`500` with a fixed code, nothing changed) | NOT exercised live; tests | `tests/referral/test_marketer_admin.py`, section 7.1 |
+| Paystack-era `failed` / `processing` items are verified with Paystack after the provider is switched back to `manual` | NOT exercised live (mock HTTP); tests | `test_m5_*` in `tests/referral/test_payouts.py`, section 9.1 |
+| SMTP socket timeout is 30 s | tests (constant asserted); not timed live | `tests/referral/test_notifications.py` |

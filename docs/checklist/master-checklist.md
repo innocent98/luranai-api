@@ -9,7 +9,7 @@ Snapshot (Plan entitlements): backend #159 + dashboard #90 merged and running on
 
 Snapshot (Sidecar on staging): deployed and healthy on staging since 2026-10-28 (CD gate + smoke PASS); prod has NO sidecar and the prod CD job has no sidecar steps; see `docs/deployment/prod-release-plan-2026-10.md`.
 
-Snapshot (Referral program): backend Tasks 1-10 built and tested on branch `feature/referral-backend` (2026-10-29); PR to `develop` NOT yet opened, whole-branch CI parity and final Opus review still owed; payouts default to the `manual` provider; dashboard stream, `luran_ref` cookie script, login-page fallback, privacy-policy text and a Paystack test-mode transfer run are NOT done. Counts for this module (2026-10-29): 19 ticked, 22 open (see its section). Prod untouched.
+Snapshot (Referral program): backend Tasks 1-10 built and tested on branch `feature/referral-backend` (2026-10-29); PR to `develop` NOT yet opened, whole-branch CI parity still owed (the final Opus review ran and its findings are fixed, 2026-10-29); payouts default to the `manual` provider; dashboard stream, `luran_ref` cookie script, login-page fallback, privacy-policy text and a Paystack test-mode transfer run are NOT done. Counts for this module (2026-10-29): 26 ticked, 23 open (see its section). Prod untouched.
 
 Snapshot (WhatsApp module): spike, build, sidecar, dashboard, media and rating ALL merged to develop/staging; deployed on STAGING and live-tested with real phones 2026-10-28 (text, images both ways, escalation + agent app, join line, rating reply, resolve notice). Production NOT touched: see `docs/deployment/prod-release-plan-2026-10.md`.
 
@@ -198,6 +198,7 @@ Why: Luran wants marketers and influencers to bring businesses, paid a one-time 
 - [x] Create / list / get / bank update / suspend / reactivate under `/api/v1/platform/referrals/`; code rules (3-32, lowercase, reserved words, immutable); bank details encrypted and write-only (`bank_last4` only)
 - [x] One-time invite token (7 days) and invite email; suspend holds unpaid rewards; reactivate does not release them
 - [x] Writes require SUPER_ADMIN, reads any platform admin (security-review finding, fixed)
+- [x] Create / bank update / suspend / reactivate commit atomically with their audit entry (an audit failure rolls the change back with a fixed 500; final review M2)
 
 ### Task 4: marketer identity and auth
 - [x] Separate identity: `admin_type="marketer"`, own cookies, `get_current_marketer` (cookie only); login / refresh / logout / set-password / forgot-password; identical 401 for unknown email, wrong password and no password; 403 `account_suspended`
@@ -217,6 +218,9 @@ Why: Luran wants marketers and influencers to bring businesses, paid a one-time 
 ### Task 8: payouts
 - [x] Payout batches (cron on the 1st and 15th, 04:00 UTC), items, approve / retry / mark-paid, manual and Paystack Transfers providers, `transfer.*` webhook events
 - [x] Double-pay defences (claim-then-call, verify-first retry, amounts recomputed from batched rewards, `reward_in_flight`, `amount_mismatch`); the Opus-found double-pay defect fixed and re-reviewed
+- [x] Final-review fix wave (2026-10-29): `awaiting_manual` is treated like `processing`/`failed` for a dispute hold (the reward keeps its batch link; `release`/`void` refuse) and `mark-paid` accepts the claimed or the current amount (closes a double-pay path in the manual flow)
+- [x] Paystack-era `failed`/`processing` items are verified with Paystack after the provider is switched back to `manual`
+- [x] `POST /api/v1/platform/referrals/batches/prepare` (super admin, audited, idempotent) and a 3-retry deadlock policy for the `referral_prepare_batch` cron
 - [ ] Paystack Transfers exercised in test mode (not-found / failed / reversed shapes, OTP handling) — owner action
 
 ### Task 9: marketer API and admin queue
@@ -227,7 +231,9 @@ Why: Luran wants marketers and influencers to bring businesses, paid a one-time 
 - [x] 78 live captures against a local app on scratch Postgres/Redis; FE guide built only from them and checked block by block
 - [x] SOP and this checklist entry (2026-10-29)
 - [ ] Local CI parity on the whole branch (ruff 0.8.6, black 24.10.0, full pytest, SQLite regression job)
-- [ ] Opus whole-branch security review and fix wave
+- [x] Opus whole-branch review (`e4ee8db..0d4b38f`: no Critical, 1 Important, minors) and the fix wave (2026-10-29)
+- [x] Marketer page follows R44: a `void` reward shows `not_converted`; capture 69's `signed_up` is explained by a failed upgrade in the scratch run (FE guide 6.2, SOP)
+- [x] Unmatched dispute logs an ERROR with Paystack's dispute id; SMTP socket timeout raised to 30 s; exception text no longer logged in the new referral code
 - [ ] PR opened to `develop`, reviewed and merged (lead)
 
 ### Not done: frontend and owner items
@@ -244,7 +250,9 @@ Why: Luran wants marketers and influencers to bring businesses, paid a one-time 
 
 ### Deferred follow-ups (Referral)
 See the grouped list in `docs/sop/referral_program_backend.md` ("Known gaps / Follow-ups"). Headlines:
-- [ ] Capture 69: a voided reward's company shows `signed_up` with 30 trial days left (check whether the capture's directly inserted payment upgraded the tenant)
+- [ ] Test fixture `db_session` (`tests/conftest.py`): replace the SAVEPOINT-restart listener with `join_transaction_mode="create_savepoint"` (review M4; today an app-level `rollback()` wipes the whole test)
+- [ ] Dispute webhook: look the transaction up by its numeric id when Paystack sends no reference (today it only logs an ERROR with the dispute id)
+- [ ] `CHECK (amount_kobo > 0)` constraints on reward and payout amounts
 - [ ] Approve/retry run provider calls inside the request (background worker for larger batches)
 - [ ] No single kill switch for the whole programme; batch days hardcoded to the 1st/15th
 - [ ] Refresh-reuse detection and a `password_changed_at` check for marketer tokens
