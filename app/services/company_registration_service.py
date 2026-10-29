@@ -11,6 +11,8 @@ from app.core.encryption import hash_for_lookup
 from app.core.security import get_password_hash
 from app.db.models.tenant import Tenant, TenantAIConfig, TenantStatus
 from app.db.models.user import User, UserRole
+from app.services.referral.attribution import attribute_signup, origin_hash
+from app.db.models.referral import AttributionSource
 from app.schemas.auth import (
     CompanyRegistrationRequest,
     CompanyRegistrationResponse,
@@ -49,7 +51,11 @@ class CompanyRegistrationService:
             suffix += 1
 
     def register_company(
-        self, registration_data: CompanyRegistrationRequest
+        self,
+        registration_data: CompanyRegistrationRequest,
+        referral_code: str | None = None,
+        client_ip: str | None = None,
+        user_agent: str | None = None,
     ) -> CompanyRegistrationResponse:
         """
         Register a new company with self-service signup.
@@ -62,6 +68,10 @@ class CompanyRegistrationService:
 
         Args:
             registration_data: Company registration data
+            referral_code: Optional marketer referral code. Attribution runs after the tenant
+                is committed and can never fail or alter the signup.
+            client_ip: Caller IP, used only to derive a keyed hash (never stored raw)
+            user_agent: Caller user agent, same treatment
 
         Returns:
             Registration response with tenant ID and verification status
@@ -177,7 +187,7 @@ class CompanyRegistrationService:
                 f"with tenant_id={tenant.id}, admin={admin_user.email}"
             )
 
-            return CompanyRegistrationResponse(
+            response = CompanyRegistrationResponse(
                 message="Company registered successfully. Please check your email to verify your account.",
                 tenant_id=tenant.id,
                 admin_email=admin_user.email,
@@ -188,6 +198,48 @@ class CompanyRegistrationService:
             self.db.rollback()
             logger.error(f"Failed to register company: {e}")
             raise
+
+        self._attribute_referral(
+            tenant, response.admin_email, registration_data, referral_code, client_ip, user_agent
+        )
+        return response
+
+    def _attribute_referral(
+        self,
+        tenant: Tenant,
+        admin_email: str,
+        registration_data: CompanyRegistrationRequest,
+        referral_code: str | None,
+        client_ip: str | None,
+        user_agent: str | None,
+    ) -> None:
+        """Best-effort referral attribution after the tenant commit. Swallows every failure."""
+        if not referral_code:
+            return
+        tenant_id = None
+        try:
+            tenant_id = tenant.id
+            source = AttributionSource(registration_data.referral_source or "form")
+            attribution = attribute_signup(
+                self.db,
+                tenant,
+                admin_email,
+                referral_code,
+                source,
+                origin_hash(client_ip, user_agent),
+            )
+            if attribution is not None:
+                self.db.commit()
+        except Exception as exc:
+            # Id-level only: no code, email or raw IP/UA in the log.
+            logger.warning(
+                f"Referral attribution failed for tenant {tenant_id}: "
+                f"{type(exc).__name__} — signup unaffected"
+            )
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
 
     def verify_email(
         self, verification_request: EmailVerificationRequest

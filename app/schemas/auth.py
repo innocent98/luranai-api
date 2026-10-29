@@ -1,8 +1,11 @@
 """Authentication and registration Pydantic schemas."""
 
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+REFERRAL_CODE_MAX_LENGTH = 64
 
 
 # Company registration schemas (self-service)
@@ -44,6 +47,36 @@ class CompanyRegistrationRequest(BaseModel):
         max_length=128,
         description="Claim token from a public audit run before signup (optional)",
     )
+
+    # Optional marketer referral code. Deliberately lenient: a bad value is dropped to None
+    # rather than rejected, so a referral code can never fail (or change the outcome of) a signup.
+    referral_code: str | None = Field(
+        None,
+        description="Marketer referral code (optional; ignored if blank, malformed or unknown)",
+    )
+    referral_source: Literal["cookie", "form"] | None = Field(
+        None,
+        description="Where the code came from: the luran_ref cookie or the form field",
+    )
+
+    @field_validator("referral_code", mode="before")
+    @classmethod
+    def _drop_unusable_referral_code(cls, value: object) -> str | None:
+        """Blank, over-long or non-text values become None; never a validation error."""
+        if not isinstance(value, str):
+            return None
+        value = value.strip()
+        if not value or len(value) > REFERRAL_CODE_MAX_LENGTH:
+            return None
+        return value
+
+    @field_validator("referral_source", mode="before")
+    @classmethod
+    def _drop_unusable_referral_source(cls, value: object) -> str | None:
+        """Anything other than "cookie" or "form" becomes None (treated as "form")."""
+        if isinstance(value, str) and value.strip().lower() in ("cookie", "form"):
+            return value.strip().lower()
+        return None
 
 
 class CompanyRegistrationResponse(BaseModel):
