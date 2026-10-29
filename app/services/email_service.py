@@ -404,6 +404,43 @@ class EmailService:
             logger.error(f"Failed to send marketer invite email: {e}")
             return False
 
+    def send_marketer_password_reset_email(
+        self,
+        marketer_email: str,
+        marketer_name: str,
+        reset_token: str,
+        expiry_minutes: int = 60,
+    ) -> bool:
+        """
+        Send a referral-program marketer a one-time password-reset link.
+
+        Args:
+            marketer_email: Marketer's email
+            marketer_name: Marketer's name
+            reset_token: One-time token (see TokenService.create_marketer_invite_token)
+            expiry_minutes: Minutes until the link expires (shown in the email)
+
+        Returns:
+            True if sent successfully
+        """
+        try:
+            template = self.jinja_env.get_template("marketer_password_reset.html")
+            reset_link = f"{settings.FRONTEND_URL}/marketer/set-password?token={reset_token}"
+
+            html_content = template.render(
+                marketer_name=marketer_name,
+                reset_link=reset_link,
+                expiry_minutes=expiry_minutes,
+                current_year=datetime.now().year,
+            )
+
+            subject = "Reset your Luran referral partner password"
+            return self._send_email(marketer_email, subject, html_content)
+
+        except Exception as e:
+            logger.error(f"Failed to send marketer password reset email: {e}")
+            return False
+
     def send_password_changed_email(
         self,
         email: str,

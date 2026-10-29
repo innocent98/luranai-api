@@ -22,6 +22,7 @@ from app.api.v1.endpoints import (
     jobs,
     knowledge,
     leads,
+    marketer_auth,
     meetings,
     notifications,
     platform_admin_auth,
@@ -68,6 +69,13 @@ api_router.include_router(
     platform_admin_auth.router,
     prefix="/platform/auth",
     tags=["platform-admin-auth"],
+)
+
+# Referral-program marketer authentication (separate identity; own cookies)
+api_router.include_router(
+    marketer_auth.router,
+    prefix="/auth/marketer",
+    tags=["marketer-auth"],
 )
 
 # Company registration endpoints (self-service signup)

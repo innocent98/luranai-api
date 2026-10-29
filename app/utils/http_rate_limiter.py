@@ -27,6 +27,15 @@ platform_admin_auth_rate_limiter = RedisRateLimiter(
     window_seconds=900,  # 3 per 15 minutes in prod (stricter for admin access)
 )
 
+# Marketer login / forgot-password / set-password: one shared per-IP budget across the three.
+# Looser than the platform-admin login (3 per 15 min) because the budget is shared across the
+# whole reset-then-login flow and marketers are not an admin surface; still brute-force bounded.
+marketer_auth_rate_limiter = RedisRateLimiter(
+    key_prefix="http_marketer_auth",
+    max_calls=100 if _is_relaxed else 10,
+    window_seconds=900,
+)
+
 chat_rate_limiter = RedisRateLimiter(
     key_prefix="http_chat",
     max_calls=20,
@@ -270,6 +279,7 @@ auth_rate_limit = create_rate_limit_dependency(auth_rate_limiter, "ip")
 platform_admin_auth_rate_limit = create_rate_limit_dependency(
     platform_admin_auth_rate_limiter, "ip"
 )
+marketer_auth_rate_limit = create_rate_limit_dependency(marketer_auth_rate_limiter, "ip")
 chat_rate_limit = create_rate_limit_dependency(chat_rate_limiter, "user")
 voice_rate_limit = create_rate_limit_dependency(voice_rate_limiter, "user")
 upload_rate_limit = create_rate_limit_dependency(upload_rate_limiter, "user")

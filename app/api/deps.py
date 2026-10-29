@@ -11,8 +11,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.security import CUSTOMER_ACCESS_COOKIE
+from app.core.security import CUSTOMER_ACCESS_COOKIE, MARKETER_ACCESS_COOKIE
 from app.db.models.platform_admin import PlatformAdminRole
+from app.db.models.referral import Marketer, MarketerStatus
 from app.db.models.tenant import Tenant
 from app.db.models.user import DeletionStatus, User as UserModel, UserRole
 from app.db.session import get_db
@@ -22,6 +23,7 @@ from app.schemas.user import UserResponse
 from app.services.auth_service import AuthService
 from app.services.customer_auth_service import CustomerAuthService
 from app.services.platform_admin_auth_service import PlatformAdminAuthService
+from app.services.referral.marketer_auth_service import marketer_id_from_claims
 from app.utils.datetime import ensure_utc_aware
 
 
@@ -219,6 +221,46 @@ async def get_current_customer(
         return customer
     except JWTError as err:
         raise credentials_exception from err
+
+
+async def get_current_marketer(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Marketer:
+    """Get the current authenticated referral-program marketer.
+
+    Strict by design: reads ONLY the ``marketer_access_token`` cookie (never the shared
+    ``access_token`` cookie, never an ``Authorization`` header, so a tenant or platform-admin
+    credential can never be presented here by accident), requires ``admin_type == "marketer"`` in
+    the verified JWT, a non-revoked jti and a marketer row that still exists and is ``active``.
+    Every failure is the same 401, including a suspended marketer, so a live session stops working.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    token = request.cookies.get(MARKETER_ACCESS_COOKIE)
+    if not token:
+        raise credentials_exception
+
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except JWTError as err:
+        raise credentials_exception from err
+
+    marketer_id = marketer_id_from_claims(payload)
+    if marketer_id is None:
+        raise credentials_exception
+
+    jti = payload.get("jti")
+    if jti and is_token_revoked(jti):
+        raise credentials_exception
+
+    marketer = db.get(Marketer, marketer_id)
+    if marketer is None or marketer.status != MarketerStatus.ACTIVE:
+        raise credentials_exception
+    return marketer
 
 
 async def get_current_tenant_admin(
