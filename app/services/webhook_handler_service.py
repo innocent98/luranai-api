@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.db.models.payment import PaymentTransaction
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant
+from app.services.referral import notifications as referral_notifications
 from app.services.referral import payouts as referral_payouts
 from app.services.referral import rewards as referral_rewards
 from app.services.subscription_service import SubscriptionService
@@ -172,9 +173,13 @@ class WebhookHandlerService:
 
         # Referral reward for the tenant's first payment. After the upgrade (which commits
         # internally) and before the final commit, so the reward row commits with the history row.
-        self._create_referral_reward(transaction)
+        new_reward_id = self._create_referral_reward(transaction)
 
         self.db.commit()
+
+        # After the commit, so the reward is durable first; a failure here is logged, never raised.
+        if new_reward_id is not None:
+            referral_notifications.send_conversion_notices(self.db, [new_reward_id])
 
         return {
             "status": "success",
@@ -183,7 +188,7 @@ class WebhookHandlerService:
             "tenant_id": str(transaction.tenant_id),
         }
 
-    def _create_referral_reward(self, transaction: PaymentTransaction) -> None:
+    def _create_referral_reward(self, transaction: PaymentTransaction) -> UUID | None:
         """Create the referral reward for a just-settled payment, without ever affecting it.
 
         Runs inside a SAVEPOINT and swallows every failure (including a failed SQL statement,
@@ -191,22 +196,32 @@ class WebhookHandlerService:
         history row are already in the session and must still commit. Logs ids only. A reward lost
         here is recreated by the daily ``reconcile_missing_rewards`` job, because a replay of this
         event returns early and would never retry it.
+
+        Returns the id of the reward this call newly created, or ``None`` (not earned, already
+        rewarded, or a swallowed failure), so the caller sends the conversion notice once, after
+        its own commit.
         """
         tenant_id, reference, paid_at = (
             transaction.tenant_id,
             transaction.reference,
             transaction.paid_at,
         )
+        savepoint = self.db.begin_nested()
         try:
-            with self.db.begin_nested():
-                referral_rewards.create_reward_for_first_payment(
-                    self.db, tenant_id, reference, paid_at
-                )
+            reward = referral_rewards.create_reward_for_first_payment(
+                self.db, tenant_id, reference, paid_at
+            )
+            reward_id = reward.id if reward is not None else None
+            savepoint.commit()
+            return reward_id
         except Exception as exc:  # noqa: BLE001 - rewarding must never break the payment path
+            if savepoint.is_active:
+                savepoint.rollback()
             logger.error(
                 f"Referral reward creation failed for tenant {tenant_id}, payment {reference}: "
                 f"{type(exc).__name__}"
             )
+            return None
 
     def _handle_transfer_event(self, event_type: str):
         """Referral payout transfers: delegate to the payout module.

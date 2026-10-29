@@ -441,6 +441,86 @@ class EmailService:
             logger.error(f"Failed to send marketer password reset email: {e}")
             return False
 
+    @staticmethod
+    def _naira(amount_kobo: int) -> str:
+        """Format kobo as naira with thousands separators, e.g. 500000 -> '5,000.00'."""
+        return f"{amount_kobo / 100:,.2f}"
+
+    def send_referral_conversion_email(
+        self,
+        marketer_email: str,
+        marketer_name: str,
+        amount_kobo: int,
+        company_name: str | None = None,
+    ) -> bool:
+        """
+        Tell a marketer that a business they referred became a paying customer.
+
+        The same generic notice goes out whether the reward is pending or held for review: it
+        names the reward amount (and the company, which the marketer may know) and nothing else.
+        It never carries the customer's email, plan, payment details or any review wording.
+
+        Args:
+            marketer_email: Marketer's email
+            marketer_name: Marketer's name
+            amount_kobo: The reward, in kobo
+            company_name: The referred company's display name (optional)
+
+        Returns:
+            True if sent successfully
+        """
+        try:
+            template = self.jinja_env.get_template("referral_conversion.html")
+            html_content = template.render(
+                marketer_name=marketer_name,
+                amount=self._naira(amount_kobo),
+                company_name=company_name,
+                current_year=datetime.now().year,
+            )
+            subject = "A business you referred became a paying customer"
+            return self._send_email(marketer_email, subject, html_content)
+
+        except Exception as e:
+            logger.error(f"Failed to send referral conversion email: {type(e).__name__}")
+            return False
+
+    def send_referral_payout_email(
+        self,
+        marketer_email: str,
+        marketer_name: str,
+        amount_kobo: int,
+        period_label: str,
+        reference: str,
+    ) -> bool:
+        """
+        Tell a marketer that their referral payout has been paid.
+
+        Args:
+            marketer_email: Marketer's email
+            marketer_name: Marketer's name
+            amount_kobo: The amount paid, in kobo
+            period_label: The payout batch's period label
+            reference: The transfer / bank reference of the payment
+
+        Returns:
+            True if sent successfully
+        """
+        try:
+            template = self.jinja_env.get_template("referral_payout.html")
+            html_content = template.render(
+                marketer_name=marketer_name,
+                amount=self._naira(amount_kobo),
+                period_label=period_label,
+                reference=reference,
+                current_year=datetime.now().year,
+            )
+            subject = "Your Luran referral payout has been sent"
+            return self._send_email(marketer_email, subject, html_content)
+
+        except Exception as e:
+            logger.error(f"Failed to send referral payout email: {type(e).__name__}")
+            return False
+
     def send_password_changed_email(
         self,
         email: str,

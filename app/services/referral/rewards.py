@@ -40,6 +40,7 @@ from app.services.enhanced_audit_service import EnhancedAuditService
 from app.services.referral import payouts
 from app.services.referral.config import get_referral_config
 from app.services.referral.fraud import evaluate_flags
+from app.services.referral.notifications import queue_conversion_notice
 
 MARKETER_SUSPENDED = "marketer_suspended"
 PAYMENT_DISPUTE = "payment_dispute"
@@ -192,7 +193,7 @@ def _has_reward(db: Session, tenant_id: UUID) -> bool:
     )
 
 
-def reconcile_missing_rewards(db: Session, now: datetime) -> int:
+def reconcile_missing_rewards(db: Session, now: datetime, created: list[UUID] | None = None) -> int:
     """Create the reward for every attributed tenant that paid but has none; returns how many.
 
     Repairs rewards that the webhook's safety net swallowed (or that a crash between the payment
@@ -200,7 +201,9 @@ def reconcile_missing_rewards(db: Session, now: datetime) -> int:
     its earliest successful payment, which must fall inside the commission window; the creation
     rules themselves are ``create_reward_for_first_payment``'s. Idempotent: a second run finds
     nothing. One tenant failing is logged (ids only) and skipped; the others still proceed, and the
-    next run retries it. Does not commit; the caller does.
+    next run retries it. Does not commit; the caller does. Each reward created here is queued on the
+    session (``notifications.queue_conversion_notice``) so the caller can send the conversion
+    notice after its commit.
     """
     now = _aware(now)
     window = timedelta(days=get_referral_config(db).commission_window_days)
@@ -229,7 +232,7 @@ def reconcile_missing_rewards(db: Session, now: datetime) -> int:
         .order_by(first_payment.c.paid_at)
     ).all()
 
-    created = 0
+    count = 0
     for tenant_id, paid_at in candidates:
         try:
             with db.begin_nested():
@@ -245,13 +248,15 @@ def reconcile_missing_rewards(db: Session, now: datetime) -> int:
                 )
                 if reference is None:
                     continue
-                if create_reward_for_first_payment(db, tenant_id, reference, paid_at):
-                    created += 1
+                reward = create_reward_for_first_payment(db, tenant_id, reference, paid_at)
+                if reward is not None:
+                    count += 1
+                    queue_conversion_notice(db, reward.id)
         except Exception as exc:  # noqa: BLE001 - one tenant must not stop the rest
             logger.error(
                 f"referral reward reconcile failed for tenant {tenant_id}: {type(exc).__name__}"
             )
-    return created
+    return count
 
 
 # --------------------------------------------------------------------------- clearing

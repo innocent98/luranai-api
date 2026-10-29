@@ -75,6 +75,11 @@ from app.db.models.referral import (
     ReferralReward,
     RewardStatus,
 )
+from app.services.referral.notifications import (
+    PayoutNotice,
+    queue_payout_notice,
+    send_payout_notices,
+)
 from app.services.referral.providers import (
     PayoutProvider,
     PayoutProviderError,
@@ -644,6 +649,17 @@ def _mark_item_paid(
     item.provider_status = provider_status
     _pay_rewards(db, item, reference, now)
     db.flush()
+    # Reached only on a real transition to paid; the email goes out after the owning commit.
+    queue_payout_notice(
+        db,
+        PayoutNotice(
+            item_id=item.id,
+            marketer_id=item.marketer_id,
+            batch_id=item.batch_id,
+            amount_kobo=item.amount_kobo,
+            reference=reference,
+        ),
+    )
 
 
 def _record_result(db: Session, claim: _Claim, result: TransferResult) -> None:
@@ -674,6 +690,7 @@ def _record_result(db: Session, claim: _Claim, result: TransferResult) -> None:
     # "pending": stays processing; the webhook or a verify finalises it.
     db.flush()
     db.commit()
+    send_payout_notices(db)
     _finalize_batch(db, claim.batch_id)
 
 
@@ -944,6 +961,7 @@ def _apply_verified_success(
         return
     _mark_item_paid(db, item, reference, datetime.now(UTC), verification.provider_status)
     db.commit()
+    send_payout_notices(db)
     _finalize_batch(db, batch_id)
 
 
@@ -1104,6 +1122,7 @@ def mark_paid(
             "a bank reference is already used by another payment"
         ) from exc
     db.commit()
+    send_payout_notices(db)
     logger.info(f"payout batch {batch_id}: {len(cleaned)} item(s) marked paid by admin {admin_id}")
     _finalize_batch(db, batch_id)
     db.refresh(batch)
@@ -1210,6 +1229,7 @@ def apply_transfer_event(db: Session, event_type: str, data: Any) -> dict:
             outcome = _result("ignored", "unexpected_state", item)
     db.flush()
     db.commit()
+    send_payout_notices(db)  # only a "processed" success queued one; duplicates queue nothing
     if outcome["status"] in ("processed", "duplicate"):
         # A duplicate also recomputes: the first delivery may have committed the item and then
         # failed before the batch status was refreshed.

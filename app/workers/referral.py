@@ -11,6 +11,7 @@ Two idempotent steps, each in its own transaction so one failing never blocks th
 * ``reconcile_missing_rewards``: creates the reward for any attributed tenant that paid but has
   none. ``charge.success`` creates the reward behind a savepoint and never lets a failure reach the
   payment, and a replayed webhook is a no-op, so this job is what repairs a swallowed failure.
+  The marketer gets the conversion email for each reward created here, after the commit.
 """
 
 from datetime import UTC, datetime
@@ -21,6 +22,7 @@ from sqlalchemy import func, select
 
 from app.db.models.referral import PayoutItem
 from app.db.session import SessionLocal
+from app.services.referral.notifications import send_queued_conversion_notices
 from app.services.referral.payouts import prepare_batch
 from app.services.referral.rewards import promote_pending, reconcile_missing_rewards
 
@@ -39,6 +41,7 @@ async def referral_promote_pending(ctx: dict) -> dict[str, Any]:
                 db.rollback()
                 result["errors"] += 1
                 logger.error(f"referral job step {key} failed: {type(exc).__name__}")
+        send_queued_conversion_notices(db)  # after the commits; never raises
         logger.info(f"referral daily job: {result}")
         return result
     finally:

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+
+{% block title %}Your Luran referral payout has been sent{% endblock %}
+
+{% block content %}
+<h1>Your referral payout has been sent</h1>
+
+<p>Hi {{ marketer_name }},</p>
+
+<p>
+    We have paid your referral rewards for the <strong>{{ period_label }}</strong> payout.
+    The money is on its way to the bank account on your profile.
+</p>
+
+<div class="credential-box">
+    <div class="credential-label">Amount paid</div>
+    <div class="credential-value">&#8358;{{ amount }}</div>
+</div>
+
+<div class="credential-box">
+    <div class="credential-label">Payout period</div>
+    <div class="credential-value">{{ period_label }}</div>
+</div>
+
+<div class="credential-box">
+    <div class="credential-label">Transfer reference</div>
+    <div class="credential-value">{{ reference }}</div>
+</div>
+
+<p style="margin-top: 30px; color: #6b7280;">
+    Quote the transfer reference if you need to ask about this payment.
+</p>
+{% endblock %}
