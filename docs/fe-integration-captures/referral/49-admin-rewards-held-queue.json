@@ -1,0 +1,105 @@
+{
+  "description": "The review queue (status=held): reasons and the other tenants sharing the domain.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/platform/referrals/rewards",
+    "query": {
+      "status": "held"
+    },
+    "headers": {
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "items": [
+        {
+          "id": "f3cae87a-7a32-4883-ba46-875b344b8afb",
+          "marketer_id": "8ea86181-0cfa-4149-a975-bd113db4265e",
+          "marketer_name": "Ada Placeholder",
+          "marketer_code": "ada-placeholder",
+          "tenant_company_name": "Placeholder Mart Ltd",
+          "amount_kobo": 500000,
+          "status": "held",
+          "review_reasons": [
+            "shared_domain",
+            "shared_origin"
+          ],
+          "converted_at": "2026-10-29T11:06:02.780559Z",
+          "payable_after": "2026-11-05T11:06:02.780559Z",
+          "payout_batch_id": null,
+          "shared_domain_matches": [
+            {
+              "other_tenant_name": "Placeholder Stores Ltd",
+              "domain": "example.com",
+              "sources": [
+                "widget"
+              ],
+              "own_sources": [
+                "widget"
+              ]
+            },
+            {
+              "other_tenant_name": "Placeholder Traders Ltd",
+              "domain": "example.com",
+              "sources": [
+                "widget"
+              ],
+              "own_sources": [
+                "widget"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "44c54f25-9d4c-41f3-b344-376e4c332566",
+          "marketer_id": "8ea86181-0cfa-4149-a975-bd113db4265e",
+          "marketer_name": "Ada Placeholder",
+          "marketer_code": "ada-placeholder",
+          "tenant_company_name": "Placeholder Traders Ltd",
+          "amount_kobo": 500000,
+          "status": "held",
+          "review_reasons": [
+            "shared_domain",
+            "shared_origin"
+          ],
+          "converted_at": "2026-10-29T11:06:02.737031Z",
+          "payable_after": "2026-11-05T11:06:02.737031Z",
+          "payout_batch_id": null,
+          "shared_domain_matches": [
+            {
+              "other_tenant_name": "Placeholder Mart Ltd",
+              "domain": "example.com",
+              "sources": [
+                "widget"
+              ],
+              "own_sources": [
+                "widget"
+              ]
+            },
+            {
+              "other_tenant_name": "Placeholder Stores Ltd",
+              "domain": "example.com",
+              "sources": [
+                "widget"
+              ],
+              "own_sources": [
+                "widget"
+              ]
+            }
+          ]
+        }
+      ],
+      "total": 2,
+      "limit": 50,
+      "offset": 0
+    }
+  }
+}

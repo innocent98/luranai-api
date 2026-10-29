@@ -1,0 +1,45 @@
+{
+  "description": "Payout batches, newest first.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/platform/referrals/batches",
+    "query": {},
+    "headers": {
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "items": [
+        {
+          "id": "1abf244b-1478-4866-a8e8-5c71033dac16",
+          "period_label": "2026-11-06",
+          "status": "draft",
+          "total_kobo": 1000000,
+          "item_counts": {
+            "pending": 1,
+            "processing": 0,
+            "paid": 0,
+            "failed": 0,
+            "skipped": 0,
+            "awaiting_manual": 0
+          },
+          "approved_at": null,
+          "approved_by_admin_id": null,
+          "created_at": "2026-10-29T11:06:02.908991Z"
+        }
+      ],
+      "total": 1,
+      "limit": 50,
+      "offset": 0
+    }
+  },
+  "note": "Not an HTTP step: app.services.referral.payouts.prepare_batch(db, now) was called once with now = real now + 8 days (the function the 1st/15th 04:00 UTC job calls) and committed, which created this draft batch. The period label therefore carries that shifted date."
+}

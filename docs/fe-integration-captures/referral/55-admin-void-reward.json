@@ -1,0 +1,27 @@
+{
+  "description": "Super admin voids the other held reward.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/rewards/f3cae87a-7a32-4883-ba46-875b344b8afb/void",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "note": "Same owner as another referred company."
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "id": "f3cae87a-7a32-4883-ba46-875b344b8afb",
+      "status": "void"
+    }
+  }
+}

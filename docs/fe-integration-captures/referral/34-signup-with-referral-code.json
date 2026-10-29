@@ -1,0 +1,30 @@
+{
+  "description": "A company signs up with the marketer's code (form field).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/auth/register-company",
+    "query": {},
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "company_name": "Placeholder Stores Ltd",
+      "admin_full_name": "Tola Placeholder",
+      "admin_email": "tola.placeholder@example.com",
+      "referral_code": "ada-placeholder",
+      "referral_source": "form"
+    }
+  },
+  "response": {
+    "status": 201,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "message": "Company registered successfully. Please check your email to verify your account.",
+      "tenant_id": "32f02ca4-a6b0-4391-928e-337b1387e7e4",
+      "admin_email": "tola.placeholder@example.com",
+      "verification_required": true
+    }
+  }
+}

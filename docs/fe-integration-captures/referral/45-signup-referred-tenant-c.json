@@ -1,0 +1,30 @@
+{
+  "description": "Another referred company (Placeholder Mart Ltd) signs up with the same code.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/auth/register-company",
+    "query": {},
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "company_name": "Placeholder Mart Ltd",
+      "admin_full_name": "Chidi Placeholder",
+      "admin_email": "chidi.placeholder@example.com",
+      "referral_code": "ada-placeholder",
+      "referral_source": "form"
+    }
+  },
+  "response": {
+    "status": 201,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "message": "Company registered successfully. Please check your email to verify your account.",
+      "tenant_id": "7f18f5f9-5267-4828-8bac-370d5f320b0c",
+      "admin_email": "chidi.placeholder@example.com",
+      "verification_required": true
+    }
+  }
+}

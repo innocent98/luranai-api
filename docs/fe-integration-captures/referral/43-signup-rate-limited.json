@@ -1,0 +1,33 @@
+{
+  "description": "Error: the per-IP signup budget (3 registrations per hour) is exhausted: 429.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/auth/register-company",
+    "query": {},
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "company_name": "Placeholder Traders Ltd",
+      "admin_full_name": "Bisi Placeholder",
+      "admin_email": "bisi.placeholder@example.com",
+      "referral_code": "ada-placeholder",
+      "referral_source": "form"
+    }
+  },
+  "response": {
+    "status": 429,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": {
+        "error": "Rate limit exceeded",
+        "limit": 3,
+        "window_seconds": 3600,
+        "retry_after_seconds": 3600
+      }
+    }
+  },
+  "note": "The three earlier signup calls from this IP used up the hourly budget."
+}

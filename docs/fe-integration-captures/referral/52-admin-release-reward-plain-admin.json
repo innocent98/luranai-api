@@ -1,0 +1,26 @@
+{
+  "description": "Role matrix: a plain ADMIN cannot release (403).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/rewards/44c54f25-9d4c-41f3-b344-376e4c332566/release",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "note": "Checked the domain evidence."
+    }
+  },
+  "response": {
+    "status": 403,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "Not enough permissions. Super admin access required."
+    }
+  }
+}

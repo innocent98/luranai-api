@@ -1,0 +1,39 @@
+{
+  "description": "Error: a note is required to release a reward.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/rewards/44c54f25-9d4c-41f3-b344-376e4c332566/release",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "note": "   "
+    }
+  },
+  "response": {
+    "status": 422,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": [
+        {
+          "type": "string_too_short",
+          "loc": [
+            "body",
+            "note"
+          ],
+          "msg": "String should have at least 1 character",
+          "input": "",
+          "ctx": {
+            "min_length": 1
+          }
+        }
+      ]
+    }
+  }
+}

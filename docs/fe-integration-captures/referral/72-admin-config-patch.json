@@ -1,0 +1,33 @@
+{
+  "description": "Super admin changes the hold period (affects rewards created afterwards only).",
+  "request": {
+    "method": "PATCH",
+    "path": "/api/v1/platform/referrals/config",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "hold_days": 14
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "reward_kobo": 500000,
+      "hold_days": 14,
+      "commission_window_days": 90,
+      "source_by_key": {
+        "reward_kobo": "env",
+        "hold_days": "db",
+        "commission_window_days": "env"
+      }
+    }
+  }
+}

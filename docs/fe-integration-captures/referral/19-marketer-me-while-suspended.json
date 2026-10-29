@@ -1,0 +1,23 @@
+{
+  "description": "A session that was valid before the suspension stops working: 401.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/marketer/me",
+    "query": {},
+    "headers": {
+      "cookies_sent": [
+        "marketer_access_token"
+      ]
+    },
+    "body": null
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "Could not validate credentials"
+    }
+  }
+}

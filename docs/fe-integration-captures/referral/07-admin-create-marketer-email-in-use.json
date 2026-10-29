@@ -1,0 +1,34 @@
+{
+  "description": "Error: the email already belongs to a marketer (same email, different code).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "name": "Ada Again",
+      "email": "ada.placeholder@example.org",
+      "code": "ada-again",
+      "bank_code": "000",
+      "account_number": "0000000000",
+      "account_name": "Ada Placeholder"
+    }
+  },
+  "response": {
+    "status": 409,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": {
+        "code": "email_in_use",
+        "message": "Email already in use"
+      }
+    }
+  }
+}
