@@ -32,6 +32,10 @@ router = APIRouter()
     - subscription.disable: Subscription cancelled
     - subscription.not_renew: Subscription set to not renew
     - invoice.payment_failed: Recurring payment failed
+    - charge.dispute.create: Payment disputed (holds the tenant's referral reward)
+    - transfer.success: Referral payout transfer succeeded
+    - transfer.failed: Referral payout transfer failed
+    - transfer.reversed: Referral payout transfer reversed (the marketer's rewards are batched again)
 
     Webhook URL: {BASE_URL}/api/v1/webhooks/paystack
     """,

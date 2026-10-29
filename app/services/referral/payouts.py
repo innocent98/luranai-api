@@ -107,6 +107,35 @@ class PayoutStateError(PayoutError):
     code = "payout_state_invalid"
 
 
+class BatchStateError(PayoutStateError):
+    """The batch is in a state that does not allow the action (e.g. retrying a draft)."""
+
+    code = "batch_state_invalid"
+
+
+class ItemNotMarkableError(PayoutStateError):
+    """``mark_paid`` refused an item because of its state; carries the state for the caller."""
+
+    code = "item_not_markable"
+
+    def __init__(self, message: str, marketer_id: UUID, item_status: PayoutItemStatus):
+        super().__init__(message)
+        self.marketer_id = marketer_id
+        self.item_status = item_status
+
+
+class TransferUnverifiedError(PayoutStateError):
+    """A failed item cannot be marked paid: its transfer was not confirmed dead at the provider."""
+
+    code = "transfer_unverified"
+
+
+class BankReferenceInUseError(PayoutStateError):
+    """The bank reference is already recorded against another payment."""
+
+    code = "bank_reference_in_use"
+
+
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
@@ -617,7 +646,7 @@ def retry_batch(
         raise BatchNotFoundError(f"batch {batch_id} not found")
     if batch.status == BatchStatus.DRAFT:
         db.commit()
-        raise PayoutStateError(f"batch {batch_id} is draft: approve it instead of retrying")
+        raise BatchStateError(f"batch {batch_id} is draft: approve it instead of retrying")
     if batch.status == BatchStatus.PAID:
         db.commit()
         return batch
@@ -786,7 +815,7 @@ def mark_paid(
     if batch.status not in (BatchStatus.PAYING, BatchStatus.FAILED):
         status = batch.status.value
         db.commit()
-        raise PayoutStateError(f"batch {batch_id} is {status}: nothing to mark paid")
+        raise BatchStateError(f"batch {batch_id} is {status}: nothing to mark paid")
 
     # Failed items: confirm with the provider BEFORE taking any lock.
     to_verify: dict[UUID, str] = {}
@@ -808,12 +837,12 @@ def mark_paid(
             try:
                 verification = provider.verify(reference)
             except PayoutProviderError as exc:
-                raise PayoutStateError(
+                raise TransferUnverifiedError(
                     f"cannot confirm the failed transfer for marketer {marketer_id} did not "
                     f"succeed ({exc}); refusing to mark it paid"
                 ) from exc
             if verification.status not in ("failed", "reversed", "not_found"):
-                raise PayoutStateError(
+                raise TransferUnverifiedError(
                     f"transfer for marketer {marketer_id} is {verification.status} at the "
                     "provider; refusing to mark it paid"
                 )
@@ -833,13 +862,15 @@ def mark_paid(
         if item is None:
             refusal = PayoutItemNotFoundError(f"marketer {marketer_id} has no item in this batch")
         elif item.status not in (_PS.AWAITING_MANUAL, _PS.FAILED):
-            refusal = PayoutStateError(
+            refusal = ItemNotMarkableError(
                 f"item for marketer {marketer_id} is {item.status.value}: only "
-                "awaiting_manual or failed items can be marked paid"
+                "awaiting_manual or failed items can be marked paid",
+                marketer_id,
+                item.status,
             )
         elif item.status == _PS.FAILED and item.transfer_reference != to_verify.get(marketer_id):
             # Not the transfer we verified (it changed in between): nothing was confirmed.
-            refusal = PayoutStateError("the item changed while it was being verified; retry")
+            refusal = TransferUnverifiedError("the item changed while it was being verified; retry")
         if refusal is not None:
             db.commit()  # release the locks; nothing was modified
             raise refusal
@@ -855,7 +886,7 @@ def mark_paid(
     )
     if taken is not None:
         db.commit()
-        raise PayoutStateError("a bank reference is already used by another payment")
+        raise BankReferenceInUseError("a bank reference is already used by another payment")
 
     # Pass 2: apply all together (one transaction: all or nothing).
     now = datetime.now(UTC)
@@ -866,7 +897,9 @@ def mark_paid(
         db.flush()
     except IntegrityError as exc:  # lost a race on the unique reference after the check above
         db.rollback()
-        raise PayoutStateError("a bank reference is already used by another payment") from exc
+        raise BankReferenceInUseError(
+            "a bank reference is already used by another payment"
+        ) from exc
     db.commit()
     logger.info(f"payout batch {batch_id}: {len(cleaned)} item(s) marked paid by admin {admin_id}")
     _finalize_batch(db, batch_id)

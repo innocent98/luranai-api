@@ -4,7 +4,8 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
-from sqlalchemy import select
+import pytest
+from sqlalchemy import func, select
 
 from app.db.models.payment import PaymentTransaction
 from app.db.models.referral import (
@@ -155,3 +156,102 @@ def test_job_is_registered_daily_at_0300_utc():
     assert job.hour in (3, {3})
     assert job.minute in (0, {0})
     assert job.run_at_startup is False
+
+
+# --- payout batch preparation (1st and 15th, 04:00 UTC) -----------------------------------------
+
+
+def _payable_reward(db, marketer) -> ReferralReward:
+    reward = ReferralReward(
+        tenant_id=_tenant(db).id,
+        marketer_id=marketer.id,
+        amount_kobo=500_000,
+        status=RewardStatus.PAYABLE,
+        converted_at=NOW - timedelta(days=12),
+        payable_after=NOW - timedelta(days=5),
+    )
+    db.add(reward)
+    db.flush()
+    return reward
+
+
+def test_prepare_batch_job_creates_one_batch_and_a_second_run_creates_none(db_session, monkeypatch):
+    from app.db.models.referral import BatchStatus, PayoutBatch, PayoutItem
+
+    marketer = _marketer(db_session)
+    reward = _payable_reward(db_session, marketer)
+    session = _NoCloseSession(db_session)
+    monkeypatch.setattr(referral_worker, "SessionLocal", lambda: session)
+    before = db_session.scalar(select(func.count()).select_from(PayoutBatch))
+
+    first = asyncio.run(referral_worker.referral_prepare_batch({}))
+    second = asyncio.run(referral_worker.referral_prepare_batch({}))
+
+    assert first is not None and first["items"] >= 1 and first["total_kobo"] >= 500_000
+    assert second is None
+    assert session.closed is True
+    db_session.expire_all()
+    assert db_session.scalar(select(func.count()).select_from(PayoutBatch)) == before + 1
+    batch = db_session.get(PayoutBatch, first["batch_id"])
+    assert batch.status == BatchStatus.DRAFT  # nothing is approved or sent by the job
+    assert db_session.get(ReferralReward, reward.id).status == RewardStatus.BATCHED
+    items = db_session.scalars(select(PayoutItem).where(PayoutItem.batch_id == batch.id)).all()
+    assert all(i.status.value == "pending" and i.transfer_reference is None for i in items)
+
+
+def test_prepare_batch_job_with_nothing_payable_returns_none(db_session, monkeypatch):
+    session = _NoCloseSession(db_session)
+    monkeypatch.setattr(referral_worker, "SessionLocal", lambda: session)
+    monkeypatch.setattr(referral_worker, "prepare_batch", lambda db, now: None)
+
+    assert asyncio.run(referral_worker.referral_prepare_batch({})) is None
+    assert session.closed is True
+
+
+def test_prepare_batch_job_failure_rolls_back_closes_and_logs_class_only(db_session, monkeypatch):
+    from loguru import logger
+
+    class Session:
+        closed = rolled_back = False
+
+        def rollback(self):
+            self.rolled_back = True
+
+        def commit(self):
+            raise AssertionError("must not commit a failed run")
+
+        def close(self):
+            self.closed = True
+
+    session = Session()
+    monkeypatch.setattr(referral_worker, "SessionLocal", lambda: session)
+
+    def boom(db, now):
+        raise RuntimeError("secret-detail-in-exception")
+
+    monkeypatch.setattr(referral_worker, "prepare_batch", boom)
+    messages: list[str] = []
+    sink = logger.add(lambda m: messages.append(str(m)), level="DEBUG")
+    try:
+        with pytest.raises(RuntimeError):
+            asyncio.run(referral_worker.referral_prepare_batch({}))
+    finally:
+        logger.remove(sink)
+
+    assert session.rolled_back is True and session.closed is True
+    logged = "\n".join(messages)
+    assert "RuntimeError" in logged
+    assert "secret-detail-in-exception" not in logged
+
+
+def test_prepare_batch_job_is_registered_on_the_1st_and_15th_at_0400_utc():
+    jobs = [
+        j for j in WorkerSettings.cron_jobs if j.coroutine is referral_worker.referral_prepare_batch
+    ]
+    assert len(jobs) == 1
+    job = jobs[0]
+    assert job.day == {1, 15}
+    assert job.hour in (4, {4})
+    assert job.minute in (0, {0})
+    assert job.run_at_startup is False
+    assert referral_worker.referral_prepare_batch in WorkerSettings.functions

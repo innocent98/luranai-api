@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.db.models.payment import PaymentTransaction
 from app.db.models.subscription import SubscriptionHistory
 from app.db.models.tenant import Tenant
+from app.services.referral import payouts as referral_payouts
 from app.services.referral import rewards as referral_rewards
 from app.services.subscription_service import SubscriptionService
 
@@ -45,6 +46,9 @@ class WebhookHandlerService:
             "invoice.create": self._handle_invoice_create,
             "invoice.payment_failed": self._handle_invoice_payment_failed,
             "charge.dispute.create": self._handle_dispute_create,
+            "transfer.success": self._handle_transfer_event("transfer.success"),
+            "transfer.failed": self._handle_transfer_event("transfer.failed"),
+            "transfer.reversed": self._handle_transfer_event("transfer.reversed"),
         }
 
         handler = handlers.get(event_type)
@@ -203,6 +207,19 @@ class WebhookHandlerService:
                 f"Referral reward creation failed for tenant {tenant_id}, payment {reference}: "
                 f"{type(exc).__name__}"
             )
+
+    def _handle_transfer_event(self, event_type: str):
+        """Referral payout transfers: delegate to the payout module.
+
+        The endpoint has already verified the HMAC signature. ``apply_transfer_event`` is
+        idempotent and treats an unknown reference or a malformed payload as ``ignored`` (a 200
+        for Paystack, never a 500 that would only make it retry).
+        """
+
+        def handler(data: dict) -> dict:
+            return referral_payouts.apply_transfer_event(self.db, event_type, data)
+
+        return handler
 
     def _handle_dispute_create(self, data: dict) -> dict:
         """Record a payment dispute: stamp the attribution and hold the tenant's referral reward.

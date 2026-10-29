@@ -1280,7 +1280,10 @@ class WorkerSettings:
     from app.workers.account_deletion_purge import (  # type: ignore[misc]
         purge_due_deletion_requests,
     )
-    from app.workers.referral import referral_promote_pending  # type: ignore[misc]
+    from app.workers.referral import (  # type: ignore[misc]
+        referral_prepare_batch,
+        referral_promote_pending,
+    )
 
     from app.workers.attachment_cleanup import (  # type: ignore[misc]
         cleanup_orphan_attachments,
@@ -1331,6 +1334,7 @@ class WorkerSettings:
         auto_resolve_stale_tickets,
         purge_due_deletion_requests,
         referral_promote_pending,
+        referral_prepare_batch,
         cleanup_orphan_attachments,
         expire_attachments,
         sweep_unregistered_videos,
@@ -1392,6 +1396,15 @@ class WorkerSettings:
         cron(
             referral_promote_pending,
             hour=3,
+            minute=0,
+            run_at_startup=False,
+        ),
+        # Referral payouts: prepare a DRAFT batch of payable rewards - 1st and 15th at 4 AM UTC.
+        # Nothing is sent until a super admin approves the batch.
+        cron(
+            referral_prepare_batch,
+            day={1, 15},
+            hour=4,
             minute=0,
             run_at_startup=False,
         ),
