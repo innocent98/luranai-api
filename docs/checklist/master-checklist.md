@@ -7,7 +7,7 @@ Snapshot (Activation module): backend (#158) and dashboard (#89) merged to devel
 
 Snapshot (Plan entitlements): backend #159 + dashboard #90 merged and running on staging; Lite Paystack plans edited to 15,000 / 150,000 in staging AND prod by Adebayo (codes unchanged); test-mode Lite checkout on staging and the Growth-override read-only prod check still owed before promotion.
 
-Snapshot (Sidecar on staging): deployed and healthy on staging since 2026-10-28 (CD gate + smoke PASS); prod has NO sidecar and the prod CD job has no sidecar steps; see `docs/deployment/prod-release-plan-2026-10.md`.
+Snapshot (Sidecar on staging): deployed and healthy on staging since 2026-10-28 (CD gate + smoke PASS); prod has NO sidecar yet (the production wiring is built on branch `feature/sidecar-production-deploy`, PR to `develop`, 2026-10-29, nothing run on the VPS; see the "Sidecar on production" section); see `docs/deployment/prod-release-plan-2026-10.md`.
 
 Snapshot (Referral program): backend Tasks 1-10 built and tested on branch `feature/referral-backend` (2026-10-29); PR to `develop` NOT yet opened, whole-branch CI parity still owed (the final Opus review ran and its findings are fixed, 2026-10-29); payouts default to the `manual` provider; dashboard stream, `luran_ref` cookie script, login-page fallback, privacy-policy text and a Paystack test-mode transfer run are NOT done. Counts for this module (2026-10-29): 26 ticked, 23 open (see its section). Prod untouched.
 
@@ -269,13 +269,29 @@ Plan: `docs/deployment/prod-release-plan-2026-10.md` (DRAFT 2026-10-28). Merging
 - [ ] Owner: test-mode Lite checkout on staging (15,000 / 150,000); fix GitHub Actions spending limit; re-private `luranai-api`
 - [ ] Manual DB dump + `docker stats` baseline, then PR `develop` -> `main`; verify health, migrations at `wa20ratingreply`, pricing, entitlements, worker functions
 - [ ] Dashboard `staging` -> `main` (15 commits) right after the backend; `luran-chat` `stage` -> `main` (3 commits)
-- [ ] Production sidecar job (separate PR + separate go): prod compose/CD steps with a prod guard, secrets in `.env.production.enc`, soak-based sizing (soak tooling ready, run pending), consent/ToS wording, per-tenant grant
+- [ ] Production sidecar job: **wiring built 2026-10-29 (branch `feature/sidecar-production-deploy`, PR to `develop`, SOP `docs/sop/whatsapp_sidecar_production_deploy.md`)**; still open: secrets in `.env.production.enc`, first deploy + smoke, consent/ToS wording, flipping `WHATSAPP_ENABLED`, per-tenant grant (see "Sidecar on production")
+
+## Sidecar on production (dark) — BUILT, PR open to `develop`, nothing run on the VPS (2026-10-29)
+Docs: SOP `docs/sop/whatsapp_sidecar_production_deploy.md` (owner actions in order, memory budget, rollback, rulings). Branch `feature/sidecar-production-deploy`. Mirrors the staging job; `WHATSAPP_ENABLED` is never turned on by it.
+- [x] `scripts/prepare_production_whatsapp_env.sh`: production guard (project `luran`, `ENVIRONMENT` production), gate on names + format, sidecar-only secrets stripped from the api env, **byte-identical no-op when no sidecar names exist**
+- [x] `docker-compose.whatsapp.production.yml` (container `luran_whatsapp_sidecar`, 384m / RSS 216 / 3 sessions); staging effective config proven unchanged
+- [x] `cd.yml` `production-deploy`: gate (fail-closed), GHCR image promotion, copy, deploy with server-side `luran_api` project/working-dir guards, health, smoke, status; diff is pure insertion, existing steps byte-identical
+- [x] `scripts/generate_whatsapp_production_secrets.sh` (writes `WHATSAPP_ENABLED=false`); smoke `SMOKE_BACKEND=disabled` mode + CREATE-privilege check
+- [x] `scripts/whatsapp_sidecar_snapshot.sh` + cron instructions + tests; 55 pytest tests in `tests/deploy/`
+- [x] Local rehearsal: the real ssh script from `cd.yml` run against throwaway Postgres/Redis + the real image (smoke 7 PASS + 1 SKIP disabled, 8 PASS enabled; guards refuse; idempotent)
+- [ ] PR merged to `develop` (lead), then promoted to `main` (no secrets yet: skip path)
+- [ ] Owner: generate secrets, **back up `WHATSAPP_AUTH_MASTER_KEY`**, add names to `.env.production.enc` with `WHATSAPP_ENABLED=false`, PR + promote
+- [ ] First sidecar deploy in a quiet window (not near 02:00); smoke 7 PASS + 1 SKIP; install snapshot cron
+- [ ] Flip `WHATSAPP_ENABLED=true` (strict smoke 8 PASS), consent/ToS wording, grant ONE tenant, watch the snapshot log
+- [ ] Not proven anywhere: the new CD steps on a real runner/VPS, live prod Redis/Postgres settings, more than 2 sessions
 
 ## Memory and capacity — OPEN (snapshot `docs/sop/memory_and_capacity_snapshot_2026-10-28.md`)
 - [ ] Split prod/staging API memory (anon vs cache vs slab) now and after 24 h
 - [ ] Explain the prod API's 1.94 GB of block reads; test the 30 s Python healthcheck as a cause
 - [ ] Decide worker count / `--preload` from measurements (prod stays at 2 workers, 1.172 GiB until then)
 - [ ] Sidecar soak at 1/2/4/6 sessions with load, then size the prod sidecar limit and `MAX_SESSIONS` — tooling + runbook built (`docs/sop/whatsapp_sidecar_soak.md`), **run pending**
+- [x] Interim prod sizing from the 21 h / 2-session staging measurement (peak RSS 144 MB, container peak 97.3 MiB): RSS refuse 216, limit 384m, `MAX_SESSIONS` 3, API cap 3; the third session is extrapolated (SOP `whatsapp_sidecar_production_deploy.md`). Raising it still needs the soak
+- [x] Shared-host budget table with the prod sidecar added (about 2.25 GiB expected of 7.8 GiB; limits sum 9.1 GiB)
 
 ## Deferred follow-ups (WhatsApp)
 - [ ] Sidecar: purge long-dormant `logged_out` session rows; persist the daily send counter beyond Redis; second Baileys-version re-vet on every bump
@@ -293,7 +309,8 @@ Plan: `docs/deployment/prod-release-plan-2026-10.md` (DRAFT 2026-10-28). Merging
 - [ ] WhatsApp: no alert to the Luran team while the AI is owner-paused; conversation list has no WhatsApp badge and shows the sender's WhatsApp name as 'Anonymous visitor'
 - [x] Deploy the sidecar to staging: deployed and smoke-tested 2026-10-28 via a manual dispatch (PR #165 fixed the env-permission bug the first real run exposed); live test passed the same day (SOP `docs/sop/whatsapp_staging_live_test.md`).
 - [ ] Investigate why the api containers sit at 83-90% of their limits (prod api 994 MiB / 1.17 GiB on 2026-10-28)
-- [ ] Production sidecar story: GHCR promotion, dedicated Redis or `volatile-ttl`, prod DB role, limits review
+- [x] Production sidecar story: GHCR promotion (`:develop` image, no rebuild), prod DB role, limits review (built 2026-10-29, PR open); dedicated Redis / network isolation deliberately NOT done, see below
+- [ ] Before `WHATSAPP_ENABLED` is flipped in prod: dedicated Redis on a private network + ACLs and a Qdrant API key (the sidecar currently shares the default network and Redis DB 1 with unauthenticated services; staging review caveat)
 - [ ] Re-private `luranai-api` after CI/CD runs (made public 2026-10-27 so Actions could run)
 - [ ] WhatsApp: the rating request ("How was your chat with <agent>?") is sent as plain text on resolve, but a digit reply is not parsed, so the customer cannot answer it; implement 1-5 reply handling (plan T6) or suppress the request on WhatsApp until then
 - [ ] WhatsApp media: customer photos reach agents only as a placeholder; the "I can only read text" fallback is also sent while a human agent owns the conversation (plan T8, about 1-1.5 agent-days)

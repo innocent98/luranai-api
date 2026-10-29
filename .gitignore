@@ -104,3 +104,4 @@ backups/*.log
 
 # Firebase
 firebase-adminsdk.json
+.whatsapp-production-secrets.env
