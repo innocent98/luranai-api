@@ -1,0 +1,219 @@
+{
+  "before": {
+    "whatsapp_chats": 0,
+    "conversation_sessions": 0,
+    "messages": 0,
+    "visitors": 0,
+    "whatsapp_inbound_messages": 0,
+    "sent_to_sidecar": 0
+  },
+  "steps_excluded": [
+    {
+      "step": "inbound text, phone-JID ref",
+      "event": {
+        "type": "message.inbound",
+        "message_id": "X1",
+        "from_ref": "2348000000100@s.whatsapp.net",
+        "from_phone_digits": "2348000000100",
+        "push_name": "Mum",
+        "kind": "text",
+        "text": "Are you coming for dinner?"
+      },
+      "webhook_response": {
+        "backend_status": 200,
+        "backend_body": {
+          "status": "ignored"
+        }
+      },
+      "counts_after": {
+        "whatsapp_chats": 0,
+        "conversation_sessions": 0,
+        "messages": 0,
+        "visitors": 0,
+        "whatsapp_inbound_messages": 0,
+        "sent_to_sidecar": 0
+      }
+    },
+    {
+      "step": "inbound text, LID ref with resolved digits (learns the LID)",
+      "event": {
+        "type": "message.inbound",
+        "message_id": "X2",
+        "from_ref": "5550000100@lid",
+        "from_phone_digits": "2348000000100",
+        "push_name": "Mum",
+        "kind": "text",
+        "text": "Hello?"
+      },
+      "webhook_response": {
+        "backend_status": 200,
+        "backend_body": {
+          "status": "ignored"
+        }
+      },
+      "counts_after": {
+        "whatsapp_chats": 0,
+        "conversation_sessions": 0,
+        "messages": 0,
+        "visitors": 0,
+        "whatsapp_inbound_messages": 0,
+        "sent_to_sidecar": 0
+      }
+    },
+    {
+      "step": "inbound text, LID ref and NO digits (matches the learned LID)",
+      "event": {
+        "type": "message.inbound",
+        "message_id": "X3",
+        "from_ref": "5550000100@lid",
+        "from_phone_digits": null,
+        "push_name": "Mum",
+        "kind": "text",
+        "text": "Call me"
+      },
+      "webhook_response": {
+        "backend_status": 200,
+        "backend_body": {
+          "status": "ignored"
+        }
+      },
+      "counts_after": {
+        "whatsapp_chats": 0,
+        "conversation_sessions": 0,
+        "messages": 0,
+        "visitors": 0,
+        "whatsapp_inbound_messages": 0,
+        "sent_to_sidecar": 0
+      }
+    },
+    {
+      "step": "inbound voice note (kind other)",
+      "event": {
+        "type": "message.inbound",
+        "message_id": "X4",
+        "from_ref": "5550000100@lid",
+        "from_phone_digits": null,
+        "push_name": "Mum",
+        "kind": "other",
+        "text": ""
+      },
+      "webhook_response": {
+        "backend_status": 200,
+        "backend_body": {
+          "status": "ignored"
+        }
+      },
+      "counts_after": {
+        "whatsapp_chats": 0,
+        "conversation_sessions": 0,
+        "messages": 0,
+        "visitors": 0,
+        "whatsapp_inbound_messages": 0,
+        "sent_to_sidecar": 0
+      }
+    },
+    {
+      "step": "owner types to the excluded contact",
+      "event": {
+        "type": "message.outbound_external",
+        "message_id": "X5",
+        "to_ref": "5550000100@lid",
+        "text": "On my way"
+      },
+      "webhook_response": {
+        "backend_status": 200,
+        "backend_body": {
+          "status": "ignored"
+        }
+      },
+      "counts_after": {
+        "whatsapp_chats": 0,
+        "conversation_sessions": 0,
+        "messages": 0,
+        "visitors": 0,
+        "whatsapp_inbound_messages": 0,
+        "sent_to_sidecar": 0
+      }
+    }
+  ],
+  "after_excluded": {
+    "whatsapp_chats": 0,
+    "conversation_sessions": 0,
+    "messages": 0,
+    "visitors": 0,
+    "whatsapp_inbound_messages": 0,
+    "sent_to_sidecar": 0
+  },
+  "steps_customer": [
+    {
+      "step": "a real customer on the same number is answered",
+      "event": {
+        "type": "message.inbound",
+        "message_id": "C1",
+        "from_ref": "2348000000200@s.whatsapp.net",
+        "from_phone_digits": "2348000000200",
+        "push_name": "Ada",
+        "kind": "text",
+        "text": "What are your opening hours?"
+      },
+      "webhook_response": {
+        "backend_status": 200,
+        "backend_body": {
+          "status": "accepted"
+        }
+      },
+      "counts_after": {
+        "whatsapp_chats": 1,
+        "conversation_sessions": 1,
+        "messages": 2,
+        "visitors": 1,
+        "whatsapp_inbound_messages": 1,
+        "sent_to_sidecar": 0
+      }
+    }
+  ],
+  "after_customer": {
+    "whatsapp_chats": 1,
+    "conversation_sessions": 1,
+    "messages": 2,
+    "visitors": 1,
+    "whatsapp_inbound_messages": 1,
+    "sent_to_sidecar": 1
+  },
+  "steps_after_removal": [
+    {
+      "step": "after removal the same number is answered",
+      "event": {
+        "type": "message.inbound",
+        "message_id": "X6",
+        "from_ref": "2348000000100@s.whatsapp.net",
+        "from_phone_digits": "2348000000100",
+        "push_name": "Mum",
+        "kind": "text",
+        "text": "Hi again"
+      },
+      "webhook_response": {
+        "backend_status": 200,
+        "backend_body": {
+          "status": "accepted"
+        }
+      },
+      "counts_after": {
+        "whatsapp_chats": 2,
+        "conversation_sessions": 2,
+        "messages": 4,
+        "visitors": 2,
+        "whatsapp_inbound_messages": 2,
+        "sent_to_sidecar": 2
+      }
+    }
+  ],
+  "after_removal": {
+    "whatsapp_chats": 2,
+    "conversation_sessions": 2,
+    "messages": 4,
+    "visitors": 2,
+    "whatsapp_inbound_messages": 2,
+    "sent_to_sidecar": 2
+  }
+}

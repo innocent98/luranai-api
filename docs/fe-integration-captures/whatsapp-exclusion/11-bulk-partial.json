@@ -1,0 +1,51 @@
+{
+  "scenario": "bulk-partial",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections/30c8a213-64dd-4790-94d1-f1500333b659/exclusions/bulk",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "entries": [
+        {
+          "phone_number": "2348000000102",
+          "label": "Dad"
+        },
+        {
+          "phone_number": "2348000000100"
+        },
+        {
+          "phone_number": "2348000000102"
+        },
+        {
+          "phone_number": "08000000103"
+        },
+        {
+          "phone_number": "+2348000000001"
+        },
+        {
+          "phone_number": "+234 800 000 0104"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "added": 2,
+      "already_excluded": 2,
+      "rejected": [
+        {
+          "index": 3,
+          "code": "invalid_phone"
+        },
+        {
+          "index": 4,
+          "code": "own_number"
+        }
+      ]
+    }
+  }
+}

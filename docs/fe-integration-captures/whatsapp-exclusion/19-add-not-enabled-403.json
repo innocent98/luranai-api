@@ -1,0 +1,21 @@
+{
+  "scenario": "add-not-enabled-403",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections/23610210-ad76-4446-b4e9-24a5057241ff/exclusions",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": {
+      "phone_number": "2348000000300"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "code": "whatsapp_not_enabled",
+      "message": "WhatsApp is not enabled for this account."
+    }
+  }
+}

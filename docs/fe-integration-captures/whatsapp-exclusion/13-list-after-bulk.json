@@ -1,0 +1,46 @@
+{
+  "scenario": "list-after-bulk",
+  "note": "",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/whatsapp/connections/30c8a213-64dd-4790-94d1-f1500333b659/exclusions",
+    "headers": {
+      "Authorization": "Bearer <admin-jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "id": "0ec7a56e-4635-4023-96cf-41c6c4dfdb04",
+          "phone_masked": "+234\u2022\u2022\u2022\u2022\u2022\u20220100",
+          "label": "Mum",
+          "created_at": "2026-10-29T22:50:52.630732Z"
+        },
+        {
+          "id": "f4c85b9d-78b2-4809-8434-2b38f62dbd63",
+          "phone_masked": "+234\u2022\u2022\u2022\u2022\u2022\u20220101",
+          "label": null,
+          "created_at": "2026-10-29T22:50:53.093751Z"
+        },
+        {
+          "id": "21eb3938-cca3-42fc-aacf-385780dc4d1d",
+          "phone_masked": "+234\u2022\u2022\u2022\u2022\u2022\u20220104",
+          "label": null,
+          "created_at": "2026-10-29T22:50:53.493691Z"
+        },
+        {
+          "id": "57194564-5175-4676-a43b-d29db7bc317e",
+          "phone_masked": "+234\u2022\u2022\u2022\u2022\u2022\u20220102",
+          "label": "Dad",
+          "created_at": "2026-10-29T22:50:53.493691Z"
+        }
+      ],
+      "total": 4,
+      "limit": 100,
+      "offset": 0
+    }
+  }
+}

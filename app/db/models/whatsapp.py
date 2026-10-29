@@ -90,6 +90,7 @@ class WhatsAppChat(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "whatsapp_chats"
     __table_args__ = (
         UniqueConstraint("connection_id", "contact_hmac", name="uq_whatsapp_chat_contact"),
+        Index("ix_whatsapp_chats_connection_phone", "connection_id", "phone_hmac"),
     )
 
     tenant_id: Mapped[uuid.UUID] = mapped_column(
@@ -101,6 +102,11 @@ class WhatsAppChat(Base, UUIDMixin, TimestampMixin):
     contact_hmac: Mapped[str] = mapped_column(String(64), nullable=False)
     contact_ref: Mapped[str] = mapped_column(
         EncryptedString, nullable=False, comment="Opaque sidecar chat ref (may be a LID); encrypted"
+    )
+    phone_hmac: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        comment="Peppered HMAC of the contact's phone digits, once the sidecar resolved them",
     )
     visitor_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("visitors.id", ondelete="SET NULL"), nullable=True
@@ -137,3 +143,38 @@ class WhatsAppInboundMessage(Base, UUIDMixin):
     )
     provider_message_id: Mapped[str] = mapped_column(String(128), nullable=False)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class WhatsAppContactExclusion(Base, UUIDMixin, TimestampMixin):
+    """A contact Luran must ignore entirely on ONE connection (the tenant's personal contacts).
+
+    Minimal by design: peppered HMAC keys only, plus an encrypted display mask and an optional
+    encrypted label. The full number is never stored. `lid_hmac` is learned: the sidecar's chat
+    ref is often a LID (not a phone), so the first inbound that carries both lets us recognise
+    the same contact by ref afterwards (owner-typed events carry only the ref).
+    """
+
+    __tablename__ = "whatsapp_contact_exclusions"
+    __table_args__ = (
+        UniqueConstraint("connection_id", "phone_hmac", name="uq_whatsapp_exclusion_phone"),
+        Index("ix_whatsapp_exclusions_connection_lid", "connection_id", "lid_hmac"),
+    )
+
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("whatsapp_connections.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    phone_hmac: Mapped[str] = mapped_column(
+        String(64), nullable=False, comment="Peppered HMAC of the phone digits the tenant typed"
+    )
+    lid_hmac: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, comment="Peppered HMAC of the LID chat ref, learned on inbound"
+    )
+    phone_masked: Mapped[str] = mapped_column(
+        EncryptedString, nullable=False, comment="Display mask only (+234•••••6789); encrypted"
+    )
+    label: Mapped[str | None] = mapped_column(
+        EncryptedString, nullable=True, comment="Tenant-chosen name, optional; encrypted"
+    )

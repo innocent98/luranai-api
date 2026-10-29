@@ -43,6 +43,7 @@ from app.db.models.whatsapp import (
 from app.schemas.conversation import ConversationSessionCreate, MessageRequest
 from app.schemas.explore import ConversationSource
 from app.services import whatsapp_enqueue
+from app.services.whatsapp_exclusion import chat_phone_hmac, is_excluded
 from app.services.entitlements import get_entitlements_for_tenant_id
 from app.services.conversation_counting import (
     conversation_limit_reached,
@@ -300,6 +301,13 @@ async def handle_inbound(db: Session, conn: WhatsAppConnection, event: dict) -> 
     if not _tenant_may_use(db, conn.tenant_id):  # kill switch / revoked grant
         return "dropped_disabled"
 
+    # The tenant's own contacts: ignored entirely, BEFORE any row (dedupe ledger, chat, visitor,
+    # session, message) is written and before an image is fetched from the sidecar.
+    if is_excluded(
+        db, conn.id, ref=event.get("from_ref"), phone_digits=event.get("from_phone_digits")
+    ):
+        return "dropped_excluded"
+
     message_id = event["message_id"]
     if not _record_message_id(db, conn, message_id):
         return "duplicate"
@@ -311,6 +319,11 @@ async def handle_inbound(db: Session, conn: WhatsAppConnection, event: dict) -> 
         chat.last_inbound_at = now
         if event.get("from_ref") and chat.contact_ref != event["from_ref"]:
             chat.contact_ref = event["from_ref"]
+        phone_key = chat_phone_hmac(event.get("from_ref"), event.get("from_phone_digits"))
+        if phone_key and chat.phone_hmac != phone_key:
+            chat.phone_hmac = (
+                phone_key  # an HMAC, not the number: lets a later exclusion find this chat
+            )
         db.commit()
 
         human_until = ensure_utc_aware(chat.human_until)
@@ -774,6 +787,8 @@ async def handle_outbound_external(db: Session, conn: WhatsAppConnection, event:
 
     if not _tenant_may_use(db, conn.tenant_id):
         return "dropped_disabled"
+    if is_excluded(db, conn.id, ref=event.get("to_ref")):
+        return "dropped_excluded"  # not even a pause row: nothing about this contact is kept
     message_id = event["message_id"]
     if not _record_message_id(db, conn, message_id):
         return "duplicate"
