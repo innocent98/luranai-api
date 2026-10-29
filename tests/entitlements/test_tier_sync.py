@@ -1,5 +1,6 @@
 """Every writer of tenant_capabilities carries the new gates (one apply_plan_to_capabilities)."""
 
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from app.db.models.subscription_plan import SubscriptionPlan
 from app.db.models.tenant import TenantCapabilities
 from app.schemas.tenant import TenantCapabilitiesUpdate
+from app.services.entitlements import plan_capabilities
 from app.services.plan_service import PlanService
 from app.services.platform_subscription_service import PlatformSubscriptionService
 from app.services.promotional_grant_service import PromotionalGrantService
@@ -20,6 +22,17 @@ GATES = (
     "can_use_screen_recording",
     "can_export_ratings",
 )
+
+
+def _forced_sync(db, tenant, tier):
+    PlatformSubscriptionService(db)._update_capabilities_with_overrides(
+        tenant.id, tier, respect_overrides=False
+    )
+
+
+def _set_plan_whatsapp(db, tier, value):
+    db.query(SubscriptionPlan).filter_by(tier=tier).update({"can_use_whatsapp": value})
+    db.commit()
 
 
 def _gates(db, tenant):
@@ -56,7 +69,7 @@ def test_new_tenant_capabilities_copy_the_whatsapp_flag_from_every_plan(db_sessi
         assert new_tenant_capabilities(db_session, uuid4(), tier).can_use_whatsapp is True, tier
 
 
-def test_tier_sync_keeps_a_whatsapp_override_either_way_and_a_forced_reset_clears_it(db_session):
+def test_a_routine_tier_sync_keeps_a_whatsapp_override_either_way(db_session):
     for admin_value in (False, True):
         tenant = make_tenant(db_session, "lite")
         TenantService(db_session).update_capabilities(
@@ -64,14 +77,108 @@ def test_tier_sync_keeps_a_whatsapp_override_either_way_and_a_forced_reset_clear
         )
         assert caps_of(db_session, tenant).override_flags == {"can_use_whatsapp": True}
         SubscriptionService(db_session).upgrade_subscription(tenant.id, "professional")
-        assert caps_of(db_session, tenant).can_use_whatsapp is admin_value
-        # A forced platform tier change (respect_overrides=False) goes back to the plan value.
-        PlatformSubscriptionService(db_session)._update_capabilities_with_overrides(
-            tenant.id, "professional", respect_overrides=False
+        caps = caps_of(db_session, tenant)
+        assert caps.can_use_whatsapp is admin_value
+        assert caps.override_flags == {"can_use_whatsapp": True}
+
+
+def test_a_forced_sync_resets_an_admin_grant_like_any_other_field(db_session):
+    tenant = make_tenant(db_session, "lite")
+    _set_plan_whatsapp(db_session, "lite", False)
+    TenantService(db_session).update_capabilities(
+        tenant.id, TenantCapabilitiesUpdate(can_use_whatsapp=True, can_export_ratings=True)
+    )
+    assert caps_of(db_session, tenant).can_use_whatsapp is True
+    _forced_sync(db_session, tenant, "lite")
+    caps = caps_of(db_session, tenant)
+    assert caps.can_use_whatsapp is False  # the plan value: an admin TRUE does not survive
+    assert "can_use_whatsapp" not in (caps.override_flags or {})
+    assert "can_export_ratings" not in (caps.override_flags or {})
+
+
+def test_a_tenant_without_a_revocation_gets_the_plan_value_from_a_forced_sync(db_session):
+    tenant = make_tenant(db_session, "lite")
+    caps = caps_of(db_session, tenant)
+    caps.can_use_whatsapp = False  # stale stored value, no override recorded
+    db_session.commit()
+    _forced_sync(db_session, tenant, "professional")
+    caps = caps_of(db_session, tenant)
+    assert caps.can_use_whatsapp is True
+    assert not caps.override_flags
+
+
+def test_a_revocation_survives_a_forced_downgrade(db_session):
+    tenant = make_tenant(db_session, "growth", whatsapp_override=False)
+    SubscriptionService(db_session)._update_capabilities_for_tier(
+        tenant.id, "professional", respect_overrides=False
+    )
+    caps = caps_of(db_session, tenant)
+    assert caps.can_use_whatsapp is False
+    assert caps.override_flags == {"can_use_whatsapp": True}
+    assert caps.max_whatsapp_numbers == 2  # every other field still follows the plan
+
+
+def test_a_revocation_survives_a_platform_tier_override(db_session):
+    tenant = make_tenant(db_session, "lite", whatsapp_override=False)
+    PlatformSubscriptionService(db_session)._update_capabilities_with_overrides(
+        tenant.id, "growth", respect_overrides=False
+    )
+    caps = caps_of(db_session, tenant)
+    assert caps.can_use_whatsapp is False
+    assert caps.override_flags == {"can_use_whatsapp": True}
+    assert caps.max_whatsapp_numbers == 5
+
+
+def test_a_revocation_survives_promo_grant_start_expiry_and_revoke(db_session):
+    service = PromotionalGrantService(db_session)
+    for end_by in ("expiry", "revoke"):
+        tenant = make_tenant(db_session, "lite", whatsapp_override=False)
+        grant = service.create_grant(
+            tenant_id=tenant.id,
+            campaign_code=f"WA-REVOKE-{end_by}",
+            campaign_name="t",
+            granted_tier="professional",
+            duration_days=30,
+            source="admin_single",
+            granted_by_admin_id=None,
+            granted_by_admin_name="test",
+            reason="a revoked tenant stays revoked",
         )
         caps = caps_of(db_session, tenant)
-        assert caps.can_use_whatsapp is True
-        assert "can_use_whatsapp" not in (caps.override_flags or {})
+        assert caps.can_use_whatsapp is False, "grant start"
+        assert caps.override_flags == {"can_use_whatsapp": True}
+        assert caps.max_whatsapp_numbers == 2
+        if end_by == "expiry":
+            grant.grant_ends_at = datetime.now(UTC) - timedelta(minutes=1)
+            db_session.commit()
+            assert grant.id in service.expire_grants_due()
+        else:
+            service.revoke_grant(
+                grant_id=grant.id, reason="back to the paid tier", admin_id=None, admin_name="test"
+            )
+        caps = caps_of(db_session, tenant)
+        assert caps.can_use_whatsapp is False, end_by
+        assert caps.override_flags == {"can_use_whatsapp": True}
+        assert caps.max_whatsapp_numbers == 1
+
+
+def test_apply_plan_keeps_the_revocation_but_clears_other_flags(db_session):
+    from app.services.entitlements import REVOCATION_FIELDS, apply_plan_to_capabilities
+
+    assert REVOCATION_FIELDS == frozenset({"can_use_whatsapp"})
+    tenant = make_tenant(db_session, "lite", whatsapp_override=False)
+    caps = caps_of(db_session, tenant)
+    caps.can_export_ratings = True
+    caps.override_flags = {"can_use_whatsapp": True, "can_export_ratings": True}
+    db_session.commit()
+    written = apply_plan_to_capabilities(
+        caps, plan_capabilities("professional"), respect_overrides=False
+    )
+    db_session.commit()
+    caps = caps_of(db_session, tenant)
+    assert "can_use_whatsapp" not in written
+    assert caps.can_use_whatsapp is False
+    assert caps.override_flags == {"can_use_whatsapp": True}
 
 
 def test_upgrade_to_enterprise_stores_unlimited_as_null(db_session):

@@ -78,9 +78,13 @@ def _json_list(raw) -> list:
 
 
 def _json_dict(raw) -> dict:
-    if raw is None:
-        return {}
-    return json.loads(raw) if isinstance(raw, str) else dict(raw)
+    """A JSON object as a dict; {} for anything else (NULL, JSON null, list, string, number)."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return {}
+    return dict(raw) if isinstance(raw, dict) else {}
 
 
 def set_plan_flag(bind) -> None:
@@ -115,53 +119,41 @@ def rewrite_plan_features(bind, reverse: bool = False) -> None:
         )
 
 
-def backfill_tenants(bind) -> int:
-    """Copy the plan flag onto every tenant without an override. Returns rows changed."""
-    plans = {
-        row.tier: getattr(row, FLAG)
-        for row in bind.execute(sa.text(f"SELECT tier, {FLAG} FROM subscription_plans"))
-    }
-    rows = bind.execute(
-        sa.text(
-            f"SELECT c.id, t.subscription_tier AS tier, c.override_flags, c.{FLAG} AS stored "
-            "FROM tenant_capabilities c JOIN tenants t ON t.id = c.tenant_id"
-        )
-    ).fetchall()
+# True when override_flags is a JSON object holding the flag's key (a platform admin set it by hand,
+# true or false). NULL, JSON null, lists, strings and numbers are "no override". jsonb_exists is
+# the function form of the jsonb `?` operator, which would clash with bind-parameter syntax.
+_HAS_OVERRIDE = (
+    "COALESCE(jsonb_typeof(CAST(c.override_flags AS jsonb)) = 'object' "
+    f"AND jsonb_exists(CAST(c.override_flags AS jsonb), '{FLAG}'), FALSE)"
+)
 
-    changed = 0
-    for row in rows:
-        if row.tier not in plans:
-            continue
-        # A key in override_flags means a platform admin set this by hand (true or false): keep it.
-        # override_flags is a plain JSON column and may be NULL.
-        if FLAG in _json_dict(row.override_flags):
-            continue
-        wanted = bool(plans[row.tier])
-        if row.stored == wanted:
-            continue
-        bind.execute(
-            sa.text(f"UPDATE tenant_capabilities SET {FLAG} = :v WHERE id = :id"),
-            {"v": wanted, "id": row.id},
+
+def backfill_tenants(bind) -> int:
+    """Copy the plan flag onto every tenant without an override. Returns rows changed.
+
+    One set-based UPDATE. A tenant whose tier has no plan row is not joined, so it is left alone.
+    """
+    result = bind.execute(
+        sa.text(
+            f"UPDATE tenant_capabilities c SET {FLAG} = p.{FLAG} "
+            "FROM tenants t JOIN subscription_plans p ON p.tier = t.subscription_tier "
+            "WHERE t.id = c.tenant_id "
+            f"AND c.{FLAG} IS DISTINCT FROM p.{FLAG} "
+            f"AND NOT {_HAS_OVERRIDE}"
         )
-        changed += 1
-    return changed
+    )
+    return result.rowcount
 
 
 def unwind_tenants(bind) -> int:
     """Back to the grant model: off for everyone who was not set by hand. Returns rows changed."""
-    rows = bind.execute(
-        sa.text(f"SELECT id, override_flags, {FLAG} AS stored FROM tenant_capabilities")
-    ).fetchall()
-    changed = 0
-    for row in rows:
-        if FLAG in _json_dict(row.override_flags) or not row.stored:
-            continue
-        bind.execute(
-            sa.text(f"UPDATE tenant_capabilities SET {FLAG} = FALSE WHERE id = :id"),
-            {"id": row.id},
+    result = bind.execute(
+        sa.text(
+            f"UPDATE tenant_capabilities c SET {FLAG} = FALSE "
+            f"WHERE c.{FLAG} IS TRUE AND NOT {_HAS_OVERRIDE}"
         )
-        changed += 1
-    return changed
+    )
+    return result.rowcount
 
 
 def upgrade() -> None:

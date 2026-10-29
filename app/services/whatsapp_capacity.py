@@ -4,7 +4,8 @@ Two independent conditions, each emailed at most once per `DEDUPE_SECONDS` (a Re
 decides which process sends):
 
 * `connections`: live linked sessions reached `WHATSAPP_CAPACITY_ALERT_PERCENT` of
-  `WHATSAPP_MAX_CONNECTIONS` (the backend guard that answers tenants 503 `capacity_exceeded`).
+  `WHATSAPP_MAX_CONNECTIONS`, or one short of it when the percent would only fire at the limit
+  (the backend guard that answers tenants 503 `capacity_exceeded`).
 * `sidecar_memory`: the sidecar's RSS reached the same percent of its own refuse threshold
   (only known from the sidecar's `/health`, so only the cron path checks it).
 
@@ -50,20 +51,30 @@ def _percent() -> int:
     return settings.WHATSAPP_CAPACITY_ALERT_PERCENT
 
 
+def _connections_threshold(limit: int, percent: int) -> int:
+    """Live count that fires the alert: the percent, but never the limit itself.
+
+    At 100% of the limit tenants are already refused (503), and at small limits (2, 3) the
+    percent rounds up to the limit, so the operator is told one connection before that.
+    """
+    by_percent = -(-percent * limit // 100)  # ceil
+    return max(1, min(by_percent, limit - 1))
+
+
 def evaluate(live_count: int, health: SidecarHealth | None) -> list[Alert]:
     """Pure: which conditions are at or past the alert threshold."""
     alerts: list[Alert] = []
     percent = _percent()
 
     limit = settings.WHATSAPP_MAX_CONNECTIONS
-    if limit > 0 and live_count * 100 >= percent * limit:
+    if limit > 0 and live_count >= _connections_threshold(limit, percent):
         alerts.append(
             Alert(
                 "connections",
                 [
                     f"Live WhatsApp connections: {live_count} of {limit} allowed "
                     f"({live_count * 100 // limit}%).",
-                    f"Alert threshold: {percent}%. New connections are refused (503) at 100%.",
+                    f"Alert threshold: {percent}% or one connection short of the limit.",
                 ],
             )
         )

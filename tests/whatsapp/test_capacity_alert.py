@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from uuid import uuid4
 
 import httpx
@@ -87,6 +88,28 @@ def test_connections_threshold(monkeypatch, live, fires):
     monkeypatch.setattr(settings, "WHATSAPP_CAPACITY_ALERT_PERCENT", 80)
     got = [a.condition for a in cap.evaluate(live, None)]
     assert got == (["connections"] if fires else [])
+
+
+@pytest.mark.parametrize(
+    ("limit", "threshold"), [(1, 1), (2, 1), (3, 2), (4, 3), (5, 4), (10, 8), (100, 80)]
+)
+def test_connections_threshold_is_the_percent_or_one_short_of_the_limit(
+    monkeypatch, limit, threshold
+):
+    """At small limits the percent would only fire at the 503 point, so alert one short of it."""
+    monkeypatch.setattr(settings, "WHATSAPP_MAX_CONNECTIONS", limit)
+    monkeypatch.setattr(settings, "WHATSAPP_CAPACITY_ALERT_PERCENT", 80)
+    assert [a.condition for a in cap.evaluate(threshold - 1, None)] == []
+    assert [a.condition for a in cap.evaluate(threshold, None)] == ["connections"]
+    assert [a.condition for a in cap.evaluate(limit, None)] == ["connections"]
+
+
+def test_connections_alert_wording(monkeypatch):
+    monkeypatch.setattr(settings, "WHATSAPP_MAX_CONNECTIONS", 3)
+    monkeypatch.setattr(settings, "WHATSAPP_CAPACITY_ALERT_PERCENT", 80)
+    (alert,) = cap.evaluate(2, None)
+    assert alert.detail_lines[0].startswith("Live WhatsApp connections: 2 of 3 allowed")
+    assert alert.detail_lines[1] == "Alert threshold: 80% or one connection short of the limit."
 
 
 @pytest.mark.parametrize(("rss", "fires"), [(100, False), (319, False), (320, True), (400, True)])
@@ -411,17 +434,38 @@ def test_create_still_returns_201_when_smtp_and_redis_are_down(
     client, db, wa_settings, fake_sidecar, monkeypatch
 ):
     monkeypatch.setattr(cap, "schedule_post_create_check", REAL_SCHEDULE)
-    monkeypatch.setattr(wa_settings, "WHATSAPP_MAX_CONNECTIONS", 1)  # 1/1 live: the alert fires
     monkeypatch.setattr(wa_settings, "PLATFORM_ALERT_EMAILS", "ops@example.test")
     monkeypatch.setattr(wa_settings, "REDIS_URL", "redis://127.0.0.1:1/0")
+    ran = threading.Event()
+    results: list[list[str]] = []
+    real_check = cap.check_and_alert
+
+    class FakeSession:
+        def close(self):
+            pass
+
+    async def recording_check(db, *, include_health):
+        ran.set()
+        results.append(await real_check(db, include_health=include_health))
+        return results[-1]
 
     def smtp_down(self, *a, **k):
         raise RuntimeError("smtp down")
 
+    # The check must be reached and must see the platform at its limit, so the Redis and SMTP
+    # failure paths really run; the real SessionLocal is not the test database.
+    monkeypatch.setattr(cap, "SessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(cap, "_live_count", lambda _db: wa_settings.WHATSAPP_MAX_CONNECTIONS)
+    monkeypatch.setattr(cap, "check_and_alert", recording_check)
     monkeypatch.setattr(EmailService, "send_whatsapp_capacity_alert_email", smtp_down)
     login_admin(make_tenant(db))
     r = client.post("/api/v1/whatsapp/connections", json=consent_body())
     assert r.status_code == 201
+    assert ran.wait(5)  # the alert machinery really ran (and failed) behind the response
+    deadline = time.monotonic() + 5
+    while not results and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert results == [[]]  # Redis unreachable: nothing sent, nothing raised
 
 
 def test_backend_guard_503_body_is_the_stable_message(

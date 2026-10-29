@@ -384,6 +384,11 @@ def _gate_message(key: str, min_tier: str | None) -> str:
     return f"Your plan does not include {label}. Upgrade to {_TIER_NAMES.get(min_tier, min_tier)} to use it."
 
 
+# Fields where a stored False under an override key is an admin revocation (switching a tenant
+# off for abuse), not just a manual tweak. Forced tier syncs must not undo it.
+REVOCATION_FIELDS = frozenset({"can_use_whatsapp"})
+
+
 def apply_plan_to_capabilities(
     capabilities: TenantCapabilities,
     plan_config: dict[str, Any],
@@ -396,7 +401,13 @@ def apply_plan_to_capabilities(
     override, promotional grant and its expiry). With `respect_overrides` a field listed in
     `override_flags` keeps its manual value; without it every plan field is written and the
     flags of the fields this call overwrote are cleared, so a downgrade cannot keep a
-    manually-raised limit. Returns the fields that were written.
+    manually-raised limit.
+
+    One exception, even without `respect_overrides`: a `REVOCATION_FIELDS` field whose override
+    key is present and whose stored value is False is neither written nor unflagged. An admin
+    revocation is a safety action; a downgrade, a promotional grant starting or ending, or a
+    platform tier change must not switch the feature back on. (An admin grant, stored True, is
+    reset like any other field.) Returns the fields that were written.
     """
     existing_flags = capabilities.override_flags or {}
     protected = existing_flags if respect_overrides else {}
@@ -405,6 +416,12 @@ def apply_plan_to_capabilities(
     cleared: list[str] = []
     for field in plan_capability_fields():
         if field not in plan_config or field in protected:
+            continue
+        if (
+            field in REVOCATION_FIELDS
+            and field in existing_flags
+            and getattr(capabilities, field) is False
+        ):
             continue
         setattr(capabilities, field, plan_config[field])
         written.append(field)

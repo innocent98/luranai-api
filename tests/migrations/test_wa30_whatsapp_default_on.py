@@ -5,6 +5,7 @@ import json
 import os
 import uuid
 
+import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.script import ScriptDirectory
@@ -53,6 +54,18 @@ def _pre_migration_tenant(db, tier="lite", *, override_flags=None, stored=False)
     row.override_flags = override_flags
     db.commit()
     return tenant
+
+
+def _set_raw_flags(db, tenant, raw_json):
+    """Write override_flags as raw JSON text ('null', '["x"]', '"x"') bypassing the ORM."""
+    db.execute(
+        text(
+            "UPDATE tenant_capabilities SET override_flags = CAST(:f AS JSON) "
+            "WHERE tenant_id = :t"
+        ),
+        {"f": raw_json, "t": tenant.id},
+    )
+    db.expire_all()
 
 
 def _set_plan(db, tier, **values):
@@ -141,6 +154,28 @@ def test_a_tenant_with_null_override_flags_gets_the_plan_value(db_session):
     )
     mod.backfill_tenants(db_session.connection())
     assert _caps(db_session, tenant).can_use_whatsapp is True
+
+
+@pytest.mark.parametrize("raw", ["null", '["can_use_whatsapp"]', '"can_use_whatsapp"', "7", "true"])
+def test_non_object_override_flags_count_as_no_override_and_never_abort(db_session, raw):
+    mod = _load()
+    tenant = _pre_migration_tenant(db_session, "professional")
+    _set_raw_flags(db_session, tenant, raw)
+    assert mod.backfill_tenants(db_session.connection()) >= 1
+    assert _caps(db_session, tenant).can_use_whatsapp is True
+
+
+@pytest.mark.parametrize("raw", [None, "null", '["can_use_whatsapp"]', '"x"', "[]", "{}"])
+def test_json_dict_returns_an_empty_dict_for_anything_that_is_not_a_dict(raw):
+    mod = _load()
+    assert mod._json_dict(raw) == {}
+    assert mod._json_dict(json.loads(raw) if raw else raw) == {}
+
+
+def test_json_dict_keeps_a_real_dict_in_either_form():
+    mod = _load()
+    assert mod._json_dict({"a": 1}) == {"a": 1}
+    assert mod._json_dict('{"a": 1}') == {"a": 1}
 
 
 def test_a_tenant_whose_tier_has_no_plan_row_is_left_alone(db_session):
@@ -273,6 +308,27 @@ def test_unwind_turns_the_flag_off_except_for_hand_set_tenants(db_session):
     assert mod.unwind_tenants(db_session.connection()) == 0
 
 
+@pytest.mark.parametrize("raw", ["null", '["can_use_whatsapp"]', '"can_use_whatsapp"'])
+def test_unwind_treats_non_object_override_flags_as_no_override(db_session, raw):
+    mod = _load()
+    tenant = _pre_migration_tenant(db_session, "lite", stored=True)
+    _set_raw_flags(db_session, tenant, raw)
+    assert mod.unwind_tenants(db_session.connection()) >= 1
+    assert _caps(db_session, tenant).can_use_whatsapp is False
+
+
+def test_backfill_and_unwind_count_only_the_rows_they_changed(db_session):
+    mod = _load()
+    _pre_migration_tenant(db_session, "lite")
+    _pre_migration_tenant(db_session, "lite", override_flags={"can_use_whatsapp": True})
+    conn = db_session.connection()
+    changed = mod.backfill_tenants(conn)
+    assert changed >= 1
+    assert mod.backfill_tenants(conn) == 0
+    assert mod.unwind_tenants(conn) >= changed
+    assert mod.unwind_tenants(conn) == 0
+
+
 # --- the real upgrade() / downgrade() on a scratch Postgres database ------------------------
 
 
@@ -305,6 +361,9 @@ def _seed_pre_state(engine):
             ("t-lite-off", "lite", {"can_use_whatsapp": True}, False),
             ("t-growth-on", "growth", {"can_use_whatsapp": True}, True),
             ("t-legacy", "legacy", {}, False),
+            ("t-list-flags", "lite", ["can_use_whatsapp"], False),
+            ("t-string-flags", "professional", "can_use_whatsapp", False),
+            ("t-json-null-flags", "growth", "JSON-NULL", False),
         ):
             tid = str(uuid.uuid4())
             conn.execute(
@@ -329,7 +388,11 @@ def _seed_pre_state(engine):
                     "cid": str(uuid.uuid4()),
                     "id": tid,
                     "on": stored,
-                    "f": None if flags is None else json.dumps(flags),
+                    "f": (
+                        None
+                        if flags is None
+                        else "null" if flags == "JSON-NULL" else json.dumps(flags)
+                    ),
                 },
             )
 
@@ -378,6 +441,10 @@ def test_real_upgrade_downgrade_upgrade_round_trip(scratch_db):
     assert tenants["t-lite-off"].wa is False  # admin said no: kept
     assert tenants["t-growth-on"].wa is True
     assert tenants["t-legacy"].wa is False  # no plan row for its tier: left alone
+    # override_flags that is not an object (list, string, JSON null) is no override
+    assert tenants["t-list-flags"].wa is True
+    assert tenants["t-string-flags"].wa is True
+    assert tenants["t-json-null-flags"].wa is True
     assert all(t.n == 1 for t in tenants.values())  # numbers untouched
     for tier in TIERS:
         assert not any("on request" in line for line in features[tier]), tier
@@ -393,6 +460,8 @@ def test_real_upgrade_downgrade_upgrade_round_trip(scratch_db):
     tenants, features = _state(scratch_db)
     assert features == before_features  # the old feature lines are back, byte for byte
     assert tenants["t-lite"].wa is False and tenants["t-pro-null"].wa is False
+    assert tenants["t-list-flags"].wa is False and tenants["t-string-flags"].wa is False
+    assert tenants["t-json-null-flags"].wa is False
     assert tenants["t-lite-off"].wa is False  # hand-set tenants keep their value
     assert tenants["t-growth-on"].wa is True
 
