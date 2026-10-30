@@ -6,6 +6,8 @@ comes back in the module's flat `{code, message, errors[]}` body; the schemas on
 
 from typing import Literal
 
+from uuid import UUID
+
 from pydantic import BaseModel
 
 Kind = Literal["product", "service"]
@@ -43,3 +45,9 @@ class OfferingPatch(BaseModel):
     quantity: int | None = None
     negotiable: bool | None = None
     status: Status | None = None
+
+
+class ImageOrder(BaseModel):
+    """The photo ids in their new order (first = cover)."""
+
+    image_ids: list[UUID]

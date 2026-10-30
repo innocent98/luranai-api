@@ -1292,6 +1292,9 @@ class WorkerSettings:
         expire_attachments,
         sweep_unregistered_videos,
     )
+    from app.workers.offering_cleanup import (  # type: ignore[misc]
+        sweep_orphan_offering_images,
+    )
 
     from app.auditor.pipeline import run_website_audit  # type: ignore[misc]
 
@@ -1340,6 +1343,7 @@ class WorkerSettings:
         cleanup_orphan_attachments,
         expire_attachments,
         sweep_unregistered_videos,
+        sweep_orphan_offering_images,
         check_trial_expiration_3days,
         expire_lapsed_trials,
         check_subscription_renewal_reminders,
@@ -1436,6 +1440,13 @@ class WorkerSettings:
             sweep_unregistered_videos,
             hour={3},
             minute=30,
+            run_at_startup=False,
+        ),
+        # Destroy offering photos no row references (>24h) - daily at 3:45 AM UTC
+        cron(
+            sweep_orphan_offering_images,
+            hour={3},
+            minute=45,
             run_at_startup=False,
         ),
         # Check trial expiration reminders (14/7/3/1/0 days) - daily at 9 AM UTC

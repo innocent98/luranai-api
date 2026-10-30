@@ -30,7 +30,7 @@ from app.db.models.offering import (
 )
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.services.entitlements import Entitlements, require_feature
-from app.services.offering_media import gallery_url, thumb_url
+from app.services.offering_media import destroy_assets, gallery_url, thumb_url
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
@@ -210,7 +210,7 @@ class OfferingService:
 
     # -- plumbing ------------------------------------------------------------------------
 
-    def _require_write(self, tenant_id: UUID) -> Entitlements:
+    def require_write(self, tenant_id: UUID) -> Entitlements:
         """403 `feature_not_in_plan` for a lapsed tenant (or a plan with the feature at 0)."""
         return require_feature(self.db, tenant_id, "offerings")
 
@@ -373,7 +373,7 @@ class OfferingService:
     # -- writes --------------------------------------------------------------------------
 
     def create(self, tenant_id: UUID, fields: dict[str, Any]) -> dict[str, Any]:
-        entitlements = self._require_write(tenant_id)
+        entitlements = self.require_write(tenant_id)
         clean, errors = validate_candidate(fields)
         if errors:
             raise validation_error(errors)
@@ -410,7 +410,7 @@ class OfferingService:
 
     def patch(self, tenant_id: UUID, offering_id: UUID, changes: dict[str, Any]) -> dict[str, Any]:
         """Partial update. `changes` holds only the fields the caller sent (explicit None clears)."""
-        entitlements = self._require_write(tenant_id)
+        entitlements = self.require_write(tenant_id)
         item = self.get_row(tenant_id, offering_id)
 
         current = {
@@ -468,7 +468,7 @@ class OfferingService:
         return self.serialize(item)
 
     def archive(self, tenant_id: UUID, offering_id: UUID) -> None:
-        self._require_write(tenant_id)
+        self.require_write(tenant_id)
         item = self.get_row(tenant_id, offering_id)
         if item.status != OfferingStatus.ARCHIVED:
             now = _now()
@@ -479,9 +479,17 @@ class OfferingService:
         self.db.commit()
 
     def hard_delete(self, tenant_id: UUID, offering_id: UUID) -> None:
-        """Delete the row (photos cascade). Photo assets are destroyed by the image service."""
-        self._require_write(tenant_id)
+        """Delete the row (photos cascade), then destroy the photo assets (best-effort)."""
+        self.require_write(tenant_id)
         item = self.get_row(tenant_id, offering_id)
+        public_ids = list(
+            self.db.execute(
+                select(OfferingImage.cloudinary_public_id).where(
+                    OfferingImage.offering_id == item.id
+                )
+            ).scalars()
+        )
         self.db.delete(item)
         self.record_activity(tenant_id)
         self.db.commit()
+        destroy_assets(public_ids)

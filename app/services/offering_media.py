@@ -33,3 +33,25 @@ def gallery_url(url: str) -> str:
 def whatsapp_url(url: str) -> str:
     """The copy sent to WhatsApp: at most 1 MB in practice (1,280 px, good quality JPEG)."""
     return rendition(url, "w_1280,q_auto:good,f_jpg")
+
+
+def destroy_assets(public_ids: list[str]) -> int:
+    """Best-effort destroy of Cloudinary assets; returns how many failed.
+
+    A failure never blocks the caller (a deleted item must stay deleted): the orphan sweep reaps
+    what was missed. "Not found" counts as success. Nothing secret is logged.
+    """
+    from loguru import logger
+
+    from app.utils.cloudinary_client import cloudinary_manager
+
+    failed = 0
+    for public_id in public_ids:
+        try:
+            ok, err = cloudinary_manager.destroy(public_id, resource_type="image")
+        except Exception as exc:  # defensive: destroy returns (ok, err) rather than raising
+            ok, err = False, type(exc).__name__
+        if not ok:
+            failed += 1
+            logger.warning("Offering asset destroy failed (left for the sweep): {}", err)
+    return failed

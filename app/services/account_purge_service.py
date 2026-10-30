@@ -239,6 +239,14 @@ from app.db.models.knowledge import KnowledgeChunk, KnowledgeSource
 from app.db.models.lead import Lead
 from app.db.models.meeting import Meeting
 from app.db.models.notification_log import NotificationLog
+from app.db.models.offering import (
+    LeadOfferingInterest,
+    Offering,
+    OfferingActivityDay,
+    OfferingImage,
+    OfferingMiss,
+    TenantOfferingsSettings,
+)
 from app.db.models.payment import PaymentTransaction
 from app.db.models.platform_email_campaign import PlatformEmailCampaignRecipient
 from app.db.models.promotional_grant import PromotionalGrant
@@ -258,6 +266,7 @@ from app.db.models.whatsapp import (
     WhatsAppInboundMessage,
 )
 from app.db.models.visitor import Visitor, VisitorSession
+from app.services.offering_media import destroy_assets
 from app.utils.cloudinary_client import cloudinary_manager
 
 _TOMBSTONE_FULL_NAME = "Deleted user"
@@ -346,6 +355,33 @@ class AccountPurgeService:
         if flow_ids:
             self.db.execute(delete(FlowExecution).where(FlowExecution.flow_id.in_(flow_ids)))
         self.db.execute(delete(Flow).where(Flow.tenant_id == tenant_id))
+
+        # Offerings catalog: the Cloudinary photos first (best-effort, like the chat attachments
+        # below: an orphaned CDN asset is better than a half-purged tenant; the sweep reaps it),
+        # then the rows, children before parents. The tenant row stays as a shell, so nothing
+        # here cascades from it.
+        offering_assets = (
+            self.db.execute(
+                select(OfferingImage.cloudinary_public_id).where(
+                    OfferingImage.tenant_id == tenant_id
+                )
+            )
+            .scalars()
+            .all()
+        )
+        destroy_assets(list(offering_assets))
+        self.db.execute(
+            delete(LeadOfferingInterest).where(LeadOfferingInterest.tenant_id == tenant_id)
+        )
+        self.db.execute(delete(OfferingImage).where(OfferingImage.tenant_id == tenant_id))
+        self.db.execute(delete(Offering).where(Offering.tenant_id == tenant_id))
+        self.db.execute(delete(OfferingMiss).where(OfferingMiss.tenant_id == tenant_id))
+        self.db.execute(
+            delete(OfferingActivityDay).where(OfferingActivityDay.tenant_id == tenant_id)
+        )
+        self.db.execute(
+            delete(TenantOfferingsSettings).where(TenantOfferingsSettings.tenant_id == tenant_id)
+        )
 
         self.db.execute(delete(Quote).where(Quote.tenant_id == tenant_id))
         self.db.execute(delete(Meeting).where(Meeting.tenant_id == tenant_id))

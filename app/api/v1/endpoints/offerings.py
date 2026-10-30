@@ -7,19 +7,22 @@ that still includes the feature. Errors use the module's flat `{code, message[, 
 from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_current_user, get_db
-from app.schemas.offering import OfferingCreate, OfferingPatch
+from app.schemas.offering import ImageOrder, OfferingCreate, OfferingPatch
 from app.schemas.user import UserResponse
 from app.services.entitlements import get_entitlements_for_tenant_id
+from app.services.offering_images import MAX_UPLOAD_BYTES, OfferingImageService
 from app.services.offering_service import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
     OfferingError,
     OfferingService,
 )
+
+from app.utils.http_rate_limiter import offering_upload_rate_limit
 
 router = APIRouter()
 
@@ -95,4 +98,44 @@ def delete_offering(
         service.hard_delete(user.tenant_id, offering_id)
     else:
         service.archive(user.tenant_id, offering_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ----------------------------------------------------------------------------- photos
+@router.post(
+    "/{offering_id}/images",
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(offering_upload_rate_limit)],
+)
+async def upload_offering_image(
+    offering_id: UUID,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: UserResponse = Depends(get_current_tenant_admin),
+):
+    """Add a photo (JPEG, PNG or WEBP, at most 5 MB). It is checked, moderated and optimised."""
+    content = await file.read(MAX_UPLOAD_BYTES + 1)  # bounded read: never buffer more than the cap
+    data = await OfferingImageService(db).upload(user.tenant_id, offering_id, content)
+    return {"data": data}
+
+
+@router.put("/{offering_id}/images/order")
+def reorder_offering_images(
+    offering_id: UUID,
+    body: ImageOrder,
+    db: Session = Depends(get_db),
+    user: UserResponse = Depends(get_current_tenant_admin),
+):
+    """Set the photo order in one transaction; the first id becomes the cover."""
+    return {"data": OfferingImageService(db).reorder(user.tenant_id, offering_id, body.image_ids)}
+
+
+@router.delete("/{offering_id}/images/{image_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_offering_image(
+    offering_id: UUID,
+    image_id: UUID,
+    db: Session = Depends(get_db),
+    user: UserResponse = Depends(get_current_tenant_admin),
+):
+    OfferingImageService(db).delete(user.tenant_id, offering_id, image_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
