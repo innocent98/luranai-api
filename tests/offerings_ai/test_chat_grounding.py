@@ -8,7 +8,7 @@ import pytest
 
 from app.offerings import grounding
 from app.services.conversation_service import message_channel
-from tests.offerings.helpers import (
+from tests.offerings_ai.helpers import (
     add_offering,
     automation_patch,
     make_tenant,

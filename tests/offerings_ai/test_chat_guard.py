@@ -6,7 +6,7 @@ from unittest.mock import patch
 from sqlalchemy import select
 
 from app.db.models.conversation import ConversationSession
-from tests.offerings.helpers import (
+from tests.offerings_ai.helpers import (
     add_offering,
     automation_patch,
     make_tenant,

@@ -15,7 +15,7 @@ from app.db.models.offering import (
 from app.offerings import grounding
 from app.offerings.grounding import ground
 from app.utils.token_counter import count_tokens
-from tests.offerings.helpers import add_offering, make_tenant, set_settings
+from tests.offerings_ai.helpers import add_offering, make_tenant, set_settings
 
 NOW = datetime(2026, 10, 30, 14, 2, tzinfo=UTC)
 

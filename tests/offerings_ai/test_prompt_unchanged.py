@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 
 from app.db.models.offering import OfferingStatus
-from tests.offerings.helpers import (
+from tests.offerings_ai.helpers import (
     add_offering,
     automation_patch,
     make_tenant,

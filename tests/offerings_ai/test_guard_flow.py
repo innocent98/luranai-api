@@ -6,7 +6,7 @@ from app.db.models.offering import OfferingAvailability, OfferingPriceMode
 from app.offerings.fallback import fallback_reply
 from app.offerings.grounding import GroundingResult
 from app.offerings.guard_flow import CORRECTIVE_NOTE, guard_reply
-from tests.offerings.test_guard import ITEMS, _grounding, _item
+from tests.offerings_ai.test_guard import ITEMS, _grounding, _item
 
 GOOD = "The black sneaker is ₦12,000."
 BAD = "The black sneaker is ₦11,000."
