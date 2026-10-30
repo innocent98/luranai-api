@@ -205,7 +205,7 @@ Auth: tenant staff cookie, as the sales and knowledge endpoints. Reads for any s
 | `GET /offerings/{id}` | | `200 {data:Offering}` | `404 offering_not_found` |
 | `PATCH /offerings/{id}` | any subset of the create fields, plus `status` | `200 {data:Offering}` | as above; unarchiving over the cap → `409 offering_limit` |
 | `DELETE /offerings/{id}` | `?hard=true` to delete rows and photos (assets destroyed) | `204` | `404` |
-| `POST /offerings/{id}/images` | multipart `file` (JPG/PNG/WEBP, ≤ 5 MB) | `201 {data:{id,url,position,width,height}}` | `409 offering_image_limit {limit,used}`; `422 image_invalid`; `422 image_blocked` (moderation, fixed text, never the reason); `503 image_storage_unavailable` |
+| `POST /offerings/{id}/images` | multipart `file` (JPEG/PNG/WEBP only, ≤ 5 MB; see section 12) | `201 {data:{id,url,thumb_url,position,width,height,bytes}}` | `409 offering_image_limit {limit,used}`; `413 image_too_large`; `422 image_invalid`; `422 image_blocked` (moderation, fixed text, never the reason); `503 image_storage_unavailable` |
 | `PUT /offerings/{id}/images/order` | `{image_ids:[…]}` (first = cover) | `200` | `422 image_order_mismatch` |
 | `DELETE /offerings/{id}/images/{image_id}` | | `204` | `404` |
 | `POST /offerings/import/preview` | `{format:"csv"\|"lines", content, mode:"add"\|"upsert"}` ≤ 500 rows, ≤ 256 KB | `200 {data:{rows:[{row,status:"create"\|"update"\|"error",parsed,errors:[{field,code}]}], summary:{create,update,error,over_limit_by}}}` — nothing saved | `422 import_too_large`, `422 import_unreadable` |
@@ -244,21 +244,32 @@ Out of v1: drag-sorting items, categories manager, bulk edit, per-item analytics
 
 ## 12. Plan limits and storage
 
-| Plan | `max_offerings` | `max_offering_images` (per item) | Images at the caps | Storage, typical ≈ 0.25 MB | Storage, worst ≈ 1 MB |
+| Plan | `max_offerings` | `max_offering_images` (per item) | Images at the caps | Storage at the 300 KB average | Storage at the 500 KB ceiling |
 |---|---|---|---|---|---|
-| Trial | 25 | 4 | 100 | 25 MB | 100 MB |
-| Lite | 100 | 4 | 400 | 100 MB | 400 MB |
-| Professional | 500 | 8 | 4,000 | 1 GB | 4 GB |
-| Growth | 2,000 | 8 | 16,000 | 4 GB | 16 GB |
+| Trial | 25 | 4 | 100 | 30 MB | 50 MB |
+| Lite | 100 | 4 | 400 | 120 MB | 200 MB |
+| Professional | 500 | 8 | 4,000 | 1.2 GB | 2 GB |
+| Growth | 2,000 | 8 | 16,000 | 4.8 GB | 8 GB |
 | Enterprise | unlimited items (**[call]** photo limit stays 8; reviewed per contract) | 8 | unbounded | — | — |
 
-Sizes assume the server **re-encodes** every upload to ≤ 1,600 px (JPEG/WebP, quality ≈ 82) before storing: typical phone photos then land around 150–300 KB, and the 5 MB upload limit (existing `validate_image` default) is only an input limit. Customers are served Cloudinary transformed URLs (`w_1000,q_auto,f_auto`) so bandwidth per view is small. **[unknown]** the Cloudinary plan's storage and bandwidth ceiling and cost: the total across all tenants at these caps cannot be stated until that is read from the account; the lead should check it before the first Professional or Growth tenant fills its cap. Launch values: **review after the first pilot week** (raising a cap is a data change; cutting one is a migration and an angry tenant). Downgrade below current usage is **blocked** (`data_exceeds_limits`, as WhatsApp numbers), never silently trimmed. Existing items keep working if an admin override or lapse leaves a tenant over cap; only creation is blocked.
+**Photo size policy (owner, 2026-10-30: "a limit of image, maybe less than 1mb or 100kb, your discretion"; decided by the lead).** A flat 100 KB cap is rejected: 100 KB product photos are blurry on a phone and on WhatsApp. The photo is **optimised on ingest**, not refused for being large:
+
+| Step | Rule |
+|---|---|
+| In the browser/phone (dashboard) | Resize to a **long edge of 1,600 px**, JPEG/WebP at quality ≈ 80, before upload; a typical photo is then **150–400 KB**. This reuses the downscale and type/size checks of `lib/chat-attachments.ts` (the existing chat uploader resizes to 2,000 px, 10 MB cap) with the long edge, quality and cap parameterised for offerings, not a second implementation. |
+| Accepted upload | **JPEG, PNG, WEBP only, ≤ 5 MB.** Anything else is refused with a clear message: non-images and bad files `422 image_invalid`, over 5 MB `413 image_too_large`. Unlike the chat path, **GIF is refused** here (the shared `validate_image` allows it). |
+| Server checks (reused) | `cloudinary_manager.validate_image` (PIL real-format check) and the free fail-closed `moderate_image`, as the chat path (`screen_image_bytes`). Two small changes to the shared helper, both backward compatible: an `allowed_formats` argument (offerings pass JPEG/PNG/WEBP) and a larger `max_dimension` for offerings (the chat default of 4,000 px would reject an untouched 12 MP phone photo, 4,032 px wide, sent straight to the API; Cloudinary shrinks it anyway). |
+| Stored copy | A new `upload_offering_image` mirrors `upload_chat_image`: an **incoming transformation** (long edge **1,600 px**, `crop: limit`, `quality: auto`, `format: jpg`, `image_metadata: false` so EXIF/GPS is stripped), so only the optimised copy is stored. **Target ≤ ~500 KB stored.** **[unknown]** Cloudinary does not guarantee a byte ceiling; the upload result's `bytes` is read back, and a result over 800 KB is re-uploaded once at a lower quality (the builder confirms the numbers on real photos). `bytes` is stored on the row. |
+| Renditions | Delivered by URL from the same asset, never stored separately by us: **card/thumbnail ≈ 400 px** (widget `ItemCard`, dashboard list), **gallery ≈ 1,000 px**, **WhatsApp ≤ 1 MB** (`w_1280, q_auto:good, f_jpg`; same host, so it passes `WHATSAPP_MEDIA_URL_HOSTS`; **[unknown]** the sidecar's own image-size limit for a catalog send is confirmed in the real-phone test). |
+| Known limit | **HEIC is unsupported** (existing known limit, `chat_image_upload_backend.md`: `validate_image` is PIL-only). The dashboard file input must ask for JPEG so iOS converts; the error message for a HEIC file says so. |
+
+**What to watch on cost.** The averages above are an assumption (300 KB) until pilot photos are measured. Storage is small at Trial and Lite (under 200 MB each). **Growth full is the number to watch:** 4.8 GB at the average and 8 GB at the ceiling for one tenant, so five full Growth tenants are 24–40 GB; Professional full is 1.2–2 GB. **Bandwidth may matter more than storage**: each WhatsApp catalog reply sends up to 3 photos of ≤ 1 MB (typically ~0.3 MB), so a busy seller with 1,000 such replies a day is about 1 GB/day (roughly 30 GB/month) before widget views; the cap on photos per reply and per chat per hour (section 11) bounds it. **[unknown]** whether Cloudinary counts derived renditions toward storage (if it does, add roughly 10–15% for the 400 px renditions) and the account's storage, bandwidth and price ceilings: **checking the Cloudinary plan limits stays an open owner item** before any Professional or Growth tenant fills its cap. Launch values: **review after the first pilot week** (raising a cap is a data change; cutting one is a migration and an angry tenant). Downgrade below current usage is **blocked** (`data_exceeds_limits`, as WhatsApp numbers), never silently trimmed. Existing items keep working if an admin override or lapse leaves a tenant over cap; only creation is blocked.
 
 Migration plan values and the `features` marketing strings ("Offerings: up to N items") are generated from `plan_catalog.py`, with the parity test updated; existing tenants are backfilled from their plan unless `override_flags` holds the key.
 
 ## 13. Privacy and abuse
 
-- **Photos:** tenant-admin upload only; type/size via `validate_image`; the free fail-closed `moderate_image` before anything is stored (moderation failure or outage = refuse, `image_blocked`, fixed text); server re-encode strips EXIF/GPS; Cloudinary folder per tenant; assets destroyed on image/item hard delete and on tenant purge (**`account_purge_service` must be extended**, listed in the plan) and when a tenant is deleted; an `offerings`-folder orphan sweep like `cleanup_orphan_attachments`.
+- **Photos:** tenant-admin upload only; type/size via `validate_image` (JPEG/PNG/WEBP, ≤ 5 MB); the free fail-closed `moderate_image` before anything is stored (moderation failure or outage = refuse, `image_blocked`, fixed text); the Cloudinary incoming transformation optimises to ≤ 1,600 px and strips EXIF/GPS (section 12); Cloudinary folder per tenant; assets destroyed on image/item hard delete and on tenant purge (**`account_purge_service` must be extended**, listed in the plan) and when a tenant is deleted; an `offerings`-folder orphan sweep like `cleanup_orphan_attachments`.
 - **Prices:** bounded range, integer only, tenant-authored; every change writes `updated_at` and `availability_changed_at`; the price history is **not** kept in v1 (**[call]**), but `lead_offering_interests` snapshots what each customer was shown.
 - **Customer data:** interests and offers live under the lead (FK CASCADE with the lead, with tenant deletion). The miss log stores a normalised term only: no session, no customer, 90-day sweep.
 - **Prompt injection:** item text is data inside `<offering>` tags, stripped and capped; the customer cannot write catalog text; CSV/paste import is the only bulk text path and is tenant-admin only.
