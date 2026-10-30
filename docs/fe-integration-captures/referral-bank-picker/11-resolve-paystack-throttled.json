@@ -1,0 +1,30 @@
+{
+  "description": "Paystack answers 429.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/banks/resolve",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "bank_code": "058",
+      "account_number": "0000000003"
+    }
+  },
+  "response": {
+    "status": 503,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": {
+        "code": "bank_provider_unavailable",
+        "message": "We could not reach Paystack. Try again, or enter the details manually."
+      }
+    }
+  }
+}
