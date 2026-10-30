@@ -41,7 +41,7 @@ def test_consent_is_versioned_and_is_the_approved_copy(client, db, wa_settings):
     login_admin(make_tenant(db))
     r = client.get("/api/v1/whatsapp/consent")
     assert r.status_code == 200
-    assert r.json() == {"version": "2026-10-28-draft2", "text": APPROVED_CONSENT_TEXT}
+    assert r.json() == {"version": "2026-10-30", "text": APPROVED_CONSENT_TEXT}
     assert r.json()["version"] == CONSENT_VERSION
 
 

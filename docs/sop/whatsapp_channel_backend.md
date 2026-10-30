@@ -65,3 +65,6 @@ Customers already write to businesses on WhatsApp; tenants asked for the AI to a
 - Pause/AI-off paths create conversations without the monthly-limit check.
 - `from_ref` vs `to_ref` must be the same namespace for one chat (the owner-pause lookup keys on it): confirm with the real sidecar.
 - Media in/out, structured-message renderer, tiered plan limits, option B adapter.
+
+## Consent version label (2026-10-30)
+The consent wording `2026-10-28-draft2` was approved by the owner on 2026-10-29, but its version label still said "draft" and is shown to tenants. `CONSENT_VERSION` in `app/services/whatsapp_service.py` is now `"2026-10-30"`; **the text is unchanged**. The dashboard does not hardcode the label: it reads `{version, text}` from `GET /whatsapp/consent` and sends the same version back, so no dashboard change is needed. Consent rows already stored with the old label stay as they are (the label is a record of what was accepted). Prod has no connections yet (WhatsApp is dark), so nothing is invalidated there; staging's existing connections keep working, and new connects accept the new label. Bump the label again only when the text changes.
