@@ -8,7 +8,7 @@
       "Authorization": "Bearer <jwt-placeholder>"
     },
     "body": {
-      "phone_number": "2348005648763",
+      "phone_number": "2348005208084",
       "label": "Shop line",
       "consent": {
         "version": "2026-10-30",
@@ -17,10 +17,12 @@
     }
   },
   "response": {
-    "status": 503,
+    "status": 201,
     "body": {
-      "code": "capacity_exceeded",
-      "message": "WhatsApp is temporarily at capacity. Please try again later."
+      "id": "3fbbc2e3-b917-4dc1-ab7d-9db669b71d12",
+      "status": "awaiting_pair",
+      "pairing_code": "FAKE9708",
+      "expires_in_s": 180
     }
   }
 }

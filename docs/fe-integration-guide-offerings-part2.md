@@ -62,17 +62,17 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
     "items": [
       {
         "ref": "#1",
-        "offering_id": "368933d6-5b99-419e-a723-616f58225773",
+        "offering_id": "4d2a18e7-376f-4d57-a968-f31605592f0b",
         "name": "Canvas sneaker black",
         "price_text": "₦12,000",
         "availability": "in_stock",
-        "cover_image_id": "8492e50e-f9c7-4a69-9027-5b799cc6d7fb",
-        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/b6446d69-6abd-4c62-8c12-41c6da21ff88/87656af98a4449aea54a76c3f24e0105.jpg",
+        "cover_image_id": "2f4331bd-1691-4950-95ba-e2f78f6fa38b",
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/eedf469d-efd8-41ea-9ba5-1fc997870aa0/7b716b4233fb4d7a9ea39465e068e354.jpg",
         "photo_count": 2
       },
       {
         "ref": "#2",
-        "offering_id": "ecd00d82-9918-4b93-9063-18b946da4a0f",
+        "offering_id": "752e3c7b-403f-436d-a708-61def163af29",
         "name": "Canvas sneaker white",
         "price_text": "₦13,500",
         "availability": "in_stock",
@@ -82,7 +82,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
       },
       {
         "ref": "#3",
-        "offering_id": "21fc96c8-34d3-401b-9500-44ca6d50d347",
+        "offering_id": "6c4ae8ba-998c-4f14-b42a-62a4f697a271",
         "name": "Leather bag",
         "price_text": "₦45,000",
         "availability": "in_stock",
@@ -92,7 +92,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
       },
       {
         "ref": "#4",
-        "offering_id": "b02ac9f1-9d35-4f98-b6d6-4783fb789a85",
+        "offering_id": "b7362f0a-1b07-4c08-bd2a-a2e3710ec005",
         "name": "Phone repair",
         "price_text": "from ₦5,000 per phone",
         "availability": "in_stock",
@@ -102,7 +102,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
       },
       {
         "ref": "#5",
-        "offering_id": "e03669a9-a588-4c58-9293-30542fc44d53",
+        "offering_id": "a9fca398-4ae9-4a9f-bd1e-f62dd77d7a61",
         "name": "Beach sandals",
         "price_text": "₦8,000",
         "availability": "out_of_stock",
@@ -111,7 +111,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
         "photo_count": 0
       }
     ],
-    "shown_at": "2026-10-30T23:29:32.575033+00:00",
+    "shown_at": "2026-10-30T23:50:44.627528+00:00",
     "guard": {
       "checked": true,
       "blocked": false,
@@ -130,16 +130,16 @@ A single item with two photos (capture `02`; the reply text is `"The Canvas snea
   "items": [
     {
       "ref": "#1",
-      "offering_id": "368933d6-5b99-419e-a723-616f58225773",
+      "offering_id": "4d2a18e7-376f-4d57-a968-f31605592f0b",
       "name": "Canvas sneaker black",
       "price_text": "₦12,000",
       "availability": "in_stock",
-      "cover_image_id": "8492e50e-f9c7-4a69-9027-5b799cc6d7fb",
-      "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/b6446d69-6abd-4c62-8c12-41c6da21ff88/87656af98a4449aea54a76c3f24e0105.jpg",
+      "cover_image_id": "2f4331bd-1691-4950-95ba-e2f78f6fa38b",
+      "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/eedf469d-efd8-41ea-9ba5-1fc997870aa0/7b716b4233fb4d7a9ea39465e068e354.jpg",
       "photo_count": 2
     }
   ],
-  "shown_at": "2026-10-30T23:29:32.890396+00:00",
+  "shown_at": "2026-10-30T23:50:44.966428+00:00",
   "guard": {
     "checked": true,
     "blocked": false,
@@ -155,7 +155,7 @@ Not listed (capture `04`; reply `"I don't have that listed. Would you like me to
 {
   "mode": "none",
   "items": [],
-  "shown_at": "2026-10-30T23:29:33.019261+00:00",
+  "shown_at": "2026-10-30T23:50:45.110042+00:00",
   "guard": {
     "checked": true,
     "blocked": false,
@@ -201,7 +201,7 @@ Fell back to the code reply (capture `07`):
     "items": [
       {
         "ref": "#2",
-        "offering_id": "ecd00d82-9918-4b93-9063-18b946da4a0f",
+        "offering_id": "752e3c7b-403f-436d-a708-61def163af29",
         "name": "Canvas sneaker white",
         "price_text": "₦13,500",
         "availability": "in_stock",
@@ -211,16 +211,16 @@ Fell back to the code reply (capture `07`):
       },
       {
         "ref": "#1",
-        "offering_id": "368933d6-5b99-419e-a723-616f58225773",
+        "offering_id": "4d2a18e7-376f-4d57-a968-f31605592f0b",
         "name": "Canvas sneaker black",
         "price_text": "₦12,000",
         "availability": "in_stock",
-        "cover_image_id": "8492e50e-f9c7-4a69-9027-5b799cc6d7fb",
-        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/b6446d69-6abd-4c62-8c12-41c6da21ff88/87656af98a4449aea54a76c3f24e0105.jpg",
+        "cover_image_id": "2f4331bd-1691-4950-95ba-e2f78f6fa38b",
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/eedf469d-efd8-41ea-9ba5-1fc997870aa0/7b716b4233fb4d7a9ea39465e068e354.jpg",
         "photo_count": 2
       }
     ],
-    "shown_at": "2026-10-30T23:29:33.160179+00:00",
+    "shown_at": "2026-10-30T23:50:45.285159+00:00",
     "guard": {
       "checked": true,
       "blocked": true,
@@ -238,11 +238,13 @@ Here is what we have listed:
 #2 Canvas sneaker white - ₦13,500 - in stock
 #1 Canvas sneaker black - ₦12,000 - in stock
 Would you like me to connect you with the team?
+
+I've noted your offer of ₦9,000 for the Canvas sneaker white.
 ```
 
 ## 5. Price offers (the AI never agrees to a lower price)
 
-The AI never agrees to, counters or hints at a price below the listed one. For a **negotiable** item it says the owner is open to offers, records the customer's figure on the lead, and offers a human. Capture `08` (customer: "I'll pay 30k for the leather bag"):
+The AI never agrees to, counters or hints at a price below the listed one. For a **negotiable** item it says the owner is open to offers, records the customer's figure on the lead, and offers a human. Capture `08` (customer: "I'll pay 30k for the leather bag"; the reply ends with a line written **by code**, never by the model: `I've noted your offer of ₦30,000 for the Leather bag.`, after the model's own wording and the offer of the team). The model may not repeat the customer's figure beside an item name: the guard blocks it:
 
 ```json
 "offer_escalation"
@@ -319,7 +321,7 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
     "items": [
       {
         "ref": "#4",
-        "offering_id": "b02ac9f1-9d35-4f98-b6d6-4783fb789a85",
+        "offering_id": "b7362f0a-1b07-4c08-bd2a-a2e3710ec005",
         "name": "Phone repair",
         "price_text": "from ₦5,000 per phone",
         "availability": "in_stock",
@@ -328,7 +330,7 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
         "photo_count": 0
       }
     ],
-    "shown_at": "2026-10-30T23:29:33.545701+00:00",
+    "shown_at": "2026-10-30T23:50:45.714624+00:00",
     "guard": {
       "checked": true,
       "blocked": false,
@@ -388,7 +390,7 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
   "landing_page": "whatsapp",
   "utm": null,
   "channel": null,
-  "first_seen": "2026-10-30T23:29:34.627506+00:00"
+  "first_seen": "2026-10-30T23:50:46.570528+00:00"
 }
 ```
 
@@ -398,23 +400,23 @@ The first committed cart of a conversation raises the new event `offering_reques
 
 ```json
 {
-  "id": "4b65693b-a242-4d1b-98e9-efc531500e53",
+  "id": "f4113c6c-1b88-465d-9c23-878be8a75fd7",
   "event": "offering_request",
   "title": "New item request",
   "body": "A customer · 1 × Phone repair",
   "read_at": null,
-  "created_at": "2026-10-30T23:29:33.567741+00:00"
+  "created_at": "2026-10-30T23:50:45.734872+00:00"
 }
 ```
 
 ```json
 {
-  "id": "1c767882-45f4-43b9-91d1-e8433c665ee1",
+  "id": "1d60c3c1-cd2e-47fb-9d5d-5d5038a4b73b",
   "event": "quote_generated",
   "title": "New quote",
   "body": "₦37,500 · a prospect",
   "read_at": null,
-  "created_at": "2026-10-30T23:29:33.441930+00:00"
+  "created_at": "2026-10-30T23:50:45.603072+00:00"
 }
 ```
 
@@ -459,16 +461,16 @@ The conversation as an agent sees it (capture `21`, last assistant message): `me
     "items": [
       {
         "ref": "#1",
-        "offering_id": "368933d6-5b99-419e-a723-616f58225773",
+        "offering_id": "4d2a18e7-376f-4d57-a968-f31605592f0b",
         "name": "Canvas sneaker black",
         "price_text": "₦12,000",
         "availability": "in_stock",
-        "cover_image_id": "8492e50e-f9c7-4a69-9027-5b799cc6d7fb",
-        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/b6446d69-6abd-4c62-8c12-41c6da21ff88/87656af98a4449aea54a76c3f24e0105.jpg",
+        "cover_image_id": "2f4331bd-1691-4950-95ba-e2f78f6fa38b",
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/eedf469d-efd8-41ea-9ba5-1fc997870aa0/7b716b4233fb4d7a9ea39465e068e354.jpg",
         "photo_count": 2
       }
     ],
-    "shown_at": "2026-10-30T23:29:35.535299+00:00",
+    "shown_at": "2026-10-30T23:50:47.523459+00:00",
     "guard": {
       "checked": true,
       "blocked": false,

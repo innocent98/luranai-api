@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "What do you have?",
-      "tenant_id": "9673a9af-d1b2-43b4-a1a0-e66d5a7411c4",
+      "tenant_id": "eedf469d-efd8-41ea-9ba5-1fc997870aa0",
       "user_identifier": "web-1"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "e9bdadb9-22f8-4e02-a75b-4a1e6307afc7",
+      "session_id": "f1f5dbe3-31c8-4893-85c0-6d8a69e2b3bc",
       "message": {
         "role": "assistant",
         "content": "Here is what we have:\n#1 Canvas sneaker black - ₦12,000\n#2 Canvas sneaker white - ₦13,500\n#3 Leather bag - ₦45,000\n#4 Phone repair - from ₦5,000 per phone\n#5 Beach sandals - ₦8,000",
-        "id": "898309d9-cb82-4c0c-b440-23d218fe8bf2",
-        "session_id": "e9bdadb9-22f8-4e02-a75b-4a1e6307afc7",
+        "id": "907ea620-d253-443a-bc14-73b80032cb66",
+        "session_id": "f1f5dbe3-31c8-4893-85c0-6d8a69e2b3bc",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -45,17 +45,17 @@
             "items": [
               {
                 "ref": "#1",
-                "offering_id": "b5b22978-dca0-4444-a72d-592d9e478ad7",
+                "offering_id": "4d2a18e7-376f-4d57-a968-f31605592f0b",
                 "name": "Canvas sneaker black",
                 "price_text": "₦12,000",
                 "availability": "in_stock",
-                "cover_image_id": "27d5eafa-054f-4981-abf3-8840d817c778",
-                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/9673a9af-d1b2-43b4-a1a0-e66d5a7411c4/b22756b7a4494627881553dc5618d0ac.jpg",
+                "cover_image_id": "2f4331bd-1691-4950-95ba-e2f78f6fa38b",
+                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/eedf469d-efd8-41ea-9ba5-1fc997870aa0/7b716b4233fb4d7a9ea39465e068e354.jpg",
                 "photo_count": 2
               },
               {
                 "ref": "#2",
-                "offering_id": "56aaf741-0662-4f94-bdf9-f0f633ee9ee9",
+                "offering_id": "752e3c7b-403f-436d-a708-61def163af29",
                 "name": "Canvas sneaker white",
                 "price_text": "₦13,500",
                 "availability": "in_stock",
@@ -65,7 +65,7 @@
               },
               {
                 "ref": "#3",
-                "offering_id": "d43d8183-df60-4a45-8ab9-df4c6cf7969e",
+                "offering_id": "6c4ae8ba-998c-4f14-b42a-62a4f697a271",
                 "name": "Leather bag",
                 "price_text": "₦45,000",
                 "availability": "in_stock",
@@ -75,7 +75,7 @@
               },
               {
                 "ref": "#4",
-                "offering_id": "a3ac046f-c2b1-43dd-93ed-82a9e148f82a",
+                "offering_id": "b7362f0a-1b07-4c08-bd2a-a2e3710ec005",
                 "name": "Phone repair",
                 "price_text": "from ₦5,000 per phone",
                 "availability": "in_stock",
@@ -85,7 +85,7 @@
               },
               {
                 "ref": "#5",
-                "offering_id": "9875e331-4bd7-4c0c-a0b9-9083f51788a2",
+                "offering_id": "a9fca398-4ae9-4a9f-bd1e-f62dd77d7a61",
                 "name": "Beach sandals",
                 "price_text": "₦8,000",
                 "availability": "out_of_stock",
@@ -94,7 +94,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-30T23:49:03.398475+00:00",
+            "shown_at": "2026-10-30T23:50:44.627528+00:00",
             "guard": {
               "checked": true,
               "blocked": false,
@@ -103,7 +103,7 @@
             }
           }
         },
-        "created_at": "2026-10-30T23:49:03.780404Z"
+        "created_at": "2026-10-30T23:50:44.914575Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,
