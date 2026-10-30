@@ -122,6 +122,18 @@ def _crm_state(lead, crm_log) -> LeadCrm:
     )
 
 
+class LeadInterest(BaseModel):
+    """An offering the customer chose, as it was shown to them (snapshot, not the live item)."""
+
+    ref: str
+    name: str
+    price_mode: str
+    price: int | None = None
+    price_note: str | None = None
+    qty: int
+    offered_price: int | None = None
+
+
 class LeadDetail(BaseModel):
     """Full lead detail — superset of LeadListItem."""
 
@@ -146,6 +158,7 @@ class LeadDetail(BaseModel):
     meeting: dict | None = None
     quote: dict | None = None
     crm: LeadCrm = Field(default_factory=LeadCrm)
+    interests: list[LeadInterest] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -157,6 +170,7 @@ class LeadDetail(BaseModel):
         crm_log=None,
         meeting: dict | None = None,
         quote: dict | None = None,
+        interests: list[dict] | None = None,
     ) -> LeadDetail:
         """Build the detail payload.
 
@@ -205,6 +219,7 @@ class LeadDetail(BaseModel):
             meeting=meeting,
             quote=quote,
             crm=_crm_state(lead, crm_log),
+            interests=[LeadInterest(**row) for row in (interests or [])],
         )
 
 

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.db.models.automation import TenantAction
 from app.db.models.flow import Flow, FlowStatus
 from app.db.models.knowledge import KnowledgeSource, SourceStatus
+from app.db.models.offering import Offering, OfferingImage, OfferingStatus
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.db.models.user import User
 from app.db.models.whatsapp import WhatsAppConnection
@@ -85,6 +86,12 @@ class SubscriptionValidationService:
             violations.append(violation)
 
         if violation := self._check_whatsapp_numbers(tenant_id, new_limits):
+            violations.append(violation)
+
+        if violation := self._check_offerings(tenant_id, new_limits):
+            violations.append(violation)
+
+        if violation := self._check_offering_images(tenant_id, new_limits):
             violations.append(violation)
 
         if warning := self._check_conversations(tenant_id, new_limits):
@@ -373,6 +380,62 @@ class SubscriptionValidationService:
             allowed_value=allowed,
             difference=difference,
             action_required=f"Disconnect {difference} WhatsApp number{'s' if difference > 1 else ''} before downgrading",
+        )
+
+    def _check_offerings(self, tenant_id: UUID, new_limits: dict) -> ValidationViolation | None:
+        """Active catalog items must fit the target plan's cap (archived items do not count)."""
+        allowed = new_limits.get("max_offerings")
+        if allowed is None:
+            return None
+        current = int(
+            self.db.execute(
+                select(func.count())
+                .select_from(Offering)
+                .where(Offering.tenant_id == tenant_id, Offering.status == OfferingStatus.ACTIVE)
+            ).scalar_one()
+        )
+        if current <= allowed:
+            return None
+        difference = current - allowed
+        return ValidationViolation(
+            field="offerings",
+            current_value=current,
+            allowed_value=allowed,
+            difference=difference,
+            action_required=(
+                f"Archive or delete {difference} item{'s' if difference > 1 else ''} "
+                "in your offerings before downgrading"
+            ),
+        )
+
+    def _check_offering_images(
+        self, tenant_id: UUID, new_limits: dict
+    ) -> ValidationViolation | None:
+        """No item may hold more photos than the target plan allows per item."""
+        allowed = new_limits.get("max_offering_images")
+        if allowed is None:
+            return None
+        photo_counts = (
+            select(func.count().label("n"))
+            .select_from(OfferingImage)
+            .where(OfferingImage.tenant_id == tenant_id)
+            .group_by(OfferingImage.offering_id)
+            .subquery()
+        )
+        most = self.db.execute(select(func.max(photo_counts.c.n))).scalar_one()
+        current = int(most or 0)
+        if current <= allowed:
+            return None
+        difference = current - allowed
+        return ValidationViolation(
+            field="offering_images",
+            current_value=current,
+            allowed_value=allowed,
+            difference=difference,
+            action_required=(
+                f"Remove {difference} photo{'s' if difference > 1 else ''} from the item with "
+                "the most photos before downgrading"
+            ),
         )
 
     def _check_conversations(self, tenant_id: UUID, new_limits: dict) -> str | None:

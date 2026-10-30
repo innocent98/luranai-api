@@ -109,6 +109,7 @@ def get_lead(
         svc.get_crm_log(user.tenant_id, lead.id),
         meeting=svc.get_meeting(user.tenant_id, lead),
         quote=svc.get_quote(user.tenant_id, lead),
+        interests=svc.get_interests(user.tenant_id, lead),
     )
     return {"success": True, "data": detail.model_dump()}
 
@@ -144,6 +145,7 @@ def patch_lead_status(
         svc.get_crm_log(user.tenant_id, lead.id),
         meeting=svc.get_meeting(user.tenant_id, lead),
         quote=svc.get_quote(user.tenant_id, lead),
+        interests=svc.get_interests(user.tenant_id, lead),
     )
     return {"success": True, "data": detail.model_dump()}
 
@@ -173,5 +175,6 @@ def recompute_lead_score(
         svc.get_crm_log(user.tenant_id, lead.id),
         meeting=svc.get_meeting(user.tenant_id, lead),
         quote=svc.get_quote(user.tenant_id, lead),
+        interests=svc.get_interests(user.tenant_id, lead),
     )
     return {"success": True, "data": detail.model_dump()}

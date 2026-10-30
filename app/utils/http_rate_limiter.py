@@ -83,6 +83,14 @@ upload_rate_limiter = RedisRateLimiter(
     window_seconds=3600,
 )
 
+# Offering photos: an owner fills a catalog item by item (dozens of photos in a sitting), so this
+# is far looser than the public chat upload limiter above.
+offering_upload_rate_limiter = RedisRateLimiter(
+    key_prefix="http_offering_upload",
+    max_calls=200,
+    window_seconds=3600,
+)
+
 video_sign_rate_limiter = RedisRateLimiter(
     key_prefix="http_video", max_calls=5, window_seconds=3600
 )
@@ -304,6 +312,7 @@ whatsapp_pairing_rate_limit = create_rate_limit_dependency(whatsapp_pairing_rate
 # Public (unauthenticated) chat image upload: key by IP, not user.
 chat_upload_rate_limit = create_rate_limit_dependency(upload_rate_limiter, "ip")
 # Public screen-recording endpoints (separate buckets so videos never consume image uploads).
+offering_upload_rate_limit = create_rate_limit_dependency(offering_upload_rate_limiter, "ip")
 chat_video_sign_rate_limit = create_rate_limit_dependency(video_sign_rate_limiter, "ip")
 chat_video_register_rate_limit = create_rate_limit_dependency(video_register_rate_limiter, "ip")
 

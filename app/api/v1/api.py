@@ -26,6 +26,7 @@ from app.api.v1.endpoints import (
     marketer_auth,
     meetings,
     notifications,
+    offerings,
     platform_admin_auth,
     public,
     public_auditor,
@@ -333,6 +334,9 @@ api_router.include_router(leads.router, prefix="/leads", tags=["leads"])
 
 # Sales agent configuration endpoints
 api_router.include_router(sales.router, prefix="/sales", tags=["sales"])
+
+# Offerings catalog (products and services the AI sells from)
+api_router.include_router(offerings.router, prefix="/offerings", tags=["offerings"])
 
 # In-app notifications read API (Stage 3 Slice 5c)
 api_router.include_router(notifications.router, prefix="/notifications", tags=["notifications"])
