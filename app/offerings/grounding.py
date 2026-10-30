@@ -27,6 +27,7 @@ from app.db.models.offering import (
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.offerings.block import BLOCK_TOKEN_CAP, render_block, unavailable_block
 from app.offerings.facts import OfferingFacts, facts_from_row
+from app.offerings.prompt import channel_formatting
 from app.services.rag_service import RAGService
 from app.utils.datetime import ensure_utc_aware
 from app.utils.token_counter import count_tokens
@@ -146,6 +147,11 @@ class GroundingResult:
     @property
     def has_matches(self) -> bool:
         return bool(self.matched_seqs)
+
+    @property
+    def grounded(self) -> bool:
+        """The catalog gave the model something to answer from (a hit, or a browse listing)."""
+        return self.mode in ("browse", "detail")
 
 
 # -- query building ---------------------------------------------------------------------------
@@ -317,6 +323,7 @@ def ground(
     *,
     previous_message: str | None = None,
     shown_seqs: Iterable[int] = (),
+    channel: str | None = None,
     now: datetime | None = None,
 ) -> GroundingResult | None:
     now = now or datetime.now(UTC)
@@ -345,6 +352,7 @@ def ground(
                 currency,
                 confirmed_at,
                 stale_days,
+                channel,
             )
     except Exception:  # noqa: BLE001 - fail closed: say nothing about prices
         logger.exception("offerings lookup failed; failing closed")
@@ -370,6 +378,7 @@ def _ground(
     currency,
     confirmed_at,
     stale_days,
+    channel,
 ) -> GroundingResult:
     browse = is_browse_intent(message)
     tokens = build_query_tokens(message, previous_message)
@@ -406,6 +415,7 @@ def _ground(
         stale_after_days=stale_days,
         currency=currency,
         nothing_matched=(mode == "none"),
+        formatting=channel_formatting(channel),
     )
     return GroundingResult(
         mode=mode,

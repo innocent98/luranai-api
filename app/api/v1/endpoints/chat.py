@@ -70,6 +70,8 @@ from app.schemas.user import UserResponse
 from app.schemas.visitor import VisitorEnrichmentUpdate
 from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
+from app.offerings.turn import ground_turn
+from app.offerings.turn import sales_kwargs as catalog_sales_kwargs
 from app.sales.config_view import SalesConfigView
 from app.sales.intent import is_trigger_intent
 from app.schemas.agent_app import AcknowledgeLost
@@ -2731,6 +2733,16 @@ async def _send_message_impl(
 
         else:
             grounding_mode = str(getattr(tenant_ai_config, "grounding_mode", "balanced"))
+            # Offerings: read the catalog live before the grounding policy runs, because a
+            # catalog hit is grounding. None for a tenant with nothing listed (nothing changes).
+            _offerings = ground_turn(
+                db,
+                session.tenant_id,
+                message_data.message,
+                history=conversation_history,
+                session_meta=dict(session_model.meta or {}),
+            )
+            _catalog_grounded = bool(_offerings and _offerings.grounded)
             if scope_allowed:
                 low_confidence_action = str(
                     getattr(tenant_ai_config, "low_confidence_action", "clarify")
@@ -2739,10 +2751,11 @@ async def _send_message_impl(
                     getattr(tenant_ai_config, "no_retrieval_action", "clarify")
                 )
 
-                has_no_retrieval = len(retrieved_chunks) == 0
+                has_no_retrieval = len(retrieved_chunks) == 0 and not _catalog_grounded
                 has_low_confidence = (
                     len(retrieved_chunks) > 0
                     and avg_similarity < rag_service.MIN_RELEVANT_SIMILARITY
+                    and not _catalog_grounded
                 )
                 has_followup_context = _has_usable_followup_context(conversation_history)
 
@@ -2811,6 +2824,10 @@ async def _send_message_impl(
                 "- Do not use emojis."
             )
             prompt_components.full_prompt = f"{prompt_components.full_prompt}{directive_block}"
+            if _offerings is not None:
+                prompt_components.full_prompt += f"\n\n{_offerings.block}"
+                if prompt_components.prompt_tokens is not None:
+                    prompt_components.prompt_tokens += _offerings.token_count
 
             # Current turn's linked image URLs (populated when the USER message was
             # persisted); None keeps the text-only path unchanged.
@@ -2858,6 +2875,7 @@ async def _send_message_impl(
                         known_facts=_known_facts,
                         company_website=_company_website,
                         image_urls=_turn_image_urls,
+                        **catalog_sales_kwargs(_offerings),
                     )
                 )
             else:

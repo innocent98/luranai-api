@@ -106,8 +106,11 @@ def render_block(
     stale_after_days: int,
     currency: str,
     nothing_matched: bool,
+    formatting: str | None = None,
 ) -> RenderedBlock:
     header = _header(now, confirmed_at, stale_after_days, currency)
+    if formatting:
+        header = f"{header}\n{formatting}"
     note = (
         "Nothing listed matches this message. Say it is not listed and offer to connect the "
         "customer with the team. Do not suggest or invent items."
