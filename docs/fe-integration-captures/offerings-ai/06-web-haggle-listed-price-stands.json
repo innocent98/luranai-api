@@ -1,0 +1,74 @@
+{
+  "scenario": "web-haggle-listed-price-stands",
+  "note": "The stand-in first answers with a concession; the guard blocks it and the regenerated reply is clean. Look at `meta.offerings.guard`.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "headers": {},
+    "body": {
+      "message": "Can you do ₦10,000 for the black sneaker?",
+      "tenant_id": "b6446d69-6abd-4c62-8c12-41c6da21ff88",
+      "user_identifier": "web-5"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "356cf0d0-3480-49e5-91f0-c5246ee2f232",
+      "message": {
+        "role": "assistant",
+        "content": "The Canvas sneaker black is listed at ₦12,000. I've noted your request.",
+        "id": "b243125a-d8b9-4bef-8563-177705e43ee5",
+        "session_id": "356cf0d0-3480-49e5-91f0-c5246ee2f232",
+        "retrieved_chunk_ids": [],
+        "token_count": 300,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "chunks_used": 0,
+          "avg_similarity": 0.0,
+          "retrieval_hit": false,
+          "escalation_action": "no_escalation",
+          "response_quality": {
+            "is_substantial": true,
+            "has_uncertainty": false,
+            "word_count": 12,
+            "char_count": 71
+          },
+          "token_breakdown": {
+            "prompt_tokens": 633,
+            "completion_tokens": -333,
+            "total_tokens": 300
+          },
+          "offerings": {
+            "mode": "detail",
+            "items": [
+              {
+                "ref": "#1",
+                "offering_id": "368933d6-5b99-419e-a723-616f58225773",
+                "name": "Canvas sneaker black",
+                "price_text": "₦12,000",
+                "availability": "in_stock",
+                "cover_image_id": "8492e50e-f9c7-4a69-9027-5b799cc6d7fb",
+                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/b6446d69-6abd-4c62-8c12-41c6da21ff88/87656af98a4449aea54a76c3f24e0105.jpg",
+                "photo_count": 2
+              }
+            ],
+            "shown_at": "2026-10-30T23:29:33.082168+00:00",
+            "guard": {
+              "checked": true,
+              "blocked": true,
+              "regenerated": true,
+              "fell_back": false
+            }
+          }
+        },
+        "created_at": "2026-10-30T23:29:33.126838Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "scenario": "staff-misses",
+  "note": "The normalised term only: no session, no customer, no raw message.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/offerings/misses",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "fceb254a-0f81-4b08-b7b0-07b0c3fcebe2",
+          "term": "helicopter",
+          "count": 1,
+          "last_seen_at": "2026-10-30T23:29:33.037660+00:00"
+        }
+      ]
+    }
+  }
+}

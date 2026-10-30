@@ -1,0 +1,63 @@
+# Offerings catalog: AI grounding path (stream S2)
+
+**What shipped:** the AI reads the tenant's catalog live from Postgres before every model call, injects an authoritative block, checks the reply in code (price guard, one regeneration, code fallback), writes `meta.offerings` cards, turns a chosen cart into a lead with wanted items, a catalog quote and an owner alert, and takes the lead `source` from the channel. Branch `feature/offerings-ai-grounding`, **draft PR #197** (stacked on S1's #195; the lead retargets it to `develop` after S1 merges). No migration (S1's `of10offerings` owns the tables). Nothing merged, nothing deployed.
+
+Spec: `docs/superpowers/specs/2026-10-30-offerings-catalog-design.md` sections 7 and 8. Plan: `docs/superpowers/plans/2026-10-30-offerings-catalog-build-plan.md` section 3 (S2 T1-T8). FE guide part 2: `docs/fe-integration-guide-offerings-part2.md`; captures `docs/fe-integration-captures/offerings-ai/`.
+
+## Why
+
+A price or a stock level read from an embedded KB chunk can be days old, and a wrong price the AI quoted on WhatsApp is a money dispute the business must honour. The chat path makes one model call, so the lookup is done by the backend **before** it, and the reply is checked by code **after** it. Prices and totals are never trusted model output.
+
+## How (decisions and what was rejected)
+
+| Decision | Reason / rejected alternative |
+|---|---|
+| Lookup is Postgres lexical search scored in SQL (name x3, keywords x3, category x2, description x1, word-prefix), no vector index | Spec 7.2. A semantic index returning ids only is the v1.5 option if the miss log shows poor recall |
+| Block capped at **1,000 tokens** with the project token counter; lowest-ranked items are dropped first, and only items that survive are "injected" (the guard's allowed set) | Cost must not grow with the catalog (test: 5,000 items) |
+| Tenants with no active items (or catalog switched off) get a **byte-identical** prompt | Pinned by `tests/offerings_ai/test_prompt_unchanged.py` against `golden_prompts.json` captured from S1's head before any change (plain and sales mode, prompt, system message, response schema) |
+| The strict schema is not edited: `SALES_RESPONSE_SCHEMA_OFFERINGS` is a deep copy plus `catalog_refs`, `cart`, `offered_price` in `signals` | Plan risk 1 checked first: the only consumers are `parse_sales_output`, `signals.get(...)` in `chat.py` and `score_lead`, all tolerant. No `maxItems` (not portable in strict mode); caps are enforced in `parse_catalog_signals` |
+| The guard judges per sentence, per item: a listed price only counts for the item it belongs to; KB amounts only count in a sentence naming no item; the customer's own figure may be quoted back only when the sentence attributes it to them and does not accept it; concession wording fails even at a coincidentally listed price; percentages are held to the same rule; amounts with an explicit currency marker that differs from the tenant's fail | Spec 7.5 plus D1. Two automated security-review findings and one eval finding were turned into tests and fixed (see Verification) |
+| One regeneration **of the same call type**, then a reply built from the rows; both calls' tokens count toward the turn | Spec 7.5. A fallback also offers a human through the existing escalation consent flow |
+| A catalog hit or browse counts as grounded and skips the "short reply, offer escalation" quality heuristic | Otherwise "The black sneaker is ₦12,000." got a team-offer appended. **Deviation from the spec text (7.1 step 7 only named `has_no_retrieval`)** |
+| The cart in `signals.cart` is the **complete current selection**; a later non-empty cart replaces the lead's interests, an empty cart never clears them | One rule the model can follow every turn; removal works when other items remain |
+| **[call]** No catalog quote while a customer's price offer is pending; no quote for a cart containing a `from` or `on_request` line; a quote identical to the lead's latest one is not created again | A quote at the listed price beside a counter-offer would mislead; a changed cart makes a new quote |
+| D1 handover: an offer below the listed price on a **negotiable** item (or a repeated offer on any item) offers a human through the escalation consent flow; offers at or above the listed price do not | Spec 7.6 rule 3 |
+| Not-found log: the term is taken from the phrase after an ask cue ("do you sell X", "I want X"), after removing emails, URLs and number runs; chit-chat records nothing | Privacy: a normalised term only, no session, customer or raw text |
+| Owner alert `OFFERING_REQUEST` fires once per lead, after the lead is enriched so it carries the name | The score cannot reach 86 for a WhatsApp buyer; the alert does not depend on it |
+| Two score rows (`selected_items` 15, `price_offer` 5) appear **only when fired**; model-supplied `offered_price` can never fire the score key (its own name is `price_offer`) | `tests/sales/test_scoring.py` pins nine rows; existing leads keep nine |
+| Lead `source` from the channel (`whatsapp`, `voice`, `hosted_page`, `chat_widget`) for every sales tenant | Spec 8.2; the old value was hard-coded |
+| Test files live in `tests/offerings_ai/` | S1 owns `tests/offerings/`; separate directory avoids add/add conflicts |
+
+## What's involved
+
+New package `app/offerings/`: `grounding.py` (lookup, gate, fail-closed), `block.py` (render under the cap), `facts.py`, `rules.py`, `prompt.py` (channel formatting and the cart rules), `signals.py` (untrusted model output normalised), `guard.py` + `guard_flow.py` + `fallback.py` (**money path**), `cart.py` + `orchestrate.py` + `quote_text.py` (**money path**), `writer.py` (cards), `misses.py`, `turn.py` (what `chat.py` needs per turn).
+
+Changed shared code: `app/api/v1/endpoints/chat.py` (one block gated on `_offerings is not None`; lead orchestration, quote and `source` changes), `app/services/rag_service.py` (`catalog_addendum` kwarg: variant schema + system addendum; unchanged when absent), `app/sales/intent.py` (the variant schema).
+
+**Outside the plan's file-ownership list (flagged to the lead):** `app/services/notification_service.py` (in-app text for `OFFERING_REQUEST`; CRM fan-out also for that event), `app/workers/sales_notifications.py` and `app/templates/emails/sales_rep_alert.html` (rep e-mail for `offering_request`), `app/sales/scoring.py` (fired-only catalog rows). Each is a small additive change.
+
+`scripts/offerings_eval.py` (T7), `scripts/capture_offerings_ai.py` and `tests/fakes/live_stub_offerings.py` (T8), `docs/evals/offerings/2026-10-31-stand-in-model/` (output of the stand-in run).
+
+## Verification
+
+* **Unit and endpoint tests:** `tests/offerings_ai/` (about 380 tests): grounding and token cap, byte-identical prompt, schema variant and signal parsing, guard (**about 110 reply strings** in `test_guard.py`, **about 80 extraction strings** in `test_guard_extract.py`), guard flow and fallback, cards/memory/misses, cart/quote/offer/handover/alert/source/score, eval-harness self-tests. Related suites (`tests/api/v1`, `tests/sales`, `tests/voice`, `tests/whatsapp`, `tests/entitlements`, `tests/services`, S1's `tests/offerings`) passed together (2,085 tests) before the final push; the full unit suite is run once before the PR leaves draft.
+* **Findings that changed the code:** (1) automated review: a concession at a price that equals another item's price slipped through, and an echoed customer figure ("you offered X") could be accepted in the same sentence; (2) the eval stand-in found that a customer-named percentage could be accepted back; (3) the live capture found `cover_url` returned the stored original instead of the 400 px card rendition. Each has a test that failed first.
+* **Live run (2026-10-31):** real API + arq worker + Postgres 15 + Redis + fake sidecar, with the model replaced by a deterministic stand-in (`tests/fakes/live_stub_offerings.py`). 22 captures. **Proven live:** `meta.offerings` shapes, guard regeneration and fallback, offer storage and handover, cart to lead to quote, no second quote, `from` line without quote, notifications, support-mode isolation, WhatsApp text path and `source: whatsapp`. **Not proven live:** anything about the real model's wording, voice, strict mode, the real sidecar, SMTP.
+* **Eval (T7):** 51 adversarial cases; the stand-in run passes 51 of 51 with guard interventions on the attack cases (`docs/evals/offerings/2026-10-31-stand-in-model/report.md`). That proves the harness and the guard, **not the model**. The pilot gate is `scripts/offerings_eval.py --model real` on staging by the lead: 0 failed checks.
+
+## Operate / roll back
+
+* Run the eval on staging (inside the API container, with its own `DATABASE_URL` and model key; it creates two scratch tenants and deletes them unless `--keep`): `python scripts/offerings_eval.py --model real --out /tmp/offerings-eval`. Read `report.md`; any failed check of rules 1-5 blocks the pilot.
+* Pause the feature for one tenant: set `tenant_offerings_settings.enabled = false` (PATCH `/api/v1/offerings/settings`); the next turn is ungrounded and byte-identical to before.
+* The guard's behaviour is visible per reply in `message.meta.offerings.guard`; audit with SQL over message meta for the first two weeks (spec 15 targets: blocked or regenerated under 3 %, fell back under 0.5 %).
+* Revert: this branch adds no migration; reverting the merge removes the behaviour. Leads, interests, quotes and misses written meanwhile stay (they are ordinary rows).
+
+## Follow-ups and known limits
+
+* **Acceptance without a number** ("You offered ₦30,000." then "Sounds fine.") is not machine-checked; rule 3, the eval and the pilot audit hold it. Availability wording is not machine-checked either (spec 17.1).
+* The guard compares numbers plus an explicit currency marker; a bare number cannot say which unit it is. Bare small numbers count as money only after a price cue ("costs 500"); a hand-written phone number with spaces may trigger a needless regeneration.
+* `I can't offer a 20% discount` is rejected too (any percentage beside an item that the customer did not echo): stricter than needed, costs one regeneration.
+* A fallback lists the items that matched the question; with generic words it may list two similar items.
+* Voice: the guard and `render_quote_text` exist, TTS reading of `₦` amounts is untested (spec 17.6).
+* S4b consumes `render_quote_text(meta.quote)` for the WhatsApp second message and the catalog photo job; S3/S4a render `meta.offerings` and `interests`.
+* The not-found cue list is English plus a little pidgin; recall will be read from the miss log in the pilot.

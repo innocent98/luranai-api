@@ -13,7 +13,7 @@ Snapshot (Referral program): backend Tasks 1-10 built and tested on branch `feat
 
 Snapshot (WhatsApp contact exclusion, T15): backend built on `feature/whatsapp-contact-exclusion` (2026-10-29), PR to `develop` open, NOT merged; migration `wa40contactexclusion`; per-connection list of ignored contacts (webhook + worker + sender checks), live-verified against the running app with the fake sidecar; dashboard UI is a separate PR; gate for the public `WHATSAPP_ENABLED` flip. Production untouched.
 
-Snapshot (Offerings catalog, S1 backend core): built on `feature/offerings-backend-core` (2026-10-31), draft PR #195 to `develop`, NOT merged; migration `of10offerings` (tables + plan limits, frozen at T1); REST API, photos, import, confirm/settings/Not-found, lead `interests`; live-run against the real app with a stand-in Cloudinary and moderation; the AI path (S2), dashboard (S3), item cards (S4a) and WhatsApp photos (S4b) are NOT built. Prod untouched.
+Snapshot (Offerings catalog, S1 backend core): built on `feature/offerings-backend-core` (2026-10-31), draft PR #195 to `develop`, NOT merged; migration `of10offerings` (tables + plan limits, frozen at T1); REST API, photos, import, confirm/settings/Not-found, lead `interests`; live-run against the real app with a stand-in Cloudinary and moderation; the AI path (S2) is built on `feature/offerings-ai-grounding` (draft PR #197, stacked, not merged, Opus reviews of the guard and the cart/quote still to come); dashboard (S3), item cards (S4a) and WhatsApp photos (S4b) are NOT built. Prod untouched.
 
 Snapshot (Conversation limit numbers): built on `feature/conversation-limit-numbers` (2026-10-29), PR to `develop` open, NOT merged; migration `cl10conversationlimits`; two owner decisions open (Growth prod tenant, the 10,001-24,999 gap); prod untouched.
 
@@ -315,7 +315,7 @@ Owner decision 2026-10-29 (step 2 after the counting meter). Docs: SOP `docs/sop
 - [ ] Dashboard follow-up (separate repo, not changed here): `app/components/luran/pricing/plans.ts` static fallback (200/2000/10000/25000), platform-admin calculator copy (25,000), `luran-docs` pricing page/API doc
 - [ ] In-app notice at 80% / 100% of the monthly limit (none today; the widget only gets the 402)
 
-## Offerings catalog (products + services) — DESIGN APPROVED 2026-10-30 (owner); S1 backend core BUILT 2026-10-31 (PR #195, draft); S2-S4 not started
+## Offerings catalog (products + services) — DESIGN APPROVED 2026-10-30 (owner); S1 backend core BUILT 2026-10-31 (PR #195, draft); S2 AI path BUILT 2026-10-31 (PR #197, draft); S3-S4 not started
 Idea (owner): businesses keep a live list of what they sell (name, description, photos, price, availability); the AI answers from it on every channel and closes with lead + quote handed to a human. Docs: spec `docs/superpowers/specs/2026-10-30-offerings-catalog-design.md`; plan `docs/superpowers/plans/2026-10-30-offerings-catalog-build-plan.md`. Owner decisions: products + services together; v1 closes with lead + quote; **never below the listed price** (negotiable items: offer recorded, human takes over); every plan incl. Trial gets it, caps 25 / 100 / 500 / 2,000 / unlimited (launch values, review after the first pilot week); photo limits 4 (Trial, Lite) / 8; quotes stay behind `sales_close`.
 - [x] Recon of the AI path, quote/lead path, entitlements, images/WhatsApp, dashboard, chat, agent app (findings in spec section 4)
 - [x] Spec written (data model, grounding contract and guard, API, dashboard UX, channels, limits, privacy, failure modes, pilot measures, v1/v2) and builder-checked
@@ -334,7 +334,16 @@ Idea (owner): businesses keep a live list of what they sell (name, description, 
   - [x] T8 live run (API + arq worker + Postgres + Redis; 76 captures, no 5xx), FE guide part 1 with verification table, SOP, this checklist
   - [ ] Not exercised: real Cloudinary optimisation/EXIF on real photos, real moderation, upload limiter 429, `image_storage_unavailable` live; Not-found and lead-interest rows were inserted by SQL (writer is S2)
   - [ ] PR #195 CI green, reviewed (single Opus pass at the end of the phase), merged by the lead
-- [ ] **S2 Backend AI path** `feature/offerings-ai-grounding`: grounding block (1,000-token cap), price guard + fallback (Opus review), strict-schema variant, cart -> interests -> catalog quote (Opus review), `OFFERING_REQUEST` alert, lead source by channel, adversarial eval gate, FE guide part 2, SOP
+- [ ] **S2 Backend AI path** `feature/offerings-ai-grounding` (draft PR #197, stacked on #195, not merged; SOP `docs/sop/offerings_ai_grounding.md`; FE guide part 2 `docs/fe-integration-guide-offerings-part2.md`; captures `docs/fe-integration-captures/offerings-ai/`; eval `scripts/offerings_eval.py`). Ticks are the plan's T1-T8; the stream box stays open until merged:
+  - [x] T1 lookup, block (1,000-token hard cap, 5,000-item test), freshness, stub and fail-closed blocks, tenant isolation (`c5e04a5`)
+  - [x] T2 injection in `send_message` for every channel; a catalog hit counts as grounded; byte-identical prompt pinned by a golden for tenants without active items (`1e2327e`)
+  - [x] T3 `SALES_RESPONSE_SCHEMA_OFFERINGS` + signal parsing; existing schema untouched; no consumer broke (`971cdd2`)
+  - [x] T4 price guard (about 110 reply strings, about 80 extraction strings), one regeneration, code fallback, `meta.offerings.guard`; **Opus review: NOT done** (`d9f561b`, then fixes `cd97bf9`, `9463ddd`)
+  - [x] T5 `meta.offerings` cards (400 px cover), shown-items session memory, not-found log (`b86ec20`)
+  - [x] T6 cart to interests, catalog quote (all-`fixed` carts, code totals), `offered_price` + handover, `OFFERING_REQUEST` alert, lead `source` by channel, fired-only score rows, `render_quote_text`; **Opus review: NOT done** (`0a13530`)
+  - [x] T7 `scripts/offerings_eval.py`, 51 adversarial cases; stand-in run 51/51 (`9463ddd`). **Real-model run on staging by the lead: NOT done (pilot gate)**
+  - [x] T8 live run (22 captures, stand-in model, fake sidecar), FE guide part 2, SOP
+  - [ ] Not exercised: the real model's behaviour, voice, strict (fail-closed) mode live, real sidecar, SMTP; WhatsApp photos and quote text message are S4b; full local unit suite run once before leaving draft
 - [ ] **S3 Dashboard** `luran-dashboard` `feature/offerings-dashboard`: Today list, add/edit sheet with photos, import wizard, plan meter, Not-found tab, lead "Wanted items"
 - [ ] **S4a** `luran-chat` `feature/offerings-item-cards`: `meta.offerings` mapping + `ItemCard`
 - [ ] **S4b** `feature/offerings-whatsapp-photos`: catalog photo job (cap, caption at send time), quote text message

@@ -611,7 +611,13 @@
         "reply": "I can't add totals myself; the Canvas sneaker black is listed at ₦12,000. The team will confirm the total."
       }
     ],
-    "interests": []
+    "interests": [
+      {
+        "ref": "#1",
+        "qty": 1,
+        "offered_price": null
+      }
+    ]
   },
   {
     "id": "sum-03",

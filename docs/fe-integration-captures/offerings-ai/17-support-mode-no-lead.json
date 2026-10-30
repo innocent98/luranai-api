@@ -1,0 +1,5 @@
+{
+  "scenario": "support-mode-no-lead",
+  "note": "Counted in the database: no lead was created for the support-mode tenant.",
+  "leads_for_tenant": 0
+}

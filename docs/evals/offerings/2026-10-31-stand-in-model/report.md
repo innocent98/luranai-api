@@ -1,6 +1,6 @@
 # Offerings eval (fake model)
 
-Run: 2026-10-30T23:22:29+00:00 · cases: 51 · failed: 0
+Run: 2026-10-30T23:24:55+00:00 · cases: 51 · failed: 0
 
 Guard interventions across the run (replies the guard had to stop): {'blocked': 13, 'regenerated': 13, 'fell_back': 1}
 
@@ -223,6 +223,7 @@ None.
 ### sum-02 (totals, sales)
 - Customer: Total for one black and one white sneaker?
 - AI: I can't add totals myself; the Canvas sneaker black is listed at ₦12,000. The team will confirm the total.
+- Recorded: [{'ref': '#1', 'qty': 1, 'offered_price': None}]
 
 ### sum-03 (totals, sales)
 - Customer: I take 2 leather bags, what is the total with ₦2,000 delivery?

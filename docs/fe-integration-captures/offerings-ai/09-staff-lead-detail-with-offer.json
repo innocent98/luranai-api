@@ -1,0 +1,125 @@
+{
+  "scenario": "staff-lead-detail-with-offer",
+  "note": "The customer's figure is stored next to the listed price; the AI never agreed to it.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/leads/df939d36-9585-4c2b-ab98-7008a88a6fbc",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "id": "df939d36-9585-4c2b-ab98-7008a88a6fbc",
+        "name": null,
+        "company": null,
+        "intent": "PURCHASE_INTENT",
+        "lead_score": 20,
+        "tier": "cold",
+        "status": "new",
+        "source_label": "chat_widget",
+        "created_at": "2026-10-30T23:29:33.228010+00:00",
+        "email": null,
+        "team_size": null,
+        "industry": null,
+        "conversation_id": "d081131d-cf6d-4d4d-9efb-6551299e9221",
+        "score_breakdown": [
+          {
+            "key": "provided_email",
+            "label": "Provided email",
+            "weight": 20,
+            "fired": false
+          },
+          {
+            "key": "company_name",
+            "label": "Mentioned company name",
+            "weight": 10,
+            "fired": false
+          },
+          {
+            "key": "team_over_50",
+            "label": "Team size > 50",
+            "weight": 15,
+            "fired": false
+          },
+          {
+            "key": "enterprise",
+            "label": "Enterprise / corporate",
+            "weight": 20,
+            "fired": false
+          },
+          {
+            "key": "asked_features",
+            "label": "Asked about specific features",
+            "weight": 10,
+            "fired": false
+          },
+          {
+            "key": "requested_demo",
+            "label": "Requested a demo",
+            "weight": 15,
+            "fired": false
+          },
+          {
+            "key": "mentioned_competitor",
+            "label": "Mentioned a competitor",
+            "weight": 10,
+            "fired": false
+          },
+          {
+            "key": "ready_to_buy",
+            "label": "Said \"ready to buy\"",
+            "weight": 25,
+            "fired": false
+          },
+          {
+            "key": "paid_ad",
+            "label": "Came from a paid ad (UTM)",
+            "weight": 5,
+            "fired": false
+          },
+          {
+            "key": "selected_items",
+            "label": "Chose items from the catalog",
+            "weight": 15,
+            "fired": true
+          },
+          {
+            "key": "price_offer",
+            "label": "Made a price offer",
+            "weight": 5,
+            "fired": true
+          }
+        ],
+        "source": {
+          "landing_page": "chat_widget",
+          "utm": null,
+          "channel": null,
+          "first_seen": "2026-10-30T23:29:33.228010+00:00"
+        },
+        "meeting": null,
+        "quote": null,
+        "crm": {
+          "connected": false,
+          "status": null,
+          "synced_at": null,
+          "error": null
+        },
+        "interests": [
+          {
+            "ref": "#3",
+            "name": "Leather bag",
+            "price_mode": "fixed",
+            "price": 45000,
+            "price_note": null,
+            "qty": 1,
+            "offered_price": 30000
+          }
+        ]
+      }
+    }
+  }
+}

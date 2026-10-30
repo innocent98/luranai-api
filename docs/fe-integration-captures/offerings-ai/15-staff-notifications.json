@@ -1,0 +1,80 @@
+{
+  "scenario": "staff-notifications",
+  "note": "In-app notifications: `offering_request` on the first cart, `quote_generated`.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/notifications",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "items": [
+          {
+            "id": "4b65693b-a242-4d1b-98e9-efc531500e53",
+            "event": "offering_request",
+            "title": "New item request",
+            "body": "A customer · 1 × Phone repair",
+            "read_at": null,
+            "created_at": "2026-10-30T23:29:33.567741+00:00"
+          },
+          {
+            "id": "1c767882-45f4-43b9-91d1-e8433c665ee1",
+            "event": "quote_generated",
+            "title": "New quote",
+            "body": "₦37,500 · a prospect",
+            "read_at": null,
+            "created_at": "2026-10-30T23:29:33.441930+00:00"
+          },
+          {
+            "id": "fa9f4f1a-efe6-4f2a-bc03-0c930f645710",
+            "event": "quote_generated",
+            "title": "New quote",
+            "body": "₦24,000 · a prospect",
+            "read_at": null,
+            "created_at": "2026-10-30T23:29:33.366796+00:00"
+          },
+          {
+            "id": "b56c6f2a-4ab9-43f9-a4e5-709762718218",
+            "event": "offering_request",
+            "title": "New item request",
+            "body": "A customer · 2 × Canvas sneaker black",
+            "read_at": null,
+            "created_at": "2026-10-30T23:29:33.351722+00:00"
+          },
+          {
+            "id": "6b8da516-8e57-41ca-9db9-0e54ae163ec9",
+            "event": "offering_request",
+            "title": "New item request",
+            "body": "A customer · 1 × Leather bag",
+            "read_at": null,
+            "created_at": "2026-10-30T23:29:33.258439+00:00"
+          },
+          {
+            "id": "624387a6-8090-4d0b-a8ea-fce8f4b7ca3c",
+            "event": "offering_request",
+            "title": "New item request",
+            "body": "A customer · 1 × Canvas sneaker white",
+            "read_at": null,
+            "created_at": "2026-10-30T23:29:33.187734+00:00"
+          },
+          {
+            "id": "5c566fd4-828a-4031-a3ad-543024d0b2a3",
+            "event": "offering_request",
+            "title": "New item request",
+            "body": "A customer · 1 × Canvas sneaker black",
+            "read_at": null,
+            "created_at": "2026-10-30T23:29:33.112997+00:00"
+          }
+        ],
+        "total": 7,
+        "limit": 20,
+        "offset": 0
+      }
+    }
+  }
+}

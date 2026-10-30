@@ -10,6 +10,7 @@ from app.offerings.fallback import shown_in_fallback
 from app.offerings.facts import OfferingFacts
 from app.offerings.grounding import GroundingResult
 from app.offerings.signals import MAX_REFS, parse_catalog_signals
+from app.services.offering_media import thumb_url
 
 
 def _mentions(item: OfferingFacts, reply: str) -> int | None:
@@ -57,6 +58,6 @@ def card(item: OfferingFacts, currency: str) -> dict:
         "price_text": item.price_text(currency),
         "availability": item.availability.value,
         "cover_image_id": str(item.cover_image_id) if item.cover_image_id else None,
-        "cover_url": item.cover_url,
+        "cover_url": thumb_url(item.cover_url) if item.cover_url else None,
         "photo_count": item.photo_count,
     }

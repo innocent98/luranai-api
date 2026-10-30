@@ -502,7 +502,39 @@ def _user_message(prompt: str) -> str:
     return m.group(1).strip() if m else ""
 
 
-def _fake_reply(prompt: str, attack: bool, cart: dict[int, int] | None = None) -> tuple[str, dict]:
+_CART_INTENT = re.compile(r"\b(i('ll| will) take|i want \d|and one)\b")
+
+
+def _history_users(prompt: str) -> list[str]:
+    m = re.search(r"Conversation history:\n(.*?)\n\nUser message:", prompt, re.S)
+    lines = (m.group(1) if m else "").split("\n")
+    return [ln[6:] for ln in lines if ln.startswith("USER: ")]
+
+
+def _target(low: str, detail: list) -> tuple | None:
+    tokens = set(re.findall(r"[a-z]+", low)) - {"the", "a", "one"}
+    for seq, item in detail:
+        if set(re.findall(r"[a-z]+", item["name"].lower())) & tokens:
+            return seq, item
+    return detail[0] if detail else None
+
+
+def _fold_cart(prompt: str, detail: list, current_low: str) -> dict[int, int]:
+    """The cart as a model that repeats earlier choices every turn would state it."""
+    cart: dict[int, int] = {}
+    messages = [m.lower() for m in _history_users(prompt)]
+    if not messages or messages[-1] != current_low:
+        messages.append(current_low)
+    for low in messages:
+        if _CART_INTENT.search(low):
+            hit = _target(low, detail)
+            if hit:
+                m = re.search(r"\b(\d+)\b", low)
+                cart[hit[0]] = cart.get(hit[0], 0) + (int(m.group(1)) if m else 1)
+    return cart
+
+
+def _fake_reply(prompt: str, attack: bool) -> tuple[str, dict]:
     from app.offerings.guard import extract_amounts
 
     items = _parse_block(prompt)
@@ -510,15 +542,8 @@ def _fake_reply(prompt: str, attack: bool, cart: dict[int, int] | None = None) -
     low = msg.lower()
     nums = [int(a.value) for a in extract_amounts(msg) if a.kind == "money"]
     detail = [(s, i) for s, i in items.items() if i["detail"]]
-    msg_tokens = set(re.findall(r"[a-z]+", low))
-    target = next(
-        (
-            (s, i)
-            for s, i in detail
-            if set(re.findall(r"[a-z]+", i["name"].lower())) & msg_tokens - {"the", "a", "one"}
-        ),
-        detail[0] if detail else None,
-    )
+    target = _target(low, detail)
+    cart = _fold_cart(prompt, detail, low)
     signals = {
         "asked_features": False,
         "requested_demo": False,
@@ -527,7 +552,7 @@ def _fake_reply(prompt: str, attack: bool, cart: dict[int, int] | None = None) -
         "offer_meeting": False,
         "offer_quote": False,
         "catalog_refs": [],
-        "cart": [],
+        "cart": [{"ref": f"#{q}", "qty": n} for q, n in cart.items()],
         "offered_price": None,
     }
     team = " Would you like me to connect you with the team?"
@@ -569,11 +594,8 @@ def _fake_reply(prompt: str, attack: bool, cart: dict[int, int] | None = None) -
                 f"team will follow up.{team}"
             ), signals
         return f"The {item['name']} is listed at {price}. I've noted your request.", signals
-    if re.search(r"\b(i('ll| will) take|i want \d|and one)\b", low):
-        qty = int(re.search(r"\b(\d+)\b", low).group(1)) if re.search(r"\b(\d+)\b", low) else 1
-        if cart is not None:
-            cart[seq] = cart.get(seq, 0) + qty
-        signals["cart"] = [{"ref": f"#{s}", "qty": q} for s, q in (cart or {seq: qty}).items()]
+    if _CART_INTENT.search(low):
+        qty = cart.get(seq, 1)
         return f"Noted: {qty} × {item['name']}. What name should I put down?", signals
     return f"The {item['name']} is {price}, {item['avail']}.", signals
 
@@ -583,10 +605,14 @@ class StandIn:
 
     def __init__(self):
         self.case: Case | None = None
-        self.cart: dict[int, int] = {}
 
     def _attack(self, prompt: str) -> bool:
-        if self.case is None or self.case.fake == "good":
+        if self.case is None:  # live run: misbehave the way a haggled model would
+            low = _user_message(prompt).lower()
+            if "Correction: use only the prices" in prompt:
+                return bool(re.search(r"final offer|last price", low))
+            return bool(re.search(r"₦|\d+k\b|\d{4,}|%|discount", low))
+        if self.case.fake == "good":
             return False
         if self.case.fake == "attack_always":
             return True
@@ -595,13 +621,11 @@ class StandIn:
     async def plain(
         self, prompt, max_tokens=800, model_name=None, system_message=None, image_urls=None
     ):
-        reply, _ = _fake_reply(prompt.full_prompt, self._attack(prompt.full_prompt), self.cart)
+        reply, _ = _fake_reply(prompt.full_prompt, self._attack(prompt.full_prompt))
         return reply, 120, False
 
     async def sales(self, prompt, config, **kwargs):
-        reply, signals = _fake_reply(
-            prompt.full_prompt, self._attack(prompt.full_prompt), self.cart
-        )
+        reply, signals = _fake_reply(prompt.full_prompt, self._attack(prompt.full_prompt))
         return (
             reply,
             {
@@ -747,7 +771,6 @@ async def run_case(case: Case, db, tenant_ids: dict[str, UUID], standin: StandIn
             stack.enter_context(_kb_patch(case.kb) if (standin or case.kb) else ExitStack())
             if standin:
                 standin.case = case
-                standin.cart = {}
                 stack.enter_context(
                     patch(
                         "app.services.rag_service.RAGService.generate_ai_response",

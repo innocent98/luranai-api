@@ -117,7 +117,7 @@ def test_meta_items_follow_the_frozen_contract(client, db):
             "price_text": "₦12,000",
             "availability": "in_stock",
             "cover_image_id": str(img_id),
-            "cover_url": img_url,
+            "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1/offerings/x.jpg",
             "photo_count": 2,
         }
     ]

@@ -1,0 +1,114 @@
+{
+  "scenario": "web-browse",
+  "note": "Browse: the menu. `meta.offerings.mode` is `browse`; items are what the reply names.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "headers": {},
+    "body": {
+      "message": "What do you have?",
+      "tenant_id": "b6446d69-6abd-4c62-8c12-41c6da21ff88",
+      "user_identifier": "web-1"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "b9b4336d-6d18-4acf-b9a9-68f3d028735d",
+      "message": {
+        "role": "assistant",
+        "content": "Here is what we have:\n#1 Canvas sneaker black - ₦12,000\n#2 Canvas sneaker white - ₦13,500\n#3 Leather bag - ₦45,000\n#4 Phone repair - from ₦5,000 per phone\n#5 Beach sandals - ₦8,000",
+        "id": "bb9385d6-632b-4337-b60f-58a2067c4209",
+        "session_id": "b9b4336d-6d18-4acf-b9a9-68f3d028735d",
+        "retrieved_chunk_ids": [],
+        "token_count": 150,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "chunks_used": 0,
+          "avg_similarity": 0.0,
+          "retrieval_hit": false,
+          "escalation_action": "no_escalation",
+          "response_quality": {
+            "is_substantial": true,
+            "has_uncertainty": false,
+            "word_count": 35,
+            "char_count": 180
+          },
+          "token_breakdown": {
+            "prompt_tokens": 573,
+            "completion_tokens": -423,
+            "total_tokens": 150
+          },
+          "offerings": {
+            "mode": "browse",
+            "items": [
+              {
+                "ref": "#1",
+                "offering_id": "368933d6-5b99-419e-a723-616f58225773",
+                "name": "Canvas sneaker black",
+                "price_text": "₦12,000",
+                "availability": "in_stock",
+                "cover_image_id": "8492e50e-f9c7-4a69-9027-5b799cc6d7fb",
+                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/b6446d69-6abd-4c62-8c12-41c6da21ff88/87656af98a4449aea54a76c3f24e0105.jpg",
+                "photo_count": 2
+              },
+              {
+                "ref": "#2",
+                "offering_id": "ecd00d82-9918-4b93-9063-18b946da4a0f",
+                "name": "Canvas sneaker white",
+                "price_text": "₦13,500",
+                "availability": "in_stock",
+                "cover_image_id": null,
+                "cover_url": null,
+                "photo_count": 0
+              },
+              {
+                "ref": "#3",
+                "offering_id": "21fc96c8-34d3-401b-9500-44ca6d50d347",
+                "name": "Leather bag",
+                "price_text": "₦45,000",
+                "availability": "in_stock",
+                "cover_image_id": null,
+                "cover_url": null,
+                "photo_count": 0
+              },
+              {
+                "ref": "#4",
+                "offering_id": "b02ac9f1-9d35-4f98-b6d6-4783fb789a85",
+                "name": "Phone repair",
+                "price_text": "from ₦5,000 per phone",
+                "availability": "in_stock",
+                "cover_image_id": null,
+                "cover_url": null,
+                "photo_count": 0
+              },
+              {
+                "ref": "#5",
+                "offering_id": "e03669a9-a588-4c58-9293-30542fc44d53",
+                "name": "Beach sandals",
+                "price_text": "₦8,000",
+                "availability": "out_of_stock",
+                "cover_image_id": null,
+                "cover_url": null,
+                "photo_count": 0
+              }
+            ],
+            "shown_at": "2026-10-30T23:29:32.575033+00:00",
+            "guard": {
+              "checked": true,
+              "blocked": false,
+              "regenerated": false,
+              "fell_back": false
+            }
+          }
+        },
+        "created_at": "2026-10-30T23:29:32.851623Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}
