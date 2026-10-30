@@ -1245,6 +1245,7 @@ Instructions:
         known_facts: dict | None = None,
         company_website: str | None = None,
         image_urls: list[str] | None = None,
+        catalog_addendum: str | None = None,
     ) -> tuple[str, dict | None, int | None, bool]:
         """
         Generate a structured sales response using OpenAI structured output.
@@ -1257,6 +1258,9 @@ Instructions:
             config: TenantSalesAgentConfig (or any object with
                     .qualification_questions: list).
             model_name: Override model (defaults to settings.OPENAI_LLM_MODEL).
+            catalog_addendum: Offerings selling rules. When given, the catalog variant of the
+                schema (cart / catalog_refs / offered_price signals) is used and the text is
+                appended to the system message; when None nothing changes.
 
         Returns:
             (reply_text, sales_meta, token_count, is_api_error)
@@ -1266,6 +1270,7 @@ Instructions:
         """
         from app.sales.intent import (
             SALES_RESPONSE_SCHEMA,
+            SALES_RESPONSE_SCHEMA_OFFERINGS,
             build_sales_directive,
             parse_sales_output,
         )
@@ -1281,6 +1286,8 @@ Instructions:
             company_website=company_website,
         )
         system_content = self.RUNTIME_SYSTEM_MESSAGE + "\n\n" + sales_directive
+        if catalog_addendum:
+            system_content += "\n\n" + catalog_addendum
 
         messages = [
             {"role": "system", "content": system_content},
@@ -1291,7 +1298,9 @@ Instructions:
             "json_schema": {
                 "name": "sales_response",
                 "strict": True,
-                "schema": SALES_RESPONSE_SCHEMA,
+                "schema": (
+                    SALES_RESPONSE_SCHEMA_OFFERINGS if catalog_addendum else SALES_RESPONSE_SCHEMA
+                ),
             },
         }
 

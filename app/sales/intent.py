@@ -4,6 +4,7 @@ Dependency-free by design — safe to import from models, services, and tests
 without risking circular imports.
 """
 
+import copy
 import json
 
 SALES_INTENTS: set[str] = {
@@ -99,6 +100,33 @@ SALES_RESPONSE_SCHEMA: dict = {
     },
     "required": ["reply", "intent", "signals", "captured"],
 }
+
+# Catalog variant (offerings spec 7.4): the same keys, and `signals` gains the three catalog
+# fields. A separate object so the schema above, which every existing tenant is sent, never
+# changes. OpenAI strict mode: every property required, no extra keys, no min/max keywords.
+SALES_RESPONSE_SCHEMA_OFFERINGS: dict = copy.deepcopy(SALES_RESPONSE_SCHEMA)
+_OFFERINGS_SIGNALS = SALES_RESPONSE_SCHEMA_OFFERINGS["properties"]["signals"]
+_OFFERINGS_SIGNALS["properties"].update(
+    {
+        "catalog_refs": {"type": "array", "items": {"type": "string"}},
+        "cart": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"ref": {"type": "string"}, "qty": {"type": "integer"}},
+                "required": ["ref", "qty"],
+            },
+        },
+        "offered_price": {
+            "type": ["object", "null"],
+            "additionalProperties": False,
+            "properties": {"ref": {"type": "string"}, "amount": {"type": "integer"}},
+            "required": ["ref", "amount"],
+        },
+    }
+)
+_OFFERINGS_SIGNALS["required"] = list(_OFFERINGS_SIGNALS["properties"])
 
 _FALLBACK_QUESTION = "What are you hoping to achieve?"
 
