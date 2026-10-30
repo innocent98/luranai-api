@@ -1,13 +1,18 @@
 """What `send_message` needs from the catalog for one turn, kept out of `chat.py`."""
 
+import logging
 from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.offerings.grounding import GroundingResult, ground
+from app.db.models.conversation import ConversationSession
+from app.offerings.grounding import GroundingResult, attach_photos, ground
 from app.offerings.prompt import catalog_sales_addendum
+from app.offerings.writer import card, shown_items
 from app.services.conversation_service import message_channel, voice_channel
+
+logger = logging.getLogger(__name__)
 
 SHOWN_KEY = "offerings_shown"
 
@@ -97,12 +102,49 @@ def tier_amounts(sales_config) -> list[int]:
     return out
 
 
-def offerings_meta(result: GroundingResult, guard: dict | None) -> dict:
-    """`message.meta.offerings` (frozen contract). Items are filled by the reply writer."""
-    return {
+def build_offerings_turn(
+    db: Session,
+    tenant_id: UUID,
+    result: GroundingResult,
+    guard: dict | None,
+    reply: str,
+    sales_meta: dict | None,
+) -> tuple[dict, list[int]]:
+    """`message.meta.offerings` (frozen contract) and the seqs this reply showed."""
+    guard = guard or {"checked": False, "blocked": False, "regenerated": False, "fell_back": False}
+    items = shown_items(
+        result,
+        reply,
+        sales_signals=(sales_meta or {}).get("signals") if sales_meta is not None else None,
+        fell_back=bool(guard.get("fell_back")),
+    )
+    try:
+        items = attach_photos(db, tenant_id, items)
+    except Exception:  # noqa: BLE001 - cards without photos beat no reply
+        logger.exception("offerings card photos failed (non-fatal)")
+    meta = {
         "mode": result.mode if result.mode in ("browse", "detail") else "none",
-        "items": [],
+        "items": [card(i, result.currency) for i in items],
         "shown_at": result.read_at.isoformat(),
-        "guard": guard
-        or {"checked": False, "blocked": False, "regenerated": False, "fell_back": False},
+        "guard": guard,
     }
+    return meta, [i.seq for i in items]
+
+
+def remember_shown(db: Session, session_id: UUID, seqs: list[int]) -> None:
+    """`session_meta["offerings_shown"]`: the last five refs shown, so "the second one" resolves."""
+    if not seqs:
+        return
+    try:
+        row = db.get(ConversationSession, session_id)
+        if row is None:
+            return
+        db.refresh(row)
+        meta = dict(row.meta or {})
+        merged = [s for s in shown_seqs(meta) if s not in seqs] + seqs
+        meta[SHOWN_KEY] = merged[-5:]
+        row.meta = meta
+        db.commit()
+    except Exception:  # noqa: BLE001
+        logger.exception("offerings shown-memory write failed (non-fatal)")
+        db.rollback()

@@ -20,15 +20,21 @@ def _line(item: OfferingFacts, currency: str) -> str:
     return f"{item.ref} {item.name} - {item.price_text(currency)} - {_availability(item)}"
 
 
+def shown_in_fallback(grounding: GroundingResult) -> list[OfferingFacts]:
+    """The items the fallback reply lists (also what its cards show)."""
+    if grounding.strict or grounding.mode == "unavailable":
+        return []
+    if grounding.mode == "detail":
+        return [i for i in grounding.items if i.seq in grounding.matched_seqs] or grounding.items
+    if grounding.mode == "browse":
+        return grounding.items
+    return []
+
+
 def fallback_reply(grounding: GroundingResult) -> str:
     if grounding.strict or grounding.mode == "unavailable":
         return f"I can't check our list at the moment, so I won't quote a price. {ASK_TEAM}"
-    if grounding.mode == "detail":
-        shown = [i for i in grounding.items if i.seq in grounding.matched_seqs] or grounding.items
-    elif grounding.mode == "browse":
-        shown = grounding.items
-    else:
-        return f"I don't have that listed. {ASK_TEAM}"
+    shown = shown_in_fallback(grounding)
     if not shown:
         return f"I don't have that listed. {ASK_TEAM}"
     lines = [_line(i, grounding.currency) for i in shown]

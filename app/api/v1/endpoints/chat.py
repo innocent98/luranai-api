@@ -71,11 +71,13 @@ from app.schemas.visitor import VisitorEnrichmentUpdate
 from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.offerings.guard_flow import guard_reply
+from app.offerings.misses import record_miss
 from app.offerings.turn import (
     customer_texts,
     ground_turn,
     kb_text_from_prompt,
-    offerings_meta,
+    build_offerings_turn,
+    remember_shown,
     tier_amounts,
 )
 from app.offerings.turn import sales_kwargs as catalog_sales_kwargs
@@ -3119,8 +3121,13 @@ async def _send_message_impl(
         }
         if _lead_captured_meta is not None:
             _message_meta["lead_captured"] = _lead_captured_meta
+        _offerings_shown: list[int] = []
         if _offerings is not None:
-            _message_meta["offerings"] = offerings_meta(_offerings, _guard_record)
+            _message_meta["offerings"], _offerings_shown = build_offerings_turn(
+                db, session.tenant_id, _offerings, _guard_record, ai_response_text, _sales_meta
+            )
+            if _offerings.mode == "none":
+                record_miss(db, session.tenant_id, message_data.message)
         if _sales_mode and _sales_meta is not None:
             _signals = _sales_meta.get("signals") or {}
             if (
@@ -3268,6 +3275,8 @@ async def _send_message_impl(
                 conversation_history=conversation_history,
                 contact_email=contact_email,
             )
+
+        remember_shown(db, session_id, _offerings_shown)
 
         # Step 10: Return response
         return ChatResponse(
