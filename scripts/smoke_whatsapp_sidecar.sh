@@ -28,7 +28,12 @@
 # exit status are exactly what they were:
 #   SMOKE_ISOLATION=1                         adds, inside the sidecar container:
 #     8. the hostnames `redis`, `qdrant`, `pgbouncer` and their container names (`luran_redis`, ...) do not resolve from the
-#        sidecar;
+#        sidecar. "Does not resolve" is ENOTFOUND (Docker Desktop) OR EAI_AGAIN/EAI_FAIL (a Linux host: the embedded DNS
+#        answers SERVFAIL for a name that exists only on a network the container is not attached to; first production run,
+#        2026-10-30). Only an address coming back is a failure;
+#     8b. the sidecar cannot open a TCP connection to the IPs of the shared Redis, Qdrant and pgbouncer containers (looked up
+#        from the host, short timeout). Failing DNS alone is weaker evidence than no route. A refused connection counts as
+#        reachable (the packet got there);
 #     9. the sidecar's Redis URL carries a password and a command without credentials is refused (NOAUTH).
 #   SMOKE_BACKEND_CONTAINERS="luran_api ..."  adds, from the host, per container: the environment holds none of the
 #     sidecar-only secret NAMES (checked by name only; values are never printed).
@@ -61,7 +66,21 @@ if [ -n "${SMOKE_BACKEND_CONTAINERS:-}" ]; then
   done
 fi
 
+forbidden=""
 if [ "$isolation" = 1 ]; then
+  # IP-level targets, looked up from the host (the sidecar cannot ask Docker): container IPs on every network they are on,
+  # with the port each one listens on. Passed to the in-container program as name=ip:port,...
+  for target in luran_redis:6379 luran_qdrant:6333 luran_pgbouncer:5432; do
+    target_name="${target%%:*}"
+    target_port="${target#*:}"
+    if ! target_ips="$(docker inspect --format '{{range $_, $n := .NetworkSettings.Networks}}{{$n.IPAddress}} {{end}}' "$target_name" 2>/dev/null)" || [ -z "${target_ips// /}" ]; then
+      echo "SKIP isolation: $target_name is not running here, no IP-level check for it"
+      continue
+    fi
+    for target_ip in $target_ips; do
+      forbidden="${forbidden:+$forbidden,}${target_name}=${target_ip}:${target_port}"
+    done
+  done
   # From the host: the sidecar is on exactly these two networks and no other (DNS checks inside the container cannot see a
   # network that was attached by hand and only exposes container names).
   nets="$(docker inspect --format '{{range $k, $_ := .NetworkSettings.Networks}}{{$k}} {{end}}' "$container" 2>/dev/null | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ $//' || true)"
@@ -74,7 +93,9 @@ if [ "$isolation" = 1 ]; then
 fi
 
 rc=0
-docker exec -i -e "SMOKE_BACKEND=${backend}" -e "SMOKE_ISOLATION=${isolation}" "$container" node --input-type=module - <<'JS' || rc=$?
+exec_args=(-e "SMOKE_BACKEND=${backend}" -e "SMOKE_ISOLATION=${isolation}")
+[ -z "$forbidden" ] || exec_args+=(-e "SMOKE_FORBIDDEN_TARGETS=${forbidden}")
+docker exec -i "${exec_args[@]}" "$container" node --input-type=module - <<'JS' || rc=$?
 import { createHmac, randomUUID } from 'node:crypto'
 import dns from 'node:dns/promises'
 import net from 'node:net'
@@ -87,6 +108,17 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}${detail ? ` - ${detail}` : ''}`)
   if (!ok) failed = true
 }
+// BEGIN isolation-classifiers (extracted and unit-tested under node by tests/deploy/test_smoke_isolation.py)
+const NOT_RESOLVABLE = new Set(['ENOTFOUND', 'EAI_AGAIN', 'EAI_FAIL', 'EAI_NODATA', 'EAI_NONAME'])
+const NO_ROUTE = new Set(['ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH'])
+// A lookup that returned an address is the failure; the known "cannot resolve" codes are the pass; anything else is neither.
+const classifyLookup = (err, result) => {
+  if (!err && result) return { ok: false, detail: 'resolves to an address: the sidecar still shares a network with it' }
+  return { ok: NOT_RESOLVABLE.has(err?.code), detail: `dns=${err?.code}` }
+}
+// A connection that was accepted OR refused means the packet reached the host: only silence (or no route) is isolation.
+const classifyConnect = (code) => ({ ok: NO_ROUTE.has(code), detail: `tcp=${code}` })
+// END isolation-classifiers
 const errName = (e) => `${e?.name || 'Error'}${e?.code ? `:${e.code}` : ''}`
 const sign = (secret, body) => {
   const t = Math.floor(Date.now() / 1000)
@@ -169,15 +201,29 @@ try {
 
 if (env.SMOKE_ISOLATION === '1') {
   // The sidecar must not share a network with the unauthenticated redis, qdrant and pgbouncer. Docker's DNS only resolves
-  // names on networks the container is attached to, so a name that does not resolve is a network that is not shared.
+  // names on networks the container is attached to, so a name that does not resolve is a network that is not shared. What
+  // "does not resolve" looks like depends on the host (ENOTFOUND on Docker Desktop, EAI_AGAIN on Linux): classifyLookup.
   for (const host of ['redis', 'qdrant', 'pgbouncer', 'luran_redis', 'luran_qdrant', 'luran_pgbouncer']) {
-    try {
-      await dns.lookup(host)
-      check(`isolation: '${host}' does not resolve from the sidecar`, false, 'resolves: the sidecar still shares a network with it')
-    } catch (e) {
-      check(`isolation: '${host}' does not resolve from the sidecar`, e?.code === 'ENOTFOUND', `dns=${e?.code}`)
-    }
+    let r
+    try { r = classifyLookup(null, await dns.lookup(host)) } catch (e) { r = classifyLookup(e) }
+    check(`isolation: '${host}' does not resolve from the sidecar`, r.ok, r.detail)
   }
+  // DNS failing is weaker evidence than no route: try the container IPs (looked up by the host wrapper) directly.
+  const targets = String(env.SMOKE_FORBIDDEN_TARGETS || '').split(',').filter(Boolean).map((t) => {
+    const [name, addr] = t.split('=')
+    const cut = addr.lastIndexOf(':')
+    return { name, host: addr.slice(0, cut), port: Number(addr.slice(cut + 1)) }
+  })
+  const outcomes = await Promise.all(targets.map((t) => new Promise((resolve) => {
+    const sock = net.connect({ host: t.host, port: t.port })
+    sock.setTimeout(3000, () => { sock.destroy(); resolve('ETIMEDOUT') })
+    sock.on('connect', () => { sock.destroy(); resolve('CONNECTED') })
+    sock.on('error', (e) => resolve(e?.code || 'ERROR'))
+  })))
+  targets.forEach((t, i) => {
+    const r = classifyConnect(outcomes[i])
+    check(`isolation: no TCP route from the sidecar to ${t.name}:${t.port}`, r.ok, r.detail)
+  })
   // Its own Redis has a password, and a raw command with no credentials is refused.
   try {
     const u = new URL(env.WHATSAPP_SIDECAR_REDIS_URL)

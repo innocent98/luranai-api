@@ -356,10 +356,12 @@ Docs: plan `docs/superpowers/plans/2026-10-30-sidecar-redis-isolation.md`; SOP `
 - [x] Own Redis `luran_whatsapp_redis`: ACL user limited to `wa:*` keys, password only in `.env.sidecar`, `noeviction`, `maxmemory 8mb`, 32m, `save 60 1` on a named volume (daily send counter), on an internal-only network
 - [x] Sidecar off `luran_default`; shares `luran_wa_backend` only with `luran_api`, `luran_worker`, `luran_db` (runtime `docker network connect`, nothing restarted)
 - [x] New sidecar-only name `WHATSAPP_SIDECAR_REDIS_PASSWORD`: gate fail-closed (old names without it skip, names only), stripped from the api/worker env, generator `--redis-only`
-- [x] `cd.yml` (inside `production-deploy` only): network steps after every API deploy, Redis started and awaited before the sidecar, isolation smoke (18 PASS + 1 SKIP)
-- [x] 94 pytest tests in `tests/deploy/` (was 55); local rehearsal with the real ssh scripts: sidecar healthy, cannot reach prod Redis/Qdrant/pgbouncer (DNS and by IP), Redis requires the password, api/worker hold no sidecar secrets, rerun no-op, counter persists
+- [x] `cd.yml` (inside `production-deploy` only): network steps after every API deploy, Redis started and awaited before the sidecar, isolation smoke (21 PASS + 1 SKIP after the smoke fix)
+- [x] 117 pytest tests in `tests/deploy/` (was 55); local rehearsal with the real ssh scripts: sidecar healthy, cannot reach prod Redis/Qdrant/pgbouncer (DNS and by IP), Redis requires the password, api/worker hold no sidecar secrets, rerun no-op, counter persists
+- [x] Deployed to prod 2026-10-30 (run 41133145320, `main` `3d33ca5`): Redis and sidecar healthy, isolation confirmed; **smoke printed 6 false FAILs** (`dns=EAI_AGAIN` on Linux, my check only knew Docker Desktop's `ENOTFOUND`)
+- [ ] Smoke fix PR `fix/smoke-isolation-eai-again` (EAI_AGAIN accepted + IP-level TCP no-route check; `tests/deploy/test_smoke_isolation.py`): open, not merged; the next prod deploy is its first real run (expect 21 PASS + 1 SKIP)
 - [ ] PR merged to `develop` (lead), then promoted
-- [ ] Owner: `scripts/generate_whatsapp_production_secrets.sh --redis-only`, add `WHATSAPP_SIDECAR_REDIS_PASSWORD` to `.env.production.enc` (after the PR is on `develop`), PR + promote; read the deploy log (18 PASS + 1 SKIP)
+- [ ] Owner: `scripts/generate_whatsapp_production_secrets.sh --redis-only`, add `WHATSAPP_SIDECAR_REDIS_PASSWORD` to `.env.production.enc` (after the PR is on `develop`), PR + promote; read the deploy log (21 PASS + 1 SKIP after the smoke fix)
 - [ ] Not proven anywhere: the new CD steps on a real runner/VPS, Linux bridge isolation on the VPS, a live WhatsApp session through the new Redis, memory at 3 or 10 sessions
 - [ ] Follow-ups: declare `luran_wa_backend` on api/worker in the prod compose (never db); auth for the shared prod Redis + Qdrant key; sidecar egress filtering; pin images by digest
 
