@@ -1391,3 +1391,93 @@ These are consequences a user or admin would find surprising or wrong if shown s
 | Atomic audit for marketer create / bank / suspend / reactivate (`500` with a fixed code, nothing changed) | NOT exercised live; tests | `tests/referral/test_marketer_admin.py`, section 7.1 |
 | Paystack-era `failed` / `processing` items are verified with Paystack after the provider is switched back to `manual` | NOT exercised live (mock HTTP); tests | `test_m5_*` in `tests/referral/test_payouts.py`, section 9.1 |
 | SMTP socket timeout is 30 s | tests (constant asserted); not timed live | `tests/referral/test_notifications.py` |
+
+---
+
+## 15. Admin: bank picker (added 2026-10-30)
+
+**What it is.** The admin "new marketer" form and the "update bank details" form asked for a raw Paystack bank code. These two endpoints let the forms offer a bank dropdown and check the account number, so the admin picks a bank by name and confirms the account holder name before saving. They are lookups only: they never save anything and never move money. Saving a marketer is unchanged (`POST /` and `PATCH /{id}/bank`, sections 7 and 9): you still send `bank_code`, `account_number` and `account_name`. The code is the `code` the dropdown returned, and `account_name` is the name Paystack resolved (or one typed by hand when the admin used the manual fallback).
+
+**Honest scope of the evidence.** Every body below is copied from `docs/fe-integration-captures/referral-bank-picker/` (23 captures, `scripts/capture_bank_picker.py`), taken from the real app. **Paystack itself was NOT called**: the app's `PAYSTACK_BASE_URL` pointed at `scripts/fake_paystack.py`, which follows Paystack's public docs. So Luran's wire contract below is verified live; Paystack's own behaviour (list size, cursor shape, what a test key resolves, exact error texts) is **documented, not verified**, and is marked where it matters.
+
+Both endpoints sit under `/api/v1/platform/referrals/` with the platform-admin cookie (or Bearer) used everywhere in this guide. Both forms are admin-only: the marketer API has no bank update, so there is no marketer-side picker.
+
+### 15.1 `GET /api/v1/platform/referrals/banks`
+
+Any platform admin (plain `ADMIN` included). Active Nigerian banks, sorted by name (case-insensitive), only `{name, code}`, cached on the server for 24 hours. Call it once when the form mounts.
+
+Capture `04` (200):
+
+```json
+{"banks": [{"name": "Access Bank", "code": "044"}, {"name": "First Bank of Nigeria", "code": "011"}, {"name": "Guaranty Trust Bank", "code": "058"}, {"name": "Kuda Microfinance Bank", "code": "50211"}, {"name": "Zenith Bank", "code": "057"}], "stale": false, "test_mode": true}
+```
+
+(The fake serves 8 rows over two pages; inactive, deleted and mobile-money rows are dropped, so 5 remain. A real list has far more banks: render it in a searchable select, not a native `<select>`.)
+
+| Field | Meaning |
+|---|---|
+| `banks[].code` | What you submit as `bank_code`. Codes are strings and can start with `0` (`"044"`) or be 5 digits (`"50211"`): never parse them as numbers. |
+| `stale` | `true` when Paystack could not be reached and a copy up to 7 days old was served. The list is still usable; no UI is required, a small "list may be out of date" hint is enough. (Covered by backend tests with a fake clock; not captured live.) |
+| `test_mode` | `true` when Luran runs on a Paystack **test** key. Account lookups are limited in test mode (documented by Paystack, not verified here): show "Paystack is in test mode, name checks may fail" and keep manual entry easy. Production runs a live key, so this is `false` there. |
+
+Errors, all with the object `detail` shape:
+
+| Status | `detail` | When |
+|---|---|---|
+| 503 | `{"code": "bank_provider_unavailable", "message": "We could not load the bank list from Paystack. Try again, or enter the bank code manually."}` (capture `03`) | Paystack down, timed out, throttled, rejected the key, or returned nothing usable, and no cached copy exists |
+| 401 | `{"detail": "Could not validate credentials"}` (string, capture `07`) | no or wrong credentials |
+
+### 15.2 `POST /api/v1/platform/referrals/banks/resolve`
+
+**Super admin only** (same people who can save a marketer); a plain `ADMIN` gets 403. It is a POST with a JSON body, not a GET, so the account number never appears in a URL or an access log.
+
+Request (capture `08`):
+
+```json
+{"bank_code": "058", "account_number": "0000000000"}
+```
+
+`account_number` must be exactly 10 digits, `bank_code` 1 to 10 letters, digits, `-` or `_`; no other keys. Response 200:
+
+```json
+{"account_name": "ADA PLACEHOLDER"}
+```
+
+Only the holder name comes back; the account number is not echoed. Placeholder account number above; the name is the fake's.
+
+| Status | Body | Capture | FE action |
+|---|---|---|---|
+| 422 | `{"detail": {"code": "account_not_resolved", "message": "Paystack could not find an account with that number at that bank. Check both and try again."}}` | `09` | Show the message under the account number; the admin fixes bank or number. Do not allow "verified". |
+| 503 | `{"detail": {"code": "bank_provider_unavailable", "message": "We could not reach Paystack. Try again, or enter the details manually."}}` | `10`, `11` | Offer Retry and the manual-entry link. Also returned when Paystack answers 429 or 401/403, and when a 200 has no name. |
+| 422 | `{"detail": [{"type": "string_pattern_mismatch", "loc": ["body", "account_number"], "msg": "String should match pattern '^\\d{10}$'", "input": "123", "ctx": {"pattern": "^\\d{10}$"}}]}` | `12` | FastAPI's validation shape (array). **`input` echoes what was sent, including a typed account number: never render it**; use `loc` and `msg` only, as in section 5. Validate 10 digits client-side before calling. |
+| 403 | `{"detail": "Not enough permissions. Super admin access required."}` | `14` | Plain admin: hide the Verify step. |
+| 401 | `{"detail": "Could not validate credentials"}` | `15` | Signed out. |
+| 429 | `{"detail": {"error": "Rate limit exceeded", "limit": 10, "window_seconds": 60, "retry_after_seconds": 60}}` (also a `Retry-After: 60` header) | `20` | Disable Verify for `retry_after_seconds` and say "too many checks, wait a minute". Note the shape differs: `error`, not `code`/`message`. |
+
+**Rate limit.** 10 calls per minute per admin (100 on staging and development), on top of the general platform-admin limit. Every call counts, including ones rejected for bad input (capture run: 6 earlier calls plus the first 4 of the loop were allowed, the 5th of the loop got 429). A normal admin verifying one account never gets near it.
+
+### 15.3 What the form MUST do
+
+1. **Load the list on mount; never block saving on it.** If `GET /banks` fails, say so in the form ("We could not load the bank list from Paystack") and show an explicit "Enter bank code manually" link that swaps the dropdown for the old text input. The same escape exists for the name: "Enter account name manually". Saving works with any code and name, exactly as before: the backend does not require a successful verification.
+2. **Submit the `code`, show the `name`.** The select shows the bank name; the form value is `code`.
+3. **Verify step.** Enabled once a bank is chosen and the number has 10 digits. On 200 show the resolved name and let the admin confirm it before saving; submit it as `account_name`. Any edit to the bank or the number after a verification **invalidates** it (clear the name, require Verify again), so the saved name can never belong to a different account than the one saved.
+4. **Test key.** If `test_mode` is `true`, show a one-line notice that Paystack is in test mode and name checks may not work.
+5. **Never log or toast the account number**, and do not render `input` from a 422.
+6. The marketer is never shown the number again after saving; only `bank_last4` comes back, as before (sections 7 and 9).
+
+### 15.4 Verification table
+
+| Behaviour | Status | Evidence |
+|---|---|---|
+| List: active only, `{name, code}`, sorted, `test_mode`, cursor pages followed | verified live (against the FAKE Paystack) | `04` |
+| List 503 `bank_provider_unavailable` with nothing cached | verified live (fake in `down` mode) | `03` |
+| Second list call served from the cache while Paystack is down | verified live (fake) | `05` |
+| Cache expiry at 24 h, stale copy for up to 7 days, `stale: true` | NOT exercised live; tests with a fake clock | `tests/referral/test_bank_picker.py` |
+| Plain admin reads the list (200); no auth 401 | verified live | `06`, `07` |
+| Resolve 200 name only; 422 `account_not_resolved`; 503 on Paystack 500 and 429 | verified live (fake) | `08` to `11` |
+| Resolve input validation 422 (array shape, echoes `input`) | verified live | `12`, `13` |
+| Resolve 403 for a plain admin; 401 without credentials | verified live | `14`, `15` |
+| Resolve 429 after 10 per minute | verified live | `16` to `23` |
+| Paystack 401/403 on resolve, timeouts and connection errors map to 503; 200 without a name maps to 503 | NOT exercised live; tests | `tests/referral/test_bank_picker.py` |
+| Account number and key absent from logs | verified for this run (app and fake logs searched) and by a test | `tests/referral/test_bank_picker.py::test_resolve_never_logs_the_account_number_or_key` |
+| **Real Paystack**: list size and cursor shape (`meta.next`), `perPage` limit, resolve success and failure texts, what a test key resolves | **NOT exercised.** No Paystack key was available. Shapes follow Paystack's public documentation as recalled when this was written (the docs site could not be fetched from the build environment) and are unverified | owner action: one real call, see the SOP |

@@ -192,6 +192,7 @@ Why: plans differed only by volume plus five flags; the sales agent, Slack/CRM, 
 - [x] FE guide with live captures; SOP
 - [ ] Paystack: create the Lite 15,000 monthly/annual plans and point the env at them BEFORE the new price reaches prod (owner action, see SOP)
 - [ ] Chat sales branch and the queued-worker paths verified with a real LLM / real Slack (unit/integration tests only)
+  - 2026-10-30: re-run end to end locally on the real code with a stand-in LLM, local Slack/CRM receivers and a mail stub: 69/69 live checks + 396 tests pass (SOP `docs/sop/sales_agent_smoke_2026-10-30.md`). Still open: real model, real Slack/CRM/inbox, staging/prod. Defects from it: quote PDF naira box, lead score not sticky and rep-email CTA `#` are fixed in PR #194 (pending merge, SOP `docs/sop/sales_quote_pdf_score_link_fixes.md`); still open: WhatsApp does not carry the quote card/picker (catalog plan).
 - [ ] Dashboard: lock badges, upgrade prompts, 403 `feature_not_in_plan` handling (separate track)
 - [ ] Docs site and public pricing page copy (after prod promotion)
 - [ ] Prod promotion (migration + seed review) — lead / Adebayo
@@ -250,6 +251,11 @@ Why: Luran wants marketers and influencers to bring businesses, paid a one-time 
 - [x] Marketer page follows R44: a `void` reward shows `not_converted`; capture 69's `signed_up` is explained by a failed upgrade in the scratch run (FE guide 6.2, SOP)
 - [x] Unmatched dispute logs an ERROR with Paystack's dispute id; SMTP socket timeout raised to 30 s; exception text no longer logged in the new referral code
 - [ ] PR opened to `develop`, reviewed and merged (lead)
+
+### Bank picker on the marketer forms (2026-10-30)
+- [x] Backend: `GET /platform/referrals/banks` (any platform admin, cached 24 h, `{name, code}` only, stale copy up to 7 days) and `POST /platform/referrals/banks/resolve` (super admin, per-admin 10/min, holder name only); errors `bank_provider_unavailable` / `account_not_resolved`; tests with a fake Paystack; 23 live captures against a FAKE Paystack; FE guide section 15; SOP `docs/sop/referral_bank_picker_backend.md` (PR `feature/referral-bank-picker-backend` to `develop`)
+- [ ] Dashboard: searchable bank select + Verify step on `MarketerForm` and `MarketerBankForm` (PR `feature/referral-bank-picker-dashboard` to `staging`)
+- [ ] Owner: one real call of both endpoints with the live Paystack key to confirm the real shapes (never exercised; no key was available)
 
 ### Not done: frontend and owner items
 - [ ] Dashboard: marketer page `/marketer`, admin screens (marketers, review queue, payout batches, settings) against `docs/fe-integration-guide-referral.md`
@@ -313,6 +319,23 @@ Owner decision 2026-10-29 (step 2 after the counting meter). Docs: SOP `docs/sop
 - [ ] Dashboard follow-up (separate repo, not changed here): `app/components/luran/pricing/plans.ts` static fallback (200/2000/10000/25000), platform-admin calculator copy (25,000), `luran-docs` pricing page/API doc
 - [ ] In-app notice at 80% / 100% of the monthly limit (none today; the widget only gets the 402)
 
+## Offerings catalog (products + services) — DESIGN APPROVED 2026-10-30 (owner); nothing built
+Idea (owner): businesses keep a live list of what they sell (name, description, photos, price, availability); the AI answers from it on every channel and closes with lead + quote handed to a human. Docs: spec `docs/superpowers/specs/2026-10-30-offerings-catalog-design.md`; plan `docs/superpowers/plans/2026-10-30-offerings-catalog-build-plan.md`. Owner decisions: products + services together; v1 closes with lead + quote; **never below the listed price** (negotiable items: offer recorded, human takes over); every plan incl. Trial gets it, caps 25 / 100 / 500 / 2,000 / unlimited (launch values, review after the first pilot week); photo limits 4 (Trial, Lite) / 8; quotes stay behind `sales_close`.
+- [x] Recon of the AI path, quote/lead path, entitlements, images/WhatsApp, dashboard, chat, agent app (findings in spec section 4)
+- [x] Spec written (data model, grounding contract and guard, API, dashboard UX, channels, limits, privacy, failure modes, pilot measures, v1/v2) and builder-checked
+- [x] Build plan written (streams S1-S4, order, sizes, review policy)
+- [x] Owner approved the spec and plan 2026-10-30; no pilot uses a Flow AI node (Flows stay out of v1)
+- [ ] PRD addendum (Feature 3.11, spec section 5) applied to the workspace PRD
+- [ ] Owner pre-checks: Cloudinary plan limits; three pilot price lists
+- [ ] **S1 Backend core** `feature/offerings-backend-core`: models + migration `of10offerings`, plan limits (`max_offerings`, `max_offering_images`) + parity, CRUD, photos (moderated, re-encoded), import, confirm/settings/misses, FE guide part 1 with live captures, SOP
+- [ ] **S2 Backend AI path** `feature/offerings-ai-grounding`: grounding block (1,000-token cap), price guard + fallback (Opus review), strict-schema variant, cart -> interests -> catalog quote (Opus review), `OFFERING_REQUEST` alert, lead source by channel, adversarial eval gate, FE guide part 2, SOP
+- [ ] **S3 Dashboard** `luran-dashboard` `feature/offerings-dashboard`: Today list, add/edit sheet with photos, import wizard, plan meter, Not-found tab, lead "Wanted items"
+- [ ] **S4a** `luran-chat` `feature/offerings-item-cards`: `meta.offerings` mapping + `ItemCard`
+- [ ] **S4b** `feature/offerings-whatsapp-photos`: catalog photo job (cap, caption at send time), quote text message
+- [ ] Integration: eval gate on the real model (0 violations), real-phone test, owner dry-run, prod promotion, pilot #1
+- P1 (first pilot week): stale-list nudge, activity counter reads, owner alert email shows items. v1.5: semantic recall (Qdrant, ids only), categories. v2: variants, order-driven stock, Paystack payment links, update by WhatsApp message, photo-to-item match, Flows AI node, agent-app item context
+- Deferred / unknown: availability wording not machine-checked; Cloudinary plan limits unknown; Meta policy on regulated products unresearched; Lite quotes (pricing decision); voice reading of currency untested
+
 ## Backlog / upcoming
 - [ ] Reconcile all earlier modules into this checklist
 - [ ] Referral program: dashboard stream (marketer page + admin screens) is next, against `docs/fe-integration-guide-referral.md`
@@ -356,10 +379,12 @@ Docs: plan `docs/superpowers/plans/2026-10-30-sidecar-redis-isolation.md`; SOP `
 - [x] Own Redis `luran_whatsapp_redis`: ACL user limited to `wa:*` keys, password only in `.env.sidecar`, `noeviction`, `maxmemory 8mb`, 32m, `save 60 1` on a named volume (daily send counter), on an internal-only network
 - [x] Sidecar off `luran_default`; shares `luran_wa_backend` only with `luran_api`, `luran_worker`, `luran_db` (runtime `docker network connect`, nothing restarted)
 - [x] New sidecar-only name `WHATSAPP_SIDECAR_REDIS_PASSWORD`: gate fail-closed (old names without it skip, names only), stripped from the api/worker env, generator `--redis-only`
-- [x] `cd.yml` (inside `production-deploy` only): network steps after every API deploy, Redis started and awaited before the sidecar, isolation smoke (18 PASS + 1 SKIP)
-- [x] 94 pytest tests in `tests/deploy/` (was 55); local rehearsal with the real ssh scripts: sidecar healthy, cannot reach prod Redis/Qdrant/pgbouncer (DNS and by IP), Redis requires the password, api/worker hold no sidecar secrets, rerun no-op, counter persists
+- [x] `cd.yml` (inside `production-deploy` only): network steps after every API deploy, Redis started and awaited before the sidecar, isolation smoke (21 PASS + 1 SKIP after the smoke fix)
+- [x] 117 pytest tests in `tests/deploy/` (was 55); local rehearsal with the real ssh scripts: sidecar healthy, cannot reach prod Redis/Qdrant/pgbouncer (DNS and by IP), Redis requires the password, api/worker hold no sidecar secrets, rerun no-op, counter persists
+- [x] Deployed to prod 2026-10-30 (run 41133145320, `main` `3d33ca5`): Redis and sidecar healthy, isolation confirmed; **smoke printed 6 false FAILs** (`dns=EAI_AGAIN` on Linux, my check only knew Docker Desktop's `ENOTFOUND`)
+- [ ] Smoke fix PR `fix/smoke-isolation-eai-again` (EAI_AGAIN accepted + IP-level TCP no-route check; `tests/deploy/test_smoke_isolation.py`): open, not merged; the next prod deploy is its first real run (expect 21 PASS + 1 SKIP)
 - [ ] PR merged to `develop` (lead), then promoted
-- [ ] Owner: `scripts/generate_whatsapp_production_secrets.sh --redis-only`, add `WHATSAPP_SIDECAR_REDIS_PASSWORD` to `.env.production.enc` (after the PR is on `develop`), PR + promote; read the deploy log (18 PASS + 1 SKIP)
+- [ ] Owner: `scripts/generate_whatsapp_production_secrets.sh --redis-only`, add `WHATSAPP_SIDECAR_REDIS_PASSWORD` to `.env.production.enc` (after the PR is on `develop`), PR + promote; read the deploy log (21 PASS + 1 SKIP after the smoke fix)
 - [ ] Not proven anywhere: the new CD steps on a real runner/VPS, Linux bridge isolation on the VPS, a live WhatsApp session through the new Redis, memory at 3 or 10 sessions
 - [ ] Follow-ups: declare `luran_wa_backend` on api/worker in the prod compose (never db); auth for the shared prod Redis + Qdrant key; sidecar egress filtering; pin images by digest
 

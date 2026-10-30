@@ -1,0 +1,41 @@
+{
+  "scenario": "notifications-in-app",
+  "note": "Dashboard bell list",
+  "request": {
+    "method": "GET",
+    "path": "/notifications",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "items": [
+          {
+            "id": "9934b40e-c130-467b-b1ea-de40dc63058e",
+            "event": "quote_generated",
+            "title": "New quote",
+            "body": "₦120,000 · Acme Group Logistics",
+            "read_at": null,
+            "created_at": "2026-10-30T22:24:51.007938+00:00"
+          },
+          {
+            "id": "e691bdc3-bc4c-4863-b484-ad35dee1b3be",
+            "event": "sales_ready_lead",
+            "title": "New sales-ready lead",
+            "body": "Ada Okafor · Acme Group Logistics · score 100",
+            "read_at": null,
+            "created_at": "2026-10-30T22:24:50.961294+00:00"
+          }
+        ],
+        "total": 2,
+        "limit": 20,
+        "offset": 0
+      }
+    }
+  }
+}

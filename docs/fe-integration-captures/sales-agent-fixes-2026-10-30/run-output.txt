@@ -1,0 +1,147 @@
+== 0. health
+  01-health: GET /health -> 200
+  [PASS] api healthy 
+== 1. tenants (Professional = sales on; Lite = sales_close off)
+  02-ai-config-default-new-tenant: GET /tenant/ai-config -> 200
+  [PASS] new tenant defaults to first_responder=human (AI silent) 
+  03-ai-config-set-ai-first-professional: PUT /tenant/ai-config -> 200
+  [PASS] professional: first_responder set to ai status=200
+  04-ai-config-set-ai-first-lite: PUT /tenant/ai-config -> 200
+  [PASS] lite: first_responder set to ai status=200
+  05-entitlements-professional: GET /tenant/entitlements -> 200
+  06-entitlements-lite: GET /tenant/entitlements -> 200
+== 2. sales config (Professional)
+  07-sales-config-save: PATCH /sales/config -> 200
+  [PASS] config saved on Professional 
+  [PASS] webhook + availability + tiers round-trip (the old drift bug) 
+  08-sales-config-get: GET /sales/config -> 200
+  [PASS] config persisted on re-read 
+== 3. visitor chat, buying intent
+  09-chat-session-create: POST /chat/sessions -> 201
+  10-chat-1-pricing-question: POST /chat/message -> 200
+  [PASS] turn 1 replied 200 reply='Our plans start from the Starter tier and scale with your team. What are you hoping to use Luran for in your business?'
+  [PASS] directive carries the tenant's first qualification question 
+  [PASS] directive carries the configured plans + annual discount 
+  [PASS] directive tells the model meeting scheduling IS available 
+  [PASS] reply asks the qualifying question (stand-in echoes the directive's) 
+  11-leads-after-turn-1: GET /leads -> 200
+  [PASS] lead created on first trigger-intent turn intent=PRICING_INQUIRY
+  12-chat-2-team-size: POST /chat/message -> 200
+  13-leads-after-turn-2: GET /leads -> 200
+  14-lead-detail-after-turn-2: GET /leads/a40f052f-acfd-4907-be3e-b5b9fe18196f -> 200
+  [PASS] team size + industry captured, not yet sales-ready score=5 tier=cold
+  [PASS] no notifications fired before sales-ready 
+  15-chat-3-contact-and-ready-to-buy: POST /chat/message -> 200
+  16-lead-detail-sales-ready: GET /leads/a40f052f-acfd-4907-be3e-b5b9fe18196f -> 200
+  [PASS] lead captured (name/company/email) and sales-ready (>=86) score=100 tier=sales_ready
+  [PASS] lead_captured meta on the turn the email first appears 
+  [PASS] PII encrypted at rest (leads.email is not plaintext in the DB) 
+  [PASS] CRM webhook URL encrypted at rest 
+== 4. quotation (computed by code from pricing_tiers)
+  [PASS] quote card present in the chat response meta 
+  [PASS] total = 150,000 - 20% = 120,000 computed in code, currency NGN total=120000 currency=NGN
+  [PASS] line items: tier base + annual discount only 
+  [PASS] meeting picker NOT offered on this turn (no demo ask) 
+  [PASS] quote persisted and linked to the lead 
+== 5. notifications (email stub, in-app, Slack, CRM)
+  17-notification-logs-after-sales-ready-and-quote: (db/receiver evidence)
+  [PASS] sales_ready: email/in_app/slack/crm all sent {"email": "sent", "in_app": "sent", "slack": "sent", "crm": "sent"}
+  [PASS] quote_generated: email + in_app + slack sent (CRM is sales-ready only) 
+  18-crm-webhook-received: (db/receiver evidence)
+  19-slack-webhook-received: (db/receiver evidence)
+  [PASS] CRM payload landed with the lead fields {'lead_score': 100, 'status': 'new', 'intent': 'PURCHASE_INTENT', 'team_size': '40'}
+  [PASS] CRM id written back to the lead (Lead.crm_id) crm-standin-1
+  [PASS] Slack bodies are Block Kit with a dashboard link 
+  20-notifications-in-app: GET /notifications -> 200
+  [PASS] in-app notifications listed for the tenant admin {'success': True, 'data': {'items': [{'id': '9934b40e-c130-467b-b1ea-de40dc63058e', 'event': 'quote_generated', 'title': 'New quote', 'body': '₦120,000 · Acme Group Logistics', 'read_at': None, 'creat
+  21-mail-inbox-after-quote: (db/receiver evidence)
+  [PASS] rep alert emails delivered to the stub SMTP 
+  [PASS] FIX 1: quote PDF text has the naira sign (no black box) and the total ['Quotation', 'Prepared for Acme Group Logistics', 'Item', 'Detail', ' Amount', ' ', 'Professional', '11–50 users']
+  [PASS] FIX 1: PDF embeds DejaVu Sans (not Helvetica) ['/Helvetica', '/AAAAAA+DejaVuSans-Bold', '/AAAAAA+DejaVuSans']
+  [PASS] quote PDF attached to the quote email and is a valid PDF 19820 bytes
+== 6. meeting booking
+  22-chat-4-demo-request: POST /chat/message -> 200
+  [PASS] offer_meeting flag set on the demo-request turn 
+  23-meetings-availability: GET /chat/meetings/availability -> 200
+  [PASS] availability slots generated from the window 32 slots / 3 days
+  [PASS] slots are future, on the 30-minute grid, inside 09:00-17:00 Lagos 
+  24-meetings-book: POST /chat/meetings -> 200
+  [PASS] booking 200 {'success': True, 'data': {'meeting': {'scheduled_at': '2026-10-31T08:00:00+00:00', 'duration_min': 30}}}
+  25-meetings-book-same-slot-same-lead: POST /chat/meetings -> 200
+  [PASS] same lead re-submitting returns the existing meeting (idempotent, one live meeting per lead) 
+  26-meetings-book-other-slot-same-lead: POST /chat/meetings -> 200
+  [PASS] a second pick does not reschedule: the original meeting is returned (200, no new row) asked 2026-10-31T10:00:00+00:00 got 2026-10-31T08:00:00+00:00
+  [PASS] exactly one meeting row for the lead 
+  27-meetings-book-past: POST /chat/meetings -> 409
+  [PASS] past slot refused 409 {"success":false,"error":{"code":"SLOT_UNAVAILABLE","message":"Slot is in the past"}}
+  28-meetings-availability-after-booking: GET /chat/meetings/availability -> 200
+  [PASS] booked slot no longer offered 
+  [PASS] visitor confirmation email sent to the lead's address 
+  [PASS] rep 'New meeting booked' email sent 
+  29-lead-detail-final: GET /leads/a40f052f-acfd-4907-be3e-b5b9fe18196f -> 200
+  [PASS] lead detail carries meeting, quote and crm score=100 tier=sales_ready crm={'connected': True, 'status': 'sent', 'synced_at': '2026-10-30T22:24:51.453260+00:00', 'error': None}
+  [PASS] FIX 2: lead stays sales_ready (score held) after the later demo-request turn score=100 tier=sales_ready
+  [PASS] FIX 3: every rep email for this lead links to its dashboard page, none to '#' 3 emails, want http://localhost:3000/dashboard/grow/leads/a40f052f-acfd-4907-be3e-b5b9fe18196f
+  [PASS] FIX 3: Slack 'View in dashboard' uses the same deep link http://localhost:3000/dashboard/grow/leads/a40f052f-acfd-4907-be3e-b5b9fe18196f
+  30-notification-logs-final: (db/receiver evidence)
+  [PASS] sales_ready dispatched exactly once per channel (no duplicates) 4 rows
+  31-lead-rescore: POST /leads/a40f052f-acfd-4907-be3e-b5b9fe18196f/score -> 200
+  [PASS] re-scoring does not duplicate sales_ready notifications 
+  32-chat-5-recross-sales-ready: POST /chat/message -> 200
+  33-lead-detail-after-recross: GET /leads/a40f052f-acfd-4907-be3e-b5b9fe18196f -> 200
+  [PASS] second crossing of the threshold did NOT re-dispatch (dedupe index holds) score after recross=100; /crm POSTs=1
+== 7. quote with overage (60 seats on Professional, 11-50)
+  34-chat2-session-create: POST /chat/sessions -> 201
+  35-chat2-1: POST /chat/message -> 200
+  36-chat2-2: POST /chat/message -> 200
+  37-chat2-3-quote-with-overage: POST /chat/message -> 200
+  [PASS] overage quote: (150,000 + 10 x 3,000) - 20% = 144,000 total=144000 items=[('Professional', 150000), ('Extra seats (×10)', 30000), ('Annual discount', -36000)]
+  38-meetings-book-same-slot-other-lead: POST /chat/meetings -> 409
+  [PASS] another lead cannot take a booked slot: 409 SLOT_UNAVAILABLE {"success":false,"error":{"code":"SLOT_UNAVAILABLE","message":"Not an available slot"}}
+== 8. plan gating: Lite has sales_close OFF
+  39-lite-config-enable-quotes: PATCH /sales/config -> 403
+  [PASS] Lite cannot enable quotes/booking: refused status=403 body={"code": "feature_not_in_plan", "feature": "sales_close", "min_tier": "professional", "message": "Your plan does not include meeting booking and quotes. Upgrade to Professional to use it."}
+  40-lite-config-enable-crm: PATCH /sales/config -> 403
+  [PASS] Lite cannot enable CRM/Slack: refused status=403
+  41-lite-config-lead-capture-only: PATCH /sales/config -> 200
+  [PASS] Lite can save lead-capture-only config 
+  42-lite-session-create: POST /chat/sessions -> 201
+  43-lite-chat-1: POST /chat/message -> 200
+  44-lite-chat-2: POST /chat/message -> 200
+  45-lite-chat-3-would-be-quote: POST /chat/message -> 200
+  [PASS] Lite: no quote card in the response 
+  46-lite-lead-after-crossing: GET /leads -> 200
+  [PASS] Lite lead capture + scoring work (sales-ready on the buying turn) score=100 tier=sales_ready
+  47-lite-chat-4-demo: POST /chat/message -> 200
+  [PASS] Lite: no meeting offered 
+  [PASS] Lite: directive tells the model scheduling is NOT available 
+  48-lite-meetings-availability: GET /chat/meetings/availability -> 200
+  [PASS] Lite: availability returns no slots 
+  49-lite-meetings-book: POST /chat/meetings -> 403
+  [PASS] Lite: booking refused 403 BOOKING_DISABLED {"success":false,"error":{"code":"BOOKING_DISABLED","message":"Meeting booking is not enabled"}}
+  [PASS] Lite: no quote row created 
+  50-lite-notification-logs: (db/receiver evidence)
+  [PASS] Lite lead still reaches sales-ready and notifies by email + in-app only {'email', 'in_app'}
+== 9. SSRF guard on the CRM path
+  [PASS] unmodified guard blocks loopback URL resolves to disallowed IP: 127.0.0.1
+  [PASS] unmodified guard blocks cloud-metadata URL resolves to disallowed IP: 169.254.169.254
+  51-sales-config-crm-to-metadata: PATCH /sales/config -> 200
+  52-chat3-session-create: POST /chat/sessions -> 201
+  53-chat3-1: POST /chat/message -> 200
+  54-chat3-2: POST /chat/message -> 200
+  55-chat3-3: POST /chat/message -> 200
+  56-crm-blocked-host-log: (db/receiver evidence)
+  [PASS] link-local CRM target: FAILED 'blocked webhook host', no POST 
+== 9b. a brand-new tenant that never changed 'who answers first'
+  57-human-config-save: PATCH /sales/config -> 200
+  58-human-session-create: POST /chat/sessions -> 201
+  59-human-chat-1: POST /chat/message -> 200
+  [PASS] default tenant: AI does not answer, visitor is escalated to a human ('Human-only mode') reply='Thanks for reaching out — connecting you with someone from our team now.'
+  [PASS] default tenant: no lead is created from the buying-intent message 
+== 10. worker health
+  [PASS] worker log has no lead PII or webhook URLs 14366 bytes scanned
+  [PASS] worker log has no tracebacks 0 traceback lines
+  [PASS] api log has no lead PII or webhook URLs 146892 bytes scanned
+  [PASS] api log has no tracebacks 0 traceback lines
+
+74/74 checks passed

@@ -1,0 +1,27 @@
+{
+  "scenario": "lite-config-enable-crm",
+  "note": "Lite tenant tries to enable CRM/Slack",
+  "request": {
+    "method": "PATCH",
+    "path": "/sales/config",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "crm_webhook_url": "http://127.0.0.1:58091/crm",
+      "notify_channels": {
+        "email": true,
+        "crm": true
+      }
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "code": "feature_not_in_plan",
+      "feature": "crm_notifications",
+      "min_tier": "professional",
+      "message": "Your plan does not include Slack and CRM notifications. Upgrade to Professional to use it."
+    }
+  }
+}

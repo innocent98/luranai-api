@@ -1,0 +1,24 @@
+{
+  "description": "No credentials.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/banks/resolve",
+    "query": {},
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "bank_code": "058",
+      "account_number": "0000000000"
+    }
+  },
+  "response": {
+    "status": 401,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "Could not validate credentials"
+    }
+  }
+}

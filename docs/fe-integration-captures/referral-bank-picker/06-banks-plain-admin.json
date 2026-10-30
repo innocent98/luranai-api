@@ -1,0 +1,46 @@
+{
+  "description": "A plain ADMIN may read the bank list.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/platform/referrals/banks",
+    "query": {},
+    "headers": {
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "banks": [
+        {
+          "name": "Access Bank",
+          "code": "044"
+        },
+        {
+          "name": "First Bank of Nigeria",
+          "code": "011"
+        },
+        {
+          "name": "Guaranty Trust Bank",
+          "code": "058"
+        },
+        {
+          "name": "Kuda Microfinance Bank",
+          "code": "50211"
+        },
+        {
+          "name": "Zenith Bank",
+          "code": "057"
+        }
+      ],
+      "stale": false,
+      "test_mode": true
+    }
+  }
+}
