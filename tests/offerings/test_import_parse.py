@@ -56,7 +56,7 @@ def test_csv_blank_cells_are_dropped_and_blank_rows_skipped():
 
 
 def test_csv_quoted_commas_crlf_and_bom():
-    rows = parse_csv('﻿name,description\r\n"Sneaker, black","Fits 40, 41"\r\n')
+    rows = parse_csv('\ufeffname,description\r\n"Sneaker, black","Fits 40, 41"\r\n')
     assert rows == [(1, {"name": "Sneaker, black", "description": "Fits 40, 41"})]
 
 

@@ -1,0 +1,40 @@
+{
+  "scenario": "import-apply-atomic-refused",
+  "note": "One bad row refuses the whole import (nothing saved).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/import",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "format": "csv",
+      "content": "name,kind,price,availability,category,external_ref\nTote bag,product,8500,in stock,Bags,SKU-TOTE\nBraiding,service,from 5k,limited,Services,SKU-BRAID\nBad price,product,abc,in stock,Bags,SKU-BAD\n",
+      "mode": "add"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "import_has_errors",
+      "message": "Some rows are not valid, so nothing was imported. Fix them or skip them.",
+      "errors": [
+        {
+          "row": 3,
+          "errors": [
+            {
+              "field": "price",
+              "code": "price_invalid"
+            }
+          ]
+        }
+      ],
+      "summary": {
+        "create": 2,
+        "update": 0,
+        "error": 1,
+        "over_limit_by": 0
+      }
+    }
+  }
+}

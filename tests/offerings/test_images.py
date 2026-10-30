@@ -91,6 +91,8 @@ def test_a_text_file_is_refused(pg_client, shop):
     _, headers, item = shop
     r = _upload(pg_client, headers, item, b"not an image", "a.jpg", "image/jpeg")
     assert r.status_code == 422 and r.json()["code"] == "image_invalid"
+    # a stable, human message: never the library's exception text or a Python object repr
+    assert r.json()["message"] == "The file is not a valid JPEG, PNG or WEBP image."
 
 
 def test_a_heic_photo_gets_a_clear_message(pg_client, shop):

@@ -1,0 +1,40 @@
+{
+  "scenario": "downgrade-blocked-by-catalog",
+  "note": "Professional tenant with 120 active items (Lite allows 100) and an item holding 5 photos (Lite allows 4): both appear as violations.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/subscription/downgrade",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "tier": "lite",
+      "reason": "capture"
+    }
+  },
+  "response": {
+    "status": 400,
+    "body": {
+      "detail": {
+        "error": "data_exceeds_limits",
+        "violations": [
+          {
+            "field": "offerings",
+            "current_value": 120,
+            "allowed_value": 100,
+            "difference": 20,
+            "action_required": "Archive or delete 20 items in your offerings before downgrading"
+          },
+          {
+            "field": "offering_images",
+            "current_value": 5,
+            "allowed_value": 4,
+            "difference": 1,
+            "action_required": "Remove 1 photo from the item with the most photos before downgrading"
+          }
+        ],
+        "message": "Your current usage exceeds the new tier's limits"
+      }
+    }
+  }
+}

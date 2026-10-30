@@ -1,0 +1,26 @@
+{
+  "scenario": "photo-refused-not-an-image",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87/images",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>",
+      "Content-Type": "multipart/form-data"
+    },
+    "multipart": {
+      "file": {
+        "filename": "notes.jpg",
+        "content_type": "image/jpeg",
+        "size_bytes": 20
+      }
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "image_invalid",
+      "message": "The file is not a valid JPEG, PNG or WEBP image."
+    }
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "scenario": "create-on-request",
+  "note": "`on_request` takes no price; `price` comes back null.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "kind": "service",
+      "name": "Wedding styling",
+      "price_mode": "on_request",
+      "price": null,
+      "availability": "on_request"
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "data": {
+        "id": "d06dcb9e-269b-4870-96f7-a4159af71b23",
+        "seq": 3,
+        "ref": "#3",
+        "kind": "service",
+        "name": "Wedding styling",
+        "description": null,
+        "category": null,
+        "keywords": null,
+        "price_mode": "on_request",
+        "price": null,
+        "price_note": null,
+        "availability": "on_request",
+        "quantity": null,
+        "negotiable": false,
+        "status": "active",
+        "external_ref": null,
+        "images": [],
+        "photo_count": 0,
+        "cover_url": null,
+        "availability_changed_at": "2026-10-30T23:07:03.945451+00:00",
+        "archived_at": null,
+        "created_at": "2026-10-30T23:07:03.945451+00:00",
+        "updated_at": "2026-10-30T23:07:03.945451+00:00"
+      }
+    }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "scenario": "unarchive-with-patch",
+  "note": "",
+  "request": {
+    "method": "PATCH",
+    "path": "/api/v1/offerings/e7350b65-6520-492b-b373-122f7d55003d",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "status": "active"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": {
+        "id": "e7350b65-6520-492b-b373-122f7d55003d",
+        "seq": 4,
+        "ref": "#4",
+        "kind": "product",
+        "name": "Old stock",
+        "description": null,
+        "category": null,
+        "keywords": null,
+        "price_mode": "fixed",
+        "price": 12000,
+        "price_note": null,
+        "availability": "in_stock",
+        "quantity": null,
+        "negotiable": false,
+        "status": "active",
+        "external_ref": null,
+        "images": [],
+        "photo_count": 0,
+        "cover_url": null,
+        "availability_changed_at": "2026-10-30T23:07:04.636694+00:00",
+        "archived_at": null,
+        "created_at": "2026-10-30T23:07:04.636694+00:00",
+        "updated_at": "2026-10-30T23:07:04.677023+00:00"
+      }
+    }
+  }
+}

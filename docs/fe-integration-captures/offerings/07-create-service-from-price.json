@@ -1,0 +1,51 @@
+{
+  "scenario": "create-service-from-price",
+  "note": "`from` price with a note; availability `limited` with a quantity.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "kind": "service",
+      "name": "Haircut",
+      "price_mode": "from",
+      "price": 3000,
+      "availability": "limited",
+      "price_note": "per session",
+      "quantity": 4,
+      "category": "Services"
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "data": {
+        "id": "e9d962d4-5126-469e-b7ea-ff35b1ac61cf",
+        "seq": 2,
+        "ref": "#2",
+        "kind": "service",
+        "name": "Haircut",
+        "description": null,
+        "category": "Services",
+        "keywords": null,
+        "price_mode": "from",
+        "price": 3000,
+        "price_note": "per session",
+        "availability": "limited",
+        "quantity": 4,
+        "negotiable": false,
+        "status": "active",
+        "external_ref": null,
+        "images": [],
+        "photo_count": 0,
+        "cover_url": null,
+        "availability_changed_at": "2026-10-30T23:07:03.926064+00:00",
+        "archived_at": null,
+        "created_at": "2026-10-30T23:07:03.926064+00:00",
+        "updated_at": "2026-10-30T23:07:03.926064+00:00"
+      }
+    }
+  }
+}

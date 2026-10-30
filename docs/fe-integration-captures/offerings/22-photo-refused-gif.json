@@ -1,0 +1,26 @@
+{
+  "scenario": "photo-refused-gif",
+  "note": "GIF is refused here.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87/images",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>",
+      "Content-Type": "multipart/form-data"
+    },
+    "multipart": {
+      "file": {
+        "filename": "anim.gif",
+        "content_type": "image/gif",
+        "size_bytes": 262
+      }
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "image_invalid",
+      "message": "Image format 'GIF' not allowed. Allowed: JPEG, PNG, WEBP"
+    }
+  }
+}

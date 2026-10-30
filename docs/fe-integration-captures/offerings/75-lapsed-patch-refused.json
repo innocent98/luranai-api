@@ -1,0 +1,23 @@
+{
+  "scenario": "lapsed-patch-refused",
+  "note": "",
+  "request": {
+    "method": "PATCH",
+    "path": "/api/v1/offerings/8388d412-dd94-4fa9-aa8f-81441d98bc3d",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "name": "x"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "code": "feature_not_in_plan",
+      "feature": "offerings",
+      "min_tier": "trial",
+      "message": "Your plan does not include the offerings catalog. Upgrade to Trial to use it."
+    }
+  }
+}

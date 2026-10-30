@@ -1,0 +1,34 @@
+{
+  "scenario": "photo-upload-first",
+  "note": "201; the first photo is the cover (position 0).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87/images",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>",
+      "Content-Type": "multipart/form-data"
+    },
+    "multipart": {
+      "file": {
+        "filename": "front.jpg",
+        "content_type": "image/jpeg",
+        "size_bytes": 948
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "data": {
+        "id": "ff9bae44-547d-42db-ac4d-ccd521915ea9",
+        "url": "https://res.cloudinary.com/demo/image/upload/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/a37d6ec3772743e99c8de52bea334fb9.jpg",
+        "thumb_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/a37d6ec3772743e99c8de52bea334fb9.jpg",
+        "gallery_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1000,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/a37d6ec3772743e99c8de52bea334fb9.jpg",
+        "position": 0,
+        "width": 1200,
+        "height": 900,
+        "bytes": 240700
+      }
+    }
+  }
+}

@@ -121,7 +121,10 @@ class OfferingImageService:
                     "HEIC photos are not supported. Use a JPEG, PNG or WEBP photo "
                     "(on iPhone, choose 'Most Compatible' or pick the photo from the gallery)."
                 )
-            raise _image_invalid(error or "Invalid image file")
+            # "Invalid image file: <library exception text>" is not for people: say it plainly.
+            if not error or error.startswith("Invalid image file"):
+                error = "The file is not a valid JPEG, PNG or WEBP image."
+            raise _image_invalid(error)
 
         with Image.open(io.BytesIO(content)) as probe:
             content_type = _CONTENT_TYPES.get(probe.format or "", "image/jpeg")

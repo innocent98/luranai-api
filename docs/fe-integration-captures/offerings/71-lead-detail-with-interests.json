@@ -1,0 +1,122 @@
+{
+  "scenario": "lead-detail-with-interests",
+  "note": "INTEREST ROWS INSERTED BY SQL (written by the AI path in a later stream). `interests` is the only new field.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/leads/ef830ae6-ee02-4b81-afa5-d9028e195838",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "id": "ef830ae6-ee02-4b81-afa5-d9028e195838",
+        "name": null,
+        "company": null,
+        "intent": null,
+        "lead_score": 0,
+        "tier": "cold",
+        "status": "new",
+        "source_label": "Direct",
+        "created_at": "2026-10-30T23:07:08.037403+00:00",
+        "email": null,
+        "team_size": null,
+        "industry": null,
+        "conversation_id": null,
+        "score_breakdown": [
+          {
+            "key": "provided_email",
+            "label": "Provided email",
+            "weight": 20,
+            "fired": false
+          },
+          {
+            "key": "company_name",
+            "label": "Mentioned company name",
+            "weight": 10,
+            "fired": false
+          },
+          {
+            "key": "team_over_50",
+            "label": "Team size > 50",
+            "weight": 15,
+            "fired": false
+          },
+          {
+            "key": "enterprise",
+            "label": "Enterprise / corporate",
+            "weight": 20,
+            "fired": false
+          },
+          {
+            "key": "asked_features",
+            "label": "Asked about specific features",
+            "weight": 10,
+            "fired": false
+          },
+          {
+            "key": "requested_demo",
+            "label": "Requested a demo",
+            "weight": 15,
+            "fired": false
+          },
+          {
+            "key": "mentioned_competitor",
+            "label": "Mentioned a competitor",
+            "weight": 10,
+            "fired": false
+          },
+          {
+            "key": "ready_to_buy",
+            "label": "Said \"ready to buy\"",
+            "weight": 25,
+            "fired": false
+          },
+          {
+            "key": "paid_ad",
+            "label": "Came from a paid ad (UTM)",
+            "weight": 5,
+            "fired": false
+          }
+        ],
+        "source": {
+          "landing_page": null,
+          "utm": null,
+          "channel": null,
+          "first_seen": "2026-10-30T23:07:08.037403+00:00"
+        },
+        "meeting": null,
+        "quote": null,
+        "crm": {
+          "connected": false,
+          "status": null,
+          "synced_at": null,
+          "error": null
+        },
+        "interests": [
+          {
+            "ref": "#1",
+            "name": "Canvas sneaker",
+            "price_mode": "fixed",
+            "price": 14000,
+            "price_note": null,
+            "qty": 2,
+            "offered_price": 12000
+          },
+          {
+            "ref": "#3",
+            "name": "Tote bag",
+            "price_mode": "fixed",
+            "price": 9000,
+            "price_note": null,
+            "qty": 1,
+            "offered_price": null
+          }
+        ]
+      }
+    }
+  }
+}

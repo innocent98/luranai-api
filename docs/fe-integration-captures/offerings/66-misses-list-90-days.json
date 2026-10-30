@@ -1,0 +1,36 @@
+{
+  "scenario": "misses-list-90-days",
+  "note": "",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/offerings/misses?days=90",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "d36277f4-99d3-4335-94c8-3bf43059880e",
+          "term": "old request",
+          "count": 40,
+          "last_seen_at": "2026-08-31T23:07:05.006434+00:00"
+        },
+        {
+          "id": "86b1066f-d272-4c5c-950b-c04faba0f6aa",
+          "term": "gym bag",
+          "count": 9,
+          "last_seen_at": "2026-10-30T21:07:05.006434+00:00"
+        },
+        {
+          "id": "c8fe6f94-94ab-4aaa-9fa4-6e4469c48b6b",
+          "term": "red heels",
+          "count": 5,
+          "last_seen_at": "2026-10-29T23:07:05.006434+00:00"
+        }
+      ]
+    }
+  }
+}

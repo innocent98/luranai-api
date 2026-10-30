@@ -1,0 +1,31 @@
+{
+  "scenario": "create-price-not-allowed",
+  "note": "An on_request item takes no price.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "kind": "product",
+      "name": "Canvas sneaker",
+      "price_mode": "on_request",
+      "price": 500,
+      "availability": "in_stock"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "validation",
+      "message": "Some fields are not valid.",
+      "errors": [
+        {
+          "field": "price",
+          "code": "price_not_allowed"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "scenario": "get-not-found",
+  "note": "",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/offerings/00000000-0000-0000-0000-000000000000",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "code": "offering_not_found",
+      "message": "Offering not found"
+    }
+  }
+}

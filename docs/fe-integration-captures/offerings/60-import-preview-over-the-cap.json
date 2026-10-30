@@ -1,0 +1,88 @@
+{
+  "scenario": "import-preview-over-the-cap",
+  "note": "The preview warns with `summary.over_limit_by`.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/import/preview",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "format": "lines",
+      "content": "Extra 1 - 1001\nExtra 2 - 1002\nExtra 3 - 1003\n",
+      "mode": "add"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": {
+        "rows": [
+          {
+            "row": 1,
+            "status": "create",
+            "parsed": {
+              "kind": "product",
+              "name": "Extra 1",
+              "price_mode": "fixed",
+              "price": 1001,
+              "availability": "in_stock",
+              "category": null,
+              "description": null,
+              "keywords": null,
+              "price_note": null,
+              "quantity": null,
+              "negotiable": false,
+              "external_ref": null
+            },
+            "errors": []
+          },
+          {
+            "row": 2,
+            "status": "create",
+            "parsed": {
+              "kind": "product",
+              "name": "Extra 2",
+              "price_mode": "fixed",
+              "price": 1002,
+              "availability": "in_stock",
+              "category": null,
+              "description": null,
+              "keywords": null,
+              "price_note": null,
+              "quantity": null,
+              "negotiable": false,
+              "external_ref": null
+            },
+            "errors": []
+          },
+          {
+            "row": 3,
+            "status": "create",
+            "parsed": {
+              "kind": "product",
+              "name": "Extra 3",
+              "price_mode": "fixed",
+              "price": 1003,
+              "availability": "in_stock",
+              "category": null,
+              "description": null,
+              "keywords": null,
+              "price_note": null,
+              "quantity": null,
+              "negotiable": false,
+              "external_ref": null
+            },
+            "errors": []
+          }
+        ],
+        "summary": {
+          "create": 3,
+          "update": 0,
+          "error": 0,
+          "over_limit_by": 3
+        }
+      }
+    }
+  }
+}

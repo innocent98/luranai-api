@@ -1,0 +1,15 @@
+{
+  "scenario": "archive-with-delete",
+  "note": "204. Without ?hard=true the item is archived (not counted toward the cap).",
+  "request": {
+    "method": "DELETE",
+    "path": "/api/v1/offerings/e7350b65-6520-492b-b373-122f7d55003d",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 204,
+    "body": null
+  }
+}

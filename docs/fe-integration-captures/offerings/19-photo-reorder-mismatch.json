@@ -1,0 +1,23 @@
+{
+  "scenario": "photo-reorder-mismatch",
+  "note": "The list must name every photo exactly once.",
+  "request": {
+    "method": "PUT",
+    "path": "/api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87/images/order",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "image_ids": [
+        "ff9bae44-547d-42db-ac4d-ccd521915ea9"
+      ]
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "image_order_mismatch",
+      "message": "The list must contain each of this item's photos exactly once."
+    }
+  }
+}

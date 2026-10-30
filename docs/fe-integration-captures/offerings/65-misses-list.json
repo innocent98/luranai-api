@@ -1,0 +1,30 @@
+{
+  "scenario": "misses-list",
+  "note": "ROWS INSERTED BY SQL (the AI path writes them in a later stream). Default window 30 days, most wanted first.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/offerings/misses",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "86b1066f-d272-4c5c-950b-c04faba0f6aa",
+          "term": "gym bag",
+          "count": 9,
+          "last_seen_at": "2026-10-30T21:07:05.006434+00:00"
+        },
+        {
+          "id": "c8fe6f94-94ab-4aaa-9fa4-6e4469c48b6b",
+          "term": "red heels",
+          "count": 5,
+          "last_seen_at": "2026-10-29T23:07:05.006434+00:00"
+        }
+      ]
+    }
+  }
+}

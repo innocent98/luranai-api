@@ -1,0 +1,32 @@
+{
+  "scenario": "settings-validation",
+  "note": "",
+  "request": {
+    "method": "PATCH",
+    "path": "/api/v1/offerings/settings",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "stale_after_days": 400,
+      "currency": "NAIRA"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "validation",
+      "message": "Some fields are not valid.",
+      "errors": [
+        {
+          "field": "stale_after_days",
+          "code": "stale_after_days_invalid"
+        },
+        {
+          "field": "currency",
+          "code": "currency_invalid"
+        }
+      ]
+    }
+  }
+}
