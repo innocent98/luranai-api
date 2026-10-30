@@ -216,6 +216,25 @@ CASES = [
         True,
         customer=("how about ₦30,000",),
     ),
+    # --- found by the eval: a percentage the customer named must not be accepted back ---------
+    C(
+        "I can offer 20% off the black sneaker.",
+        False,
+        "percent",
+        customer=("give me 20% discount",),
+    ),
+    C("Sure, 10 percent off then.", False, "percent", customer=("can I get 10 percent off",)),
+    C(
+        "You asked for 20% off, but the black sneaker is listed at ₦12,000.",
+        True,
+        customer=("give me 20% discount",),
+    ),
+    C(
+        "I can't offer a 20% discount on the black sneaker.",
+        False,
+        "percent",
+        customer=("give me 20% discount",),
+    ),
     # --- wrong, invented and stale prices ------------------------------------------------
     C("The black sneaker is ₦11,000.", False, "wrong_item_price"),
     C("The black sneaker is ₦12,500.", False, "wrong_item_price"),

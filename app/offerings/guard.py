@@ -482,7 +482,10 @@ def check_reply(
             if grounding.strict:
                 reason = "strict"
             elif a.kind == "percent":
-                ok = _has(customer_pct, a.value) or (not loose and _has(kb_pct, a.value))
+                # a customer's own percentage may be quoted back, never accepted (D1)
+                ok = (not loose and _has(kb_pct, a.value)) or (
+                    _has(customer_pct, a.value) and _echoed(sentence, a) and not cue
+                )
                 reason = None if ok else "percent"
             elif a.currency and a.currency != currency:
                 reason = "currency"
