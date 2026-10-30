@@ -70,7 +70,14 @@ from app.schemas.user import UserResponse
 from app.schemas.visitor import VisitorEnrichmentUpdate
 from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
-from app.offerings.turn import ground_turn
+from app.offerings.guard_flow import guard_reply
+from app.offerings.turn import (
+    customer_texts,
+    ground_turn,
+    kb_text_from_prompt,
+    offerings_meta,
+    tier_amounts,
+)
 from app.offerings.turn import sales_kwargs as catalog_sales_kwargs
 from app.sales.config_view import SalesConfigView
 from app.sales.intent import is_trigger_intent
@@ -2797,6 +2804,11 @@ async def _send_message_impl(
                 f"action={policy_action}, reason={policy_reason}, mode={grounding_mode}"
             )
 
+            if _catalog_grounded:
+                # A short, correct catalog answer ("The black sneaker is ₦12,000.") is not a weak
+                # one; the price guard below is what vets it.
+                escalation_decision.skip_quality_check = True
+
             turn_signal.generation_started()
             logger.info("Generating AI response...")
             prompt_components = rag_service.assemble_prompt(
@@ -2824,6 +2836,7 @@ async def _send_message_impl(
                 "- Do not use emojis."
             )
             prompt_components.full_prompt = f"{prompt_components.full_prompt}{directive_block}"
+            _kb_text = kb_text_from_prompt(prompt_components.full_prompt)
             if _offerings is not None:
                 prompt_components.full_prompt += f"\n\n{_offerings.block}"
                 if prompt_components.prompt_tokens is not None:
@@ -2863,14 +2876,15 @@ async def _send_message_impl(
                     .order_by(AuditReport.created_at.desc())
                     .limit(1)
                 ).scalar_one_or_none()
+                _sales_call_config = (
+                    sales_agent_config
+                    if _sales_close_allowed
+                    else SalesConfigView(sales_agent_config, meeting_booking_enabled=False)
+                )
                 ai_response_text, _sales_meta, token_count, is_api_error = (
                     await rag_service.generate_sales_response(
                         prompt=prompt_components,
-                        config=(
-                            sales_agent_config
-                            if _sales_close_allowed
-                            else SalesConfigView(sales_agent_config, meeting_booking_enabled=False)
-                        ),
+                        config=_sales_call_config,
                         model_name=settings.OPENAI_LLM_MODEL,
                         known_facts=_known_facts,
                         company_website=_company_website,
@@ -2888,6 +2902,55 @@ async def _send_message_impl(
                         image_urls=_turn_image_urls,
                     )
                 )
+
+            # Offerings price guard: every reply built on a catalog block is checked in code;
+            # one regeneration, then a reply built from the rows (never an empty reply).
+            _guard_record: dict | None = None
+            if _offerings is not None and not is_api_error:
+
+                async def _regenerate(note: str):  # same call type as the first attempt
+                    _retry = prompt_components.model_copy(
+                        update={"full_prompt": f"{prompt_components.full_prompt}\n\n{note}"}
+                    )
+                    if _sales_mode:
+                        return await rag_service.generate_sales_response(
+                            prompt=_retry,
+                            config=_sales_call_config,
+                            model_name=settings.OPENAI_LLM_MODEL,
+                            known_facts=_known_facts,
+                            company_website=_company_website,
+                            image_urls=_turn_image_urls,
+                            **catalog_sales_kwargs(_offerings),
+                        )
+                    _text, _tokens, _err = await rag_service.generate_ai_response(
+                        prompt=_retry,
+                        max_tokens=tenant_ai_config.max_response_tokens,
+                        model_name=settings.OPENAI_LLM_MODEL,
+                        image_urls=_turn_image_urls,
+                    )
+                    return _text, None, _tokens, _err
+
+                _guarded = await guard_reply(
+                    ai_response_text,
+                    _offerings,
+                    regenerate=_regenerate,
+                    tokens=token_count,
+                    sales_meta=_sales_meta,
+                    customer_texts=customer_texts(conversation_history, message_data.message),
+                    kb_text=_kb_text,
+                    tier_amounts=tier_amounts(sales_agent_config if _sales_mode else None),
+                )
+                ai_response_text, token_count, _sales_meta = (
+                    _guarded.reply,
+                    _guarded.tokens,
+                    _guarded.sales_meta,
+                )
+                _guard_record = _guarded.record
+                if _guarded.offer_escalation:
+                    escalation_decision.skip_quality_check = True
+                    if escalation_decision.action == EscalationAction.NO_ESCALATION:
+                        escalation_decision.action = EscalationAction.OFFER_ESCALATION
+                        escalation_decision.reason = "Offerings guard fell back to a code reply"
 
             if token_count and prompt_components.prompt_tokens:
                 completion_tokens = token_count - prompt_components.prompt_tokens
@@ -3056,6 +3119,8 @@ async def _send_message_impl(
         }
         if _lead_captured_meta is not None:
             _message_meta["lead_captured"] = _lead_captured_meta
+        if _offerings is not None:
+            _message_meta["offerings"] = offerings_meta(_offerings, _guard_record)
         if _sales_mode and _sales_meta is not None:
             _signals = _sales_meta.get("signals") or {}
             if (

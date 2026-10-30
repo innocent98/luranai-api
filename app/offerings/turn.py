@@ -62,3 +62,47 @@ def sales_kwargs(result: GroundingResult | None) -> dict:
     if result is None or result.mode == "unavailable":
         return {}
     return {"catalog_addendum": catalog_sales_addendum(turn_channel())}
+
+
+def customer_texts(history: list, current: str) -> list[str]:
+    """Everything the customer has written in this conversation (they may be quoted back)."""
+    texts = [
+        m.content
+        for m in history
+        if str(getattr(m.role, "value", m.role)).lower() == "user" and m.content
+    ]
+    return [*texts, current]
+
+
+def kb_text_from_prompt(prompt: str) -> str:
+    """The knowledge-base section of the assembled prompt, i.e. what the model was shown."""
+    start = prompt.find("Retrieved knowledge:")
+    end = prompt.find("Conversation history:", start + 1) if start >= 0 else -1
+    return prompt[start:end] if start >= 0 and end > start else ""
+
+
+def tier_amounts(sales_config) -> list[int]:
+    """Plan prices the sales directive injects when the tenant has pricing tiers."""
+    out: list[int] = []
+    for tier in getattr(sales_config, "pricing_tiers", None) or []:
+        if not isinstance(tier, dict):
+            continue
+        for key in ("base_price", "per_seat_overage_price"):
+            try:
+                value = int(tier.get(key) or 0)
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                out.append(value)
+    return out
+
+
+def offerings_meta(result: GroundingResult, guard: dict | None) -> dict:
+    """`message.meta.offerings` (frozen contract). Items are filled by the reply writer."""
+    return {
+        "mode": result.mode if result.mode in ("browse", "detail") else "none",
+        "items": [],
+        "shown_at": result.read_at.isoformat(),
+        "guard": guard
+        or {"checked": False, "blocked": False, "regenerated": False, "fell_back": False},
+    }
