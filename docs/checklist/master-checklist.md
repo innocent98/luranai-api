@@ -192,7 +192,7 @@ Why: plans differed only by volume plus five flags; the sales agent, Slack/CRM, 
 - [x] FE guide with live captures; SOP
 - [ ] Paystack: create the Lite 15,000 monthly/annual plans and point the env at them BEFORE the new price reaches prod (owner action, see SOP)
 - [ ] Chat sales branch and the queued-worker paths verified with a real LLM / real Slack (unit/integration tests only)
-  - 2026-10-30: re-run end to end locally on the real code with a stand-in LLM, local Slack/CRM receivers and a mail stub: 69/69 live checks + 396 tests pass (SOP `docs/sop/sales_agent_smoke_2026-10-30.md`). Still open: real model, real Slack/CRM/inbox, staging/prod. Open defects from it: quote PDF shows a black square for the naira sign; lead score not sticky; rep-email CTA is `#`; WhatsApp does not carry the quote card/picker.
+  - 2026-10-30: re-run end to end locally on the real code with a stand-in LLM, local Slack/CRM receivers and a mail stub: 69/69 live checks + 396 tests pass (SOP `docs/sop/sales_agent_smoke_2026-10-30.md`). Still open: real model, real Slack/CRM/inbox, staging/prod. Defects from it: quote PDF naira box, lead score not sticky and rep-email CTA `#` are fixed in PR #194 (pending merge, SOP `docs/sop/sales_quote_pdf_score_link_fixes.md`); still open: WhatsApp does not carry the quote card/picker (catalog plan).
 - [ ] Dashboard: lock badges, upgrade prompts, 403 `feature_not_in_plan` handling (separate track)
 - [ ] Docs site and public pricing page copy (after prod promotion)
 - [ ] Prod promotion (migration + seed review) — lead / Adebayo

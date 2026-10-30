@@ -23,7 +23,9 @@ Local stack, own throwaway containers on free ports (Postgres 15, Redis 7, Qdran
 | Logs | no tracebacks; no lead email or webhook URL in INFO-level worker/API lines |
 | Tests | 396 passed in 33.8 s: `tests/sales`, the chat lead/quote/sales-wiring, leads, meeting, notification and sales-config API tests, `tests/entitlements`, `tests/workers/test_crm_sync.py`, `test_sales_notifications.py` (`pytest-sales-summary.txt`) |
 
-## Findings (not fixed: verification only)
+## Findings
+UPDATE 2026-10-30: defects 1-3 are fixed in [PR #194](https://github.com/innocent98/luranai-api/pull/194) (`fix/sales-quote-pdf-score-link`; SOP `docs/sop/sales_quote_pdf_score_link_fixes.md`; live rerun 74/74 with the PDF page viewed, the lead held at 100 `sales_ready`, rep email and Slack linking to `/dashboard/grow/leads/<id>`) once it merges. Defect 4 is open (catalog plan). The table below is the state at discovery.
+
 | # | Severity | What | Evidence |
 |---|---|---|---|
 | 1 | Medium | **Quote PDF prints a black square instead of the naira sign** (`■150,000`). Default currency is NGN; the template uses base Helvetica (WinAnsi, no U+20A6). Deterministic, not OS-specific. The existing test only checks it is a PDF. | `quote-attachment.pdf`, `quote-attachment-page1.png`, `pdffonts` shows Helvetica Type 1 WinAnsi, not embedded |
@@ -39,4 +41,4 @@ Staging/prod config and data (SMTP creds, `FRONTEND_URL`, plan rows on the VPS);
 Nothing deployed. Stack torn down (processes stopped, containers removed, throwaway env and keys deleted). To re-run: start Postgres/Redis/Qdrant/Mailpit on free ports, migrate, seed plans, start `standins.py`, uvicorn and `run_worker.py` (with `SMOKE_ALLOW_LOOPBACK=1`), then `PYTHONPATH=. poetry run python docs/fe-integration-captures/sales-agent-smoke-2026-10-30/harness/drive.py` with `OPENAI_BASE_URL=http://127.0.0.1:58090/v1`, `SMTP_HOST/PORT` pointed at Mailpit, `ENVIRONMENT=development`.
 
 ## Follow-ups
-Fix 1 (embed a font with U+20A6 or fall back to "NGN"), decide 2 (keep the peak score or `max()` the tier), fix 3 (`dashboard_url` in the email context), WhatsApp quote/picker plan (send the quote as text; no picker over WhatsApp) before pilots use WhatsApp for sales; verify with the real model and a real inbox on staging when credentials allow.
+Defects 1-3: done in #194. WhatsApp quote/picker plan (send the quote as text; no picker over WhatsApp) before pilots use WhatsApp for sales; verify with the real model and a real inbox on staging when credentials allow.
