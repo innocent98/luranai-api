@@ -1,0 +1,57 @@
+{
+  "scenario": "lite-chat-4-demo",
+  "note": "Lite demo ask",
+  "request": {
+    "method": "POST",
+    "path": "/chat/message",
+    "headers": {},
+    "body": {
+      "session_id": "0e519190-f0fa-402c-82b7-6185cfebd29b",
+      "tenant_id": "3ec0daeb-2cca-491a-995b-8fa206bea1ea",
+      "user_identifier": "smoke-visitor-lite",
+      "message": "Great. Can we book a demo call this week?",
+      "metadata": {
+        "utm_source": "google_ads",
+        "utm_medium": "cpc"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "0e519190-f0fa-402c-82b7-6185cfebd29b",
+      "message": {
+        "role": "assistant",
+        "content": "I can connect you with our team to arrange a demo.",
+        "id": "d374d65e-1554-41b5-9cdc-e587debb1af2",
+        "session_id": "0e519190-f0fa-402c-82b7-6185cfebd29b",
+        "retrieved_chunk_ids": [],
+        "token_count": 150,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "chunks_used": 0,
+          "avg_similarity": 0.0,
+          "retrieval_hit": false,
+          "escalation_action": "no_escalation",
+          "response_quality": {
+            "is_substantial": true,
+            "has_uncertainty": false,
+            "word_count": 11,
+            "char_count": 50
+          },
+          "token_breakdown": {
+            "prompt_tokens": 300,
+            "completion_tokens": -150,
+            "total_tokens": 150
+          }
+        },
+        "created_at": "2026-10-30T22:06:36.612273Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}

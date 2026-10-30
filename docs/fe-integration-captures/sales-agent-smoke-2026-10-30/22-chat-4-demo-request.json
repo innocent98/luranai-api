@@ -1,0 +1,58 @@
+{
+  "scenario": "chat-4-demo-request",
+  "note": "Visitor asks to book: picker should be offered",
+  "request": {
+    "method": "POST",
+    "path": "/chat/message",
+    "headers": {},
+    "body": {
+      "session_id": "f992cb12-92b3-488b-8d43-85dc5b7eec14",
+      "tenant_id": "75f5397b-6762-483a-bfdd-dcbbc38099f5",
+      "user_identifier": "smoke-visitor-1",
+      "message": "Great. Can we book a demo call this week?",
+      "metadata": {
+        "utm_source": "google_ads",
+        "utm_medium": "cpc"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "f992cb12-92b3-488b-8d43-85dc5b7eec14",
+      "message": {
+        "role": "assistant",
+        "content": "Pick a time that suits you below.",
+        "id": "f14ce7b5-1d00-4c71-b2d7-137e8e825126",
+        "session_id": "f992cb12-92b3-488b-8d43-85dc5b7eec14",
+        "retrieved_chunk_ids": [],
+        "token_count": 150,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "chunks_used": 0,
+          "avg_similarity": 0.0,
+          "retrieval_hit": false,
+          "escalation_action": "no_escalation",
+          "response_quality": {
+            "is_substantial": true,
+            "has_uncertainty": false,
+            "word_count": 7,
+            "char_count": 33
+          },
+          "token_breakdown": {
+            "prompt_tokens": 312,
+            "completion_tokens": -162,
+            "total_tokens": 150
+          },
+          "offer_meeting": true
+        },
+        "created_at": "2026-10-30T22:06:29.757591Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}

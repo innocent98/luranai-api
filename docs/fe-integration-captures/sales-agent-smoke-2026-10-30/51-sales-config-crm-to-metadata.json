@@ -1,0 +1,100 @@
+{
+  "scenario": "sales-config-crm-to-metadata",
+  "note": "Point CRM at link-local",
+  "request": {
+    "method": "PATCH",
+    "path": "/sales/config",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "crm_webhook_url": "http://169.254.169.254/x"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "id": "f7a929e8-afca-4f8d-8777-11828747b91a",
+        "tenant_id": "75f5397b-6762-483a-bfdd-dcbbc38099f5",
+        "agent_enabled": true,
+        "lead_capture_enabled": true,
+        "meeting_booking_enabled": true,
+        "quotation_enabled": true,
+        "crm_provider": null,
+        "calendar_provider": null,
+        "notify_channels": {
+          "email": true,
+          "slack": true,
+          "in_app": true,
+          "crm": true
+        },
+        "notification_email": "sales-rep@example.com",
+        "slack_webhook_url": "http://127.0.0.1:58091/slack",
+        "crm_webhook_url": "http://169.254.169.254/x",
+        "trigger_intents": [
+          "PRICING_INQUIRY",
+          "DEMO_REQUEST",
+          "PURCHASE_INTENT",
+          "ENTERPRISE_PROSPECT"
+        ],
+        "qualification_questions": [
+          {
+            "key": "use_case",
+            "question": "What are you hoping to use Luran for in your business?",
+            "type": "text"
+          },
+          {
+            "key": "timeline",
+            "question": "When would you like to get started?",
+            "type": "text"
+          }
+        ],
+        "pricing_tiers": [
+          {
+            "name": "Starter",
+            "min_users": 1,
+            "max_users": 10,
+            "base_price": 50000,
+            "per_seat_overage_price": 5000
+          },
+          {
+            "name": "Professional",
+            "min_users": 11,
+            "max_users": 50,
+            "base_price": 150000,
+            "per_seat_overage_price": 3000
+          },
+          {
+            "name": "Business",
+            "min_users": 51,
+            "max_users": 200,
+            "base_price": 400000,
+            "per_seat_overage_price": 2000
+          }
+        ],
+        "currency": "NGN",
+        "annual_discount_pct": 20,
+        "availability": {
+          "weekdays": [
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7
+          ],
+          "start": "09:00",
+          "end": "17:00",
+          "slot_minutes": 30,
+          "buffer_minutes": 15,
+          "tenant_timezone": "Africa/Lagos"
+        },
+        "created_at": "2026-10-30T22:06:27.215002+00:00",
+        "updated_at": "2026-10-30T22:06:42.710971+00:00"
+      }
+    }
+  }
+}

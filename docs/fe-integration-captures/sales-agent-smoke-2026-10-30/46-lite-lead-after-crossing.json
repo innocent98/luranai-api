@@ -1,0 +1,36 @@
+{
+  "scenario": "lite-lead-after-crossing",
+  "note": "Lite lead right after the buying turn",
+  "request": {
+    "method": "GET",
+    "path": "/leads",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "items": [
+          {
+            "id": "6e770a44-7ee3-44eb-8f97-70d9ff5f55a2",
+            "name": "Ada Okafor",
+            "company": "Acme Group Logistics",
+            "intent": "PURCHASE_INTENT",
+            "lead_score": 100,
+            "tier": "sales_ready",
+            "status": "new",
+            "source_label": "chat_widget · Paid ad",
+            "created_at": "2026-10-30T22:06:36.104550+00:00"
+          }
+        ],
+        "total": 1,
+        "limit": 50,
+        "offset": 0
+      }
+    }
+  }
+}
