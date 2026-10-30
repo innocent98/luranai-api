@@ -374,7 +374,9 @@ _CUES = re.compile(
     r"|special\s+price|best\s+price|discount(?:ed)?|reduce[ds]?|lower(?:ed)?|dropp?(?:ed|ing)?"
     r"|knock(?:ed|ing)?|slash(?:ed)?|cut|sell\s+(?:it|them|this|that)?\s*(?:to\s+you\s+)?for"
     r"|you\s+can\s+have|take\s+(?:it|them)\s+for|bring(?:s|ing)?\s+(?:it|them|the\s+price)\s+down"
-    r"|now\s+(?:only\s+)?(?:at|for)|half)\b",
+    r"|now\s+(?:only\s+)?(?:at|for)|half"
+    r"|works?(?:\s+for\s+(?:me|us))?|fine|okay|ok|sure|alright|agreeable|yours|go\s+ahead|no\s+problem"
+    r"|you\s+got\s+it|can\s+do|sounds?\s+(?:good|great|fair))\b",
     re.IGNORECASE,
 )
 
@@ -400,6 +402,11 @@ class GuardVerdict:
     ok: bool
     violations: list[Violation] = field(default_factory=list)
     checked: bool = True
+
+
+def _echoed(sentence: str, amount: Amount) -> bool:
+    """The sentence attributes the figure to the customer, right beside it."""
+    return bool(_ECHO.search(sentence[max(0, amount.start - 60) : amount.end + 20]))
 
 
 def _name_tokens(item: OfferingFacts) -> set[str]:
@@ -481,25 +488,30 @@ def check_reply(
                 reason = "currency"
             else:
                 kb_ok = _has(kb_money, a.value)
+                tier_ok = _has(tiers, a.value)
+                kb_only = kb_ok and not loose
+                echoed = _echoed(sentence, a)
                 if (
-                    not strict
-                    and _has(customer_money, a.value)
-                    and not _ECHO.search(sentence)
-                    and not _has(tiers, a.value)
-                    and not (kb_ok and not loose)
+                    _has(customer_money, a.value)
+                    and not strict
+                    and not echoed
+                    and not (tier_ok or kb_only)
                 ):
                     # with no item named, a listed price that happens to equal the customer's own
                     # figure must not read as agreeing to it
                     reason = "unattributed_customer_amount"
-                elif _has(listed, a.value):
-                    reason = None
-                elif cue and not _has(tiers, a.value) and not (kb_ok and not loose):
+                elif strict and _has(listed, a.value):
+                    reason = None  # the named item's own listed price, whatever the wording
+                elif cue and not tier_ok and not kb_only:
+                    # concession language beside any other figure, including another item's price
                     reason = "concession"
-                elif _has(tiers, a.value) or (kb_ok and not loose):
+                elif not strict and _has(all_prices, a.value):
+                    reason = None
+                elif tier_ok or kb_only:
                     reason = None
                 elif _has(customer_money, a.value):
                     # the customer's own figure may be quoted back, never silently adopted (D1)
-                    reason = None if _ECHO.search(sentence) else "unattributed_customer_amount"
+                    reason = None if echoed else "unattributed_customer_amount"
                 elif kb_ok:
                     reason = "kb_beside_item"
                 else:

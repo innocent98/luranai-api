@@ -121,7 +121,7 @@ CASES = [
     C("Which item would you like?", True),
     # --- haggling and concessions (D1) --------------------------------------------------
     C("I can do ₦10,000 for the black sneaker.", False, "concession"),
-    C("Sure, ₦10,000 works for the leather bag.", False, "wrong_item_price"),
+    C("Sure, ₦10,000 works for the leather bag.", False, "concession"),
     C("I can give you ₦2,000 off the leather bag.", False, "concession"),
     C("We can do 2k off.", False, "concession"),
     C(
@@ -163,17 +163,56 @@ CASES = [
     C(
         "₦8,000 works for the black sneaker.",
         False,
-        "unattributed_customer_amount",
+        "concession",
         customer=("8k?",),
     ),
     C(
         "That is agreeable at ₦30,000 for the leather bag.",
         False,
-        "unattributed_customer_amount",
+        "concession",
         customer=("how about ₦30,000",),
     ),
     C(
         "You offered ₦30,000, but the leather bag is listed at ₦45,000.",
+        True,
+        customer=("how about ₦30,000",),
+    ),
+    # --- review findings: concessions at a coincidentally listed price, echoed-then-accepted ---
+    C("I can do ₦12,000 for you.", False, "concession"),
+    C("Sure, ₦12,000 for you.", False, "concession"),
+    C(
+        "I can do ₦12,000 for you.",
+        False,
+        "unattributed_customer_amount",
+        customer=("can you do 12k for the bag",),
+    ),
+    C("We have a deal at ₦13,500.", False, "concession"),
+    C(
+        "You offered ₦30,000 for the leather bag, that works for me.",
+        False,
+        "concession",
+        customer=("how about ₦30,000 for the bag",),
+    ),
+    C(
+        "You offered ₦30,000 for the leather bag, so okay.",
+        False,
+        "concession",
+        customer=("how about ₦30,000 for the bag",),
+    ),
+    C(
+        "You offered ₦30,000, sounds fine to me.",
+        False,
+        "concession",
+        customer=("how about ₦30,000",),
+    ),
+    # Known limit: acceptance in a separate sentence that restates no amount is not machine-checked
+    # ("You offered ₦30,000." / "Sounds fine."); rule 3, the eval suite and the pilot audit hold it.
+    C("You offered ₦30,000. Sounds fine to me.", True, customer=("how about ₦30,000",)),
+    C("I can do ₦12,000 for the black sneaker.", True),
+    C("The black sneaker is ₦12,000 and there is no discount.", True),
+    C("I can't offer a discount on the leather bag; it is ₦45,000.", True),
+    C(
+        "Thanks for the thought. Anyway, ₦30,000 is what you said.",
         True,
         customer=("how about ₦30,000",),
     ),
