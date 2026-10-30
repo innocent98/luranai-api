@@ -59,7 +59,7 @@ Luran answered "how much / is it in stock" from knowledge-base text that can be 
 
 ## Operate / roll back
 * Deploy the API **and** the worker together (the worker registers two new crons; an old worker simply lacks them). New optional env var `CLOUDINARY_OFFERINGS_FOLDER`.
-* The migration is additive but the **tenant backfill rewrites two columns on every `tenant_capabilities` row** (the plan's standing note: a pre-deploy dump is recommended for migrations that rewrite existing rows; the owner's call).
+* The migration is additive but the **tenant backfill rewrites two columns on every `tenant_capabilities` row** (the plan's standing note recommends a pre-deploy dump for migrations that rewrite existing rows). **Decided 2026-10-31 (Adebayo): no pre-deploy dump.** The backfill only sets two new columns from the plan value (skipping overridden fields) and the downgrade drops them, so no existing value is lost.
 * Rollback: `alembic downgrade wa40contactexclusion` drops the six tables (and every catalog row and photo row in them), both plan columns and the feature line. The `offering_request` enum label stays (Postgres cannot drop an enum value) and is harmless. Photo files already in Cloudinary are not removed by a downgrade; the orphan sweep would reap them only while the tables exist, so destroy them by tag `offering_<environment>` if a rollback is permanent.
 * Kill switches: none needed in this stream (nothing reads the catalog yet); `tenant_offerings_settings.enabled` is stored for S2.
 
