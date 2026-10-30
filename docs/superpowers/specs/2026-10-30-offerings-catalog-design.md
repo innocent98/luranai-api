@@ -321,5 +321,7 @@ Pilot = a few real businesses on the normal 30-day trial (1 WhatsApp number each
 7. The lead has no phone field; web visitors who give only a name are unreachable (existing Stage 3 behaviour).
 8. Sidecar behaviour with 3 photos in quick succession on a real number: image send is proven on staging (text + images both ways, 2026-10-28), but not a burst of catalog photos with the production cap values (ceiling 10 numbers, unmeasured).
 9. luran-dashboard CI has been blocked by Actions billing since ~15 Oct (master handoff): the dashboard stream has no automated check unless that is fixed. The master handoff records the owner's ruling (2026-10-30) to ignore it for now and merge on local Node 20 runs; the dashboard PR targets `staging` under that ruling.
-10. **Open for the owner (the one question left):** does any planned pilot answer customers through a **Flow** with an AI node (rather than plain chat)? Flows are not grounded in v1; a pilot that does would not get catalog answers until that is added (estimate M, extra stream).
+10. **Resolved 2026-10-30 (owner): no planned pilot answers through a Flow with an AI node**, so Flows stay out of v1. A tenant that later does would get no catalog answers there until grounding is added (estimate M, extra stream).
+
+**Approval:** the owner approved this spec and the build plan on 2026-10-30 ("Approved, no Flows").
 11. KB `product` entries with prices: a tenant who also uploads a price list to the KB keeps stale prices in the vector store; the guard prevents them beating the catalog, but they can still be quoted for items **not** in the catalog. A dashboard warning is v2.

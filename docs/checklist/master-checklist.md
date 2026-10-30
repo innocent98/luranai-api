@@ -313,13 +313,14 @@ Owner decision 2026-10-29 (step 2 after the counting meter). Docs: SOP `docs/sop
 - [ ] Dashboard follow-up (separate repo, not changed here): `app/components/luran/pricing/plans.ts` static fallback (200/2000/10000/25000), platform-admin calculator copy (25,000), `luran-docs` pricing page/API doc
 - [ ] In-app notice at 80% / 100% of the monthly limit (none today; the widget only gets the 402)
 
-## Offerings catalog (products + services) — DESIGN WRITTEN 2026-10-30, awaiting owner approval; nothing built
+## Offerings catalog (products + services) — DESIGN APPROVED 2026-10-30 (owner); nothing built
 Idea (owner): businesses keep a live list of what they sell (name, description, photos, price, availability); the AI answers from it on every channel and closes with lead + quote handed to a human. Docs: spec `docs/superpowers/specs/2026-10-30-offerings-catalog-design.md`; plan `docs/superpowers/plans/2026-10-30-offerings-catalog-build-plan.md`. Owner decisions: products + services together; v1 closes with lead + quote; **never below the listed price** (negotiable items: offer recorded, human takes over); every plan incl. Trial gets it, caps 25 / 100 / 500 / 2,000 / unlimited (launch values, review after the first pilot week); photo limits 4 (Trial, Lite) / 8; quotes stay behind `sales_close`.
 - [x] Recon of the AI path, quote/lead path, entitlements, images/WhatsApp, dashboard, chat, agent app (findings in spec section 4)
 - [x] Spec written (data model, grounding contract and guard, API, dashboard UX, channels, limits, privacy, failure modes, pilot measures, v1/v2) and builder-checked
 - [x] Build plan written (streams S1-S4, order, sizes, review policy)
-- [ ] Owner approves the spec; PRD addendum (Feature 3.11, spec section 5) applied to the workspace PRD
-- [ ] Owner pre-checks: Cloudinary plan limits; three pilot price lists; Flows-AI-node question (spec 17.10)
+- [x] Owner approved the spec and plan 2026-10-30; no pilot uses a Flow AI node (Flows stay out of v1)
+- [ ] PRD addendum (Feature 3.11, spec section 5) applied to the workspace PRD
+- [ ] Owner pre-checks: Cloudinary plan limits; three pilot price lists
 - [ ] **S1 Backend core** `feature/offerings-backend-core`: models + migration `of10offerings`, plan limits (`max_offerings`, `max_offering_images`) + parity, CRUD, photos (moderated, re-encoded), import, confirm/settings/misses, FE guide part 1 with live captures, SOP
 - [ ] **S2 Backend AI path** `feature/offerings-ai-grounding`: grounding block (1,000-token cap), price guard + fallback (Opus review), strict-schema variant, cart -> interests -> catalog quote (Opus review), `OFFERING_REQUEST` alert, lead source by channel, adversarial eval gate, FE guide part 2, SOP
 - [ ] **S3 Dashboard** `luran-dashboard` `feature/offerings-dashboard`: Today list, add/edit sheet with photos, import wizard, plan meter, Not-found tab, lead "Wanted items"
