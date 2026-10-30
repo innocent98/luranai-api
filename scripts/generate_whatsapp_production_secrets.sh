@@ -3,11 +3,15 @@
 # Run it on a trusted machine. You then open the file yourself, paste the lines into .env.production, re-encrypt
 # (scripts/env.sh encrypt production) and delete the file. The values never appear in a terminal, a shell history or a chat.
 #
-#   scripts/generate_whatsapp_production_secrets.sh [output-file]   # default: ./.whatsapp-production-secrets.env
+#   scripts/generate_whatsapp_production_secrets.sh [output-file]                # default: ./.whatsapp-production-secrets.env
+#   scripts/generate_whatsapp_production_secrets.sh --redis-only [output-file]   # ONLY WHATSAPP_SIDECAR_REDIS_PASSWORD
+#
+# --redis-only is for a production env that already holds the other WhatsApp secrets (the Redis-isolation change added one
+# name): it writes just that one line so the existing master key, token and DB password are never regenerated or replaced.
 #
 # Refuses to overwrite an existing file. The default name is git-ignored. Every run draws fresh random values: never copy the
 # staging secrets into production. Secrets are hex (URL- and shell-safe) and meet the sidecar's rules: token/secret >= 32
-# chars, master key >= 64 hex chars, DB password alphanumeric >= 24 chars.
+# chars, master key >= 64 hex chars, DB password alphanumeric >= 24 chars, Redis password alphanumeric >= 32 chars.
 #
 # WHATSAPP_ENABLED is written as `false` on purpose: the first production deploy brings the sidecar up dark. Flip it to true
 # only after the post-deploy smoke has passed (docs/sop/whatsapp_sidecar_production_deploy.md).
@@ -17,6 +21,11 @@
 set -euo pipefail
 umask 077
 
+redis_only=0
+case "${1:-}" in
+  --redis-only) redis_only=1; shift ;;
+  -*) echo "unknown option: $1 (only --redis-only is supported)" >&2; exit 2 ;;
+esac
 out="${1:-.whatsapp-production-secrets.env}"
 if [ -e "$out" ]; then
   echo "refusing to overwrite existing file: $out" >&2
@@ -27,6 +36,12 @@ command -v openssl >/dev/null 2>&1 || { echo "openssl not found" >&2; exit 1; }
 tmp="$(mktemp "${out}.XXXXXX")"
 trap 'rm -f "$tmp"' EXIT
 
+if [ "$redis_only" -eq 1 ]; then
+  {
+    echo "# PRODUCTION. Generated $(date -u +%Y-%m-%dT%H:%M:%SZ). Sidecar-only (CD moves it out of the api/worker env file). Paste into .env.production, re-encrypt, then delete this file."
+    echo "WHATSAPP_SIDECAR_REDIS_PASSWORD=$(openssl rand -hex 24)"
+  } > "$tmp"
+else
 {
   echo "# PRODUCTION. Generated $(date -u +%Y-%m-%dT%H:%M:%SZ). Paste into .env.production, re-encrypt, then delete this file."
   echo "# Back up WHATSAPP_AUTH_MASTER_KEY in your password manager first."
@@ -41,7 +56,9 @@ trap 'rm -f "$tmp"' EXIT
   echo "# Sidecar only (CD moves these out of the api/worker env file):"
   echo "WHATSAPP_AUTH_MASTER_KEY=$(openssl rand -hex 32)"
   echo "WHATSAPP_SIDECAR_DB_PASSWORD=$(openssl rand -hex 24)"
+  echo "WHATSAPP_SIDECAR_REDIS_PASSWORD=$(openssl rand -hex 24)"
 } > "$tmp"
+fi
 
 chmod 600 "$tmp"
 mv "$tmp" "$out"

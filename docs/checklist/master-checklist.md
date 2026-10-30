@@ -324,7 +324,7 @@ Plan: `docs/deployment/prod-release-plan-2026-10.md` (DRAFT 2026-10-28). Merging
 - [ ] Owner: test-mode Lite checkout on staging (15,000 / 150,000); fix GitHub Actions spending limit; re-private `luranai-api`
 - [ ] Manual DB dump + `docker stats` baseline, then PR `develop` -> `main`; verify health, migrations at `wa20ratingreply`, pricing, entitlements, worker functions
 - [ ] Dashboard `staging` -> `main` (15 commits) right after the backend; `luran-chat` `stage` -> `main` (3 commits)
-- [ ] Production sidecar job: **wiring built 2026-10-29 (branch `feature/sidecar-production-deploy`, PR to `develop`, SOP `docs/sop/whatsapp_sidecar_production_deploy.md`)**; still open: secrets in `.env.production.enc`, first deploy + smoke, consent/ToS wording, flipping `WHATSAPP_ENABLED`, per-tenant grant (see "Sidecar on production")
+- [ ] Production sidecar job: **(Redis now isolated, see "Sidecar Redis isolation")** wiring built 2026-10-29 (branch `feature/sidecar-production-deploy`, PR to `develop`, SOP `docs/sop/whatsapp_sidecar_production_deploy.md`)**; still open: secrets in `.env.production.enc`, first deploy + smoke, consent/ToS wording, flipping `WHATSAPP_ENABLED`, per-tenant grant (see "Sidecar on production")
 
 ## Sidecar on production (dark) — BUILT, PR open to `develop`, nothing run on the VPS (2026-10-29)
 Docs: SOP `docs/sop/whatsapp_sidecar_production_deploy.md` (owner actions in order, memory budget, rollback, rulings). Branch `feature/sidecar-production-deploy`. Mirrors the staging job; `WHATSAPP_ENABLED` is never turned on by it.
@@ -339,6 +339,19 @@ Docs: SOP `docs/sop/whatsapp_sidecar_production_deploy.md` (owner actions in ord
 - [ ] First sidecar deploy in a quiet window (not near 02:00); smoke 7 PASS + 1 SKIP; install snapshot cron
 - [ ] Flip `WHATSAPP_ENABLED=true` (strict smoke 8 PASS), consent/ToS wording, grant ONE tenant, watch the snapshot log
 - [ ] Not proven anywhere: the new CD steps on a real runner/VPS, live prod Redis/Postgres settings, more than 2 sessions
+
+## Sidecar Redis isolation (production) — BUILT, PR open to `develop`, nothing run on the VPS (2026-10-30)
+Docs: plan `docs/superpowers/plans/2026-10-30-sidecar-redis-isolation.md`; SOP `docs/sop/whatsapp_sidecar_redis_isolation.md` (owner steps in order, rollback, what is not verified). Branch `feature/sidecar-redis-isolation`. Resolves the "decide before `WHATSAPP_ENABLED` is flipped" ruling of the production sidecar SOP. No production container restarts; `docker-compose.prod.yml` untouched.
+- [x] Findings from the code: the sidecar's Redis holds only `wa:lease:*` (30 s) and `wa:daily:*` (26 h); the backend never reads them, so only the sidecar needs the new Redis
+- [x] Own Redis `luran_whatsapp_redis`: ACL user limited to `wa:*` keys, password only in `.env.sidecar`, `noeviction`, `maxmemory 8mb`, 32m, `save 60 1` on a named volume (daily send counter), on an internal-only network
+- [x] Sidecar off `luran_default`; shares `luran_wa_backend` only with `luran_api`, `luran_worker`, `luran_db` (runtime `docker network connect`, nothing restarted)
+- [x] New sidecar-only name `WHATSAPP_SIDECAR_REDIS_PASSWORD`: gate fail-closed (old names without it skip, names only), stripped from the api/worker env, generator `--redis-only`
+- [x] `cd.yml` (inside `production-deploy` only): network steps after every API deploy, Redis started and awaited before the sidecar, isolation smoke (18 PASS + 1 SKIP)
+- [x] 94 pytest tests in `tests/deploy/` (was 55); local rehearsal with the real ssh scripts: sidecar healthy, cannot reach prod Redis/Qdrant/pgbouncer (DNS and by IP), Redis requires the password, api/worker hold no sidecar secrets, rerun no-op, counter persists
+- [ ] PR merged to `develop` (lead), then promoted
+- [ ] Owner: `scripts/generate_whatsapp_production_secrets.sh --redis-only`, add `WHATSAPP_SIDECAR_REDIS_PASSWORD` to `.env.production.enc` (after the PR is on `develop`), PR + promote; read the deploy log (18 PASS + 1 SKIP)
+- [ ] Not proven anywhere: the new CD steps on a real runner/VPS, Linux bridge isolation on the VPS, a live WhatsApp session through the new Redis, memory at 3 or 10 sessions
+- [ ] Follow-ups: declare `luran_wa_backend` on api/worker in the prod compose (never db); auth for the shared prod Redis + Qdrant key; sidecar egress filtering; pin images by digest
 
 ## Memory and capacity — OPEN (snapshot `docs/sop/memory_and_capacity_snapshot_2026-10-28.md`)
 - [ ] Split prod/staging API memory (anon vs cache vs slab) now and after 24 h

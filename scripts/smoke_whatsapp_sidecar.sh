@@ -23,6 +23,15 @@
 #   5. Redis (logical DB for leases) answers and takes a short-lived write.
 #   6. Postgres: connected as the dedicated role, which can read its own schema and has no SELECT on any table in `public`.
 #   7. Postgres: the role cannot CREATE in the database or in schema `public` (the schema-hijack guard).
+#
+# Opt-in isolation checks (PRODUCTION; docs/sop/whatsapp_sidecar_redis_isolation.md). Off by default, so staging's output and
+# exit status are exactly what they were:
+#   SMOKE_ISOLATION=1                         adds, inside the sidecar container:
+#     8. the hostnames `redis`, `qdrant`, `pgbouncer` and their container names (`luran_redis`, ...) do not resolve from the
+#        sidecar;
+#     9. the sidecar's Redis URL carries a password and a command without credentials is refused (NOAUTH).
+#   SMOKE_BACKEND_CONTAINERS="luran_api ..."  adds, from the host, per container: the environment holds none of the
+#     sidecar-only secret NAMES (checked by name only; values are never printed).
 set -euo pipefail
 
 container="${1:?usage: smoke_whatsapp_sidecar.sh <sidecar container name or id>}"
@@ -32,8 +41,43 @@ case "$backend" in
   *) echo "SMOKE_BACKEND must be 'enabled' or 'disabled'" >&2; exit 2 ;;
 esac
 
-docker exec -i -e "SMOKE_BACKEND=${backend}" "$container" node --input-type=module - <<'JS'
+isolation="${SMOKE_ISOLATION:-}"
+host_failed=0
+if [ -n "${SMOKE_BACKEND_CONTAINERS:-}" ]; then
+  for backend_container in $SMOKE_BACKEND_CONTAINERS; do
+    # Only NAMES leave this pipeline: `cut` drops every value before grep sees it, and grep output is never shown.
+    if ! names="$(docker exec "$backend_container" env 2>/dev/null | cut -d= -f1)"; then
+      echo "FAIL isolation: $backend_container env is inspectable - could not read its environment"
+      host_failed=1
+      continue
+    fi
+    leaked="$(printf '%s\n' "$names" | grep -xE 'WHATSAPP_AUTH_MASTER_KEY|WHATSAPP_SIDECAR_DB_PASSWORD|WHATSAPP_SIDECAR_REDIS_PASSWORD|WHATSAPP_SIDECAR_REDIS_URL' | tr '\n' ' ' || true)"
+    if [ -z "$leaked" ]; then
+      echo "PASS isolation: $backend_container env has none of the sidecar-only secrets"
+    else
+      echo "FAIL isolation: $backend_container env holds sidecar-only names: ${leaked}"
+      host_failed=1
+    fi
+  done
+fi
+
+if [ "$isolation" = 1 ]; then
+  # From the host: the sidecar is on exactly these two networks and no other (DNS checks inside the container cannot see a
+  # network that was attached by hand and only exposes container names).
+  nets="$(docker inspect --format '{{range $k, $_ := .NetworkSettings.Networks}}{{$k}} {{end}}' "$container" 2>/dev/null | tr ' ' '\n' | grep -v '^$' | sort | tr '\n' ' ' | sed 's/ $//' || true)"
+  if [ "$nets" = "luran_wa_backend luran_wa_redis" ]; then
+    echo "PASS isolation: the sidecar is on exactly luran_wa_backend and luran_wa_redis"
+  else
+    echo "FAIL isolation: the sidecar networks are not exactly luran_wa_backend and luran_wa_redis - found: ${nets:-none}"
+    host_failed=1
+  fi
+fi
+
+rc=0
+docker exec -i -e "SMOKE_BACKEND=${backend}" -e "SMOKE_ISOLATION=${isolation}" "$container" node --input-type=module - <<'JS' || rc=$?
 import { createHmac, randomUUID } from 'node:crypto'
+import dns from 'node:dns/promises'
+import net from 'node:net'
 import Redis from 'ioredis'
 import pg from 'pg'
 
@@ -123,5 +167,33 @@ try {
     `database_create=${create.db} public_schema_create=${create.public_schema}`)
 } catch (e) { check('postgres: dedicated role reads its own schema', false, errName(e)) } finally { await client.end().catch(() => {}) }
 
+if (env.SMOKE_ISOLATION === '1') {
+  // The sidecar must not share a network with the unauthenticated redis, qdrant and pgbouncer. Docker's DNS only resolves
+  // names on networks the container is attached to, so a name that does not resolve is a network that is not shared.
+  for (const host of ['redis', 'qdrant', 'pgbouncer', 'luran_redis', 'luran_qdrant', 'luran_pgbouncer']) {
+    try {
+      await dns.lookup(host)
+      check(`isolation: '${host}' does not resolve from the sidecar`, false, 'resolves: the sidecar still shares a network with it')
+    } catch (e) {
+      check(`isolation: '${host}' does not resolve from the sidecar`, e?.code === 'ENOTFOUND', `dns=${e?.code}`)
+    }
+  }
+  // Its own Redis has a password, and a raw command with no credentials is refused.
+  try {
+    const u = new URL(env.WHATSAPP_SIDECAR_REDIS_URL)
+    check('isolation: the sidecar Redis URL carries a password and is not the shared Redis', u.password.length >= 32 && u.hostname !== 'redis', `host=${u.hostname}`)
+    const reply = await new Promise((resolve, reject) => {
+      const sock = net.connect({ host: u.hostname, port: Number(u.port || 6379) })
+      sock.setTimeout(4000, () => { sock.destroy(); reject(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' })) })
+      sock.on('error', reject)
+      sock.once('data', (d) => { sock.destroy(); resolve(String(d)) })
+      sock.on('connect', () => sock.write('PING\r\n'))
+    })
+    check('isolation: the sidecar Redis refuses a command without credentials', reply.startsWith('-NOAUTH'), `reply=${reply.slice(0, 7).trim()}`)
+  } catch (e) { check('isolation: the sidecar Redis refuses a command without credentials', false, errName(e)) }
+}
+
 process.exitCode = failed ? 1 : 0
 JS
+[ "$host_failed" -eq 0 ] || rc=1
+exit "$rc"
