@@ -171,7 +171,7 @@ def _canonical_header(cell: str) -> str:
 
 def parse_csv(content: str) -> list[tuple[int, dict[str, str]]]:
     """Rows of a CSV with a header line (comma, tab or semicolon separated)."""
-    text = content.lstrip("﻿")
+    text = content.lstrip("\ufeff")
     if not text.strip() or "\x00" in text:
         raise ImportUnreadable("empty or binary content")
     first_line = next(line for line in text.splitlines() if line.strip())

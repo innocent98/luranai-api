@@ -44,8 +44,9 @@ _TEXT_LIMITS = {
     "price_note": 60,
     "external_ref": 80,
 }
-_BIDI = {"‪", "‫", "‬", "‭", "‮", "⁦", "⁧", "⁨", "⁩"}
-_INVISIBLE = {"​", "﻿"}
+# Bidirectional embeddings, overrides and isolates (U+202A-U+202E, U+2066-U+2069), by code point.
+_BIDI = {chr(c) for c in (*range(0x202A, 0x202F), *range(0x2066, 0x206A))}
+_INVISIBLE = {chr(0x200B), chr(0xFEFF)}  # zero-width space, byte-order mark
 
 _CURRENCY_SYMBOLS = {"NGN": "₦", "USD": "$", "GBP": "£", "EUR": "€", "GHS": "GH₵", "KES": "KSh "}
 

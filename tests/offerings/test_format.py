@@ -23,7 +23,7 @@ def test_format_price(mode, price, note, currency, expected):
 
 def test_clean_text_removes_controls_and_bidi_overrides():
     assert clean_text("a\x00b\x1bc") == "abc"
-    assert clean_text("evil‮txt.exe") == "eviltxt.exe"
+    assert clean_text("evil\u202etxt.exe") == "eviltxt.exe"
     assert clean_text("  padded  ") == "padded"
     assert clean_text("   ") is None and clean_text(None) is None
 
