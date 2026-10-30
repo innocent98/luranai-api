@@ -33,11 +33,37 @@ _REP_SUBJECT = {
     NotifEvent.SALES_READY_LEAD: "New sales-ready lead",
     NotifEvent.MEETING_BOOKED: "New meeting booked",
     NotifEvent.QUOTE_GENERATED: "New quote generated",
+    NotifEvent.OFFERING_REQUEST: "New item request",
 }
 
 
 def _entity_context(db, log: NotificationLog) -> dict:
     """Build the template context for the rep alert from the log's entity."""
+    if log.entity_type == "lead" and log.event == NotifEvent.OFFERING_REQUEST:
+        from app.db.models.offering import LeadOfferingInterest
+
+        lead = db.get(Lead, log.entity_id)
+        rows = (
+            db.execute(
+                select(LeadOfferingInterest).where(LeadOfferingInterest.lead_id == log.entity_id)
+            )
+            .scalars()
+            .all()
+        )
+        lines = []
+        for r in rows:
+            line = f"{r.qty} × {r.name_snapshot}"
+            if r.price_snapshot is not None:
+                line += f" (listed {r.price_snapshot:,})"
+            if r.offered_price is not None:
+                line += f", customer offered {r.offered_price:,}"
+            lines.append(line)
+        return {
+            "kind": "offering_request",
+            "name": lead.name if lead else None,
+            "company": lead.company if lead else None,
+            "items": lines,
+        }
     if log.entity_type == "lead":
         lead = db.get(Lead, log.entity_id)
         return {

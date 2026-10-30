@@ -23,6 +23,7 @@ def make_tenant(
     sales_enabled: bool = False,
     quotation_enabled: bool = False,
     sales_close: bool = True,
+    notify_channels: dict | None = None,
     display_name: str = "Fixture Shoes",
 ) -> UUID:
     """A tenant with a fixed display name so prompts are comparable across runs."""
@@ -67,6 +68,8 @@ def make_tenant(
                 lead_capture_enabled=True,
                 quotation_enabled=quotation_enabled,
                 meeting_booking_enabled=False,
+                notify_channels=notify_channels
+                or {"email": False, "slack": False, "in_app": True, "crm": False},
                 trigger_intents=["PRICING_INQUIRY", "DEMO_REQUEST", "PURCHASE_INTENT"],
                 qualification_questions=[
                     {"key": "need", "question": "What are you looking for?", "type": "text"}

@@ -28,9 +28,9 @@ def catalog_sales_addendum(channel: str | None) -> str:
         "## Catalog selling (this turn)\n"
         "- signals.catalog_refs: the #refs of the catalog items your reply is about, only refs "
         "that appear in the catalog block; [] if none.\n"
-        "- signals.cart: only items the customer has explicitly chosen to get, each with its "
-        "#ref and quantity (at least 1). Never add an item the customer only asked about. [] "
-        "otherwise.\n"
+        "- signals.cart: the complete list of items the customer has explicitly chosen to get so "
+        "far in this conversation (repeat earlier choices every turn), each with its #ref and "
+        "quantity (at least 1). Never add an item the customer only asked about. [] if none.\n"
         "- signals.offered_price: when the customer states a price they would pay, "
         '{"ref": "#12", "amount": <their figure as a whole number>}; otherwise null. Never '
         "accept or counter it: say the owner is open to offers (if the item is negotiable) and "

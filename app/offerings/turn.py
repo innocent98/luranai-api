@@ -148,3 +148,14 @@ def remember_shown(db: Session, session_id: UUID, seqs: list[int]) -> None:
     except Exception:  # noqa: BLE001
         logger.exception("offerings shown-memory write failed (non-fatal)")
         db.rollback()
+
+
+def lead_source(channel: str | None, visitor) -> str:
+    """Lead `source` from where the conversation happens (was hard-coded `chat_widget`)."""
+    if channel in ("voice", "whatsapp"):
+        return channel
+    from app.db.models.visitor import VisitorSource
+
+    if getattr(visitor, "created_from", None) == VisitorSource.SUPPORT_PAGE:
+        return "hosted_page"
+    return "chat_widget"

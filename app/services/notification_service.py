@@ -111,6 +111,21 @@ class NotificationService:
             when = m.scheduled_at.strftime("%a %d %b · %H:%M UTC") if m and m.scheduled_at else ""
             return "Meeting booked", f"{who} · {when}".strip(" ·")
 
+        if event == NotifEvent.OFFERING_REQUEST:
+            from app.db.models.offering import LeadOfferingInterest
+
+            lead = self.db.get(Lead, entity_id)
+            rows = (
+                self.db.execute(
+                    select(LeadOfferingInterest).where(LeadOfferingInterest.lead_id == entity_id)
+                )
+                .scalars()
+                .all()
+            )
+            who = (lead.name if lead else None) or "A customer"
+            items = ", ".join(f"{r.qty} × {r.name_snapshot}" for r in rows[:5]) or "items"
+            return "New item request", f"{who} · {items}"
+
         # quote_generated (default)
         from app.sales.pricing import _currency_symbol
 
@@ -193,7 +208,7 @@ class NotificationService:
 
         if (
             external_allowed
-            and event == NotifEvent.SALES_READY_LEAD
+            and event in (NotifEvent.SALES_READY_LEAD, NotifEvent.OFFERING_REQUEST)
             and channels.get("crm")
             and getattr(config, "crm_webhook_url", None)
         ):

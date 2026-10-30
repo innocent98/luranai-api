@@ -70,15 +70,25 @@ from app.schemas.user import UserResponse
 from app.schemas.visitor import VisitorEnrichmentUpdate
 from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
+from app.offerings.cart import CartResolution, InterestSync, resolve_cart
+from app.offerings.fallback import ASK_TEAM
 from app.offerings.guard_flow import guard_reply
 from app.offerings.misses import record_miss
+from app.offerings.orchestrate import (
+    alert_owner,
+    catalog_score_signals,
+    issue_quote,
+    record_cart,
+)
 from app.offerings.turn import (
     customer_texts,
     ground_turn,
     kb_text_from_prompt,
+    lead_source,
     build_offerings_turn,
     remember_shown,
     tier_amounts,
+    turn_channel,
 )
 from app.offerings.turn import sales_kwargs as catalog_sales_kwargs
 from app.sales.config_view import SalesConfigView
@@ -3002,8 +3012,14 @@ async def _send_message_impl(
         # Runs after ai_response_text is finalized so it never blocks the reply.
         lead: Lead | None = None  # resolved below; reused by quote orchestration
         _lead_captured_meta: dict | None = None
+        _cart: CartResolution | None = None  # offerings: the customer's chosen items, read live
+        _cart_synced: InterestSync | None = None
         if _sales_mode and _sales_meta is not None:
             try:
+                if _offerings is not None and _offerings.mode != "unavailable":
+                    _cart = resolve_cart(
+                        db, session.tenant_id, _sales_meta.get("signals"), _offerings
+                    )
                 lead_svc = LeadService(db)
                 conv_id = session_id  # conversation_id == session_id in this handler
 
@@ -3015,9 +3031,13 @@ async def _send_message_impl(
                     )
                 ).scalar_one_or_none()
 
-                _should_create = _existing is not None or is_trigger_intent(
-                    _sales_meta["intent"],
-                    sales_agent_config.trigger_intents,
+                _should_create = (
+                    _existing is not None
+                    or is_trigger_intent(
+                        _sales_meta["intent"],
+                        sales_agent_config.trigger_intents,
+                    )
+                    or bool(_cart and _cart.has_content)
                 )
 
                 if _should_create:
@@ -3034,9 +3054,22 @@ async def _send_message_impl(
                         session.tenant_id,
                         conv_id,
                         intent=_sales_meta["intent"],
-                        source="chat_widget",
+                        source=lead_source(turn_channel(), linked_visitor),
                         utm=_utm,
                     )
+
+                    _catalog_signals: dict = {}
+                    if _cart is not None and _cart.has_content:
+                        _cart_synced = record_cart(db, lead, _cart)
+                        _catalog_signals = catalog_score_signals(_cart_synced)
+                        if _cart_synced.handover:
+                            # D1: a counter-offer is never answered by the AI; a human takes it
+                            if escalation_decision.action == EscalationAction.NO_ESCALATION:
+                                escalation_decision.action = EscalationAction.OFFER_ESCALATION
+                                escalation_decision.reason = "Customer made a price offer"
+                                escalation_decision.skip_quality_check = True
+                            if "connect you" not in ai_response_text:
+                                ai_response_text = f"{ai_response_text}\n\n{ASK_TEAM}"
 
                     _email_before = lead.email  # capture before enrich
                     _prior_score = lead.lead_score  # capture before enrich for sales_ready check
@@ -3045,8 +3078,11 @@ async def _send_message_impl(
                         lead,
                         intent=_sales_meta["intent"],
                         captured=_sales_meta["captured"],
-                        signals=_sales_meta["signals"],
+                        signals={**_sales_meta["signals"], **_catalog_signals},
                     )
+
+                    if _cart_synced is not None:
+                        await alert_owner(db, lead, _cart_synced)
 
                     # Set lead_captured only on the turn the email first appears.
                     if not _email_before and lead.email:
@@ -3136,8 +3172,25 @@ async def _send_message_impl(
                 and getattr(sales_agent_config, "meeting_booking_enabled", False)
             ):
                 _message_meta["offer_meeting"] = True
+            _catalog_quote: dict | None = None
             if (
                 _sales_close_allowed
+                and getattr(sales_agent_config, "quotation_enabled", False)
+                and lead is not None
+                and _cart is not None
+                and _cart_synced is not None
+            ):
+                try:
+                    _catalog_quote = await issue_quote(
+                        db, lead, _cart, _cart_synced, _offerings.currency
+                    )
+                    if _catalog_quote is not None:
+                        _message_meta["quote"] = _catalog_quote
+                except Exception as _cq_exc:
+                    logger.error(f"Catalog quote error (non-fatal): {_cq_exc}")
+            if (
+                _catalog_quote is None
+                and _sales_close_allowed
                 and bool(_signals.get("offer_quote"))
                 and getattr(sales_agent_config, "quotation_enabled", False)
             ):
