@@ -116,8 +116,22 @@ Gotchas: never add `--remove-orphans` to any production compose step (it deletes
 ## Decommission
 Removing the names from the env does **not** stop a running sidecar and does not delete the server's `.env.sidecar` (which holds the master key). To retire it: set `WHATSAPP_ENABLED=false`, `docker stop luran_whatsapp_sidecar && docker rm luran_whatsapp_sidecar`, `shred -u /opt/luran/.env.sidecar` (or `rm`), remove the snapshot cron line, then `DROP SCHEMA whatsapp_sidecar CASCADE; DROP ROLE whatsapp_sidecar;` if the data should go.
 
+## Launch ceiling and the flip (2026-10-30, owner decision)
+The sizing table above (3 sessions, RSS refuse 216, limit 384m) is what the sidecar shipped with. For the public flip the owner chose a **launch ceiling of 10** (not 3) so real businesses can be onboarded; this is an env-only change (PR #187, `.env.production.enc`, names only):
+
+| Setting | Was | Flip value | Basis |
+|---|---|---|---|
+| `WHATSAPP_ENABLED` | false | **true** | public flip |
+| `WHATSAPP_MAX_CONNECTIONS` / `WHATSAPP_MAX_SESSIONS` | 3 | **10** | owner choice |
+| `WHATSAPP_RSS_REFUSE_MB` | 216 | **512** | pessimistic ~340 MB process RSS at 10 numbers x 1.5 |
+| `WHATSAPP_SIDECAR_MEM_LIMIT` | 384m | **768m** | formula gives ~704m (512 + 32 /tmp + 48 healthcheck + 50 smoke, rounded to 64); one step up because it is an extrapolation |
+| `WHATSAPP_SIDECAR_CPUS` | 0.5 | **1** | reconnect storm after a restart |
+| `WHATSAPP_SIDECAR_REDIS_PASSWORD` | absent | **added** | needed by the isolated Redis (`whatsapp_sidecar_redis_isolation.md`) |
+
+**Status: ESTIMATED, not measured.** Only 2 numbers were ever soaked (peak container 97.3 MiB, process RSS 135-144 MB; crude 17-24 MB per number from two points). The wall (768m) is deliberately far from the expected use so a wrong estimate shows up as a refused new number (RSS guard) and not as a kill that drops every number. Mitigations: onboard a few businesses at a time, read the snapshot CSV / `docker stats` at about 3, 6 and 10 numbers, capacity email near 8, rollback `WHATSAPP_ENABLED=false`. WhatsApp is plan-driven default-on (no per-tenant grant), so anyone with a live trial or plan can connect until the ceiling: the 10 slots are first come, platform-wide. Staging keeps its own ceiling of 2.
+
 ## Follow-ups
-- Run the N-session soak (`docs/sop/whatsapp_sidecar_soak.md`) at 4-6 sessions, then raise `WHATSAPP_MAX_SESSIONS`, `WHATSAPP_RSS_REFUSE_MB`, the limit and the API cap together.
+- Run the N-session soak (`docs/sop/whatsapp_sidecar_soak.md`) while onboarding (ceiling is already 10 on estimates) to turn the estimates into measurements, then adjust `WHATSAPP_MAX_SESSIONS`, `WHATSAPP_RSS_REFUSE_MB`, the limit and the API cap together.
 - ~~Dedicated Redis on a private network~~ done 2026-10-30 (`whatsapp_sidecar_redis_isolation.md`). Still open: authentication for the shared production Redis and an API key for Qdrant (protects them from a compromised api/worker, not from the sidecar).
 - Read the live prod Redis flags and `max_connections` (the first CD log prints Redis; add `max_connections` to the first manual check).
 - Tighten prod's `.env` to 600 once nothing else needs it readable.
