@@ -620,6 +620,45 @@ jobs:
             (crontab -l 2>/dev/null | grep -v -F "${{ secrets.DEPLOY_PATH }}/scripts/backup_cron.sh" | grep -v "scripts/backup_db.sh"; echo "0 2 * * * ${{ secrets.DEPLOY_PATH }}/scripts/backup_cron.sh >> ${{ secrets.DEPLOY_PATH }}/backups/backup.log 2>&1") | crontab -
             echo "Backup cron installed: daily at 2 AM"
 
+      # WhatsApp sidecar network (production). The sidecar is off the shared `luran_default` network (it must not reach the
+      # unauthenticated redis/qdrant); it shares `luran_wa_backend` with exactly luran_api, luran_worker and luran_db. Those are
+      # attached to it with a live `docker network connect` (no restart), and the "Deploy to production" step above RECREATES
+      # api and worker on every deploy, which drops the attachment. So this runs after every production deploy and is its own
+      # pair of steps, independent of the sidecar image pull AND of the env gate AND of the API step's outcome (always(), but
+      # not when cancelled): a failed GHCR pull, a gate that skips, or an API health loop that times out after `up -d` already
+      # recreated api/worker must not leave a RUNNING sidecar cut off. With no network on the VPS yet it does nothing.
+      # Optional (continue-on-error); the production guard is in the script.
+      - name: Copy WhatsApp sidecar network helper to production stack directory
+        id: sidecar_net_copy
+        if: always() && !cancelled()
+        continue-on-error: true
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "scripts/whatsapp_sidecar_network.sh"
+          target: ${{ secrets.DEPLOY_PATH }}
+
+      - name: Attach production api, worker and db to the WhatsApp sidecar network
+        id: sidecar_net
+        if: always() && !cancelled() && steps.sidecar_net_copy.outcome == 'success'
+        continue-on-error: true
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -euo pipefail
+            cd "${{ secrets.DEPLOY_PATH }}"
+            # --if-exists: re-attach only; never creates the network (the sidecar deploy step does that).
+            bash scripts/whatsapp_sidecar_network.sh --if-exists
+
       # WhatsApp sidecar (production, optional). Runs only when the gate step found every required name. A failure here is
       # reported as a warning and never fails the production deploy: the API above is already live and healthy. The sidecar
       # comes up with the backend's WHATSAPP_ENABLED exactly as the env says (false until the owner flips it).
@@ -634,7 +673,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
           port: ${{ secrets.VPS_PORT || 22 }}
-          source: "sidecar-image.tar.gz,docker-compose.whatsapp.yml,docker-compose.whatsapp.production.yml,.env.sidecar,scripts/whatsapp_sidecar_db_init.sql,scripts/smoke_whatsapp_sidecar.sh,scripts/whatsapp_sidecar_snapshot.sh"
+          source: "sidecar-image.tar.gz,docker-compose.whatsapp.yml,docker-compose.whatsapp.production.yml,.env.sidecar,scripts/whatsapp_sidecar_db_init.sql,scripts/smoke_whatsapp_sidecar.sh,scripts/whatsapp_sidecar_snapshot.sh,scripts/whatsapp_sidecar_network.sh"
           target: ${{ secrets.DEPLOY_PATH }}
 
       - name: Deploy WhatsApp sidecar to production
@@ -672,6 +711,9 @@ jobs:
               exit 1
             fi
             docker load < sidecar-image.tar.gz
+            # The private network the sidecar shares with api, worker and db (idempotent; a recreated api/worker lost it).
+            # It must exist before the sidecar starts: compose treats it as external.
+            bash scripts/whatsapp_sidecar_network.sh
             export COMPOSE_PROJECT_NAME=luran
             export WHATSAPP_SIDECAR_IMAGE="luran-whatsapp-sidecar-prod:${{ github.sha }}"
             dc() {
@@ -683,6 +725,28 @@ jobs:
             # Role + schema owner for the sidecar (idempotent), then start ONLY the sidecar: --no-deps so no other
             # production service is touched or recreated by this step. Never add the orphan-removal flag to ANY production compose step: the base-file deploy would delete this container.
             dc run --rm --no-deps whatsapp-db-init
+            # The sidecar's OWN Redis first (authenticated, on an internal-only network), and only when it is healthy the
+            # sidecar. The shared production Redis is not used by the sidecar and is not touched here.
+            dc up -d --no-deps whatsapp-redis
+            rcid="$(dc ps -q whatsapp-redis)"
+            for attempt in $(seq 1 12); do
+              status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$rcid")"
+              if [ "$status" = healthy ]; then
+                echo "WhatsApp Redis is healthy."
+                break
+              fi
+              if [ "$attempt" -eq 12 ]; then
+                echo "WhatsApp Redis not healthy (status: $status); not starting the sidecar." >&2
+                docker logs --tail=40 "$rcid" >&2 || true
+                # Do not leave it restart-looping; but never stop a Redis that a running sidecar is already using.
+                if ! docker inspect --format '{{range $k, $_ := .NetworkSettings.Networks}}{{$k}} {{end}}' luran_whatsapp_sidecar 2>/dev/null | grep -qw luran_wa_redis; then
+                  dc stop whatsapp-redis >&2 || true
+                fi
+                exit 1
+              fi
+              echo "Waiting for WhatsApp Redis health ($attempt/12, status: $status)..."
+              sleep 5
+            done
             dc up -d --no-deps whatsapp-sidecar
             cid="$(dc ps -q whatsapp-sidecar)"
             for attempt in $(seq 1 20); do
@@ -703,8 +767,11 @@ jobs:
             # Effective limits (non-secret) and the Redis headroom the lease keys share with the app, for the CD log.
             docker inspect --format 'sidecar limits: memory={{.HostConfig.Memory}} swap={{.HostConfig.MemorySwap}} nano_cpus={{.HostConfig.NanoCpus}}' "$cid"
             docker exec "$cid" sh -c 'echo "sidecar caps: MAX_SESSIONS=$MAX_SESSIONS RSS_REFUSE_MB=$RSS_REFUSE_MB"'
-            dc exec -T redis redis-cli INFO memory | grep -E '^(used_memory_human|maxmemory_human|maxmemory_policy):' | tr -d '\r' || true
-            SMOKE_BACKEND="${{ steps.sidecar_env.outputs.backend_mode }}" bash scripts/smoke_whatsapp_sidecar.sh "$cid"
+            docker exec "$rcid" sh -c 'REDISCLI_AUTH="$WA_REDIS_PASSWORD" redis-cli INFO memory' | grep -E '^(used_memory_human|maxmemory_human|maxmemory_policy):' | tr -d '\r' || true
+            # SMOKE_ISOLATION=1 adds the isolation checks (the sidecar cannot resolve redis/qdrant/pgbouncer, its Redis
+            # refuses an unauthenticated command) and checks the api and worker env for the sidecar-only secret names.
+            SMOKE_ISOLATION=1 SMOKE_BACKEND_CONTAINERS="luran_api luran_worker" \
+              SMOKE_BACKEND="${{ steps.sidecar_env.outputs.backend_mode }}" bash scripts/smoke_whatsapp_sidecar.sh "$cid"
             chmod +x scripts/whatsapp_sidecar_snapshot.sh
             # Bound disk use: keep images used by any container plus the 3 newest PRODUCTION sidecar images (rollback).
             # Its own repo name (-prod): staging prunes `luran-whatsapp-sidecar` on every develop deploy on this same host.
@@ -719,6 +786,7 @@ jobs:
       - name: WhatsApp sidecar status
         if: always() && steps.sidecar_env.outputs.sidecar_enabled == 'true'
         env:
+          NET: ${{ steps.sidecar_net.outcome }}
           BUILD: ${{ steps.sidecar_build.outcome }}
           COPY: ${{ steps.sidecar_copy.outcome }}
           DEPLOY: ${{ steps.sidecar_deploy.outcome }}
@@ -727,8 +795,8 @@ jobs:
             echo "WhatsApp sidecar deployed and smoke-tested on production."
             echo "**WhatsApp sidecar:** deployed and smoke-tested." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "::warning::WhatsApp sidecar did NOT deploy cleanly (build=$BUILD copy=$COPY deploy=$DEPLOY). This step never fails the job; the API deploy result is the \"Deploy to production\" step above."
-            echo "**WhatsApp sidecar: NOT deployed cleanly** (build=$BUILD copy=$COPY deploy=$DEPLOY)." >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::WhatsApp sidecar did NOT deploy cleanly (network=$NET build=$BUILD copy=$COPY deploy=$DEPLOY). This step never fails the job; the API deploy result is the \"Deploy to production\" step above."
+            echo "**WhatsApp sidecar: NOT deployed cleanly** (network=$NET build=$BUILD copy=$COPY deploy=$DEPLOY)." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Notify deployment status

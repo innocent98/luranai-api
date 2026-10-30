@@ -6,6 +6,7 @@ Every secret below is a dummy built in the test. The assertions include "no valu
 from __future__ import annotations
 
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -21,7 +22,8 @@ SECRET = "s" * 40
 MASTER = "ab" * 32
 DBPW = "Z" * 28
 PEPPER = "p" * 40
-VALUES = [TOKEN, SECRET, MASTER, DBPW, PEPPER]
+REDISPW = "R" * 40
+VALUES = [TOKEN, SECRET, MASTER, DBPW, PEPPER, REDISPW]
 
 BASE = [
     "COMPOSE_PROJECT_NAME=luran",
@@ -34,6 +36,7 @@ FULL = [
     f"WHATSAPP_WEBHOOK_SECRET={SECRET}",
     f"WHATSAPP_AUTH_MASTER_KEY={MASTER}",
     f"WHATSAPP_SIDECAR_DB_PASSWORD={DBPW}",
+    f"WHATSAPP_SIDECAR_REDIS_PASSWORD={REDISPW}",
     f"WHATSAPP_CONTACT_PEPPER={PEPPER}",
     "WHATSAPP_SIDECAR_URL=http://whatsapp-sidecar:8787",
     "WHATSAPP_ENABLED=false",
@@ -90,7 +93,9 @@ def test_all_names_enable_and_secrets_leave_the_api_env(tmp_path):
     assert outputs == {"sidecar_enabled": "true", "backend_mode": "disabled"}
     api_env = env_file.read_text()
     assert (
-        "WHATSAPP_AUTH_MASTER_KEY" not in api_env and "WHATSAPP_SIDECAR_DB_PASSWORD" not in api_env
+        "WHATSAPP_AUTH_MASTER_KEY" not in api_env
+        and "WHATSAPP_SIDECAR_DB_PASSWORD" not in api_env
+        and "WHATSAPP_SIDECAR_REDIS_PASSWORD" not in api_env
     )
     for kept in (
         "WHATSAPP_SIDECAR_TOKEN",
@@ -100,7 +105,11 @@ def test_all_names_enable_and_secrets_leave_the_api_env(tmp_path):
     ):
         assert kept in api_env
     assert sorted(sidecar_file.read_text().split()) == sorted(
-        [f"WHATSAPP_AUTH_MASTER_KEY={MASTER}", f"WHATSAPP_SIDECAR_DB_PASSWORD={DBPW}"]
+        [
+            f"WHATSAPP_AUTH_MASTER_KEY={MASTER}",
+            f"WHATSAPP_SIDECAR_DB_PASSWORD={DBPW}",
+            f"WHATSAPP_SIDECAR_REDIS_PASSWORD={REDISPW}",
+        ]
     )
     # the scp container reads both as another user (luranai-api #165)
     assert (
@@ -146,6 +155,7 @@ def test_staging_env_is_refused_but_secrets_still_stripped(tmp_path, extra, need
     assert outputs == {"sidecar_enabled": "false"}
     assert needle in res.stdout
     assert "WHATSAPP_AUTH_MASTER_KEY" not in env_file.read_text()
+    assert "WHATSAPP_SIDECAR_REDIS_PASSWORD" not in env_file.read_text()
     assert not sidecar_file.exists()
 
 
@@ -164,6 +174,31 @@ def test_partial_names_skip_with_names_only(tmp_path):
     assert not sidecar_file.exists()
 
 
+def test_existing_names_without_the_redis_password_fail_closed_naming_it_only(tmp_path):
+    """The pre-isolation env (every old name, no Redis password) must NOT deploy the old shared-Redis layout."""
+    lines = [*BASE, *[line for line in FULL if "REDIS_PASSWORD" not in line]]
+    res, outputs, env_file, sidecar_file = run(tmp_path, lines)
+    assert res.returncode == 0 and outputs == {"sidecar_enabled": "false"}
+    assert "missing or empty: WHATSAPP_SIDECAR_REDIS_PASSWORD" in res.stdout
+    # loud, not a quiet green run: an already-running pre-isolation sidecar keeps the shared-Redis layout until this is fixed
+    assert "::warning::" in res.stdout and "NOT deployed" in res.stdout
+    api_env = env_file.read_text()
+    assert (
+        "WHATSAPP_AUTH_MASTER_KEY" not in api_env and "WHATSAPP_SIDECAR_DB_PASSWORD" not in api_env
+    )
+    assert not sidecar_file.exists()
+
+
+def test_only_the_redis_password_still_counts_as_a_sidecar_name_and_is_stripped(tmp_path):
+    res, outputs, env_file, sidecar_file = run(
+        tmp_path, [*BASE, f"WHATSAPP_SIDECAR_REDIS_PASSWORD={REDISPW}"]
+    )
+    assert outputs == {"sidecar_enabled": "false"}
+    assert "missing or empty" in res.stdout and "SKIPPED" in res.stdout
+    assert "WHATSAPP_SIDECAR_REDIS_PASSWORD" not in env_file.read_text()
+    assert not sidecar_file.exists()
+
+
 @pytest.mark.parametrize(
     ("replace", "name"),
     [
@@ -174,6 +209,9 @@ def test_partial_names_skip_with_names_only(tmp_path):
             ("WHATSAPP_SIDECAR_DB_PASSWORD", "-" * 24),
             "WHATSAPP_SIDECAR_DB_PASSWORD",
         ),  # right length, not alphanumeric
+        (("WHATSAPP_SIDECAR_REDIS_PASSWORD", "R" * 31), "WHATSAPP_SIDECAR_REDIS_PASSWORD"),
+        (("WHATSAPP_SIDECAR_REDIS_PASSWORD", "R" * 31 + "@"), "WHATSAPP_SIDECAR_REDIS_PASSWORD"),
+        (("WHATSAPP_SIDECAR_REDIS_PASSWORD", "R" * 31 + "/"), "WHATSAPP_SIDECAR_REDIS_PASSWORD"),
     ],
 )
 def test_malformed_values_skip_naming_the_key_only(tmp_path, replace, name):
@@ -192,12 +230,14 @@ def test_dotenv_dialects_crlf_export_spaces_quotes(tmp_path):
         f'  WHATSAPP_WEBHOOK_SECRET = "{SECRET}"',
         f"WHATSAPP_AUTH_MASTER_KEY={MASTER}",
         f"WHATSAPP_SIDECAR_DB_PASSWORD={DBPW}",
+        f"export WHATSAPP_SIDECAR_REDIS_PASSWORD = '{REDISPW}'",
         "WHATSAPP_ENABLED=false",
     ]
     res, outputs, env_file, sidecar_file = run(tmp_path, lines, eol="\r\n")
     assert res.returncode == 0 and outputs["sidecar_enabled"] == "true"
     assert "WHATSAPP_AUTH_MASTER_KEY" not in env_file.read_text()
-    assert MASTER in sidecar_file.read_text()
+    assert MASTER in sidecar_file.read_text() and REDISPW in sidecar_file.read_text()
+    assert "REDIS_PASSWORD" not in env_file.read_text()
 
 
 def test_prefix_sharing_names_are_not_confused(tmp_path):
@@ -206,11 +246,14 @@ def test_prefix_sharing_names_are_not_confused(tmp_path):
         *FULL,
         "WHATSAPP_SIDECAR_TOKEN_OLD=" + "o" * 40,
         "WHATSAPP_AUTH_MASTER_KEY_BACKUP=" + "c" * 64,
+        "WHATSAPP_SIDECAR_REDIS_PASSWORD_OLD=" + "d" * 40,
     ]
     _, _, env_file, sidecar_file = run(tmp_path, lines)
     api_env = env_file.read_text()
     assert "WHATSAPP_SIDECAR_TOKEN_OLD" in api_env and "WHATSAPP_AUTH_MASTER_KEY_BACKUP" in api_env
     assert "WHATSAPP_AUTH_MASTER_KEY_BACKUP" not in sidecar_file.read_text()
+    assert "WHATSAPP_SIDECAR_REDIS_PASSWORD_OLD" in api_env
+    assert "WHATSAPP_SIDECAR_REDIS_PASSWORD_OLD" not in sidecar_file.read_text()
 
 
 def test_missing_env_file_skips_cleanly(tmp_path):
@@ -255,6 +298,7 @@ def test_generator_writes_a_private_file_prints_nothing_and_ships_disabled(tmp_p
     assert (
         len(values["WHATSAPP_AUTH_MASTER_KEY"]) == 64
         and len(values["WHATSAPP_SIDECAR_DB_PASSWORD"]) == 48
+        and re.fullmatch(r"[0-9a-f]{48}", values["WHATSAPP_SIDECAR_REDIS_PASSWORD"])
     )
     assert (
         len(
@@ -265,10 +309,12 @@ def test_generator_writes_a_private_file_prints_nothing_and_ships_disabled(tmp_p
                     "WHATSAPP_WEBHOOK_SECRET",
                     "WHATSAPP_CONTACT_PEPPER",
                     "WHATSAPP_AUTH_MASTER_KEY",
+                    "WHATSAPP_SIDECAR_DB_PASSWORD",
+                    "WHATSAPP_SIDECAR_REDIS_PASSWORD",
                 )
             }
         )
-        == 4
+        == 6
     )
     # what it generates must pass the gate
     env_file = tmp_path / ".env"
@@ -290,3 +336,28 @@ def test_generator_refuses_to_overwrite(tmp_path):
     out.write_text("keep")
     res = subprocess.run(["bash", str(GEN), str(out)], capture_output=True, text=True)
     assert res.returncode == 1 and out.read_text() == "keep"
+
+
+def test_generator_redis_only_writes_exactly_the_one_new_name(tmp_path):
+    """For an owner whose env already has the other WhatsApp secrets: must not regenerate (and so change) the master key."""
+    out = tmp_path / "redis.env"
+    res = subprocess.run(
+        ["bash", str(GEN), "--redis-only", str(out)], capture_output=True, text=True
+    )
+    assert res.returncode == 0 and res.stdout == "" and res.stderr == ""
+    assert stat.S_IMODE(out.stat().st_mode) == 0o600
+    lines = [line for line in out.read_text().splitlines() if line and not line.startswith("#")]
+    assert len(lines) == 1
+    name, value = lines[0].split("=", 1)
+    assert name == "WHATSAPP_SIDECAR_REDIS_PASSWORD" and re.fullmatch(r"[0-9a-f]{48}", value)
+    again = subprocess.run(
+        ["bash", str(GEN), "--redis-only", str(out)], capture_output=True, text=True
+    )
+    assert again.returncode == 1 and out.read_text().count(value) == 1  # refuses to overwrite
+
+
+def test_generator_rejects_unknown_flags(tmp_path):
+    res = subprocess.run(
+        ["bash", str(GEN), "--bogus", str(tmp_path / "x.env")], capture_output=True, text=True
+    )
+    assert res.returncode == 2 and not (tmp_path / "x.env").exists()
