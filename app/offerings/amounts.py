@@ -15,7 +15,7 @@ from decimal import Decimal
 _NUM = r"(?:\d{1,3}(?:,\d{3})+|\d{1,3}(?:[   ]\d{3})+|\d+)(?:\.\d+)?"
 _AMOUNT = re.compile(
     rf"""
-    (?P<pre>(?:(?<![A-Za-z0-9])(?:₦|NGN|USD|GBP|EUR|[Nn](?=\s?\d))|[$£€])\s?)?
+    (?P<pre>(?:(?<![A-Za-z0-9])(?:₦|NGN|USD|GBP|EUR|[Nn](?=\s?\d))|[$£€])[\s-]?)?
     (?P<num>{_NUM})
     (?P<tail>
         \s?%
@@ -378,7 +378,7 @@ _PHONE = re.compile(
     r"(?<!\d)(?:\+?234|0)\d{2,3}[\s-]?\d{3}[\s-]?\d{4}(?!\d)|(?<!\d)\d{3,4}[\s-]\d{3}[\s-]\d{4}(?!\d)"
 )
 _DATE = re.compile(r"(?<!\d)\d{1,2}[/-]\d{1,2}[/-]\d{2,4}(?!\d)")
-_REFCODE = re.compile(r"\b[A-Za-z]{2,5}-\d{2,6}\b")
+_REFCODE = re.compile(r"\b(?!(?:ngn|usd|gbp|eur)-)[A-Za-z]{2,5}-\d{2,6}\b", re.IGNORECASE)
 
 
 def mask_non_money(text: str, names: Iterable[str] = ()) -> str:

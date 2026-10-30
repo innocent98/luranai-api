@@ -313,6 +313,16 @@ CASES = [
     C("Delivery is 2,5k.", False, "not_in_block"),
     C("The black sneaker is ₦30,000 on our Pro plan.", False, "wrong_item_price", tiers=(30000,)),
     C("Okay, I can do ₦30,000 for you.", False, "concession", tiers=(30000,)),
+    # --- automated review of fa7ce37 -----------------------------------------------------------
+    C("The black sneaker is NGN-11000.", False, "wrong_item_price"),
+    C("The black sneaker is USD-12.", False),
+    C("Your reference is LUR-2041.", True),
+    C("The black sneaker and the leather bag are ₦20,000 each.", False,
+      "customer_figure_below_price", customer=("20k each?",)),
+    C("I can't give a discount, but the black sneaker is half price today.", False, "discount_wording"),
+    C("No discount today; the black sneaker is for free.", False, "discount_wording"),
+    C("I can't offer a discount on the black sneaker.", True),
+    C("There is no discount on the black sneaker.", True),
     # --- wrong, invented and stale prices ------------------------------------------------
     C("The black sneaker is ₦11,000.", False, "wrong_item_price"),
     C("The black sneaker is ₦12,500.", False, "wrong_item_price"),

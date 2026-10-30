@@ -110,10 +110,25 @@ _DISCOUNT_WORDS = re.compile(
     re.IGNORECASE,
 )
 _NEGATION = re.compile(
-    r"\b(?:can't|cannot|can not|unable|not able|won't|will not|don't|do not|no discounts?|"
-    r"not possible|never)\b",
+    r"\b(?:can't|cannot|can not|unable to|not able to|won't|will not|don't|do not|never|no|not)\b",
     re.IGNORECASE,
 )
+
+
+def _negated(sentence: str, start: int) -> bool:
+    """A negation right before `start` governs it: at most four words, no clause break between."""
+    window = sentence[max(0, start - 45) : start]
+    hits = list(_NEGATION.finditer(window))
+    if not hits:
+        return False
+    between = window[hits[-1].end() :]
+    return len(between.split()) <= 4 and not re.search(r"[,;:]|\bbut\b|\bhowever\b", between)
+
+
+def _discount_wording(sentence: str) -> bool:
+    return any(not _negated(sentence, m.start()) for m in _DISCOUNT_WORDS.finditer(sentence))
+
+
 _AGREE = re.compile(
     r"\b(?:yes|yeah|yep|okay|ok|sure|deal|agreed?|accept(?:ed)?|alright|perfect|good news|great news"
     r"|granted|approved|confirmed|fine|works?|no problem|of course|certainly|absolutely)\b",
@@ -171,12 +186,7 @@ def check_reply(
         amounts = extract_amounts(masked, small_ok=small_ok)
         loose, strict = _named_items(sentence, items)
         cue = bool(_CUES.search(sentence))
-        if (
-            not grounding.strict
-            and (loose or amounts)
-            and _DISCOUNT_WORDS.search(sentence)
-            and not _NEGATION.search(sentence)
-        ):
+        if not grounding.strict and (loose or amounts) and _discount_wording(sentence):
             violations.append(Violation(sentence, "discount_wording"))
         listed = {Decimal(i.price) for i in strict if i.price is not None}
         for a in amounts:
@@ -241,7 +251,7 @@ def _judge_money(
         if customer_ok:
             if cue:
                 return "concession"
-            if not listed or v < min(listed):
+            if not listed or v < max(listed):
                 return (
                     "customer_figure_below_price"  # code, not the model, writes "noted your offer"
                 )
