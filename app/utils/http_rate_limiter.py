@@ -158,6 +158,15 @@ platform_admin_rate_limiter = RedisRateLimiter(
     window_seconds=60,
 )
 
+# Referral bank-account name lookups (keyed per platform admin id by the endpoint itself): each
+# call is a Paystack API call that also reveals the holder name of any account number, so it gets
+# its own tight budget on top of the general platform-admin one.
+bank_resolve_rate_limiter = RedisRateLimiter(
+    key_prefix="http_bank_resolve",
+    max_calls=100 if _is_relaxed else 10,
+    window_seconds=60,
+)
+
 # Platform analytics (user-based, more permissive)
 platform_analytics_rate_limiter = RedisRateLimiter(
     key_prefix="http_platform_analytics",

@@ -1,0 +1,32 @@
+{
+  "description": "Resolve again until the per-admin budget (10 per minute) runs out.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/banks/resolve",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "bank_code": "058",
+      "account_number": "0000000000"
+    }
+  },
+  "response": {
+    "status": 429,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": {
+        "error": "Rate limit exceeded",
+        "limit": 10,
+        "window_seconds": 60,
+        "retry_after_seconds": 60
+      }
+    }
+  }
+}

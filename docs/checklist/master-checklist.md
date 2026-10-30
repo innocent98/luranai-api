@@ -252,6 +252,11 @@ Why: Luran wants marketers and influencers to bring businesses, paid a one-time 
 - [x] Unmatched dispute logs an ERROR with Paystack's dispute id; SMTP socket timeout raised to 30 s; exception text no longer logged in the new referral code
 - [ ] PR opened to `develop`, reviewed and merged (lead)
 
+### Bank picker on the marketer forms (2026-10-30)
+- [x] Backend: `GET /platform/referrals/banks` (any platform admin, cached 24 h, `{name, code}` only, stale copy up to 7 days) and `POST /platform/referrals/banks/resolve` (super admin, per-admin 10/min, holder name only); errors `bank_provider_unavailable` / `account_not_resolved`; tests with a fake Paystack; 23 live captures against a FAKE Paystack; FE guide section 15; SOP `docs/sop/referral_bank_picker_backend.md` (PR `feature/referral-bank-picker-backend` to `develop`)
+- [ ] Dashboard: searchable bank select + Verify step on `MarketerForm` and `MarketerBankForm` (PR `feature/referral-bank-picker-dashboard` to `staging`)
+- [ ] Owner: one real call of both endpoints with the live Paystack key to confirm the real shapes (never exercised; no key was available)
+
 ### Not done: frontend and owner items
 - [ ] Dashboard: marketer page `/marketer`, admin screens (marketers, review queue, payout batches, settings) against `docs/fe-integration-guide-referral.md`
 - [ ] `luran_ref` cookie script on `luranai.com` (30 days, first link wins) and the optional "Referral code" field on the signup form
