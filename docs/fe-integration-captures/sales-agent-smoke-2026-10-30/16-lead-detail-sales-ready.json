@@ -1,0 +1,124 @@
+{
+  "scenario": "lead-detail-sales-ready",
+  "note": "Lead detail after crossing the threshold",
+  "request": {
+    "method": "GET",
+    "path": "/leads/91f0b5fd-3a2c-4316-bc0d-b3488b27df91",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "id": "91f0b5fd-3a2c-4316-bc0d-b3488b27df91",
+        "name": "Ada Okafor",
+        "company": "Acme Group Logistics",
+        "intent": "PURCHASE_INTENT",
+        "lead_score": 100,
+        "tier": "sales_ready",
+        "status": "new",
+        "source_label": "chat_widget · Paid ad",
+        "created_at": "2026-10-30T22:06:27.344100+00:00",
+        "email": "ada.okafor@example.com",
+        "team_size": "40",
+        "industry": "logistics",
+        "conversation_id": "f992cb12-92b3-488b-8d43-85dc5b7eec14",
+        "score_breakdown": [
+          {
+            "key": "provided_email",
+            "label": "Provided email",
+            "weight": 20,
+            "fired": true
+          },
+          {
+            "key": "company_name",
+            "label": "Mentioned company name",
+            "weight": 10,
+            "fired": true
+          },
+          {
+            "key": "team_over_50",
+            "label": "Team size > 50",
+            "weight": 15,
+            "fired": false
+          },
+          {
+            "key": "enterprise",
+            "label": "Enterprise / corporate",
+            "weight": 20,
+            "fired": true
+          },
+          {
+            "key": "asked_features",
+            "label": "Asked about specific features",
+            "weight": 10,
+            "fired": true
+          },
+          {
+            "key": "requested_demo",
+            "label": "Requested a demo",
+            "weight": 15,
+            "fired": false
+          },
+          {
+            "key": "mentioned_competitor",
+            "label": "Mentioned a competitor",
+            "weight": 10,
+            "fired": true
+          },
+          {
+            "key": "ready_to_buy",
+            "label": "Said \"ready to buy\"",
+            "weight": 25,
+            "fired": true
+          },
+          {
+            "key": "paid_ad",
+            "label": "Came from a paid ad (UTM)",
+            "weight": 5,
+            "fired": true
+          }
+        ],
+        "source": {
+          "landing_page": "chat_widget",
+          "utm": {
+            "utm_source": "google_ads",
+            "utm_medium": "cpc"
+          },
+          "channel": "paid",
+          "first_seen": "2026-10-30T22:06:27.344100+00:00"
+        },
+        "meeting": null,
+        "quote": {
+          "id": "645cc73d-8206-4b56-8dac-ecaaf44bc216",
+          "currency": "NGN",
+          "line_items": [
+            {
+              "label": "Professional",
+              "detail": "11–50 users",
+              "amount": 150000
+            },
+            {
+              "label": "Annual discount",
+              "detail": "−20%",
+              "amount": -30000
+            }
+          ],
+          "total": 120000,
+          "status": "draft",
+          "created_at": "2026-10-30T22:06:28.315338+00:00"
+        },
+        "crm": {
+          "connected": false,
+          "status": "pending",
+          "synced_at": "2026-10-30T22:06:28.287237+00:00",
+          "error": null
+        }
+      }
+    }
+  }
+}

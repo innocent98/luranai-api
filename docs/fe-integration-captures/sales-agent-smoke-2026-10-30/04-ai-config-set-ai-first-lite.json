@@ -1,0 +1,39 @@
+{
+  "scenario": "ai-config-set-ai-first-lite",
+  "note": "Admin switches to AI first",
+  "request": {
+    "method": "PUT",
+    "path": "/tenant/ai-config",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "first_responder": "ai"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "brand_voice": {},
+      "allowed_topics": null,
+      "blocked_topics": null,
+      "escalation_keywords": [],
+      "max_response_tokens": 450,
+      "grounding_requirement": true,
+      "grounding_mode": "balanced",
+      "low_confidence_action": "clarify",
+      "no_retrieval_action": "clarify",
+      "first_responder": "ai",
+      "require_email_before_escalation": false,
+      "require_name_before_escalation": false,
+      "collect_name_before_chat": false,
+      "collect_email_before_chat": false,
+      "custom_instructions": null,
+      "id": "908d3e1f-54e2-430b-93ee-650c8d47f1ca",
+      "tenant_id": "3ec0daeb-2cca-491a-995b-8fa206bea1ea",
+      "active_knowledge_sources": 0,
+      "created_at": "2026-10-30T22:06:25.970805Z",
+      "updated_at": "2026-10-30T22:06:27.084852Z"
+    }
+  }
+}

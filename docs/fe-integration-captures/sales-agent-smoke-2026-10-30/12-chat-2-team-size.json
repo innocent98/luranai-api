@@ -1,0 +1,57 @@
+{
+  "scenario": "chat-2-team-size",
+  "note": "Qualification answered: team size + industry captured",
+  "request": {
+    "method": "POST",
+    "path": "/chat/message",
+    "headers": {},
+    "body": {
+      "session_id": "f992cb12-92b3-488b-8d43-85dc5b7eec14",
+      "tenant_id": "75f5397b-6762-483a-bfdd-dcbbc38099f5",
+      "user_identifier": "smoke-visitor-1",
+      "message": "We're about 40 people, mostly dispatch staff. Which plan fits?",
+      "metadata": {
+        "utm_source": "google_ads",
+        "utm_medium": "cpc"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "f992cb12-92b3-488b-8d43-85dc5b7eec14",
+      "message": {
+        "role": "assistant",
+        "content": "With 40 people the Professional plan gives you the most headroom. Could I get your name and email so I can prepare it for you?",
+        "id": "2a5cf71a-1457-470f-9b4b-d04d1d71d04f",
+        "session_id": "f992cb12-92b3-488b-8d43-85dc5b7eec14",
+        "retrieved_chunk_ids": [],
+        "token_count": 150,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "chunks_used": 0,
+          "avg_similarity": 0.0,
+          "retrieval_hit": false,
+          "escalation_action": "no_escalation",
+          "response_quality": {
+            "is_substantial": true,
+            "has_uncertainty": false,
+            "word_count": 25,
+            "char_count": 126
+          },
+          "token_breakdown": {
+            "prompt_tokens": 213,
+            "completion_tokens": -63,
+            "total_tokens": 150
+          }
+        },
+        "created_at": "2026-10-30T22:06:28.167273Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}
