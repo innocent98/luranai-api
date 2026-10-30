@@ -72,6 +72,7 @@ from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.offerings.cart import CartResolution, InterestSync, resolve_cart
 from app.offerings.fallback import ASK_TEAM
+from app.offerings.grounding import GroundingResult
 from app.offerings.guard_flow import guard_reply
 from app.offerings.misses import record_miss
 from app.offerings.orchestrate import (
@@ -2696,6 +2697,8 @@ async def _send_message_impl(
         policy_action = "answer"
         policy_reason = "normal_generation"
         _sales_meta: dict | None = None  # populated only in sales mode
+        _offerings: GroundingResult | None = None  # set only on the generation path below
+        _guard_record: dict | None = None
 
         if not scope_allowed:
             policy_action = "refuse"
@@ -2917,7 +2920,6 @@ async def _send_message_impl(
 
             # Offerings price guard: every reply built on a catalog block is checked in code;
             # one regeneration, then a reply built from the rows (never an empty reply).
-            _guard_record: dict | None = None
             if _offerings is not None and not is_api_error:
 
                 async def _regenerate(note: str):  # same call type as the first attempt
