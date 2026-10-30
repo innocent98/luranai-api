@@ -1,0 +1,378 @@
+{
+  "summary": {
+    "passed": 74,
+    "total": 74
+  },
+  "checks": [
+    {
+      "check": "api healthy",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "new tenant defaults to first_responder=human (AI silent)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "professional: first_responder set to ai",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "check": "lite: first_responder set to ai",
+      "pass": true,
+      "detail": "status=200"
+    },
+    {
+      "check": "config saved on Professional",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "webhook + availability + tiers round-trip (the old drift bug)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "config persisted on re-read",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "turn 1 replied 200",
+      "pass": true,
+      "detail": "reply='Our plans start from the Starter tier and scale with your team. What are you hoping to use Luran for in your business?'"
+    },
+    {
+      "check": "directive carries the tenant's first qualification question",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "directive carries the configured plans + annual discount",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "directive tells the model meeting scheduling IS available",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "reply asks the qualifying question (stand-in echoes the directive's)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "lead created on first trigger-intent turn",
+      "pass": true,
+      "detail": "intent=PRICING_INQUIRY"
+    },
+    {
+      "check": "team size + industry captured, not yet sales-ready",
+      "pass": true,
+      "detail": "score=5 tier=cold"
+    },
+    {
+      "check": "no notifications fired before sales-ready",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "lead captured (name/company/email) and sales-ready (>=86)",
+      "pass": true,
+      "detail": "score=100 tier=sales_ready"
+    },
+    {
+      "check": "lead_captured meta on the turn the email first appears",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "PII encrypted at rest (leads.email is not plaintext in the DB)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "CRM webhook URL encrypted at rest",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "quote card present in the chat response meta",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "total = 150,000 - 20% = 120,000 computed in code, currency NGN",
+      "pass": true,
+      "detail": "total=120000 currency=NGN"
+    },
+    {
+      "check": "line items: tier base + annual discount only",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "meeting picker NOT offered on this turn (no demo ask)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "quote persisted and linked to the lead",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "sales_ready: email/in_app/slack/crm all sent",
+      "pass": true,
+      "detail": "{\"email\": \"sent\", \"in_app\": \"sent\", \"slack\": \"sent\", \"crm\": \"sent\"}"
+    },
+    {
+      "check": "quote_generated: email + in_app + slack sent (CRM is sales-ready only)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "CRM payload landed with the lead fields",
+      "pass": true,
+      "detail": "{'lead_score': 100, 'status': 'new', 'intent': 'PURCHASE_INTENT', 'team_size': '40'}"
+    },
+    {
+      "check": "CRM id written back to the lead (Lead.crm_id)",
+      "pass": true,
+      "detail": "crm-standin-1"
+    },
+    {
+      "check": "Slack bodies are Block Kit with a dashboard link",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "in-app notifications listed for the tenant admin",
+      "pass": true,
+      "detail": "{'success': True, 'data': {'items': [{'id': '9934b40e-c130-467b-b1ea-de40dc63058e', 'event': 'quote_generated', 'title': 'New quote', 'body': '\u20a6120,000 \u00b7 Acme Group Logistics', 'read_at': None, 'creat"
+    },
+    {
+      "check": "rep alert emails delivered to the stub SMTP",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "FIX 1: quote PDF text has the naira sign (no black box) and the total",
+      "pass": true,
+      "detail": "['Quotation', 'Prepared for Acme Group Logistics', 'Item', 'Detail', ' Amount', ' ', 'Professional', '11\u201350 users']"
+    },
+    {
+      "check": "FIX 1: PDF embeds DejaVu Sans (not Helvetica)",
+      "pass": true,
+      "detail": "['/Helvetica', '/AAAAAA+DejaVuSans-Bold', '/AAAAAA+DejaVuSans']"
+    },
+    {
+      "check": "quote PDF attached to the quote email and is a valid PDF",
+      "pass": true,
+      "detail": "19820 bytes"
+    },
+    {
+      "check": "offer_meeting flag set on the demo-request turn",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "availability slots generated from the window",
+      "pass": true,
+      "detail": "32 slots / 3 days"
+    },
+    {
+      "check": "slots are future, on the 30-minute grid, inside 09:00-17:00 Lagos",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "booking 200",
+      "pass": true,
+      "detail": "{'success': True, 'data': {'meeting': {'scheduled_at': '2026-10-31T08:00:00+00:00', 'duration_min': 30}}}"
+    },
+    {
+      "check": "same lead re-submitting returns the existing meeting (idempotent, one live meeting per lead)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "a second pick does not reschedule: the original meeting is returned (200, no new row)",
+      "pass": true,
+      "detail": "asked 2026-10-31T10:00:00+00:00 got 2026-10-31T08:00:00+00:00"
+    },
+    {
+      "check": "exactly one meeting row for the lead",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "past slot refused 409",
+      "pass": true,
+      "detail": "{\"success\":false,\"error\":{\"code\":\"SLOT_UNAVAILABLE\",\"message\":\"Slot is in the past\"}}"
+    },
+    {
+      "check": "booked slot no longer offered",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "visitor confirmation email sent to the lead's address",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "rep 'New meeting booked' email sent",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "lead detail carries meeting, quote and crm",
+      "pass": true,
+      "detail": "score=100 tier=sales_ready crm={'connected': True, 'status': 'sent', 'synced_at': '2026-10-30T22:24:51.453260+00:00', 'error': None}"
+    },
+    {
+      "check": "FIX 2: lead stays sales_ready (score held) after the later demo-request turn",
+      "pass": true,
+      "detail": "score=100 tier=sales_ready"
+    },
+    {
+      "check": "FIX 3: every rep email for this lead links to its dashboard page, none to '#'",
+      "pass": true,
+      "detail": "3 emails, want http://localhost:3000/dashboard/grow/leads/a40f052f-acfd-4907-be3e-b5b9fe18196f"
+    },
+    {
+      "check": "FIX 3: Slack 'View in dashboard' uses the same deep link",
+      "pass": true,
+      "detail": "http://localhost:3000/dashboard/grow/leads/a40f052f-acfd-4907-be3e-b5b9fe18196f"
+    },
+    {
+      "check": "sales_ready dispatched exactly once per channel (no duplicates)",
+      "pass": true,
+      "detail": "4 rows"
+    },
+    {
+      "check": "re-scoring does not duplicate sales_ready notifications",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "second crossing of the threshold did NOT re-dispatch (dedupe index holds)",
+      "pass": true,
+      "detail": "score after recross=100; /crm POSTs=1"
+    },
+    {
+      "check": "overage quote: (150,000 + 10 x 3,000) - 20% = 144,000",
+      "pass": true,
+      "detail": "total=144000 items=[('Professional', 150000), ('Extra seats (\u00d710)', 30000), ('Annual discount', -36000)]"
+    },
+    {
+      "check": "another lead cannot take a booked slot: 409 SLOT_UNAVAILABLE",
+      "pass": true,
+      "detail": "{\"success\":false,\"error\":{\"code\":\"SLOT_UNAVAILABLE\",\"message\":\"Not an available slot\"}}"
+    },
+    {
+      "check": "Lite cannot enable quotes/booking: refused",
+      "pass": true,
+      "detail": "status=403 body={\"code\": \"feature_not_in_plan\", \"feature\": \"sales_close\", \"min_tier\": \"professional\", \"message\": \"Your plan does not include meeting booking and quotes. Upgrade to Professional to use it.\"}"
+    },
+    {
+      "check": "Lite cannot enable CRM/Slack: refused",
+      "pass": true,
+      "detail": "status=403"
+    },
+    {
+      "check": "Lite can save lead-capture-only config",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "Lite: no quote card in the response",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "Lite lead capture + scoring work (sales-ready on the buying turn)",
+      "pass": true,
+      "detail": "score=100 tier=sales_ready"
+    },
+    {
+      "check": "Lite: no meeting offered",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "Lite: directive tells the model scheduling is NOT available",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "Lite: availability returns no slots",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "Lite: booking refused 403 BOOKING_DISABLED",
+      "pass": true,
+      "detail": "{\"success\":false,\"error\":{\"code\":\"BOOKING_DISABLED\",\"message\":\"Meeting booking is not enabled\"}}"
+    },
+    {
+      "check": "Lite: no quote row created",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "Lite lead still reaches sales-ready and notifies by email + in-app only",
+      "pass": true,
+      "detail": "{'email', 'in_app'}"
+    },
+    {
+      "check": "unmodified guard blocks loopback",
+      "pass": true,
+      "detail": "URL resolves to disallowed IP: 127.0.0.1"
+    },
+    {
+      "check": "unmodified guard blocks cloud-metadata",
+      "pass": true,
+      "detail": "URL resolves to disallowed IP: 169.254.169.254"
+    },
+    {
+      "check": "link-local CRM target: FAILED 'blocked webhook host', no POST",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "default tenant: AI does not answer, visitor is escalated to a human ('Human-only mode')",
+      "pass": true,
+      "detail": "reply='Thanks for reaching out \u2014 connecting you with someone from our team now.'"
+    },
+    {
+      "check": "default tenant: no lead is created from the buying-intent message",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "worker log has no lead PII or webhook URLs",
+      "pass": true,
+      "detail": "14366 bytes scanned"
+    },
+    {
+      "check": "worker log has no tracebacks",
+      "pass": true,
+      "detail": "0 traceback lines"
+    },
+    {
+      "check": "api log has no lead PII or webhook URLs",
+      "pass": true,
+      "detail": "146892 bytes scanned"
+    },
+    {
+      "check": "api log has no tracebacks",
+      "pass": true,
+      "detail": "0 traceback lines"
+    }
+  ]
+}

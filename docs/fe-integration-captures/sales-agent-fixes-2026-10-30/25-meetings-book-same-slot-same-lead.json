@@ -1,0 +1,25 @@
+{
+  "scenario": "meetings-book-same-slot-same-lead",
+  "note": "Same lead, same slot again (double-submit)",
+  "request": {
+    "method": "POST",
+    "path": "/chat/meetings",
+    "headers": {},
+    "body": {
+      "conversation_id": "728f400a-cb64-4b1a-889b-5c42e053cc42",
+      "scheduled_at": "2026-10-31T08:00:00+00:00"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "meeting": {
+          "scheduled_at": "2026-10-31T08:00:00+00:00",
+          "duration_min": 30
+        }
+      }
+    }
+  }
+}

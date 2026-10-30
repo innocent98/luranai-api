@@ -34,3 +34,88 @@ def test_render_single_line_quote(db_session):
     q.total = 20000
     data = render_quote_pdf(q, lead=lead)
     assert data[:5] == b"%PDF-"
+
+
+# ---------------------------------------------------------------------------
+# Currency glyphs: the PDF must carry a font that has them (Helvetica has no U+20A6)
+# ---------------------------------------------------------------------------
+
+import io
+import logging
+
+import PyPDF2
+import pytest
+
+from app.services import quote_pdf_service
+
+
+def _pdf_text(data: bytes) -> str:
+    reader = PyPDF2.PdfReader(io.BytesIO(data))
+    return "\n".join(page.extract_text() or "" for page in reader.pages)
+
+
+def _fonts(page):
+    fonts = page["/Resources"].get_object().get("/Font")
+    return list(fonts.get_object().values()) if fonts is not None else []
+
+
+def _pdf_font_names(data: bytes) -> set[str]:
+    reader = PyPDF2.PdfReader(io.BytesIO(data))
+    names: set[str] = set()
+    for page in reader.pages:
+        for font in _fonts(page):
+            names.add(str(font.get_object()["/BaseFont"]))
+    return names
+
+
+def _embedded_font_files(data: bytes) -> int:
+    reader = PyPDF2.PdfReader(io.BytesIO(data))
+    count = 0
+    for page in reader.pages:
+        for font in _fonts(page):
+            font = font.get_object()
+            descriptor = font.get("/FontDescriptor")
+            if descriptor is not None and "/FontFile2" in descriptor.get_object():
+                count += 1
+    return count
+
+
+def test_ngn_quote_pdf_contains_naira_sign_and_embeds_the_font(db_session):
+    q, lead = _quote(db_session)
+    data = render_quote_pdf(q, lead=lead)
+    text = _pdf_text(data)
+    assert "₦62,050" in text
+    assert "■" not in text
+    assert any("DejaVu" in n for n in _pdf_font_names(data))
+    assert _embedded_font_files(data) >= 1  # embedded, not looked up on the reader's machine
+
+
+@pytest.mark.parametrize(
+    "currency,symbol", [("USD", "$"), ("GBP", "£"), ("EUR", "€"), ("NGN", "₦")]
+)
+def test_every_supported_currency_symbol_renders(db_session, currency, symbol):
+    q, lead = _quote(db_session)
+    q.currency = currency
+    q.line_items = [{"label": "Pro", "detail": "−15% · 11–50 users", "amount": 1200}]
+    q.total = 1200
+    text = _pdf_text(render_quote_pdf(q, lead=lead))
+    assert f"{symbol}1,200" in text
+
+
+def test_yoruba_company_name_survives(db_session):
+    q, lead = _quote(db_session)
+    lead.company = "Ọmọlará Ṣẹ́ẹ̀"  # Latin Extended Additional + combining marks
+    assert "Ọmọlará" in _pdf_text(render_quote_pdf(q, lead=lead))
+
+
+def test_missing_font_falls_back_without_crashing_and_logs_once(db_session, tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(quote_pdf_service, "_FONT_DIR", tmp_path)  # no font files here
+    monkeypatch.setattr(quote_pdf_service, "_warned_missing_font", False)
+    q, lead = _quote(db_session)
+    with caplog.at_level(logging.WARNING):
+        first = render_quote_pdf(q, lead=lead)
+        second = render_quote_pdf(q, lead=lead)
+    assert first[:5] == b"%PDF-" and second[:5] == b"%PDF-"
+    assert not any("DejaVu" in n for n in _pdf_font_names(first))  # the old Helvetica path
+    warnings = [r for r in caplog.records if "quote pdf font" in r.getMessage().lower()]
+    assert len(warnings) == 1

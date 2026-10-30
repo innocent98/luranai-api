@@ -1,0 +1,37 @@
+{
+  "scenario": "ai-config-default-new-tenant",
+  "note": "A brand-new tenant's default: human answers first",
+  "request": {
+    "method": "GET",
+    "path": "/tenant/ai-config",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "brand_voice": {},
+      "allowed_topics": null,
+      "blocked_topics": null,
+      "escalation_keywords": [],
+      "max_response_tokens": 450,
+      "grounding_requirement": true,
+      "grounding_mode": "balanced",
+      "low_confidence_action": "clarify",
+      "no_retrieval_action": "clarify",
+      "first_responder": "human",
+      "require_email_before_escalation": false,
+      "require_name_before_escalation": false,
+      "collect_name_before_chat": false,
+      "collect_email_before_chat": false,
+      "custom_instructions": null,
+      "id": "01d018c0-c98a-4db0-ae44-d883a8de3fee",
+      "tenant_id": "b9790fa8-38ff-454e-908d-96dd0f639e9d",
+      "active_knowledge_sources": 0,
+      "created_at": "2026-10-30T22:24:44.644303Z",
+      "updated_at": "2026-10-30T22:24:44.644303Z"
+    }
+  }
+}

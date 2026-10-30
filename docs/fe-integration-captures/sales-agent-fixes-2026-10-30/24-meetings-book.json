@@ -1,0 +1,27 @@
+{
+  "scenario": "meetings-book",
+  "note": "Visitor books the first slot",
+  "request": {
+    "method": "POST",
+    "path": "/chat/meetings",
+    "headers": {},
+    "body": {
+      "conversation_id": "728f400a-cb64-4b1a-889b-5c42e053cc42",
+      "scheduled_at": "2026-10-31T08:00:00+00:00",
+      "visitor_timezone": "Africa/Lagos",
+      "use_case": "dispatch automation"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "meeting": {
+          "scheduled_at": "2026-10-31T08:00:00+00:00",
+          "duration_min": 30
+        }
+      }
+    }
+  }
+}

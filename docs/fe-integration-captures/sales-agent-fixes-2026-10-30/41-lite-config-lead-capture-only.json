@@ -1,0 +1,139 @@
+{
+  "scenario": "lite-config-lead-capture-only",
+  "note": "Lead capture on Lite (allowed)",
+  "request": {
+    "method": "PATCH",
+    "path": "/sales/config",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "agent_enabled": true,
+      "lead_capture_enabled": true,
+      "notify_channels": {
+        "email": true,
+        "in_app": true
+      },
+      "notification_email": "lite-rep@example.com",
+      "pricing_tiers": [
+        {
+          "name": "Starter",
+          "min_users": 1,
+          "max_users": 10,
+          "base_price": 50000,
+          "per_seat_overage_price": 5000
+        },
+        {
+          "name": "Professional",
+          "min_users": 11,
+          "max_users": 50,
+          "base_price": 150000,
+          "per_seat_overage_price": 3000
+        },
+        {
+          "name": "Business",
+          "min_users": 51,
+          "max_users": 200,
+          "base_price": 400000,
+          "per_seat_overage_price": 2000
+        }
+      ],
+      "currency": "NGN",
+      "annual_discount_pct": 20,
+      "qualification_questions": [
+        {
+          "key": "use_case",
+          "question": "What are you hoping to use Luran for in your business?",
+          "type": "text"
+        },
+        {
+          "key": "timeline",
+          "question": "When would you like to get started?",
+          "type": "text"
+        }
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "id": "4c529cc1-bcbf-4a1d-890d-47ec59c97888",
+        "tenant_id": "7d4b8e04-ac27-47d4-ad19-da6588a30e25",
+        "agent_enabled": true,
+        "lead_capture_enabled": true,
+        "meeting_booking_enabled": false,
+        "quotation_enabled": false,
+        "crm_provider": null,
+        "calendar_provider": null,
+        "notify_channels": {
+          "email": true,
+          "in_app": true
+        },
+        "notification_email": "lite-rep@example.com",
+        "slack_webhook_url": null,
+        "crm_webhook_url": null,
+        "trigger_intents": [
+          "PRICING_INQUIRY",
+          "DEMO_REQUEST",
+          "PURCHASE_INTENT",
+          "ENTERPRISE_PROSPECT"
+        ],
+        "qualification_questions": [
+          {
+            "key": "use_case",
+            "question": "What are you hoping to use Luran for in your business?",
+            "type": "text"
+          },
+          {
+            "key": "timeline",
+            "question": "When would you like to get started?",
+            "type": "text"
+          }
+        ],
+        "pricing_tiers": [
+          {
+            "name": "Starter",
+            "min_users": 1,
+            "max_users": 10,
+            "base_price": 50000,
+            "per_seat_overage_price": 5000
+          },
+          {
+            "name": "Professional",
+            "min_users": 11,
+            "max_users": 50,
+            "base_price": 150000,
+            "per_seat_overage_price": 3000
+          },
+          {
+            "name": "Business",
+            "min_users": 51,
+            "max_users": 200,
+            "base_price": 400000,
+            "per_seat_overage_price": 2000
+          }
+        ],
+        "currency": "NGN",
+        "annual_discount_pct": 20,
+        "availability": {
+          "weekdays": [
+            1,
+            2,
+            3,
+            4,
+            5
+          ],
+          "start": "09:00",
+          "end": "17:00",
+          "slot_minutes": 30,
+          "buffer_minutes": 15,
+          "tenant_timezone": "UTC"
+        },
+        "created_at": "2026-10-30T22:24:59.082903+00:00",
+        "updated_at": "2026-10-30T22:24:59.082903+00:00"
+      }
+    }
+  }
+}
