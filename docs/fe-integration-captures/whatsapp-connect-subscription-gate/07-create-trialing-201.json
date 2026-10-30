@@ -1,0 +1,10 @@
+{
+  "request": "POST /api/v1/whatsapp/connections",
+  "status": 201,
+  "body": {
+    "id": "c1b44b54-f21e-4cce-a634-b72fa13fde16",
+    "status": "awaiting_pair",
+    "pairing_code": "FAKE2932",
+    "expires_in_s": 180
+  }
+}

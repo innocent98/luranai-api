@@ -1,0 +1,12 @@
+{
+  "request": "POST /api/v1/whatsapp/connections",
+  "status": 402,
+  "body": {
+    "detail": {
+      "error": "subscription_inactive",
+      "message": "Subscription past_due. Please update payment.",
+      "status": "past_due",
+      "upgrade_url": "/dashboard/billing"
+    }
+  }
+}

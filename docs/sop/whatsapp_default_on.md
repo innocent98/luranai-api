@@ -56,6 +56,9 @@ The 2026-10-28 decision made WhatsApp a platform grant: default false, switched 
 * Review plan `features` after migrating: the WARNING names tiers whose WhatsApp line was hand-edited. A fresh database built only from migrations warns for `growth` (as for ent10); the seed then writes the right strings.
 * Roll back: `alembic downgrade -1` restores the old feature strings, sets the stored flag back to false for tenants **without** an override key (a grant that was set by raw SQL without an override is lost too), and drops the plan column. Roll code and migration back together.
 
+## Update 2026-10-30
+The create and re-pair endpoints now also require an active subscription (402), see `docs/sop/whatsapp_connect_requires_active_subscription.md`. The resolver still uses `value("can_use_whatsapp")` there; the 402 comes from the endpoint dependency.
+
 ## Follow-ups
 * Dashboard (separate task): see the list in the PR description / FE guide section 1-5.
 * Admin can neither see nor clear a `can_use_whatsapp` override (`override_flags` is not in the platform response).
