@@ -60,3 +60,11 @@ class ImportRequest(BaseModel):
     content: str
     mode: Literal["add", "upsert"] = "add"
     skip_errors: bool = False
+
+
+class SettingsPatch(BaseModel):
+    """Any subset; an omitted or null field is left as it is. Ranges are checked in the service."""
+
+    enabled: bool | None = None
+    stale_after_days: int | None = None
+    currency: str | None = None

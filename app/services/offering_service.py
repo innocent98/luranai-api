@@ -214,7 +214,7 @@ class OfferingService:
         """403 `feature_not_in_plan` for a lapsed tenant (or a plan with the feature at 0)."""
         return require_feature(self.db, tenant_id, "offerings")
 
-    def _default_currency(self, tenant_id: UUID) -> str:
+    def default_currency(self, tenant_id: UUID) -> str:
         currency = self.db.execute(
             select(TenantSalesAgentConfig.currency).where(
                 TenantSalesAgentConfig.tenant_id == tenant_id
@@ -226,7 +226,7 @@ class OfferingService:
         """The tenant's settings row, created on first use and locked FOR UPDATE."""
         self.db.execute(
             pg_insert(TenantOfferingsSettings)
-            .values(id=uuid4(), tenant_id=tenant_id, currency=self._default_currency(tenant_id))
+            .values(id=uuid4(), tenant_id=tenant_id, currency=self.default_currency(tenant_id))
             .on_conflict_do_nothing(index_elements=["tenant_id"])
         )
         return self.db.execute(

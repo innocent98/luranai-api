@@ -11,10 +11,10 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.db.models.offering import OfferingImage
+from app.db.models.offering import OfferingImage, OfferingMiss
 from app.db.session import SessionLocal
 from app.utils.cloudinary_client import cloudinary_manager, offering_sweep_tag
 
@@ -76,6 +76,26 @@ async def sweep_orphan_offering_images(ctx: dict) -> int:
         return destroyed
     except Exception as exc:
         logger.error("Error in sweep_orphan_offering_images: {}", type(exc).__name__)
+        return 0
+    finally:
+        db.close()
+
+
+MISS_RETENTION = timedelta(days=90)
+
+
+async def sweep_old_offering_misses(ctx: dict) -> int:
+    """Delete Not-found terms nobody has asked for in 90 days. Returns the number deleted."""
+    db: Session = SessionLocal()
+    try:
+        cutoff = datetime.now(UTC) - MISS_RETENTION
+        result = db.execute(delete(OfferingMiss).where(OfferingMiss.last_seen_at < cutoff))
+        db.commit()
+        logger.info("Offering miss sweep: {} deleted", result.rowcount)
+        return int(result.rowcount)
+    except Exception as exc:
+        logger.error("Error in sweep_old_offering_misses: {}", type(exc).__name__)
+        db.rollback()
         return 0
     finally:
         db.close()

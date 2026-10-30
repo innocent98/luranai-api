@@ -11,11 +11,18 @@ from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, statu
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_current_user, get_db
-from app.schemas.offering import ImageOrder, ImportRequest, OfferingCreate, OfferingPatch
+from app.schemas.offering import (
+    ImageOrder,
+    ImportRequest,
+    OfferingCreate,
+    OfferingPatch,
+    SettingsPatch,
+)
 from app.schemas.user import UserResponse
 from app.services.entitlements import get_entitlements_for_tenant_id
 from app.services.offering_import import OfferingImportService
 from app.services.offering_images import MAX_UPLOAD_BYTES, OfferingImageService
+from app.services.offering_settings import OfferingSettingsService
 from app.services.offering_service import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
@@ -95,6 +102,52 @@ def apply_import(
         user.tenant_id, body.format, body.content, body.mode, body.skip_errors
     )
     return {"data": data}
+
+
+@router.post("/confirm")
+def confirm_offerings(
+    db: Session = Depends(get_db),
+    user: UserResponse = Depends(get_current_tenant_admin),
+):
+    """ "Everything is still correct today": stamps the time and resets the staleness caveat."""
+    return {"data": OfferingSettingsService(db).confirm(user.tenant_id)}
+
+
+@router.get("/settings")
+def get_offering_settings(
+    db: Session = Depends(get_db),
+    user: UserResponse = Depends(get_current_user),
+):
+    return {"data": OfferingSettingsService(db).get(user.tenant_id)}
+
+
+@router.patch("/settings")
+def patch_offering_settings(
+    body: SettingsPatch,
+    db: Session = Depends(get_db),
+    user: UserResponse = Depends(get_current_tenant_admin),
+):
+    return {"data": OfferingSettingsService(db).patch(user.tenant_id, body.model_dump())}
+
+
+@router.get("/misses")
+def list_offering_misses(
+    days: int = Query(30, ge=1, le=90),
+    db: Session = Depends(get_db),
+    user: UserResponse = Depends(get_current_user),
+):
+    """What customers asked for that is not listed (term, count, last asked), most wanted first."""
+    return {"data": OfferingSettingsService(db).list_misses(user.tenant_id, days)}
+
+
+@router.delete("/misses/{miss_id}", status_code=status.HTTP_204_NO_CONTENT)
+def dismiss_offering_miss(
+    miss_id: UUID,
+    db: Session = Depends(get_db),
+    user: UserResponse = Depends(get_current_tenant_admin),
+):
+    OfferingSettingsService(db).dismiss_miss(user.tenant_id, miss_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/{offering_id}")
