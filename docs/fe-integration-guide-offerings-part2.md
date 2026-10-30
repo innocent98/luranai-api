@@ -180,7 +180,7 @@ Every reply built on a catalog block is checked by code. If the first reply stat
 1. A guarded turn takes longer (a second model call). Show your normal typing indicator; do not time out early.
 2. A fallback reply is a plain list followed by an offer of the team, and the response then carries `escalation_action: "offer_escalation"`. Treat it exactly like the existing "would you like to talk to someone" consent step (the customer answers yes/no in the next message; nothing else to build).
 
-Regenerated (capture `06`; the customer asked for ₦10,000 on a fixed-price item; final reply `"The Canvas sneaker black is listed at ₦12,000. I've noted your request."`):
+Regenerated (capture `06`; the customer asked for ₦10,000 on a fixed-price item; final reply `"The Canvas sneaker black is listed at ₦12,000. I've noted your request.\n\nI've noted your offer of ₦10,000 for the Canvas sneaker black."`; the last sentence is written by code, see section 5):
 
 ```json
 {
