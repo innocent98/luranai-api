@@ -1,0 +1,36 @@
+{
+  "scenario": "chat-session-create",
+  "note": "visitor opens the chat widget",
+  "request": {
+    "method": "POST",
+    "path": "/chat/sessions",
+    "headers": {},
+    "body": {
+      "tenant_id": "b9790fa8-38ff-454e-908d-96dd0f639e9d",
+      "user_identifier": "smoke-visitor-1",
+      "metadata": {}
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "meta": {},
+      "id": "728f400a-cb64-4b1a-889b-5c42e053cc42",
+      "tenant_id": "b9790fa8-38ff-454e-908d-96dd0f639e9d",
+      "visitor_id": null,
+      "visitor_session_id": null,
+      "customer_user_id": null,
+      "visitor": null,
+      "source": "unknown",
+      "status": "active",
+      "escalation_reason": null,
+      "escalated_at": null,
+      "agent_id": null,
+      "agent_joined_at": null,
+      "last_message_at": "2026-10-30T22:24:49.517053Z",
+      "created_at": "2026-10-30T22:24:49.511367Z",
+      "updated_at": "2026-10-30T22:24:49.511367Z",
+      "user_identifier": "smoke-visitor-1"
+    }
+  }
+}

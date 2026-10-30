@@ -1,0 +1,68 @@
+{
+  "scenario": "slack-webhook-received",
+  "note": "Exact Block Kit bodies the worker sent to the Slack stand-in",
+  "data": [
+    {
+      "path": "/slack",
+      "content_type": "application/json",
+      "body": {
+        "blocks": [
+          {
+            "type": "header",
+            "text": {
+              "type": "plain_text",
+              "text": "New sales-ready lead"
+            }
+          },
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": "Ada Okafor \u00b7 Acme Group Logistics \u00b7 score 100"
+            }
+          },
+          {
+            "type": "context",
+            "elements": [
+              {
+                "type": "mrkdwn",
+                "text": "<http://localhost:3000/dashboard/grow/leads/a40f052f-acfd-4907-be3e-b5b9fe18196f|View in dashboard>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "path": "/slack",
+      "content_type": "application/json",
+      "body": {
+        "blocks": [
+          {
+            "type": "header",
+            "text": {
+              "type": "plain_text",
+              "text": "New quote"
+            }
+          },
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": "\u20a6120,000 \u00b7 Acme Group Logistics"
+            }
+          },
+          {
+            "type": "context",
+            "elements": [
+              {
+                "type": "mrkdwn",
+                "text": "<http://localhost:3000/dashboard/grow/leads/a40f052f-acfd-4907-be3e-b5b9fe18196f|View in dashboard>"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

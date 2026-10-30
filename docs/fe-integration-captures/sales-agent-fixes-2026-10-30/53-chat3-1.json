@@ -1,0 +1,57 @@
+{
+  "scenario": "chat3-1",
+  "note": "third visitor",
+  "request": {
+    "method": "POST",
+    "path": "/chat/message",
+    "headers": {},
+    "body": {
+      "session_id": "2cc83b69-1bf8-4471-a0cd-903c49a763d6",
+      "tenant_id": "b9790fa8-38ff-454e-908d-96dd0f639e9d",
+      "user_identifier": "smoke-visitor-3",
+      "message": "How much does it cost? We run logistics.",
+      "metadata": {
+        "utm_source": "google_ads",
+        "utm_medium": "cpc"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "2cc83b69-1bf8-4471-a0cd-903c49a763d6",
+      "message": {
+        "role": "assistant",
+        "content": "Our plans start from the Starter tier and scale with your team. What are you hoping to use Luran for in your business?",
+        "id": "3f22e3fe-083e-488c-9104-05afb27e8d36",
+        "session_id": "2cc83b69-1bf8-4471-a0cd-903c49a763d6",
+        "retrieved_chunk_ids": [],
+        "token_count": 150,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "chunks_used": 0,
+          "avg_similarity": 0.0,
+          "retrieval_hit": false,
+          "escalation_action": "no_escalation",
+          "response_quality": {
+            "is_substantial": true,
+            "has_uncertainty": false,
+            "word_count": 23,
+            "char_count": 118
+          },
+          "token_breakdown": {
+            "prompt_tokens": 159,
+            "completion_tokens": -9,
+            "total_tokens": 150
+          }
+        },
+        "created_at": "2026-10-30T22:25:06.194652Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}
