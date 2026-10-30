@@ -33,7 +33,7 @@ Redis load is independent of the session ceiling: at 10 sessions about 20 live k
 | `scripts/generate_whatsapp_production_secrets.sh` | Writes the new name; **`--redis-only`** writes only that one line, for an env that already has the other secrets (so the master key is never regenerated) |
 | `scripts/smoke_whatsapp_sidecar.sh` | Opt-in isolation checks (above). Default output unchanged |
 | `.github/workflows/cd.yml` | Inside `production-deploy` only (everything before that job is byte-identical to `origin/develop`): two new steps (`sidecar_net_copy`, `sidecar_net`), edits inside the sidecar copy/deploy/status steps |
-| `tests/deploy/` | 94 tests (was 55): gate and generator for the new name, the network helper against a stub `docker` with state, static invariants for the compose override and `cd.yml` |
+| `tests/deploy/` | 117 tests (was 55): gate and generator for the new name, the network helper against a stub `docker` with state, static invariants for the compose override and `cd.yml` |
 | **Not touched** | `docker-compose.prod.yml`, `docker-compose.whatsapp.yml` (staging), `staging-*` jobs, `docker.yml`, `ci.yml`, `Dockerfile`, any Python under `app/`, the sidecar source |
 
 ## Which prod containers restart on deploy
@@ -45,7 +45,7 @@ All in throwaway containers on a local Docker (not the VPS). Setup: real `docker
 | Claim | Result |
 |---|---|
 | Before (old layout, same stack) | Sidecar on `luran_default`; resolves `redis`, `qdrant`, `pgbouncer`; an unauthenticated `PING` to the shared Redis returns `+PONG` |
-| Sidecar healthy after the new deploy | `WhatsApp Redis is healthy.`, `WhatsApp sidecar is healthy.`, smoke **18 PASS + 1 SKIP** (the SKIP is the bad-signature check, not testable while `WHATSAPP_ENABLED` is off) |
+| Sidecar healthy after the new deploy | `WhatsApp Redis is healthy.`, `WhatsApp sidecar is healthy.`, smoke **21 PASS + 1 SKIP** (18 + 1 before the 2026-10-30 smoke fix, see below) (the SKIP is the bad-signature check, not testable while `WHATSAPP_ENABLED` is off) |
 | Networks | sidecar: `luran_wa_backend luran_wa_redis` only; Redis: `luran_wa_redis` only (`internal=true`); `luran_default` members unchanged (no sidecar); no published ports; read-only, caps dropped |
 | Sidecar cannot reach shared services | `redis`, `qdrant`, `pgbouncer` -> `ENOTFOUND`; raw TCP to the shared Redis, Qdrant and pgbouncer by **IP** -> timeout |
 | Sidecar still reaches what it needs | `api:8000` (webhook probe: 503 `whatsapp_disabled`) and `db:5432` (role `whatsapp_sidecar`, no SELECT on `public`, no CREATE) |
@@ -58,7 +58,19 @@ All in throwaway containers on a local Docker (not the VPS). Setup: real `docker
 | Memory | Redis idle RSS 13.4 MiB, docker stats 9.1 MiB, dataset 0.6 KiB; sidecar 70 MiB idle |
 | Intruder / drift | A hand-attached `luran_redis` on `luran_wa_backend`: the helper exits 1 naming it (also in `--if-exists` mode); the sidecar hand-attached to `luran_default`: the smoke FAILs the exact-networks check and all six DNS checks |
 | Fail closed | `docker compose config` without the password -> `required variable WHATSAPP_SIDECAR_REDIS_PASSWORD is missing a value`; gate tests: old names without the password skip with the name only; the generator output passes the gate |
-| Static | 94 pytest tests in `tests/deploy/`; `ruff check app/ tests/deploy`, `black --check app/ tests/deploy` (project toolchain, ruff 0.8.6 / black 24.10.0); shellcheck on all WhatsApp scripts and on both extracted `cd.yml` scripts; actionlint on `cd.yml` shows only the 2 pre-existing `SC2086` infos |
+| Static | 117 pytest tests in `tests/deploy/`; `ruff check app/ tests/deploy`, `black --check app/ tests/deploy` (project toolchain, ruff 0.8.6 / black 24.10.0); shellcheck on all WhatsApp scripts and on both extracted `cd.yml` scripts; actionlint on `cd.yml` shows only the 2 pre-existing `SC2086` infos |
+
+### First production run and the smoke fix (2026-10-30, same night)
+PR #186 was promoted (run 41133145320, `main` `3d33ca5`) and mostly did what the rehearsal said: Redis and sidecar healthy, sidecar on exactly `luran_wa_backend` + `luran_wa_redis`, api/worker env free of sidecar secrets, signed webhook 200, bad signature 401, Redis refuses `NOAUTH`. **But six isolation smoke lines FAILed** (`'redis'`, `'qdrant'`, `'pgbouncer'`, `'luran_redis'`, `'luran_qdrant'`, `'luran_pgbouncer'` `does not resolve ... dns=EAI_AGAIN`), which marked the sidecar step `failure` and printed the "did NOT deploy cleanly" warning although the sidecar was up.
+
+Cause: my check accepted only `ENOTFOUND`. The rehearsal ran on **Docker Desktop**, where a name that exists only on a network the container is not attached to gives `ENOTFOUND`. On the Linux VPS the embedded DNS answers `SERVFAIL`, which getaddrinfo reports as `EAI_AGAIN`. Both mean "not resolvable"; the sidecar was correctly isolated and the check was a false negative. The rehearsal could not have caught it, and I said so too late: the earlier "Not verified" list named Linux bridge isolation but not DNS behaviour, which is the part that bit.
+
+Fix (`scripts/smoke_whatsapp_sidecar.sh`, tests in `tests/deploy/test_smoke_isolation.py`):
+- `ENOTFOUND`, `EAI_AGAIN`, `EAI_FAIL`, `EAI_NODATA`, `EAI_NONAME` all count as "does not resolve" (PASS). A lookup that returns an address is the FAIL. Any other error is also not a PASS (neither isolation nor proof).
+- **New IP-level check**, because failing DNS is weaker evidence than no route: the host wrapper looks up the IPs of `luran_redis` (6379), `luran_qdrant` (6333) and `luran_pgbouncer` (5432) and the sidecar tries a TCP connection to each (3 s). Timeout, `EHOSTUNREACH` or `ENETUNREACH` is the PASS; a connection that is accepted or even **refused** is a FAIL (the packet got there). A container that is not running is a `SKIP`, not a FAIL.
+- Opt-in only: without `SMOKE_ISOLATION=1` the `docker exec` argv and output are byte-identical to before (asserted in a test), so staging is unchanged.
+
+How the fix was checked: the classifiers are extracted from the script and run under node with each fake resolver and socket outcome (117 tests in `tests/deploy/` pass; ruff, black, shellcheck clean). Rehearsal (Docker Desktop again, real image and real `cd.yml` scripts): smoke **21 PASS + 1 SKIP**; and a probe container on `luran_wa_backend` with an unreachable upstream resolver **does reproduce `EAI_AGAIN` locally** for `redis`/`qdrant`/`pgbouncer`/`luran_redis`, which the new classifier passes while the old strict check fails; names that do resolve (`api`, `db`) are the FAIL. Negative control: with the sidecar hand-attached to `luran_default` the smoke FAILs the network set, all six DNS checks and all three TCP checks (two `CONNECTED`, one `ECONNREFUSED`). **Still not run on the VPS**: the first run of the fixed smoke there is the next production deploy; expect 21 `PASS` and 1 `SKIP`. Until that deploy, a green "sidecar" status is not claimed.
 
 ### Review
 Opus review (devops-engineer agent, read-only) of the final diff. Fixed:
@@ -87,7 +99,7 @@ Nothing needs a secret value in chat.
    ```
 3. `./scripts/env.sh decrypt production`, copy the one `WHATSAPP_SIDECAR_REDIS_PASSWORD=` line across in your editor (do not echo it), `./scripts/env.sh encrypt production`, `./scripts/env.sh verify production`; delete both plain files. Commit only `.env.production.enc` on `chore/production-whatsapp-redis-env`, PR to `develop`. Keep `WHATSAPP_ENABLED` as it is.
 4. Promote `develop` to `main` in a quiet window (not near 02:00). Until the name exists, any promotion logs `SKIPPED - missing or empty: WHATSAPP_SIDECAR_REDIS_PASSWORD`, the running sidecar is left alone, and the api/worker env is clean.
-5. Read the run. `Prepare production env` must say `ENABLED for deploy`. Then: `network luran_wa_backend: created` and three `attached`, `WhatsApp Redis is healthy.`, `WhatsApp sidecar is healthy.`, `maxmemory_human:8.00M`, `maxmemory_policy:noeviction`, then the smoke: **18 `PASS` and 1 `SKIP`** (all `isolation:` lines PASS). A `::warning::` means the API is fine and the sidecar is not; send the lead the step log (no secrets).
+5. Read the run. `Prepare production env` must say `ENABLED for deploy`. Then: `network luran_wa_backend: created` and three `attached`, `WhatsApp Redis is healthy.`, `WhatsApp sidecar is healthy.`, `maxmemory_human:8.00M`, `maxmemory_policy:noeviction`, then the smoke: **21 `PASS` and 1 `SKIP`** (after the smoke fix; the first run showed 6 false FAILs, see above) (all `isolation:` lines PASS). A `::warning::` means the API is fine and the sidecar is not; send the lead the step log (no secrets).
 6. Spot checks on the VPS (read-only):
    ```bash
    ssh luran 'docker inspect luran_whatsapp_sidecar --format "{{range \$k,\$_ := .NetworkSettings.Networks}}{{\$k}} {{end}}"'
