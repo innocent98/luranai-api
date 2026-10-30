@@ -1,368 +1,29 @@
 """The price guard (spec 7.5): code, not prompt, decides whether a reply may be sent.
 
-It extracts every money amount from the reply (Nigerian forms: `₦25,000`, `N25000`, `25k`, `2.5m`,
-`25,000 naira`, "twelve thousand naira") and checks each sentence against what the model was
-actually shown this turn. A listed price only counts for the item it belongs to, a customer's own
-figure may be repeated back but never agreed to (decision D1), and a knowledge-base figure never
-sits beside an item name (a stale KB price must not beat the catalog). This module only judges; the
-regenerate-then-fall-back flow is `guard_flow.py`.
+Every money amount in the reply (see `amounts.py`) is checked, sentence by sentence, against what the
+model was actually shown this turn:
+
+* a listed price only counts for the item it belongs to (and, in a sentence naming no item, for the
+  items this turn is about);
+* concession wording beside any other figure fails, even if that figure is some item's price;
+* the customer's own figure is never repeated beside an item name when it is below the listed price,
+  never accepted (decision D1: code writes the "noted your offer" line, not the model), and an echo of
+  a below-list figure poisons any agreement word anywhere in the reply;
+* percentages and number-less discounts ("half price", "for free") beside an item fail;
+* knowledge-base and plan prices never sit beside an item name, and KB sentences that name a catalog
+  item are ignored (a stale KB price must not beat the catalog).
+
+This module only judges; the regenerate-then-fall-back flow is `guard_flow.py`.
 """
 
 import re
-import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from decimal import Decimal
-from collections.abc import Iterable
 
+from app.offerings.amounts import Amount, extract_amounts, mask_non_money, normalise
 from app.offerings.facts import OfferingFacts
 from app.offerings.grounding import GroundingResult, singular
-
-# -- extraction ----------------------------------------------------------------------------
-
-_NUM = r"(?:\d{1,3}(?:,\d{3})+|\d{1,3}(?:[   ]\d{3})+|\d+)(?:\.\d+)?"
-_AMOUNT = re.compile(
-    rf"""
-    (?P<pre>(?:(?<![A-Za-z0-9])(?:₦|NGN|USD|GBP|EUR|[Nn](?=\s?\d))|[$£€])\s?)?
-    (?P<num>{_NUM})
-    (?P<tail>
-        \s?%
-      | \s?per\s?cent\b | \s?percent\b
-      | \s?(?:thousand|million|billion|mil|bn)\b
-      | \s?[kK](?![A-Za-z0-9²]) | [mMbB](?![A-Za-z0-9²])
-    )?
-    (?P<cur>\s?(?:naira|ngn|kobo|dollars?|usd|pounds?|gbp|euros?|eur)\b)?
-    """,
-    re.VERBOSE | re.IGNORECASE,
-)
-_MULT = {
-    "k": 10**3,
-    "thousand": 10**3,
-    "m": 10**6,
-    "mil": 10**6,
-    "million": 10**6,
-    "b": 10**9,
-    "bn": 10**9,
-    "billion": 10**9,
-}
-_PRE_CCY = {
-    "₦": "NGN",
-    "n": "NGN",
-    "ngn": "NGN",
-    "$": "USD",
-    "usd": "USD",
-    "£": "GBP",
-    "gbp": "GBP",
-    "€": "EUR",
-    "eur": "EUR",
-}
-_CUR_CCY = {
-    "naira": "NGN",
-    "ngn": "NGN",
-    "kobo": "NGN",
-    "dollar": "USD",
-    "dollars": "USD",
-    "usd": "USD",
-    "pound": "GBP",
-    "pounds": "GBP",
-    "gbp": "GBP",
-    "euro": "EUR",
-    "euros": "EUR",
-    "eur": "EUR",
-}
-_UNIT_AFTER_M = {
-    "wide",
-    "long",
-    "by",
-    "high",
-    "tall",
-    "deep",
-    "away",
-    "x",
-    "sq",
-    "square",
-    "metre",
-    "metres",
-    "meter",
-    "meters",
-    "radius",
-    "apart",
-    "from",
-    "plot",
-}
-_UNIT_AFTER = {
-    "pair",
-    "pairs",
-    "piece",
-    "pieces",
-    "pcs",
-    "item",
-    "items",
-    "unit",
-    "units",
-    "day",
-    "days",
-    "hour",
-    "hours",
-    "hr",
-    "hrs",
-    "week",
-    "weeks",
-    "month",
-    "months",
-    "year",
-    "years",
-    "size",
-    "sizes",
-    "colour",
-    "colours",
-    "color",
-    "colors",
-    "inch",
-    "inches",
-    "cm",
-    "mm",
-    "kg",
-    "g",
-    "photo",
-    "photos",
-    "people",
-    "person",
-    "persons",
-    "slot",
-    "slots",
-    "left",
-    "available",
-    "times",
-    "minute",
-    "minutes",
-    "min",
-    "mins",
-    "sec",
-    "secs",
-    "am",
-    "pm",
-    "of",
-    "x",
-}
-_PRICE_CUE = re.compile(
-    r"(?:cost|costs|costing|price|prices|priced|pay|paying|total|fee|fees|charge|charged|worth"
-    r"|do|give|offer|sell|(?:go|goes|sell|sells|sold)\s+for)\s+"
-    r"(?:(?:is|are|of|was|at|just|only|about|around|approximately|roughly|to|you|it|them|that|the)\s+){0,3}$",
-    re.IGNORECASE,
-)
-_YEAR_CUE = re.compile(
-    r"(?:\b(?:in|since|year|during|copyright|jan|feb|mar|apr|may|"
-    r"jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|"
-    r"october|november|december)|©)\s*$",
-    re.IGNORECASE,
-)
-
-_ONES = {
-    w: i
-    for i, w in enumerate(
-        "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
-        "sixteen seventeen eighteen nineteen".split()
-    )
-}
-_TENS = {
-    w: 10 * (i + 2)
-    for i, w in enumerate("twenty thirty forty fifty sixty seventy eighty ninety".split())
-}
-_BIG = {"thousand": 10**3, "million": 10**6, "billion": 10**9}
-_WORD = re.compile(r"[A-Za-z]+")
-_NUMWORDS = set(_ONES) | set(_TENS) | set(_BIG) | {"hundred"}
-
-
-@dataclass(frozen=True)
-class Amount:
-    value: Decimal
-    kind: str  # "money" | "percent"
-    currency: str | None
-    start: int
-    end: int
-
-
-def _is_year_like(digits: str, before: str) -> bool:
-    return len(digits) == 4 and 1900 <= int(digits) <= 2100 and bool(_YEAR_CUE.search(before))
-
-
-def _next_word(text: str, pos: int) -> str:
-    m = re.match(r"\s*([A-Za-z²]+)", text[pos:])
-    return m.group(1).lower() if m else ""
-
-
-def _digit_amounts(text: str) -> list[Amount]:
-    found: list[tuple[Amount, bool]] = []  # (amount, had_magnitude)
-    for m in _AMOUNT.finditer(text):
-        raw_num = m.group("num")
-        digits = re.sub(r"[ ,  ]", "", raw_num)
-        pre = (m.group("pre") or "").strip().lower()
-        tail = (m.group("tail") or "").strip().lower().replace(" ", "")
-        cur = (m.group("cur") or "").strip().lower()
-        before = text[: m.start()]
-        value = Decimal(digits)
-        grouped = bool(re.search(r"[,   ]", raw_num))
-        end = m.end()
-
-        if tail == "%" or re.fullmatch(r"per\s?cent|percent", tail):
-            found.append((Amount(value, "percent", None, m.start(), end), False))
-            continue
-
-        mult = _MULT.get(tail, 1) if tail else 1
-        if (
-            tail in ("m", "b", "bn")
-            and not pre
-            and not cur
-            and (
-                tail != "m"
-                or _next_word(text, m.end()) in _UNIT_AFTER_M
-                or text[m.end() : m.end() + 1] == "²"
-            )
-        ):
-            mult = 1
-            tail = ""
-            end = m.start("tail")
-        if tail == "b" and not pre:
-            mult, tail, end = 1, "", m.start("tail")
-        has_marker = bool(pre or cur or tail)
-        if not tail and not cur and re.match(r"[A-Za-z]", text[m.end() : m.end() + 1] or ""):
-            continue  # "5pm", "42cm": a number glued to a word
-        if before.rstrip().endswith("#") and not pre:
-            continue  # item ref
-
-        if has_marker or grouped:
-            money = True
-        else:
-            money = False
-            has_decimal = "." in raw_num
-            if (
-                not has_decimal
-                and not digits.startswith("0")
-                and len(digits) >= 4
-                and len(digits) < 10
-            ):
-                if not _is_year_like(digits, before) and not before.rstrip().endswith("+"):
-                    money = True
-            if (
-                not money
-                and not has_decimal
-                and not digits.startswith("0")
-                and not before.rstrip().endswith("+")
-            ):
-                tail_word = _next_word(text, m.end())
-                if (
-                    _PRICE_CUE.search(before)
-                    and tail_word not in _UNIT_AFTER
-                    and not text[m.end() : m.end() + 1] == ":"
-                ):
-                    money = True
-            if not money:
-                found.append((Amount(value, "skip", None, m.start(), end), False))
-                continue
-        ccy = _PRE_CCY.get(pre) or _CUR_CCY.get(cur)
-        value = value * mult
-        if cur == "kobo":
-            value = value / 100
-        found.append((Amount(value, "money", ccy, m.start(), end), bool(tail) and tail != "%"))
-
-    # "10-12k": the bare first figure shares the second's magnitude
-    for i, (a, _mag) in enumerate(found[:-1]):
-        nxt, nxt_mag = found[i + 1]
-        if (
-            a.kind == "skip"
-            and nxt_mag
-            and nxt.kind == "money"
-            and re.fullmatch(r"\s*(?:-|–|—|to)\s*", text[a.end : nxt.start] or "")
-        ):
-            tail_m = _AMOUNT.match(text, nxt.start)
-            tail = (tail_m.group("tail") or "").strip().lower() if tail_m else ""
-            found[i] = (
-                Amount(
-                    a.value * _MULT.get(tail.replace(" ", ""), 1),
-                    "money",
-                    nxt.currency,
-                    a.start,
-                    a.end,
-                ),
-                True,
-            )
-    return [a for a, _ in found if a.kind != "skip"]
-
-
-def _word_amounts(text: str, taken: list[Amount]) -> list[Amount]:
-    words = [
-        (m.group().lower(), m.start(), m.end())
-        for m in _WORD.finditer(text)
-        if not any(t.start <= m.start() and m.end() <= t.end for t in taken)
-    ]
-    out: list[Amount] = []
-    i = 0
-    while i < len(words):
-        w, s, _e = words[i]
-        if w not in _NUMWORDS:
-            i += 1
-            continue
-        j = i
-        while j + 1 < len(words):
-            nw, ns, _ne = words[j + 1]
-            gap = text[words[j][2] : ns]
-            if not re.fullmatch(r"[\s-]+", gap):
-                break
-            if nw in _NUMWORDS:
-                j += 1
-            elif (
-                nw == "and"
-                and j + 2 < len(words)
-                and words[j + 2][0] in _NUMWORDS
-                and re.fullmatch(r"\s+", text[ns + 3 : words[j + 2][1]])
-            ):
-                j += 2
-            else:
-                break
-        run = [words[k][0] for k in range(i, j + 1) if words[k][0] != "and"]
-        start, end = s, words[j][2]
-        i = j + 1
-        total = current = 0
-        for token in run:
-            if token in _ONES:
-                current += _ONES[token]
-            elif token in _TENS:
-                current += _TENS[token]
-            elif token == "hundred":
-                current = (current or 1) * 100
-            else:
-                total += (current or 1) * _BIG[token]
-                current = 0
-        value = total + current
-        nxt = re.match(
-            r"\s*(naira|ngn|kobo|dollars?|usd|pounds?|euros?)\b", text[end:], re.IGNORECASE
-        )
-        has_big = any(t in _BIG for t in run)
-        if not (has_big or nxt):
-            continue
-        ccy = _CUR_CCY.get(nxt.group(1).lower()) if nxt else None
-        dec = Decimal(value)
-        if nxt and nxt.group(1).lower() == "kobo":
-            dec = dec / 100
-        out.append(Amount(dec, "money", ccy, start, end + (nxt.end() if nxt else 0)))
-    return out
-
-
-_INVISIBLE = re.compile("[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]")
-
-
-def normalise(text: str | None) -> str:
-    """Fold width/compat forms (fullwidth digits) and drop zero-width characters."""
-    return _INVISIBLE.sub("", unicodedata.normalize("NFKC", text or ""))
-
-
-def extract_amounts(text: str) -> list[Amount]:
-    text = normalise(text)
-    digit = _digit_amounts(text)
-    return sorted(digit + _word_amounts(text, digit), key=lambda a: a.start)
-
-
-# -- judging ------------------------------------------------------------------------------
 
 _SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
 _REF = re.compile(r"#\s?(\d{1,9})\b")
@@ -443,12 +104,42 @@ def _named_items(
     return loose, [i for f, i, _ in scored if f == best]
 
 
-def _values(texts: Iterable[str], kind: str) -> set[Decimal]:
-    return {a.value for t in texts for a in extract_amounts(t) if a.kind == kind}
+_DISCOUNT_WORDS = re.compile(
+    r"half[\s-]?price|\bfor free\b|free of charge|on the house|discount|\boff\b|reduc|cheaper"
+    r"|lower (?:the )?price|cut (?:the )?price|price (?:drop|cut)|markdown|bargain|knock(?:ed)?",
+    re.IGNORECASE,
+)
+_NEGATION = re.compile(
+    r"\b(?:can't|cannot|can not|unable|not able|won't|will not|don't|do not|no discounts?|"
+    r"not possible|never)\b",
+    re.IGNORECASE,
+)
+_AGREE = re.compile(
+    r"\b(?:yes|yeah|yep|okay|ok|sure|deal|agreed?|accept(?:ed)?|alright|perfect|good news|great news"
+    r"|granted|approved|confirmed|fine|works?|no problem|of course|certainly|absolutely)\b",
+    re.IGNORECASE,
+)
+
+
+def _values(texts: Iterable[str], kind: str, small_ok: bool = False) -> set[Decimal]:
+    return {a.value for t in texts for a in extract_amounts(t, small_ok=small_ok) if a.kind == kind}
 
 
 def _has(values: Iterable, v: Decimal) -> bool:
     return any(v == x for x in values)
+
+
+def _kb_values(kb_text: str, items: list[OfferingFacts], small_ok: bool) -> tuple[set, set]:
+    """Amounts and percentages from KB sentences that do not name a catalog item."""
+    names = [i.name for i in items]
+    money: set[Decimal] = set()
+    pct: set[Decimal] = set()
+    for sentence in _SENTENCE.split(normalise(kb_text)):
+        if _named_items(sentence, items)[0]:
+            continue
+        for a in extract_amounts(mask_non_money(sentence, names), small_ok=small_ok):
+            (money if a.kind == "money" else pct).add(a.value)
+    return money, pct
 
 
 def check_reply(
@@ -460,65 +151,115 @@ def check_reply(
     tier_amounts: Iterable[int] = (),
 ) -> GuardVerdict:
     customer_texts = list(customer_texts)
-    customer_money = _values(customer_texts, "money")
-    customer_pct = _values(customer_texts, "percent")
-    kb_money = _values([kb_text], "money")
-    kb_pct = _values([kb_text], "percent")
-    tiers = {Decimal(t) for t in tier_amounts}
     items = grounding.items
     all_prices = {Decimal(i.price) for i in items if i.price is not None}
+    small_ok = any(p < 1000 for p in all_prices)
+    customer_money = _values(customer_texts, "money", small_ok)
+    customer_pct = _values(customer_texts, "percent")
+    kb_money, kb_pct = _kb_values(kb_text, items, small_ok)
+    tiers = {Decimal(t) for t in tier_amounts}
+    matched = {Decimal(i.price) for i in items if i.seq in grounding.matched_seqs and i.price}
+    turn_prices = matched or all_prices  # what a sentence naming no item may quote
     currency = (grounding.currency or "NGN").upper()
+    names = [i.name for i in items]
 
     violations: list[Violation] = []
-    for sentence in (s.strip() for s in _SENTENCE.split(normalise(reply))):
-        amounts = extract_amounts(sentence)
-        if not amounts:
-            continue
+    echoed_customer: list[Decimal] = []
+    sentences = [s.strip() for s in _SENTENCE.split(normalise(reply)) if s.strip()]
+    for sentence in sentences:
+        masked = mask_non_money(sentence, names)
+        amounts = extract_amounts(masked, small_ok=small_ok)
         loose, strict = _named_items(sentence, items)
-        listed = {Decimal(i.price) for i in strict if i.price is not None} if strict else all_prices
         cue = bool(_CUES.search(sentence))
+        if (
+            not grounding.strict
+            and (loose or amounts)
+            and _DISCOUNT_WORDS.search(sentence)
+            and not _NEGATION.search(sentence)
+        ):
+            violations.append(Violation(sentence, "discount_wording"))
+        listed = {Decimal(i.price) for i in strict if i.price is not None}
         for a in amounts:
             reason = None
             if grounding.strict:
                 reason = "strict"
             elif a.kind == "percent":
                 # a customer's own percentage may be quoted back, never accepted (D1)
-                ok = (not loose and _has(kb_pct, a.value)) or (
-                    _has(customer_pct, a.value) and _echoed(sentence, a) and not cue
+                ok = (
+                    not loose
+                    and not cue
+                    and (
+                        _has(kb_pct, a.value)
+                        or (_has(customer_pct, a.value) and _echoed(sentence, a))
+                    )
                 )
                 reason = None if ok else "percent"
             elif a.currency and a.currency != currency:
                 reason = "currency"
             else:
-                kb_ok = _has(kb_money, a.value)
-                tier_ok = _has(tiers, a.value)
-                kb_only = kb_ok and not loose
-                echoed = _echoed(sentence, a)
-                if (
-                    _has(customer_money, a.value)
-                    and not strict
-                    and not echoed
-                    and not (tier_ok or kb_only)
-                ):
-                    # with no item named, a listed price that happens to equal the customer's own
-                    # figure must not read as agreeing to it
-                    reason = "unattributed_customer_amount"
-                elif strict and _has(listed, a.value):
-                    reason = None  # the named item's own listed price, whatever the wording
-                elif cue and not tier_ok and not kb_only:
-                    # concession language beside any other figure, including another item's price
-                    reason = "concession"
-                elif not strict and _has(all_prices, a.value):
-                    reason = None
-                elif tier_ok or kb_only:
-                    reason = None
-                elif _has(customer_money, a.value):
-                    # the customer's own figure may be quoted back, never silently adopted (D1)
-                    reason = None if echoed else "unattributed_customer_amount"
-                elif kb_ok:
-                    reason = "kb_beside_item"
-                else:
-                    reason = "wrong_item_price" if loose else "not_in_block"
+                reason = _judge_money(
+                    a,
+                    sentence,
+                    bool(strict),
+                    listed,
+                    turn_prices,
+                    cue,
+                    customer_money,
+                    kb_money,
+                    tiers,
+                    echoed_customer,
+                )
             if reason:
                 violations.append(Violation(sentence, reason, [a.value]))
+
+    if echoed_customer and not grounding.strict:
+        ceiling = max(turn_prices, default=None)
+        if ceiling is not None and any(v < ceiling for v in echoed_customer):
+            if _AGREE.search(" ".join(sentences)):
+                violations.append(Violation(reply, "agreement_after_offer", echoed_customer))
     return GuardVerdict(ok=not violations, violations=violations)
+
+
+def _judge_money(
+    a: Amount,
+    sentence: str,
+    names_item: bool,
+    listed: set,
+    turn_prices: set,
+    cue: bool,
+    customer_money: set,
+    kb_money: set,
+    tiers: set,
+    echoed_customer: list,
+) -> str | None:
+    v = a.value
+    customer_ok = _has(customer_money, v)
+    echoed = _echoed(sentence, a)
+    if names_item:
+        if _has(listed, v):
+            return None  # the named item's own listed price, whatever the wording
+        if customer_ok:
+            if cue:
+                return "concession"
+            if not listed or v < min(listed):
+                return (
+                    "customer_figure_below_price"  # code, not the model, writes "noted your offer"
+                )
+            return None if echoed and not cue else "unattributed_customer_amount"
+        if cue:
+            return "concession"
+        if _has(kb_money, v):
+            return "kb_beside_item"
+        return "wrong_item_price"  # includes a plan price beside an item name
+    if customer_ok:
+        if cue:
+            return "concession"
+        if not echoed:
+            return "unattributed_customer_amount"
+        echoed_customer.append(v)
+        return None
+    if cue:
+        return "concession"  # even at a listed price: "I can do ₦12,000 for you"
+    if _has(turn_prices, v) or _has(tiers, v) or _has(kb_money, v):
+        return None
+    return "not_in_block"

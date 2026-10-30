@@ -328,12 +328,12 @@ def ground(
 ) -> GroundingResult | None:
     now = now or datetime.now(UTC)
     try:
-        with db.begin_nested():
-            total = _count_active(db, tenant_id)
+        # one indexed LIMIT 1 query: this is all a tenant without a catalog ever costs per turn
+        has_items = db.execute(select(Offering.id).where(*_active(tenant_id)).limit(1)).first()
     except Exception:  # noqa: BLE001 - cannot tell whether this tenant has a catalog
         logger.exception("offerings gate query failed; leaving the turn ungrounded")
         return None
-    if total == 0:
+    if has_items is None:
         return None
 
     try:
@@ -341,6 +341,7 @@ def ground(
             enabled, currency, confirmed_at, stale_days = _settings(db, tenant_id)
             if not enabled:
                 return None
+            total = _count_active(db, tenant_id)
             return _ground(
                 db,
                 tenant_id,
@@ -360,7 +361,7 @@ def ground(
         return GroundingResult(
             mode="unavailable",
             block=block,
-            total_active=total,
+            total_active=0,
             read_at=now,
             strict=True,
             token_count=count_tokens(block),

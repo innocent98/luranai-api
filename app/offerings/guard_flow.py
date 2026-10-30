@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable, Iterable
 
 from app.offerings.fallback import fallback_reply
 from app.offerings.grounding import GroundingResult
-from app.offerings.guard import check_reply
+from app.offerings.guard import GuardVerdict, check_reply
 
 logger = logging.getLogger(__name__)
 
@@ -44,13 +44,17 @@ async def guard_reply(
     tier_amounts = list(tier_amounts)
 
     def verdict(text: str):
-        return check_reply(
-            text,
-            grounding,
-            customer_texts=customer_texts,
-            kb_text=kb_text,
-            tier_amounts=tier_amounts,
-        )
+        try:
+            return check_reply(
+                text,
+                grounding,
+                customer_texts=customer_texts,
+                kb_text=kb_text,
+                tier_amounts=tier_amounts,
+            )
+        except Exception:  # noqa: BLE001 - a guard bug must end in the safe reply, not an apology
+            logger.exception("offerings guard: check failed; treating the reply as rejected")
+            return GuardVerdict(ok=False)
 
     record = {"checked": True, "blocked": False, "regenerated": False, "fell_back": False}
     if verdict(reply).ok:
@@ -73,4 +77,14 @@ async def guard_reply(
 
     record["fell_back"] = True
     logger.warning("offerings guard: falling back to the code reply")
-    return GuardOutcome(fallback_reply(grounding), total, sales_meta, record, offer_escalation=True)
+    return GuardOutcome(
+        fallback_reply(grounding), total, _without_pitch(sales_meta), record, offer_escalation=True
+    )
+
+
+def _without_pitch(sales_meta: dict | None) -> dict | None:
+    """A rejected reply must not drive a quote or a meeting offer; lead capture and the cart stay."""
+    if not sales_meta:
+        return sales_meta
+    signals = {**(sales_meta.get("signals") or {}), "offer_quote": False, "offer_meeting": False}
+    return {**sales_meta, "signals": signals}

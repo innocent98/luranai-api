@@ -392,3 +392,30 @@ def test_rep_email_context_lists_items_with_listed_and_offered_prices(client, db
     ctx = _entity_context(db, log)
     assert ctx["kind"] == "offering_request"
     assert ctx["items"] == ["1 × Leather bag (listed 45,000), customer offered 30,000"]
+
+
+def test_the_offer_line_is_written_by_code_and_the_model_may_not_repeat_the_figure(client, db):
+    tid = _shop(db)
+    r = _run(
+        client,
+        db,
+        tid,
+        Model((NEG_REPLY, _cart((3, 1)), {"ref": "#3", "amount": 30000})),
+        text="can you do ₦30,000 for the leather bag?",
+    )
+    content = r.json()["message"]["content"]
+    assert content.startswith(NEG_REPLY)
+    assert "I've noted your offer of ₦30,000 for the Leather bag." in content
+    # a model that restates the customer's figure beside the item is stopped by the guard
+    r2 = _run(
+        client,
+        db,
+        tid,
+        Model(
+            ("Yes, the leather bag is ₦30,000 as you said.", _cart((3, 1)), None),
+            ("The owner is open to offers on the leather bag.", _cart((3, 1)), None),
+        ),
+        text="₦30,000 for the leather bag?",
+    )
+    assert "30,000" not in r2.json()["message"]["content"]
+    assert _meta(r2)["offerings"]["guard"]["blocked"] is True

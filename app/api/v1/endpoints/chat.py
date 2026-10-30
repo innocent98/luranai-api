@@ -79,6 +79,7 @@ from app.offerings.orchestrate import (
     alert_owner,
     catalog_score_signals,
     issue_quote,
+    offer_ack,
     record_cart,
 )
 from app.offerings.turn import (
@@ -3064,6 +3065,9 @@ async def _send_message_impl(
                     if _cart is not None and _cart.has_content:
                         _cart_synced = record_cart(db, lead, _cart)
                         _catalog_signals = catalog_score_signals(_cart_synced)
+                        _ack = offer_ack(_cart, _offerings.currency)
+                        if _ack:
+                            ai_response_text = f"{ai_response_text}\n\n{_ack}"
                         if _cart_synced.handover:
                             # D1: a counter-offer is never answered by the AI; a human takes it
                             if escalation_decision.action == EscalationAction.NO_ESCALATION:

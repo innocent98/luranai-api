@@ -93,9 +93,7 @@ async def test_strict_mode_uses_generic_code_reply_without_prices():
 async def test_sales_meta_of_the_blocked_reply_is_kept_when_falling_back():
     out = await _run(BAD, _regen((BAD, {"intent": "Z"}, 10, False)), sales_meta={"intent": "FIRST"})
     assert out.record["fell_back"] is True
-    assert out.sales_meta == {
-        "intent": "Z"
-    }  # the latest structured output still carries `captured`
+    assert out.sales_meta["intent"] == "Z"  # the latest structured output still carries `captured`
 
 
 @pytest.mark.asyncio
@@ -161,3 +159,40 @@ def test_fallback_marks_unavailable_service_as_fully_booked():
     g = GroundingResult(mode="detail", block="", items=[booked], matched_seqs=[7], currency="NGN")
     assert "fully booked" in fallback_reply(g).lower()
     assert OfferingPriceMode.FIXED  # imported for parity with the other tests
+
+
+# -- review follow-ups -------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_guard_exception_takes_the_code_fallback_never_the_generic_apology(monkeypatch):
+    from app.offerings import guard_flow
+
+    def boom(*a, **k):
+        raise RuntimeError("extractor bug")
+
+    monkeypatch.setattr(guard_flow, "check_reply", boom)
+    out = await _run(GOOD, _regen((GOOD, None, 5, False)))
+    assert out.record["fell_back"] is True and "₦12,000" in out.reply
+    assert out.offer_escalation is True
+
+
+@pytest.mark.asyncio
+async def test_fallback_drops_the_quote_and_meeting_signals_of_the_rejected_reply():
+    meta = {
+        "intent": "PURCHASE_INTENT",
+        "captured": {"name": "Ada"},
+        "signals": {
+            "offer_quote": True,
+            "offer_meeting": True,
+            "ready_to_buy": True,
+            "cart": [{"ref": "#1", "qty": 1}],
+        },
+    }
+    out = await _run(BAD, _regen((BAD, meta, 5, False)))
+    assert out.record["fell_back"] is True
+    sig = out.sales_meta["signals"]
+    assert sig["offer_quote"] is False and sig["offer_meeting"] is False
+    assert sig["cart"] == [{"ref": "#1", "qty": 1}] and sig["ready_to_buy"] is True
+    assert out.sales_meta["captured"] == {"name": "Ada"}
+    assert meta["signals"]["offer_quote"] is True  # the caller's dict is not mutated

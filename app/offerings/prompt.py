@@ -34,7 +34,7 @@ def catalog_sales_addendum(channel: str | None) -> str:
         "- signals.offered_price: when the customer states a price they would pay, "
         '{"ref": "#12", "amount": <their figure as a whole number>}; otherwise null. Never '
         "accept or counter it: say the owner is open to offers (if the item is negotiable) and "
-        "that the team will follow up.\n"
+        "that the team will follow up. Do not repeat the customer's figure; the system notes it.\n"
         "- Ask which item or quantity if it is ambiguous, confirm the chosen items back, "
         f"then ask for their contact. {contact}\n"
         "- Never state a total yourself; the system prepares any quote from the cart."

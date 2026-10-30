@@ -324,3 +324,15 @@ def test_lookup_error_fails_closed(db):
     assert res.mode == "unavailable" and res.strict is True
     assert "unavailable" in res.block.lower() and "<offering ref=" not in res.block
     assert res.items == [] and res.allowed_amounts == frozenset()
+
+
+def test_a_tenant_without_items_costs_one_query_and_no_savepoint(db):
+    from sqlalchemy import event
+
+    tid = make_tenant(db)
+    seen = []
+    conn = db.get_bind()
+    event.listen(conn, "before_cursor_execute", lambda c, cur, stmt, *a: seen.append(stmt))
+    assert ground(db, tid, "black sneaker", now=NOW) is None
+    assert len([s for s in seen if "offerings" in s]) == 1
+    assert not [s for s in seen if "SAVEPOINT" in s.upper()]

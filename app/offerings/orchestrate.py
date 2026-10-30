@@ -13,6 +13,7 @@ from app.db.models.lead import Lead
 from app.db.models.notification_log import NotifEvent
 from app.db.models.quote import Quote
 from app.offerings.cart import CartResolution, InterestSync, catalog_quote, sync_interests
+from app.offerings.facts import format_amount
 from app.services.notification_enqueue import enqueue_jobs_async
 from app.services.notification_service import NotificationService
 from app.services.quote_service import QuoteService
@@ -39,6 +40,16 @@ async def alert_owner(db: Session, lead: Lead, synced: InterestSync) -> None:
     """Once, on the first committed cart; after enrichment so the alert carries the name."""
     if synced.first_cart:
         await _notify(db, lead.tenant_id, NotifEvent.OFFERING_REQUEST, "lead", lead.id)
+
+
+def offer_ack(res: CartResolution, currency: str) -> str | None:
+    """The only sentence that repeats a customer's price offer, written by code (never the model)."""
+    if res.offered is None:
+        return None
+    return (
+        f"I've noted your offer of {format_amount(res.offered.amount, currency)} "
+        f"for the {res.offered.facts.name}."
+    )
 
 
 def catalog_score_signals(synced: InterestSync) -> dict:

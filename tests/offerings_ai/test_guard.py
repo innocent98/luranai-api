@@ -51,14 +51,18 @@ ITEMS = [
     ),
     _item(5, "Sold out sandals", 8000, availability=OfferingAvailability.OUT_OF_STOCK),
     _item(6, "Custom portrait", None, price_mode=OfferingPriceMode.ON_REQUEST),
+    _item(7, "Puff puff", 900),
+    _item(8, "Toyota Camry 2015", 4500000),
+    _item(9, "N95 Mask", 1500),
 ]
 
 
-def _grounding(items=ITEMS, *, strict=False, currency="NGN"):
+def _grounding(items=ITEMS, *, strict=False, currency="NGN", matched=()):
     return GroundingResult(
         mode="unavailable" if strict else "detail",
         block="",
         items=[] if strict else list(items),
+        matched_seqs=list(matched),
         strict=strict,
         currency=currency,
     )
@@ -74,6 +78,7 @@ class Case:
     tiers: tuple = ()
     strict: bool = False
     currency: str = "NGN"
+    matched: tuple = ()
 
 
 C = Case
@@ -145,19 +150,20 @@ CASES = [
     C("The owner is open to offers on the leather bag.", True),
     C(
         "I've noted your offer of ₦30,000 for the leather bag; the team will follow up.",
-        True,
+        False,
+        "customer_figure_below_price",
         customer=("can you do ₦30,000 for the bag",),
     ),
     C(
         "Fine, ₦8,000 it is.",
         False,
-        "unattributed_customer_amount",
+        "concession",
         customer=("can you do ₦8,000?",),
     ),
     C(
         "Alright, ₦30,000 then.",
         False,
-        "unattributed_customer_amount",
+        "concession",
         customer=("I'll pay ₦30,000",),
     ),
     C(
@@ -174,7 +180,8 @@ CASES = [
     ),
     C(
         "You offered ₦30,000, but the leather bag is listed at ₦45,000.",
-        True,
+        False,
+        "customer_figure_below_price",
         customer=("how about ₦30,000",),
     ),
     # --- review findings: concessions at a coincidentally listed price, echoed-then-accepted ---
@@ -183,7 +190,7 @@ CASES = [
     C(
         "I can do ₦12,000 for you.",
         False,
-        "unattributed_customer_amount",
+        "concession",
         customer=("can you do 12k for the bag",),
     ),
     C("We have a deal at ₦13,500.", False, "concession"),
@@ -205,9 +212,13 @@ CASES = [
         "concession",
         customer=("how about ₦30,000",),
     ),
-    # Known limit: acceptance in a separate sentence that restates no amount is not machine-checked
-    # ("You offered ₦30,000." / "Sounds fine."); rule 3, the eval suite and the pilot audit hold it.
-    C("You offered ₦30,000. Sounds fine to me.", True, customer=("how about ₦30,000",)),
+    # Agreement in a separate sentence after the customer's below-list figure is echoed.
+    C(
+        "You offered ₦30,000. Sounds fine to me.",
+        False,
+        "agreement_after_offer",
+        customer=("how about ₦30,000",),
+    ),
     C("I can do ₦12,000 for the black sneaker.", True),
     C("The black sneaker is ₦12,000 and there is no discount.", True),
     C("I can't offer a discount on the leather bag; it is ₦45,000.", True),
@@ -226,7 +237,8 @@ CASES = [
     C("Sure, 10 percent off then.", False, "percent", customer=("can I get 10 percent off",)),
     C(
         "You asked for 20% off, but the black sneaker is listed at ₦12,000.",
-        True,
+        False,
+        "percent",
         customer=("give me 20% discount",),
     ),
     C(
@@ -235,6 +247,72 @@ CASES = [
         "percent",
         customer=("give me 20% discount",),
     ),
+    # --- second independent review (Opus) -------------------------------------------------
+    C(
+        "Yes, the black sneaker is ₦10,000 as you said.",
+        False,
+        "customer_figure_below_price",
+        customer=("10,000",),
+    ),
+    C(
+        "As you said, ₦10,000 for the black sneaker.",
+        False,
+        "customer_figure_below_price",
+        customer=("10,000",),
+    ),
+    C(
+        "Black sneaker: your price ₦10,000 confirmed.",
+        False,
+        "customer_figure_below_price",
+        customer=("10,000",),
+    ),
+    C(
+        "Within your budget, the black sneaker is ₦9,000.",
+        False,
+        "customer_figure_below_price",
+        customer=("budget 9k",),
+    ),
+    C(
+        "You offered ₦10,000 for the black sneaker. Okay, deal!",
+        False,
+        "customer_figure_below_price",
+        customer=("10,000",),
+    ),
+    C(
+        "I'll pass your offer of ₦10,000 to the owner. Good news, the owner has agreed!",
+        False,
+        "agreement_after_offer",
+        customer=("10,000",),
+    ),
+    C("I'll pass your offer of ₦10,000 to the owner.", True, customer=("10,000",)),
+    C("Sure, 10% off the black sneaker for you.", False, "percent", customer=("10% off",)),
+    C("Okay, I can do ₦9,000 for you.", False, "concession", kb="Black sneaker ₦9,000"),
+    C("The black sneaker is ₦11,000only.", False, "wrong_item_price"),
+    C("The black sneaker is ₦11,000ish.", False, "wrong_item_price"),
+    C("Okay, 800 works for the puff puff.", False),
+    C("Puff puff, 800 only.", False, "wrong_item_price"),
+    C("Puff puff, 900 only.", True),
+    C("The black sneaker is fifteen hundred naira.", False, "wrong_item_price"),
+    C("The black sneaker is fifteen k.", False, "wrong_item_price"),
+    C("The black sneaker is 5 grand.", False, "wrong_item_price"),
+    C("The black sneaker is 12 thousand five hundred.", False, "wrong_item_price"),
+    C("The black sneaker is 12 thousand.", True),
+    C("Black sneaker is half price today.", False, "discount_wording"),
+    C("You can have the black sneaker for free.", False, "discount_wording"),
+    C("I'll take 500 off the black sneaker.", False),
+    C("I can't offer a discount on the black sneaker.", True),
+    C("The black sneaker is cheaper today.", False, "discount_wording"),
+    C("It's ₦13,500.", False, "not_in_block", matched=(1,)),
+    C("It's ₦12,000.", True, matched=(1,)),
+    C("The Toyota Camry 2015 is ₦4,500,000.", True),
+    C("The N95 Mask is ₦1,500.", True),
+    C("Call 0803 123 4567 for the team.", True),
+    C("We are open from 31/10/2026.", True),
+    C("Your reference is LUR-2041.", True),
+    C("Delivery is 2,5k.", True, kb="Delivery costs ₦2,500."),
+    C("Delivery is 2,5k.", False, "not_in_block"),
+    C("The black sneaker is ₦30,000 on our Pro plan.", False, "wrong_item_price", tiers=(30000,)),
+    C("Okay, I can do ₦30,000 for you.", False, "concession", tiers=(30000,)),
     # --- wrong, invented and stale prices ------------------------------------------------
     C("The black sneaker is ₦11,000.", False, "wrong_item_price"),
     C("The black sneaker is ₦12,500.", False, "wrong_item_price"),
@@ -253,7 +331,7 @@ CASES = [
     C("Sneakers range between 10k and 12k.", False, "wrong_item_price"),
     C("The black sneaker is NGN 12,500.", False, "wrong_item_price"),
     C("The black sneaker was ₦15,000 but is now ₦12,000.", False, "wrong_item_price"),
-    C("Our sneakers cost ₦9,000.", False, "kb_beside_item", kb="Sneakers sell at ₦9,000 each."),
+    C("Our sneakers cost ₦9,000.", False, "wrong_item_price", kb="Sneakers sell at ₦9,000 each."),
     C("Phone repair is ₦12,000 per phone.", False, "wrong_item_price"),
     # --- totals the model must not compute ----------------------------------------------
     C("2 x ₦12,000 = ₦24,000 for two black sneakers.", False, "wrong_item_price"),
@@ -263,7 +341,7 @@ CASES = [
     # --- no item named: only KB / customer / tier amounts pass --------------------------
     C("Delivery is ₦3,000.", False, "not_in_block"),
     C("Delivery is ₦3,000.", True, kb="Delivery fee: ₦3,000."),
-    C("Our warranty costs ₦1,500.", False, "not_in_block", kb="Delivery fee: ₦3,000."),
+    C("Our warranty costs ₦1,750.", False, "not_in_block", kb="Delivery fee: ₦3,000."),
     C(
         "The black sneaker is ₦12,000, plus ₦2,000 delivery.",
         False,
@@ -305,13 +383,13 @@ CASES = [
 def test_guard_verdict(case: Case):
     verdict = check_reply(
         case.reply,
-        _grounding(strict=case.strict, currency=case.currency),
+        _grounding(strict=case.strict, currency=case.currency, matched=case.matched),
         customer_texts=case.customer,
         kb_text=case.kb,
         tier_amounts=case.tiers,
     )
     assert verdict.ok is case.ok, [(v.reason, v.sentence) for v in verdict.violations]
-    if not case.ok:
+    if not case.ok and case.reason is not None:
         assert case.reason in {v.reason for v in verdict.violations}, [
             (v.reason, v.sentence) for v in verdict.violations
         ]

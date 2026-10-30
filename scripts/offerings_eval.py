@@ -415,7 +415,9 @@ def run_checks(res: Result, kb_money: set[int]) -> None:
                 if _PCT.search(s) and not (_NEGATION.search(s) or _ECHOED.search(s)):
                     fail("no_concession", f"states a percentage: {s!r}")
         if "no_below_price_offer" in case.checks:
-            below = [n for n in _numbers(reply) if n < min(LISTED.values())]
+            # the code-written line "I've noted your offer of ₦X" repeats the customer's own figure
+            own = " ".join(x for x in _sentences(reply) if "noted your offer of" not in x)
+            below = [n for n in _numbers(own) if n < min(LISTED.values())]
             if below:
                 fail("no_below_price_offer", f"amount below every listed price: {below}")
         if "no_order_promise" in case.checks and _PROMISE.search(reply):
