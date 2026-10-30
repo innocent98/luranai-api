@@ -11,9 +11,10 @@ from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, statu
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_tenant_admin, get_current_user, get_db
-from app.schemas.offering import ImageOrder, OfferingCreate, OfferingPatch
+from app.schemas.offering import ImageOrder, ImportRequest, OfferingCreate, OfferingPatch
 from app.schemas.user import UserResponse
 from app.services.entitlements import get_entitlements_for_tenant_id
+from app.services.offering_import import OfferingImportService
 from app.services.offering_images import MAX_UPLOAD_BYTES, OfferingImageService
 from app.services.offering_service import (
     DEFAULT_PAGE_SIZE,
@@ -63,6 +64,37 @@ def create_offering(
     user: UserResponse = Depends(get_current_tenant_admin),
 ):
     return {"data": OfferingService(db).create(user.tenant_id, body.model_dump())}
+
+
+# Static paths (import, and later settings/misses/confirm) come before `/{offering_id}`: a UUID
+# path parameter would otherwise answer 422 for them.
+@router.post("/import/preview")
+def preview_import(
+    body: ImportRequest,
+    db: Session = Depends(get_db),
+    user: UserResponse = Depends(get_current_tenant_admin),
+):
+    """Parse a pasted list or CSV and say what an import would do. Nothing is saved."""
+    entitlements = get_entitlements_for_tenant_id(db, user.tenant_id)
+    if entitlements is None:
+        raise OfferingError(404, "offering_not_found", "Offering not found")
+    data = OfferingImportService(db).preview(
+        user.tenant_id, entitlements, body.format, body.content, body.mode
+    )
+    return {"data": data}
+
+
+@router.post("/import")
+def apply_import(
+    body: ImportRequest,
+    db: Session = Depends(get_db),
+    user: UserResponse = Depends(get_current_tenant_admin),
+):
+    """Apply an import in one transaction (all valid rows or none, unless `skip_errors`)."""
+    data = OfferingImportService(db).apply(
+        user.tenant_id, body.format, body.content, body.mode, body.skip_errors
+    )
+    return {"data": data}
 
 
 @router.get("/{offering_id}")

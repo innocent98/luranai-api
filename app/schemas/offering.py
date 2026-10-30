@@ -51,3 +51,12 @@ class ImageOrder(BaseModel):
     """The photo ids in their new order (first = cover)."""
 
     image_ids: list[UUID]
+
+
+class ImportRequest(BaseModel):
+    """Preview and apply share this body (`skip_errors` only matters to apply)."""
+
+    format: Literal["csv", "lines"]
+    content: str
+    mode: Literal["add", "upsert"] = "add"
+    skip_errors: bool = False
