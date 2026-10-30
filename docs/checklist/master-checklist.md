@@ -340,6 +340,16 @@ Docs: SOP `docs/sop/whatsapp_sidecar_production_deploy.md` (owner actions in ord
 - [ ] Flip `WHATSAPP_ENABLED=true` (strict smoke 8 PASS), consent/ToS wording, grant ONE tenant, watch the snapshot log
 - [ ] Not proven anywhere: the new CD steps on a real runner/VPS, live prod Redis/Postgres settings, more than 2 sessions
 
+## WhatsApp connect requires an active subscription — BUILT 2026-10-30, PR open to `develop`, not merged
+Docs: SOP `docs/sop/whatsapp_connect_requires_active_subscription.md`; FE guide `docs/fe-integration-guide-whatsapp-connect-subscription-gate.md`. Branch `fix/whatsapp-connect-requires-active-subscription`.
+- [x] Reproduced with failing tests: an expired-trial / canceled / past_due tenant could link a number and take a launch slot (10 of 13 prod tenants are `trial_expired`)
+- [x] `verify_subscription_active` on `POST /whatsapp/connections` and `POST /whatsapp/connections/{id}/pairing-code` (402; list/patch/delete stay open); active, trialing and promo-granted still connect
+- [x] Inbound of an already-linked lapsed number: already stops answering (`_plan_blocks_conversation`), message stored, no reply — no change
+- [ ] PR merged to `develop` (lead), then promoted
+- [ ] Dashboard: map 402 `error` values (`subscription_inactive`, `trial_expired`, `subscription_expired`) on the connect page; hide the form when entitlements say `enabled: false`
+- [ ] Lapsed tenants' already-linked numbers still count toward `WHATSAPP_MAX_CONNECTIONS` and hold a sidecar session; no cleanup job (decide)
+- [ ] `_plan_blocks_conversation` ignores `subscription_ends_at` for `active` tenants (use `entitlements.is_lapsed`)
+
 ## Sidecar Redis isolation (production) — BUILT, PR open to `develop`, nothing run on the VPS (2026-10-30)
 Docs: plan `docs/superpowers/plans/2026-10-30-sidecar-redis-isolation.md`; SOP `docs/sop/whatsapp_sidecar_redis_isolation.md` (owner steps in order, rollback, what is not verified). Branch `feature/sidecar-redis-isolation`. Resolves the "decide before `WHATSAPP_ENABLED` is flipped" ruling of the production sidecar SOP. No production container restarts; `docker-compose.prod.yml` untouched.
 - [x] Findings from the code: the sidecar's Redis holds only `wa:lease:*` (30 s) and `wa:daily:*` (26 h); the backend never reads them, so only the sidecar needs the new Redis

@@ -1,0 +1,13 @@
+{
+  "request": "POST /api/v1/whatsapp/connections",
+  "status": 402,
+  "body": {
+    "detail": {
+      "error": "subscription_expired",
+      "message": "Your subscription has ended. Please reactivate to continue using Luran.",
+      "subscription_ended": "2026-10-29T20:20:29.862860+00:00",
+      "upgrade_url": "/dashboard/billing",
+      "subscription_tier": "trial"
+    }
+  }
+}
