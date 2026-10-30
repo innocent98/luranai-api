@@ -108,14 +108,31 @@ def test_yoruba_company_name_survives(db_session):
     assert "Ọmọlará" in _pdf_text(render_quote_pdf(q, lead=lead))
 
 
-def test_missing_font_falls_back_without_crashing_and_logs_once(db_session, tmp_path, monkeypatch, caplog):
+def test_missing_font_falls_back_without_crashing_and_logs_once(db_session, tmp_path, monkeypatch):
+    # Order-independent capture: Alembic's env.py runs logging.config.fileConfig()
+    # (disable_existing_loggers=True) in any migration test that ran earlier in the same process,
+    # which disables already-imported loggers and leaves caplog empty. So re-enable this exact
+    # logger and attach our own handler instead of relying on caplog/propagation.
+    log = logging.getLogger("app.services.quote_pdf_service")
+    records: list[logging.LogRecord] = []
+
+    class _Collect(logging.Handler):
+        def emit(self, record):
+            records.append(record)
+
+    handler = _Collect(level=logging.WARNING)
+    monkeypatch.setattr(log, "disabled", False)
+    monkeypatch.setattr(log, "level", logging.WARNING)
+    log.addHandler(handler)
     monkeypatch.setattr(quote_pdf_service, "_FONT_DIR", tmp_path)  # no font files here
     monkeypatch.setattr(quote_pdf_service, "_warned_missing_font", False)
-    q, lead = _quote(db_session)
-    with caplog.at_level(logging.WARNING):
+    try:
+        q, lead = _quote(db_session)
         first = render_quote_pdf(q, lead=lead)
         second = render_quote_pdf(q, lead=lead)
+    finally:
+        log.removeHandler(handler)
     assert first[:5] == b"%PDF-" and second[:5] == b"%PDF-"
     assert not any("DejaVu" in n for n in _pdf_font_names(first))  # the old Helvetica path
-    warnings = [r for r in caplog.records if "quote pdf font" in r.getMessage().lower()]
+    warnings = [r for r in records if "quote pdf font" in r.getMessage().lower()]
     assert len(warnings) == 1
