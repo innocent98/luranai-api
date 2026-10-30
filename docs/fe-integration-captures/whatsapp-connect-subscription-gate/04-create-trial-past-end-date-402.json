@@ -1,0 +1,13 @@
+{
+  "request": "POST /api/v1/whatsapp/connections",
+  "status": 402,
+  "body": {
+    "detail": {
+      "error": "trial_expired",
+      "message": "Your 30-day trial has expired. Please upgrade to continue using Luran.",
+      "trial_ended": "2026-10-29T20:20:29.858817+00:00",
+      "upgrade_url": "/dashboard/upgrade",
+      "subscription_tier": "trial"
+    }
+  }
+}

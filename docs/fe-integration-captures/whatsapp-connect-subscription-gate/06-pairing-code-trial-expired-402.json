@@ -1,0 +1,12 @@
+{
+  "request": "POST /api/v1/whatsapp/connections/{id}/pairing-code",
+  "status": 402,
+  "body": {
+    "detail": {
+      "error": "subscription_inactive",
+      "message": "Subscription trial_expired. Please update payment.",
+      "status": "trial_expired",
+      "upgrade_url": "/dashboard/billing"
+    }
+  }
+}

@@ -2,10 +2,18 @@
 # what staging runs) and after the stack file. cd.yml's production-deploy sidecar steps are the only thing that ships it.
 #   docker compose -p luran --env-file .env --env-file .env.sidecar \
 #     -f docker-compose.prod.yml -f docker-compose.whatsapp.yml -f docker-compose.whatsapp.production.yml \
-#     up -d --no-deps whatsapp-sidecar
-# Everything not listed here (hardening, no published port, direct Postgres with the dedicated role, Redis logical DB 1,
-# log cap, oom_score_adj) is inherited unchanged from the base file. This file only carries what differs for production:
-# the container name and the sizing. Every value can still be overridden from the env (the same WHATSAPP_* names).
+#     up -d --no-deps whatsapp-redis whatsapp-sidecar
+# Everything not listed here (hardening, no published port, direct Postgres with the dedicated role, log cap, oom_score_adj)
+# is inherited unchanged from the base file. This file only carries what differs for production: the container name, the
+# sizing, and the ISOLATION of the sidecar (docs/sop/whatsapp_sidecar_redis_isolation.md):
+#   * its own Redis (`whatsapp-redis`), authenticated, on a network (`luran_wa_redis`, internal: no gateway, no egress) that
+#     only the sidecar joins. The shared production Redis and Qdrant have no password; the sidecar parses untrusted traffic.
+#   * the sidecar is NOT on `luran_default`: it cannot resolve or reach redis, qdrant or pgbouncer. It sits on
+#     `luran_wa_redis` and on `luran_wa_backend`, which holds only luran_api, luran_worker and luran_db (the three things it
+#     talks to). That network is created and populated at runtime by scripts/whatsapp_sidecar_network.sh (a live
+#     `docker network connect`, so no production container is restarted or recreated); it is `external` here for that reason.
+#   * the base file's `depends_on: redis` (the shared Redis) stays in the merged config but is inert: every production step
+#     starts the sidecar with --no-deps, and the sidecar no longer uses that Redis.
 #
 # Sizing basis (details and the measured/extrapolated split: docs/sop/whatsapp_sidecar_production_deploy.md):
 #   MEASURED on staging, 2 linked numbers, 21 h: process RSS 135-144 MiB (/health rss_mb divides by 1048576), container
@@ -22,6 +30,80 @@ services:
     container_name: luran_whatsapp_sidecar
     mem_limit: ${WHATSAPP_SIDECAR_MEM_LIMIT:-384m}
     memswap_limit: ${WHATSAPP_SIDECAR_MEM_LIMIT:-384m}
+    # Listing `networks` removes the implicit `default` (luran_default) membership.
+    networks:
+      - wa_redis
+      - wa_backend
+    depends_on:
+      whatsapp-redis:
+        condition: service_healthy
     environment:
       MAX_SESSIONS: ${WHATSAPP_MAX_SESSIONS:-3}
       RSS_REFUSE_MB: ${WHATSAPP_RSS_REFUSE_MB:-216}
+      # Built here, not taken from the env: an inherited WHATSAPP_SIDECAR_REDIS_URL cannot point the sidecar back at the
+      # shared Redis. The password is alphanumeric (the CD gate enforces it), so it needs no URL escaping.
+      WHATSAPP_SIDECAR_REDIS_URL: redis://default:${WHATSAPP_SIDECAR_REDIS_PASSWORD:?set WHATSAPP_SIDECAR_REDIS_PASSWORD}@whatsapp-redis:6379/0
+
+  # The sidecar's own Redis. It holds only `wa:lease:*` (30 s TTL) and `wa:daily:*` (26 h TTL), about 100 B each: under 5 KiB at
+  # 10 sessions. The backend never reads these keys.
+  #  - noeviction: a lease or send counter must never be evicted silently; at the cap writes fail and the sidecar fails closed.
+  #  - `save 60 1` on a named volume: the daily send counter (the anti-ban cap) survives a Redis restart; leases do not matter.
+  #  - one ACL user (`default`) limited to `wa:*` keys with no admin/dangerous commands; the password reaches a tmpfs ACL file
+  #    from the container env, so it is never on a command line, in `docker inspect` Cmd or in `ps`.
+  whatsapp-redis:
+    image: redis:7-alpine
+    container_name: luran_whatsapp_redis
+    restart: unless-stopped
+    user: redis
+    read_only: true
+    tmpfs:
+      - /tmp:size=1m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 32m
+    memswap_limit: 32m
+    cpus: 0.25
+    pids_limit: 32
+    oom_score_adj: 500
+    stop_grace_period: 10s
+    networks:
+      - wa_redis
+    volumes:
+      - wa_redis_data:/data
+    environment:
+      WA_REDIS_PASSWORD: ${WHATSAPP_SIDECAR_REDIS_PASSWORD:?set WHATSAPP_SIDECAR_REDIS_PASSWORD}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -eu
+        [ -n "$$WA_REDIS_PASSWORD" ]
+        umask 077
+        printf 'user default on >%s ~wa:* +@all -@admin -@dangerous +info\n' "$$WA_REDIS_PASSWORD" > /tmp/users.acl
+        exec redis-server --aclfile /tmp/users.acl --dir /data --save "60 1" --appendonly no \
+          --maxmemory 8mb --maxmemory-policy noeviction --maxclients 32 --tcp-keepalive 60
+    healthcheck:
+      test: ["CMD-SHELL", 'REDISCLI_AUTH="$$WA_REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+networks:
+  # Internal: no gateway, so the Redis (and the sidecar's use of this network) has no route out. Only the sidecar joins it.
+  wa_redis:
+    name: luran_wa_redis
+    internal: true
+  # Created and populated by scripts/whatsapp_sidecar_network.sh before the sidecar starts.
+  wa_backend:
+    name: luran_wa_backend
+    external: true
+
+volumes:
+  wa_redis_data:
+    name: luran_wa_redis_data

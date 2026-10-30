@@ -41,7 +41,7 @@ def test_consent_is_versioned_and_is_the_approved_copy(client, db, wa_settings):
     login_admin(make_tenant(db))
     r = client.get("/api/v1/whatsapp/consent")
     assert r.status_code == 200
-    assert r.json() == {"version": "2026-10-28-draft2", "text": APPROVED_CONSENT_TEXT}
+    assert r.json() == {"version": "2026-10-30", "text": APPROVED_CONSENT_TEXT}
     assert r.json()["version"] == CONSENT_VERSION
 
 
@@ -489,3 +489,106 @@ def test_new_codes_do_not_extend_an_unpaired_attempt_and_spend_the_number_budget
     client.post(f"/api/v1/whatsapp/connections/{cid}/pairing-code")  # refreshing does not save it
     login_admin(make_tenant(db))
     assert _create(client, consent_body(PHONE_A)).status_code == 201  # squatter's hold is gone
+
+
+# ------------------------------------------------------------------ subscription gate
+# A lapsed tenant must not link a number: it would take one of the few platform slots
+# (WHATSAPP_MAX_CONNECTIONS) while its inbound is already blocked by the plan check.
+def _set_subscription(db, tenant, status: str, *, trial_ends_at=None, subscription_ends_at=None):
+    from app.db.models.tenant import Tenant
+
+    row = db.get(Tenant, tenant.id)
+    row.subscription_status = status
+    row.trial_ends_at = trial_ends_at
+    row.subscription_ends_at = subscription_ends_at
+    db.commit()
+
+
+def _connection_count(db) -> int:
+    db.expire_all()
+    return len(db.execute(select(WhatsAppConnection.id)).all())
+
+
+@pytest.mark.parametrize("lapsed", ["trial_expired", "canceled", "past_due"])
+def test_lapsed_status_cannot_create_a_connection(client, db, wa_settings, fake_sidecar, lapsed):
+    tenant = make_tenant(db)
+    _set_subscription(db, tenant, lapsed)
+    login_admin(tenant)
+    r = _create(client)
+    assert r.status_code == 402, r.text
+    detail = r.json()["detail"]
+    assert detail["error"] == "subscription_inactive" and detail["status"] == lapsed
+    assert detail["upgrade_url"] == "/dashboard/billing"
+    assert _connection_count(db) == 0 and fake_sidecar.sessions == {}
+
+
+def test_trial_past_its_end_date_cannot_create_a_connection(client, db, wa_settings, fake_sidecar):
+    from datetime import UTC, datetime, timedelta
+
+    tenant = make_tenant(db)
+    ended = datetime.now(UTC) - timedelta(days=1)
+    _set_subscription(db, tenant, "trialing", trial_ends_at=ended)
+    login_admin(tenant)
+    r = _create(client)
+    assert r.status_code == 402, r.text
+    assert r.json()["detail"]["error"] == "trial_expired"
+    assert _connection_count(db) == 0 and fake_sidecar.sessions == {}
+
+
+def test_active_subscription_past_its_end_date_cannot_create_a_connection(
+    client, db, wa_settings, fake_sidecar
+):
+    from datetime import UTC, datetime, timedelta
+
+    tenant = make_tenant(db)
+    _set_subscription(
+        db, tenant, "active", subscription_ends_at=datetime.now(UTC) - timedelta(days=1)
+    )
+    login_admin(tenant)
+    r = _create(client)
+    assert r.status_code == 402, r.text
+    assert r.json()["detail"]["error"] == "subscription_expired"
+    assert _connection_count(db) == 0
+
+
+def test_lapsed_tenant_cannot_mint_a_new_pairing_code(client, db, wa_settings, fake_sidecar):
+    tenant = make_tenant(db)
+    login_admin(tenant)
+    cid = _create(client).json()["id"]
+    _set_subscription(db, tenant, "trial_expired")
+    r = client.post(f"/api/v1/whatsapp/connections/{cid}/pairing-code")
+    assert r.status_code == 402, r.text
+    assert r.json()["detail"]["error"] == "subscription_inactive"
+
+
+def test_lapsed_tenant_can_still_list_and_delete_its_connections(
+    client, db, wa_settings, fake_sidecar
+):
+    """Housekeeping stays open: freeing a slot must not need an upgrade."""
+    tenant = make_tenant(db)
+    login_admin(tenant)
+    cid = _create(client).json()["id"]
+    _set_subscription(db, tenant, "trial_expired")
+    assert [c["id"] for c in client.get("/api/v1/whatsapp/connections").json()] == [cid]
+    assert client.delete(f"/api/v1/whatsapp/connections/{cid}").status_code == 204
+
+
+@pytest.mark.parametrize("variant", ["trialing", "active", "promo_grant"])
+def test_paying_trialing_and_promo_granted_tenants_still_connect(
+    client, db, wa_settings, fake_sidecar, variant
+):
+    from datetime import UTC, datetime, timedelta
+
+    future = datetime.now(UTC) + timedelta(days=10)
+    tenant = make_tenant(db)
+    if variant == "trialing":
+        _set_subscription(db, tenant, "trialing", trial_ends_at=future)
+    elif variant == "active":
+        _set_subscription(db, tenant, "active")
+    else:
+        # What PromotionalGrantService writes: active status, the grant's end as the sub end,
+        # no trial date.
+        _set_subscription(db, tenant, "active", subscription_ends_at=future)
+    login_admin(tenant)
+    r = _create(client)
+    assert r.status_code == 201, r.text

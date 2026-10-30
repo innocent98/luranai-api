@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_tenant_admin, get_db
+from app.api.deps import get_current_tenant_admin, get_db, verify_subscription_active
 from app.schemas.user import UserResponse
 from app.schemas.whatsapp import (
     ConnectionCreate,
@@ -43,8 +43,13 @@ async def create_connection(
     body: ConnectionCreate,
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_tenant_admin),
+    _subscription_check: object = Depends(verify_subscription_active),
 ):
-    """Start linking a number. The pairing code is in this response ONLY (never stored)."""
+    """Start linking a number. The pairing code is in this response ONLY (never stored).
+
+    402 for an expired trial or an inactive subscription: a lapsed tenant must not take one of the
+    few platform slots. Listing, patching and deleting stay open so a lapsed tenant can free one.
+    """
     created = await WhatsAppService(db).create_connection(
         tenant_id=current_user.tenant_id,
         user_id=current_user.id,
@@ -90,6 +95,7 @@ async def new_pairing_code(
     connection_id: UUID,
     db: Session = Depends(get_db),
     current_user: UserResponse = Depends(get_current_tenant_admin),
+    _subscription_check: object = Depends(verify_subscription_active),
 ):
     pairing = await WhatsAppService(db).new_pairing_code(current_user.tenant_id, connection_id)
     return PairingCodeOut(pairing_code=pairing.pairing_code, expires_in_s=pairing.expires_in_s)

@@ -7,7 +7,7 @@
 #      code that contains this script is a no-op for production until the owner adds the secrets.
 #   2. Otherwise decides whether the WhatsApp sidecar can be deployed (every required NAME present and well-formed, and the
 #      env really is the production stack). If not, the sidecar is skipped with a log line and the deploy continues.
-#   3. Moves the sidecar-only secrets (master key, DB password) out of .env into .env.sidecar so the api/worker
+#   3. Moves the sidecar-only secrets (master key, DB password, Redis password) out of .env into .env.sidecar so the api/worker
 #      env_file never carries them. This happens whether or not the gate passes.
 #
 # Prints variable NAMES and pass/fail only. Never prints, logs or echoes a value.
@@ -24,9 +24,12 @@ EXPECT_PROJECT="luran"
 EXPECT_ENVIRONMENT="production"
 
 # Names that must never reach the api/worker container env.
-SIDECAR_ONLY_KEYS=(WHATSAPP_AUTH_MASTER_KEY WHATSAPP_SIDECAR_DB_PASSWORD)
-# Names the sidecar needs; all must be present and well-formed to deploy it.
-REQUIRED_KEYS=(WHATSAPP_SIDECAR_TOKEN WHATSAPP_WEBHOOK_SECRET WHATSAPP_AUTH_MASTER_KEY WHATSAPP_SIDECAR_DB_PASSWORD)
+# WHATSAPP_SIDECAR_REDIS_PASSWORD is the password of the sidecar's OWN Redis (docker-compose.whatsapp.production.yml): the api
+# and worker never talk to that Redis, so they must not hold its password.
+SIDECAR_ONLY_KEYS=(WHATSAPP_AUTH_MASTER_KEY WHATSAPP_SIDECAR_DB_PASSWORD WHATSAPP_SIDECAR_REDIS_PASSWORD)
+# Names the sidecar needs; all must be present and well-formed to deploy it. Without the Redis password the sidecar is NOT
+# deployed (fail closed): there is no fallback to the shared production Redis.
+REQUIRED_KEYS=(WHATSAPP_SIDECAR_TOKEN WHATSAPP_WEBHOOK_SECRET WHATSAPP_AUTH_MASTER_KEY WHATSAPP_SIDECAR_DB_PASSWORD WHATSAPP_SIDECAR_REDIS_PASSWORD)
 # Names the backend needs to talk to it; missing ones only warn.
 BACKEND_KEYS=(WHATSAPP_ENABLED WHATSAPP_SIDECAR_URL WHATSAPP_CONTACT_PEPPER)
 # Sidecar-side session cap when WHATSAPP_MAX_SESSIONS is not set (docker-compose.whatsapp.production.yml) and the backend's
@@ -102,6 +105,8 @@ if [ "${#missing[@]}" -eq 0 ]; then
   [ "$(val WHATSAPP_WEBHOOK_SECRET | wc -c)" -ge 33 ] || bad+=(WHATSAPP_WEBHOOK_SECRET)
   val WHATSAPP_AUTH_MASTER_KEY | grep -Eq '^([0-9a-fA-F]{2}){32,}$' || bad+=(WHATSAPP_AUTH_MASTER_KEY)
   val WHATSAPP_SIDECAR_DB_PASSWORD | grep -Eq '^[A-Za-z0-9]{24,}$' || bad+=(WHATSAPP_SIDECAR_DB_PASSWORD)
+  # Alphanumeric only: it is embedded in a redis:// URL and written into an ACL file, so no character may need escaping.
+  val WHATSAPP_SIDECAR_REDIS_PASSWORD | grep -Eq '^[A-Za-z0-9]{32,}$' || bad+=(WHATSAPP_SIDECAR_REDIS_PASSWORD)
   [ "${#bad[@]}" -eq 0 ] || problems+=("malformed (length/charset rules in docs/sop/whatsapp_sidecar_production_deploy.md): ${bad[*]}")
 fi
 
@@ -132,6 +137,9 @@ echo "Sidecar-only secrets (names: ${SIDECAR_ONLY_KEYS[*]}) kept out of the api/
 
 if [ "${#problems[@]}" -gt 0 ]; then
   rm -f "$SIDECAR_ENV_FILE"
+  # Loud, not a quiet green run: a sidecar that is ALREADY running keeps whatever network/Redis layout it was deployed with
+  # (CD never stops it), so a skipped deploy here can leave the pre-isolation layout in place. Names only.
+  echo "::warning::WhatsApp sidecar names are in the production env but the sidecar was NOT deployed (reasons below); a sidecar that is already running is left exactly as it is"
   skip "$(IFS=';'; echo "${problems[*]}")"
   exit 0
 fi

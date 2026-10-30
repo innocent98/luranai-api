@@ -283,7 +283,7 @@ Docs: SOP `docs/sop/whatsapp_default_on.md`; FE guide `docs/fe-integration-guide
 - [x] Stable tenant-facing 503 `capacity_exceeded` text
 - [x] Tests (override respected, backfill idempotent, new-tenant default, revoke survives migration, entitlements payload, alert thresholds and dedupe, email failure does not break create) + live captures + FE guide + SOP
 - [ ] Owner, before deploying anywhere real: count tenants that will stay dark (`override_flags` has `can_use_whatsapp` and stored false) - query in the SOP
-- [ ] Owner: set `PLATFORM_ALERT_EMAILS` and a realistic `WHATSAPP_MAX_CONNECTIONS` with the production sidecar release; `WHATSAPP_ENABLED` stays false until then
+- [x] Owner: `WHATSAPP_MAX_CONNECTIONS` set to 10 in the encrypted prod env (2026-10-30, with the matching sidecar caps; PR #187); `PLATFORM_ALERT_EMAILS` not re-checked here
 - [ ] Dashboard: hide the WhatsApp section unless `platform_available && enabled`; remove the "ask Luran to enable" state; relabel the admin "WhatsApp grant" as access/revoke; new capacity wording (separate task)
 - [ ] Admin cannot see or clear a `can_use_whatsapp` override (`override_flags` not in the platform response)
 - [ ] Contact exclusion list (T15) and the Terms wording (separate follow-ups)
@@ -324,7 +324,7 @@ Plan: `docs/deployment/prod-release-plan-2026-10.md` (DRAFT 2026-10-28). Merging
 - [ ] Owner: test-mode Lite checkout on staging (15,000 / 150,000); fix GitHub Actions spending limit; re-private `luranai-api`
 - [ ] Manual DB dump + `docker stats` baseline, then PR `develop` -> `main`; verify health, migrations at `wa20ratingreply`, pricing, entitlements, worker functions
 - [ ] Dashboard `staging` -> `main` (15 commits) right after the backend; `luran-chat` `stage` -> `main` (3 commits)
-- [ ] Production sidecar job: **wiring built 2026-10-29 (branch `feature/sidecar-production-deploy`, PR to `develop`, SOP `docs/sop/whatsapp_sidecar_production_deploy.md`)**; still open: secrets in `.env.production.enc`, first deploy + smoke, consent/ToS wording, flipping `WHATSAPP_ENABLED`, per-tenant grant (see "Sidecar on production")
+- [ ] Production sidecar job: **(Redis now isolated, see "Sidecar Redis isolation")** wiring built 2026-10-29 (branch `feature/sidecar-production-deploy`, PR to `develop`, SOP `docs/sop/whatsapp_sidecar_production_deploy.md`)**; still open: secrets in `.env.production.enc`, first deploy + smoke, consent/ToS wording, flipping `WHATSAPP_ENABLED`, per-tenant grant (see "Sidecar on production")
 
 ## Sidecar on production (dark) — BUILT, PR open to `develop`, nothing run on the VPS (2026-10-29)
 Docs: SOP `docs/sop/whatsapp_sidecar_production_deploy.md` (owner actions in order, memory budget, rollback, rulings). Branch `feature/sidecar-production-deploy`. Mirrors the staging job; `WHATSAPP_ENABLED` is never turned on by it.
@@ -335,10 +335,33 @@ Docs: SOP `docs/sop/whatsapp_sidecar_production_deploy.md` (owner actions in ord
 - [x] `scripts/whatsapp_sidecar_snapshot.sh` + cron instructions + tests; 55 pytest tests in `tests/deploy/`
 - [x] Local rehearsal: the real ssh script from `cd.yml` run against throwaway Postgres/Redis + the real image (smoke 7 PASS + 1 SKIP disabled, 8 PASS enabled; guards refuse; idempotent)
 - [ ] PR merged to `develop` (lead), then promoted to `main` (no secrets yet: skip path)
-- [ ] Owner: generate secrets, **back up `WHATSAPP_AUTH_MASTER_KEY`**, add names to `.env.production.enc` with `WHATSAPP_ENABLED=false`, PR + promote
+- [x] Owner: secrets generated, `WHATSAPP_AUTH_MASTER_KEY` backed up, names added with `WHATSAPP_ENABLED=false`, promoted (#181 / #183; prod sidecar up and healthy, dark)
 - [ ] First sidecar deploy in a quiet window (not near 02:00); smoke 7 PASS + 1 SKIP; install snapshot cron
-- [ ] Flip `WHATSAPP_ENABLED=true` (strict smoke 8 PASS), consent/ToS wording, grant ONE tenant, watch the snapshot log
+- [ ] Flip `WHATSAPP_ENABLED=true`: encrypted env PR #187 open (also ceiling 10 + sidecar Redis password); consent/ToS wording approved; WhatsApp is plan-driven default-on, so there is no per-tenant grant: invite pilots on the normal trial and watch the snapshot log; strict smoke after the promotion that carries #186 + #187
 - [ ] Not proven anywhere: the new CD steps on a real runner/VPS, live prod Redis/Postgres settings, more than 2 sessions
+
+## WhatsApp connect requires an active subscription — BUILT 2026-10-30, PR open to `develop`, not merged
+Docs: SOP `docs/sop/whatsapp_connect_requires_active_subscription.md`; FE guide `docs/fe-integration-guide-whatsapp-connect-subscription-gate.md`. Branch `fix/whatsapp-connect-requires-active-subscription`.
+- [x] Reproduced with failing tests: an expired-trial / canceled / past_due tenant could link a number and take a launch slot (10 of 13 prod tenants are `trial_expired`)
+- [x] `verify_subscription_active` on `POST /whatsapp/connections` and `POST /whatsapp/connections/{id}/pairing-code` (402; list/patch/delete stay open); active, trialing and promo-granted still connect
+- [x] Inbound of an already-linked lapsed number: already stops answering (`_plan_blocks_conversation`), message stored, no reply — no change
+- [ ] PR merged to `develop` (lead), then promoted
+- [ ] Dashboard: map 402 `error` values (`subscription_inactive`, `trial_expired`, `subscription_expired`) on the connect page; hide the form when entitlements say `enabled: false`
+- [ ] Lapsed tenants' already-linked numbers still count toward `WHATSAPP_MAX_CONNECTIONS` and hold a sidecar session; no cleanup job (decide)
+- [ ] `_plan_blocks_conversation` ignores `subscription_ends_at` for `active` tenants (use `entitlements.is_lapsed`)
+
+## Sidecar Redis isolation (production) — BUILT, PR open to `develop`, nothing run on the VPS (2026-10-30)
+Docs: plan `docs/superpowers/plans/2026-10-30-sidecar-redis-isolation.md`; SOP `docs/sop/whatsapp_sidecar_redis_isolation.md` (owner steps in order, rollback, what is not verified). Branch `feature/sidecar-redis-isolation`. Resolves the "decide before `WHATSAPP_ENABLED` is flipped" ruling of the production sidecar SOP. No production container restarts; `docker-compose.prod.yml` untouched.
+- [x] Findings from the code: the sidecar's Redis holds only `wa:lease:*` (30 s) and `wa:daily:*` (26 h); the backend never reads them, so only the sidecar needs the new Redis
+- [x] Own Redis `luran_whatsapp_redis`: ACL user limited to `wa:*` keys, password only in `.env.sidecar`, `noeviction`, `maxmemory 8mb`, 32m, `save 60 1` on a named volume (daily send counter), on an internal-only network
+- [x] Sidecar off `luran_default`; shares `luran_wa_backend` only with `luran_api`, `luran_worker`, `luran_db` (runtime `docker network connect`, nothing restarted)
+- [x] New sidecar-only name `WHATSAPP_SIDECAR_REDIS_PASSWORD`: gate fail-closed (old names without it skip, names only), stripped from the api/worker env, generator `--redis-only`
+- [x] `cd.yml` (inside `production-deploy` only): network steps after every API deploy, Redis started and awaited before the sidecar, isolation smoke (18 PASS + 1 SKIP)
+- [x] 94 pytest tests in `tests/deploy/` (was 55); local rehearsal with the real ssh scripts: sidecar healthy, cannot reach prod Redis/Qdrant/pgbouncer (DNS and by IP), Redis requires the password, api/worker hold no sidecar secrets, rerun no-op, counter persists
+- [ ] PR merged to `develop` (lead), then promoted
+- [ ] Owner: `scripts/generate_whatsapp_production_secrets.sh --redis-only`, add `WHATSAPP_SIDECAR_REDIS_PASSWORD` to `.env.production.enc` (after the PR is on `develop`), PR + promote; read the deploy log (18 PASS + 1 SKIP)
+- [ ] Not proven anywhere: the new CD steps on a real runner/VPS, Linux bridge isolation on the VPS, a live WhatsApp session through the new Redis, memory at 3 or 10 sessions
+- [ ] Follow-ups: declare `luran_wa_backend` on api/worker in the prod compose (never db); auth for the shared prod Redis + Qdrant key; sidecar egress filtering; pin images by digest
 
 ## Memory and capacity — OPEN (snapshot `docs/sop/memory_and_capacity_snapshot_2026-10-28.md`)
 - [ ] Split prod/staging API memory (anon vs cache vs slab) now and after 24 h
@@ -365,7 +388,7 @@ Docs: SOP `docs/sop/whatsapp_sidecar_production_deploy.md` (owner actions in ord
 - [x] Deploy the sidecar to staging: deployed and smoke-tested 2026-10-28 via a manual dispatch (PR #165 fixed the env-permission bug the first real run exposed); live test passed the same day (SOP `docs/sop/whatsapp_staging_live_test.md`).
 - [ ] Investigate why the api containers sit at 83-90% of their limits (prod api 994 MiB / 1.17 GiB on 2026-10-28)
 - [x] Production sidecar story: GHCR promotion (`:develop` image, no rebuild), prod DB role, limits review (built 2026-10-29, PR open); dedicated Redis / network isolation deliberately NOT done, see below
-- [ ] Before `WHATSAPP_ENABLED` is flipped in prod: dedicated Redis on a private network + ACLs and a Qdrant API key (the sidecar currently shares the default network and Redis DB 1 with unauthenticated services; staging review caveat)
+- [x] (done 2026-10-30, #186; deploys with the flip promotion) Before `WHATSAPP_ENABLED` is flipped in prod: dedicated Redis on a private network + ACLs and a Qdrant API key (the sidecar currently shares the default network and Redis DB 1 with unauthenticated services; staging review caveat)
 - [ ] Re-private `luranai-api` after CI/CD runs (made public 2026-10-27 so Actions could run)
 - [ ] WhatsApp: the rating request ("How was your chat with <agent>?") is sent as plain text on resolve, but a digit reply is not parsed, so the customer cannot answer it; implement 1-5 reply handling (plan T6) or suppress the request on WhatsApp until then
 - [ ] WhatsApp media: customer photos reach agents only as a placeholder; the "I can only read text" fallback is also sent while a human agent owns the conversation (plan T8, about 1-1.5 agent-days)

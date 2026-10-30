@@ -52,7 +52,7 @@ from app.utils.http_rate_limiter import (
 # changes (connections created with an older version are rejected). Product decision: no
 # "unofficial" / "not affiliated" / fear framing on this customer-facing screen; liability wording
 # belongs in the Terms of Service.
-CONSENT_VERSION = "2026-10-28-draft2"
+CONSENT_VERSION = "2026-10-30"
 CONSENT_TEXT = (
     "Luran connects your WhatsApp number as a linked device so it can answer customers who "
     "message you. WhatsApp can change its policies, restrict access, or disconnect the linked "
