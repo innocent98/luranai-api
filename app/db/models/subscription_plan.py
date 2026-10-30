@@ -94,6 +94,13 @@ class SubscriptionPlan(Base, UUIDMixin, TimestampMixin):
     # default); 0 or less switches WhatsApp off for the plan.
     max_whatsapp_numbers: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Offerings catalog (2026-10-30): every plan has it, the cap is the lever. `max_offerings`
+    # None = unlimited (no column default on purpose); photos are per item.
+    max_offerings: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_offering_images: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=4, server_default="4"
+    )
+
     # Flow capabilities
     max_flows: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = unlimited
     max_nodes_per_flow: Mapped[int | None] = mapped_column(

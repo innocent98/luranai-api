@@ -620,6 +620,7 @@ def test_real_upgrade_downgrade_upgrade_round_trip(scratch_db, capfd):
     assert after_plans == before_plans  # old numbers and strings back, byte for byte
     assert after_sessions == 101
 
-    command.upgrade(cfg, "head")  # and back up again
+    # and back up again (to cl10's own revision: later migrations, e.g. of10, rewrite the plan rows)
+    command.upgrade(cfg, "cl10conversationlimits")
     tenants_again, plans_again, _ = _state(scratch_db)
     assert tenants_again == tenants and plans_again == plans

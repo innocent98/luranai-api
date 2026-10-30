@@ -33,6 +33,8 @@ class PricingPlanCapabilitiesUpdate(BaseModel):
     can_export_ratings: bool | None = None
     can_use_whatsapp: bool | None = None
     max_whatsapp_numbers: int | None = None
+    max_offerings: int | None = None
+    max_offering_images: int | None = None
 
 
 class PricingPlanUpdateRequest(BaseModel):
@@ -99,6 +101,8 @@ class PricingPlanCapabilitiesResponse(BaseModel):
     can_export_ratings: bool
     can_use_whatsapp: bool
     max_whatsapp_numbers: int | None
+    max_offerings: int | None
+    max_offering_images: int
 
 
 class PricingPlanResponse(BaseModel):

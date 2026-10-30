@@ -159,6 +159,8 @@ def _ensure_capabilities(
         "can_export_ratings",
         "can_use_whatsapp",
         "max_whatsapp_numbers",
+        "max_offerings",
+        "max_offering_images",
     ):
         setattr(capabilities, field, plan_values[field])
 

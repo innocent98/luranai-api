@@ -28,6 +28,7 @@ _WA_MIGRATION = _MIGRATION.replace("ent10_plan_entitlements.py", "wa30_whatsapp_
 _CL_MIGRATION = _MIGRATION.replace(
     "ent10_plan_entitlements.py", "cl10_conversation_limit_numbers.py"
 )
+_OF_MIGRATION = _MIGRATION.replace("ent10_plan_entitlements.py", "of10_offerings.py")
 
 
 def _load(path: str, name: str):
@@ -193,11 +194,13 @@ def test_latest_plan_migration_froze_the_same_numbers_as_the_catalog():
 
     ent10 froze the matrix numbers; wa30 later swapped the WhatsApp feature line and added the
     flag, and cl10 swapped the conversations line, so ent10's strings are compared after those
-    two swaps.
+    two swaps, and of10 added the one "Offerings" element, which is taken out of the catalog row
+    here (its own frozen numbers are checked in tests/migrations/test_of10_offerings.py).
     """
     mod = _load(_MIGRATION, "ent10")
     wa30 = _load(_WA_MIGRATION, "wa30")
     cl10 = _load(_CL_MIGRATION, "cl10")
+    of10 = _load(_OF_MIGRATION, "of10")
     rows = {r["tier"]: r for r in build_plan_rows()}
     for tier, (sales, crm, recording, ratings, whatsapp) in mod.GATES.items():
         row = rows[tier]
@@ -218,7 +221,9 @@ def test_latest_plan_migration_froze_the_same_numbers_as_the_catalog():
             assert row["max_conversations_per_month"] is None, tier
             swaps[cl10.ENT_FEATURE[0]] = cl10.ENT_FEATURE[1]
             assert row["description"] == cl10.ENT_DESCRIPTION[1], tier
-        assert [swaps.get(f, f) for f in mod.NEW_FEATURES[tier]] == row["features"], tier
+        without_offerings = [f for f in row["features"] if f != of10.OFFERINGS_FEATURE[tier]]
+        assert len(without_offerings) == len(row["features"]) - 1, tier
+        assert [swaps.get(f, f) for f in mod.NEW_FEATURES[tier]] == without_offerings, tier
     assert (
         rows["lite"]["monthly_price_kobo"],
         rows["lite"]["annual_price_kobo"],

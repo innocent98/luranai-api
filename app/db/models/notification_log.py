@@ -17,6 +17,7 @@ class NotifEvent(str, enum.Enum):
     ESCALATION_ALERT = "escalation_alert"
     ESCALATION_FALLBACK = "escalation_fallback"
     ESCALATION_MISSED = "escalation_missed"
+    OFFERING_REQUEST = "offering_request"
 
 
 class NotifChannel(str, enum.Enum):
