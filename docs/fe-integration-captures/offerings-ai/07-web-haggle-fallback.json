@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "my final offer is ₦9,000 for the white sneaker",
-      "tenant_id": "b6446d69-6abd-4c62-8c12-41c6da21ff88",
+      "tenant_id": "9673a9af-d1b2-43b4-a1a0-e66d5a7411c4",
       "user_identifier": "web-6"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "5682442d-0a33-44ad-bdf6-83bb2f43d31c",
+      "session_id": "6432079d-dbbb-4404-bcec-39eadd766410",
       "message": {
         "role": "assistant",
-        "content": "Here is what we have listed:\n#2 Canvas sneaker white - ₦13,500 - in stock\n#1 Canvas sneaker black - ₦12,000 - in stock\nWould you like me to connect you with the team?",
-        "id": "fe8fc39d-3a7d-4cc3-9834-71a6a49c1301",
-        "session_id": "5682442d-0a33-44ad-bdf6-83bb2f43d31c",
+        "content": "Here is what we have listed:\n#2 Canvas sneaker white - ₦13,500 - in stock\n#1 Canvas sneaker black - ₦12,000 - in stock\nWould you like me to connect you with the team?\n\nI've noted your offer of ₦9,000 for the Canvas sneaker white.",
+        "id": "1476f1ff-a336-4e63-9958-e75f29c1e94d",
+        "session_id": "6432079d-dbbb-4404-bcec-39eadd766410",
         "retrieved_chunk_ids": [],
         "token_count": 300,
         "attachments": [],
@@ -45,7 +45,7 @@
             "items": [
               {
                 "ref": "#2",
-                "offering_id": "ecd00d82-9918-4b93-9063-18b946da4a0f",
+                "offering_id": "56aaf741-0662-4f94-bdf9-f0f633ee9ee9",
                 "name": "Canvas sneaker white",
                 "price_text": "₦13,500",
                 "availability": "in_stock",
@@ -55,16 +55,16 @@
               },
               {
                 "ref": "#1",
-                "offering_id": "368933d6-5b99-419e-a723-616f58225773",
+                "offering_id": "b5b22978-dca0-4444-a72d-592d9e478ad7",
                 "name": "Canvas sneaker black",
                 "price_text": "₦12,000",
                 "availability": "in_stock",
-                "cover_image_id": "8492e50e-f9c7-4a69-9027-5b799cc6d7fb",
-                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/b6446d69-6abd-4c62-8c12-41c6da21ff88/87656af98a4449aea54a76c3f24e0105.jpg",
+                "cover_image_id": "27d5eafa-054f-4981-abf3-8840d817c778",
+                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/9673a9af-d1b2-43b4-a1a0-e66d5a7411c4/b22756b7a4494627881553dc5618d0ac.jpg",
                 "photo_count": 2
               }
             ],
-            "shown_at": "2026-10-30T23:29:33.160179+00:00",
+            "shown_at": "2026-10-30T23:49:04.399026+00:00",
             "guard": {
               "checked": true,
               "blocked": true,
@@ -73,7 +73,7 @@
             }
           }
         },
-        "created_at": "2026-10-30T23:29:33.198983Z"
+        "created_at": "2026-10-30T23:49:04.457979Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,

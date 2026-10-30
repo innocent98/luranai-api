@@ -110,23 +110,27 @@ _DISCOUNT_WORDS = re.compile(
     re.IGNORECASE,
 )
 _NEGATION = re.compile(
-    r"\b(?:can't|cannot|can not|unable to|not able to|won't|will not|don't|do not|never|no|not)\b",
+    r"\b(?:can't|cannot|can not|unable to|not able to|won't|will not|don't|do not|never"
+    r"|no discounts?|no reductions?|not (?:on )?sale|not discounted)\b",
     re.IGNORECASE,
 )
 
 
-def _negated(sentence: str, start: int) -> bool:
-    """A negation right before `start` governs it: at most four words, no clause break between."""
-    window = sentence[max(0, start - 45) : start]
+def _negated(sentence: str, match: re.Match) -> bool:
+    """A negation right before (or inside) the discount word governs it: at most four words and no
+    clause break in between. A bare "no" or "not" does not count ("why not ... for free?")."""
+    window = sentence[max(0, match.start() - 45) : match.end()]
     hits = list(_NEGATION.finditer(window))
     if not hits:
         return False
     between = window[hits[-1].end() :]
-    return len(between.split()) <= 4 and not re.search(r"[,;:]|\bbut\b|\bhowever\b", between)
+    if len(between.split()) > 4 or re.search(r"[,;:?!\u2014\u2013]|\bbut\b|\bhowever\b", between):
+        return False
+    return True
 
 
 def _discount_wording(sentence: str) -> bool:
-    return any(not _negated(sentence, m.start()) for m in _DISCOUNT_WORDS.finditer(sentence))
+    return any(not _negated(sentence, m) for m in _DISCOUNT_WORDS.finditer(sentence))
 
 
 _AGREE = re.compile(

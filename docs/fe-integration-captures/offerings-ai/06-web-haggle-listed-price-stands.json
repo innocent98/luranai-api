@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "Can you do ₦10,000 for the black sneaker?",
-      "tenant_id": "b6446d69-6abd-4c62-8c12-41c6da21ff88",
+      "tenant_id": "9673a9af-d1b2-43b4-a1a0-e66d5a7411c4",
       "user_identifier": "web-5"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "356cf0d0-3480-49e5-91f0-c5246ee2f232",
+      "session_id": "12fab16a-587a-474c-836b-f43f56f34980",
       "message": {
         "role": "assistant",
-        "content": "The Canvas sneaker black is listed at ₦12,000. I've noted your request.",
-        "id": "b243125a-d8b9-4bef-8563-177705e43ee5",
-        "session_id": "356cf0d0-3480-49e5-91f0-c5246ee2f232",
+        "content": "The Canvas sneaker black is listed at ₦12,000. I've noted your request.\n\nI've noted your offer of ₦10,000 for the Canvas sneaker black.",
+        "id": "0e506a6a-81e0-4dd9-b302-5a47392229d5",
+        "session_id": "12fab16a-587a-474c-836b-f43f56f34980",
         "retrieved_chunk_ids": [],
         "token_count": 300,
         "attachments": [],
@@ -45,16 +45,16 @@
             "items": [
               {
                 "ref": "#1",
-                "offering_id": "368933d6-5b99-419e-a723-616f58225773",
+                "offering_id": "b5b22978-dca0-4444-a72d-592d9e478ad7",
                 "name": "Canvas sneaker black",
                 "price_text": "₦12,000",
                 "availability": "in_stock",
-                "cover_image_id": "8492e50e-f9c7-4a69-9027-5b799cc6d7fb",
-                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/b6446d69-6abd-4c62-8c12-41c6da21ff88/87656af98a4449aea54a76c3f24e0105.jpg",
+                "cover_image_id": "27d5eafa-054f-4981-abf3-8840d817c778",
+                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/9673a9af-d1b2-43b4-a1a0-e66d5a7411c4/b22756b7a4494627881553dc5618d0ac.jpg",
                 "photo_count": 2
               }
             ],
-            "shown_at": "2026-10-30T23:29:33.082168+00:00",
+            "shown_at": "2026-10-30T23:49:04.231965+00:00",
             "guard": {
               "checked": true,
               "blocked": true,
@@ -63,7 +63,7 @@
             }
           }
         },
-        "created_at": "2026-10-30T23:29:33.126838Z"
+        "created_at": "2026-10-30T23:49:04.321394Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,
