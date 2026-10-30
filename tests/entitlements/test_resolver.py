@@ -199,6 +199,7 @@ def test_min_tier_is_the_lowest_tier_from_which_the_feature_stays_included(db_se
         "ai_actions": "trial",
         "whatsapp": "trial",
         "voice": None,
+        "offerings": "trial",
     }
     assert {key: min_tier_for(db_session, key) for key in FEATURES} == expected
 

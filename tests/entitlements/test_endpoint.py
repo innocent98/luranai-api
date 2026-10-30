@@ -38,6 +38,7 @@ def test_lite_admin_gets_the_contract_body(pg_client, db_session, monkeypatch):
                 "platform_available": False,
             },
             "voice": {"enabled": False, "min_tier": None},
+            "offerings": {"enabled": True, "limit": 100, "used": 0, "min_tier": "trial"},
         },
     }
 
