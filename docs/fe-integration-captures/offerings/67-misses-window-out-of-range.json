@@ -1,0 +1,30 @@
+{
+  "scenario": "misses-window-out-of-range",
+  "note": "FE TRAP: framework 422 shape.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/offerings/misses?days=91",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "detail": [
+        {
+          "type": "less_than_equal",
+          "loc": [
+            "query",
+            "days"
+          ],
+          "msg": "Input should be less than or equal to 90",
+          "input": "91",
+          "ctx": {
+            "le": 90
+          }
+        }
+      ]
+    }
+  }
+}

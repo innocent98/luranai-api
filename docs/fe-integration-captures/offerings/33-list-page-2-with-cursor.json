@@ -1,0 +1,50 @@
+{
+  "scenario": "list-page-2-with-cursor",
+  "note": "Pass `meta.next_cursor` back as `cursor`; null means the last page.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/offerings?limit=1&cursor=3",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "e9d962d4-5126-469e-b7ea-ff35b1ac61cf",
+          "seq": 2,
+          "ref": "#2",
+          "kind": "service",
+          "name": "Haircut",
+          "description": null,
+          "category": "Services",
+          "keywords": null,
+          "price_mode": "from",
+          "price": 3000,
+          "price_note": "per session",
+          "availability": "limited",
+          "quantity": 4,
+          "negotiable": false,
+          "status": "active",
+          "external_ref": null,
+          "images": [],
+          "photo_count": 0,
+          "cover_url": null,
+          "availability_changed_at": "2026-10-30T23:07:03.926064+00:00",
+          "archived_at": null,
+          "created_at": "2026-10-30T23:07:03.926064+00:00",
+          "updated_at": "2026-10-30T23:07:03.926064+00:00"
+        }
+      ],
+      "meta": {
+        "next_cursor": "2",
+        "total": 3,
+        "page_size": 1,
+        "limit": 25,
+        "used": 3
+      }
+    }
+  }
+}

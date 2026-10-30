@@ -1,0 +1,69 @@
+{
+  "scenario": "import-preview-lines",
+  "note": "The paste-from-WhatsApp format.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/import/preview",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "format": "lines",
+      "content": "Leather belt - 4500 - in stock\nTailoring - from 2k\n",
+      "mode": "add"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": {
+        "rows": [
+          {
+            "row": 1,
+            "status": "create",
+            "parsed": {
+              "kind": "product",
+              "name": "Leather belt",
+              "price_mode": "fixed",
+              "price": 4500,
+              "availability": "in_stock",
+              "category": null,
+              "description": null,
+              "keywords": null,
+              "price_note": null,
+              "quantity": null,
+              "negotiable": false,
+              "external_ref": null
+            },
+            "errors": []
+          },
+          {
+            "row": 2,
+            "status": "create",
+            "parsed": {
+              "kind": "product",
+              "name": "Tailoring",
+              "price_mode": "from",
+              "price": 2000,
+              "availability": "in_stock",
+              "category": null,
+              "description": null,
+              "keywords": null,
+              "price_note": null,
+              "quantity": null,
+              "negotiable": false,
+              "external_ref": null
+            },
+            "errors": []
+          }
+        ],
+        "summary": {
+          "create": 2,
+          "update": 0,
+          "error": 0,
+          "over_limit_by": 0
+        }
+      }
+    }
+  }
+}

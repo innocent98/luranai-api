@@ -1,0 +1,18 @@
+{
+  "scenario": "hard-delete-again-not-found",
+  "note": "",
+  "request": {
+    "method": "DELETE",
+    "path": "/api/v1/offerings/e7350b65-6520-492b-b373-122f7d55003d?hard=true",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "code": "offering_not_found",
+      "message": "Offering not found"
+    }
+  }
+}

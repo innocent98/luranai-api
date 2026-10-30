@@ -1,0 +1,27 @@
+{
+  "scenario": "import-apply-upsert",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/import",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "format": "csv",
+      "content": "name,price,external_ref\nTote bag (new price),9000,SKU-TOTE\nFresh item,100,SKU-NEW\n",
+      "mode": "upsert"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": {
+        "created": 1,
+        "updated": 1,
+        "skipped": 0,
+        "errors": []
+      }
+    }
+  }
+}

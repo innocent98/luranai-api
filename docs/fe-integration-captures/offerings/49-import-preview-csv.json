@@ -1,0 +1,80 @@
+{
+  "scenario": "import-preview-csv",
+  "note": "Nothing is saved. Row numbers count data rows (header and blank lines excluded).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/import/preview",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "format": "csv",
+      "content": "name,kind,price,availability,category,external_ref\nTote bag,product,8500,in stock,Bags,SKU-TOTE\nBraiding,service,from 5k,limited,Services,SKU-BRAID\nBad price,product,abc,in stock,Bags,SKU-BAD\n",
+      "mode": "add"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": {
+        "rows": [
+          {
+            "row": 1,
+            "status": "create",
+            "parsed": {
+              "kind": "product",
+              "name": "Tote bag",
+              "price_mode": "fixed",
+              "price": 8500,
+              "availability": "in_stock",
+              "category": "Bags",
+              "description": null,
+              "keywords": null,
+              "price_note": null,
+              "quantity": null,
+              "negotiable": false,
+              "external_ref": "SKU-TOTE"
+            },
+            "errors": []
+          },
+          {
+            "row": 2,
+            "status": "create",
+            "parsed": {
+              "kind": "service",
+              "name": "Braiding",
+              "price_mode": "from",
+              "price": 5000,
+              "availability": "limited",
+              "category": "Services",
+              "description": null,
+              "keywords": null,
+              "price_note": null,
+              "quantity": null,
+              "negotiable": false,
+              "external_ref": "SKU-BRAID"
+            },
+            "errors": []
+          },
+          {
+            "row": 3,
+            "status": "error",
+            "parsed": null,
+            "errors": [
+              {
+                "field": "price",
+                "code": "price_invalid"
+              }
+            ]
+          }
+        ],
+        "summary": {
+          "create": 2,
+          "update": 0,
+          "error": 1,
+          "over_limit_by": 0
+        }
+      }
+    }
+  }
+}

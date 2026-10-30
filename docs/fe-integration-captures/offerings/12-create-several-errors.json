@@ -1,0 +1,35 @@
+{
+  "scenario": "create-several-errors",
+  "note": "Every violation comes back together in `errors`.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "kind": "product",
+      "name": "  ",
+      "price_mode": "fixed",
+      "price": null,
+      "availability": "in_stock"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "validation",
+      "message": "Some fields are not valid.",
+      "errors": [
+        {
+          "field": "name",
+          "code": "name_required"
+        },
+        {
+          "field": "price",
+          "code": "price_required"
+        }
+      ]
+    }
+  }
+}

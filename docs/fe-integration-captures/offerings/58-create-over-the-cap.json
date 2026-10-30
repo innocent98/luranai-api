@@ -1,0 +1,27 @@
+{
+  "scenario": "create-over-the-cap",
+  "note": "409 offering_limit with `limit` and `used`.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "kind": "product",
+      "name": "One too many",
+      "price_mode": "fixed",
+      "price": 12000,
+      "availability": "in_stock"
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "code": "offering_limit",
+      "message": "Your plan allows 25 items. Archive or delete one, or upgrade, to add more.",
+      "limit": 25,
+      "used": 25
+    }
+  }
+}

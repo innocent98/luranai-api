@@ -1,0 +1,50 @@
+{
+  "scenario": "lapsed-list-still-allowed",
+  "note": "Subscription ended 2 days ago: reads still work.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/offerings",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": [
+        {
+          "id": "8388d412-dd94-4fa9-aa8f-81441d98bc3d",
+          "seq": 1,
+          "ref": "#1",
+          "kind": "product",
+          "name": "Canvas sneaker",
+          "description": null,
+          "category": null,
+          "keywords": null,
+          "price_mode": "fixed",
+          "price": 12000,
+          "price_note": null,
+          "availability": "in_stock",
+          "quantity": null,
+          "negotiable": false,
+          "status": "active",
+          "external_ref": null,
+          "images": [],
+          "photo_count": 0,
+          "cover_url": null,
+          "availability_changed_at": "2026-10-30T23:07:08.922144+00:00",
+          "archived_at": null,
+          "created_at": "2026-10-30T23:07:08.922144+00:00",
+          "updated_at": "2026-10-30T23:07:08.922144+00:00"
+        }
+      ],
+      "meta": {
+        "next_cursor": null,
+        "total": 1,
+        "page_size": 50,
+        "limit": 100,
+        "used": 1
+      }
+    }
+  }
+}

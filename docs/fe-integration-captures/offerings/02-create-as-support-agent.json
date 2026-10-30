@@ -1,0 +1,24 @@
+{
+  "scenario": "create-as-support-agent",
+  "note": "Reads are open to any staff role; writes need a tenant admin.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "kind": "product",
+      "name": "Canvas sneaker",
+      "price_mode": "fixed",
+      "price": 12000,
+      "availability": "in_stock"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "detail": "Not enough permissions. Tenant admin access required."
+    }
+  }
+}

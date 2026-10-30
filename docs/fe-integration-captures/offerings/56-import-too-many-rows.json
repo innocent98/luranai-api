@@ -1,0 +1,23 @@
+{
+  "scenario": "import-too-many-rows",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/import/preview",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "format": "csv",
+      "mode": "add",
+      "content": "<header + 501 generated rows 'Row N,100', trimmed here>"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "import_too_large",
+      "message": "The import has 501 rows; the limit is 500. Split it into parts."
+    }
+  }
+}

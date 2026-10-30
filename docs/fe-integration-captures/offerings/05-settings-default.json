@@ -1,0 +1,22 @@
+{
+  "scenario": "settings-default",
+  "note": "No settings row exists yet; the defaults are returned and nothing is written.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/offerings/settings",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": {
+        "enabled": true,
+        "currency": "NGN",
+        "stale_after_days": 7,
+        "confirmed_at": null
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "scenario": "lapsed-create-refused",
+  "note": "403 feature_not_in_plan (the flat entitlements body), not 402.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "kind": "product",
+      "name": "Nope",
+      "price_mode": "fixed",
+      "price": 12000,
+      "availability": "in_stock"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "code": "feature_not_in_plan",
+      "feature": "offerings",
+      "min_tier": "trial",
+      "message": "Your plan does not include the offerings catalog. Upgrade to Trial to use it."
+    }
+  }
+}

@@ -71,6 +71,34 @@ def apply_media_stub() -> list:
     return [
         patch("app.api.v1.endpoints.chat.moderate_image", new=_moderate),
         patch("app.utils.cloudinary_client.CloudinaryManager.upload_chat_image", new=_upload),
+        *apply_offering_media_stub(_moderate),
+    ]
+
+
+def apply_offering_media_stub(moderate) -> list:
+    """Offering photos: the real `upload_offering_image` runs against a fake Cloudinary uploader.
+
+    The uploader returns a Cloudinary-shaped result (never fetched); `destroy` records nothing and
+    says "ok". Moderation is the same stand-in as chat (a 7x7 image is flagged).
+    """
+    import uuid
+
+    def _upload(file, **kwargs):
+        folder = kwargs.get("folder")
+        public_id = kwargs["public_id"]
+        full = f"{folder}/{public_id}" if folder else public_id
+        return {
+            "secure_url": f"https://res.cloudinary.com/demo/image/upload/v1730000000/{full}.jpg",
+            "public_id": full,
+            "width": 1200,
+            "height": 900,
+            "bytes": 240_000 + uuid.uuid4().int % 1000,
+        }
+
+    return [
+        patch("app.services.offering_images.moderate_image", new=moderate),
+        patch("cloudinary.uploader.upload", new=_upload),
+        patch("cloudinary.uploader.destroy", new=lambda public_id, **kw: {"result": "ok"}),
     ]
 
 

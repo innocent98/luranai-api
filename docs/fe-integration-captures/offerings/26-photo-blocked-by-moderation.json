@@ -1,0 +1,26 @@
+{
+  "scenario": "photo-blocked-by-moderation",
+  "note": "The stand-in moderation flags a 7x7 image. The reason is never returned.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87/images",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>",
+      "Content-Type": "multipart/form-data"
+    },
+    "multipart": {
+      "file": {
+        "filename": "flag.png",
+        "content_type": "image/png",
+        "size_bytes": 77
+      }
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "image_blocked",
+      "message": "This image can't be accepted. Please try a different one."
+    }
+  }
+}

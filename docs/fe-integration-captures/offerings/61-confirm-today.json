@@ -1,0 +1,19 @@
+{
+  "scenario": "confirm-today",
+  "note": "\"Everything is still correct today\".",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/confirm",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": {
+        "confirmed_at": "2026-10-30T23:07:04.967450+00:00"
+      }
+    }
+  }
+}

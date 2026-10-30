@@ -1,0 +1,22 @@
+{
+  "scenario": "settings-after-confirm",
+  "note": "",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/offerings/settings",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": {
+        "enabled": true,
+        "currency": "NGN",
+        "stale_after_days": 7,
+        "confirmed_at": "2026-10-30T23:07:04.967450+00:00"
+      }
+    }
+  }
+}

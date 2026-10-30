@@ -1,0 +1,34 @@
+{
+  "scenario": "photo-upload-refill",
+  "note": "One photo was deleted above, so the item held 2; this makes 3.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87/images",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>",
+      "Content-Type": "multipart/form-data"
+    },
+    "multipart": {
+      "file": {
+        "filename": "detail.jpg",
+        "content_type": "image/jpeg",
+        "size_bytes": 949
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "data": {
+        "id": "38efe1b2-19ba-4bd8-baea-e87ddbd91c24",
+        "url": "https://res.cloudinary.com/demo/image/upload/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/bf9f81d470ee4089b4e1fedc9c54430e.jpg",
+        "thumb_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/bf9f81d470ee4089b4e1fedc9c54430e.jpg",
+        "gallery_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1000,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/bf9f81d470ee4089b4e1fedc9c54430e.jpg",
+        "position": 2,
+        "width": 1200,
+        "height": 900,
+        "bytes": 240015
+      }
+    }
+  }
+}

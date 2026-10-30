@@ -1,0 +1,15 @@
+{
+  "scenario": "misses-dismiss",
+  "note": "",
+  "request": {
+    "method": "DELETE",
+    "path": "/api/v1/offerings/misses/86b1066f-d272-4c5c-950b-c04faba0f6aa",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 204,
+    "body": null
+  }
+}

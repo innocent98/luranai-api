@@ -1,0 +1,18 @@
+{
+  "scenario": "photo-delete-not-found",
+  "note": "Deleting the same photo again.",
+  "request": {
+    "method": "DELETE",
+    "path": "/api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87/images/ff9bae44-547d-42db-ac4d-ccd521915ea9",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "code": "offering_image_not_found",
+      "message": "Photo not found"
+    }
+  }
+}

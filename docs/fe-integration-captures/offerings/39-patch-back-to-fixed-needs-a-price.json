@@ -1,0 +1,27 @@
+{
+  "scenario": "patch-back-to-fixed-needs-a-price",
+  "note": "",
+  "request": {
+    "method": "PATCH",
+    "path": "/api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "price_mode": "fixed"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "validation",
+      "message": "Some fields are not valid.",
+      "errors": [
+        {
+          "field": "price",
+          "code": "price_required"
+        }
+      ]
+    }
+  }
+}

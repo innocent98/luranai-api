@@ -1,0 +1,23 @@
+{
+  "scenario": "import-unreadable",
+  "note": "A CSV needs a header with a `name` column.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/import/preview",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "format": "csv",
+      "content": "price,category\n100,Bags\n",
+      "mode": "add"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "import_unreadable",
+      "message": "The import could not be read: the header needs a 'name' column."
+    }
+  }
+}

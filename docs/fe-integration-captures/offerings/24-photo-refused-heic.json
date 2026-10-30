@@ -1,0 +1,26 @@
+{
+  "scenario": "photo-refused-heic",
+  "note": "Request bytes are a minimal HEIC header, enough for the clear message.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87/images",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>",
+      "Content-Type": "multipart/form-data"
+    },
+    "multipart": {
+      "file": {
+        "filename": "IMG_0001.HEIC",
+        "content_type": "image/heic",
+        "size_bytes": 88
+      }
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "image_invalid",
+      "message": "HEIC photos are not supported. Use a JPEG, PNG or WEBP photo (on iPhone, choose 'Most Compatible' or pick the photo from the gallery)."
+    }
+  }
+}
