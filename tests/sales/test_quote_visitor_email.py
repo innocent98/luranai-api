@@ -248,3 +248,30 @@ async def test_the_cap_check_and_insert_run_under_an_advisory_lock(db_session, e
 def test_recipient_key_is_a_hash_that_ignores_case_and_plus_tags():
     assert svc.recipient_key("A.B+x@Example.com") == svc.recipient_key("a.b@example.com")
     assert "example" not in svc.recipient_key("a.b@example.com")
+
+
+async def test_whatsapp_conversations_never_get_the_visitor_email_or_an_invitation(
+    db_session, enqueue, monkeypatch
+):
+    """Decision (lead, 2026-10-31): the visitor email goes out for web/hosted chat and voice only."""
+    monkeypatch.setattr(svc.notification_enqueue, "enqueue_jobs_async", enqueue)
+    t = _tenant(db_session)
+    with_email = _quote(db_session, t)
+    lead = db_session.get(Lead, with_email.lead_id)
+    got = await svc.outcome_for_turn(
+        db_session, lead=lead, new_quote=with_email, email_just_captured=True, channel="whatsapp"
+    )
+    assert got is None
+    enqueue.assert_not_awaited()
+    assert db_session.query(NotificationLog).count() == 0
+
+    no_email = _quote(db_session, t, email=None)
+    lead2 = db_session.get(Lead, no_email.lead_id)
+    assert await svc.outcome_for_turn(
+        db_session, lead=lead2, new_quote=no_email, email_just_captured=False, channel="whatsapp"
+    ) is None
+
+    web = await svc.outcome_for_turn(
+        db_session, lead=lead, new_quote=with_email, email_just_captured=True, channel=None
+    )
+    assert web.kind == "queued"

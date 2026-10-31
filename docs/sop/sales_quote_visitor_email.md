@@ -22,6 +22,8 @@ No code path ever emailed a visitor a quote; the model improvised the offer (not
 | Reply-to | `NotificationService._rep_recipient`: the same address the rep alerts use (`notification_email`, else the first tenant admin). No reply-to = no send = no promise. | Sending without a reply-to (visitor cannot answer the rep). |
 | Visitor email is not tied to the tenant's `notify_channels.email` (that toggle is the rep's alert); the kill switch is a platform env setting instead. | | A per-tenant opt-out column (needs a migration, a dashboard control; follow-up if a tenant asks). |
 
+**Channels (decision 2026-10-31):** the visitor email is sent for web/hosted chat and voice only. WhatsApp conversations get no send and no invitation sentence (`outcome_for_turn` returns None for `channel == "whatsapp"`); the guard still removes model email promises there.
+
 ## Consent and abuse handling
 The visitor typed the address into a public chat, so someone can type another person's address. The email is a one-off transactional reply to a request made in that chat: nothing beyond the quote (no marketing, no links, no images or tracking pixel, no unsubscribe machinery), the body says why they got it ("this address was entered in a chat with <company>; if that wasn't you, you can ignore this email"), and these caps apply in this order (first failure wins; the visitor sees "couldn't email the quote just now", never which cap):
 
@@ -74,6 +76,9 @@ Offerings (S2) quotes: they are ordinary `Quote` rows, so the helper works for t
 - Switch it off without a deploy of code: `QUOTE_VISITOR_EMAIL_ENABLED=false` and restart API + worker. The guard still removes the model's email promises, and no invitation or confirmation is shown. Queued jobs already in Redis still send.
 - Roll back: revert the PR. The enum value stays (harmless); rows with the event stay in `notification_logs`.
 - Watch: `notification_logs` where `event='quote_emailed_visitor'` and `status='failed'` (SMTP trouble), and counts of `couldn't email` replies (caps firing).
+
+## Test hermeticity fix (found while reviewing this PR)
+`tests/sales/test_lead_dashboard_link.py::test_slack_link_is_the_same_deep_link` (from #194) once failed in a full run with no Slack POST. Cause: the Slack job's pinned HTTP client resolves `hooks.slack.com` with real DNS before the stubbed POST, and `tests/sales` had no DNS stub (only `tests/workers` did), so a failed lookup raised `slack network error`. Reproduced by forcing DNS to fail for that host (test failed), fixed by `tests/sales/conftest.py` (autouse, fixed public address, no real lookup); re-run with DNS forced down in forward, reversed and shuffled orders.
 
 ## Follow-ups
 - Offerings (S2) quote path: the two lines above, and the guard on its reply path.

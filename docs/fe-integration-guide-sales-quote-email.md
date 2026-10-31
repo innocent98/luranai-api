@@ -50,7 +50,7 @@ The reply is the model's text with a **second paragraph (`\n\n`) added by the ba
 - **`meta.lead_captured.email` still carries the full address** (existing behaviour, the visitor's own session). Do not copy it into the reply UI.
 - `meta.quote` is unchanged and is still the source of truth for the quote card. The reply sentence is **not** a delivery receipt: "sent" means queued; the email follows within seconds to minutes.
 - The sentence is plain text produced by code. **Never match on it** to drive UI state (there is no machine-readable flag; if the FE needs one, ask for a `meta.quote_email` field).
-- WhatsApp: the same reply text is forwarded; the invitation sentence is never added there.
+- WhatsApp: **no visitor email is ever sent and no sentence about it is added** (owner/lead decision, 2026-10-31); the model's own email promises are still removed from the reply text.
 
 ## 5. UX consequences the FE must surface
 - Do **not** add your own "we emailed you" toast or banner; the reply already says it, and it can say "couldn't".
@@ -69,6 +69,6 @@ The rep alert email (and Slack message) now lists name, company, email, phone (o
 | Invitation when no address, send after the address arrives | verified live (`02a_`, `02b_`, `02_emails_summary.json`) |
 | Per-address cap: 3 delivered, 4th `couldn't email`, nothing delivered | verified live (`03_*`) |
 | No reply address: nothing sent, nothing promised | verified live (`04_*`) |
-| Per-conversation / per-IP / per-tenant caps, kill switch, WhatsApp, enqueue failure | **tests only** (no live run of those paths) |
+| Per-conversation / per-IP / per-tenant caps, kill switch, WhatsApp (never sent, no sentence), enqueue failure | **tests only** (no live run of those paths) |
 | A real model's wording; a real SMTP provider and inbox; PDF in a mail client | **not exercised** (language model stood in; SMTP is Mailpit) |
 | Offerings (catalog) quotes | **not wired yet** (S2 follow-up in the SOP) |

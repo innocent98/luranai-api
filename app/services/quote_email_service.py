@@ -224,8 +224,8 @@ async def outcome_for_turn(
     generated this turn adds a one-line invitation, but only where a send could really happen
     (switch on, a reply-to exists) and not on WhatsApp, where an email is rarely captured.
     """
-    if lead is None:
-        return None
+    if lead is None or channel == "whatsapp":
+        return None  # WhatsApp: no visitor email and no invitation (lead's decision, 2026-10-31)
     quote = new_quote
     if quote is None and email_just_captured and lead.quote_id:
         quote = db.get(Quote, lead.quote_id)
@@ -233,7 +233,7 @@ async def outcome_for_turn(
         return None
     if _valid_address(lead.email):
         return await email_quote_to_visitor(db, quote, client_ip=client_ip, enqueue=None)
-    if new_quote is not None and channel != "whatsapp" and can_email_quote(db, lead.tenant_id):
+    if new_quote is not None and can_email_quote(db, lead.tenant_id):
         return SentOutcome.invite()
     return None
 
