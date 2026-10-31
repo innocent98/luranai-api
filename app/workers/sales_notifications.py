@@ -39,30 +39,17 @@ _REP_SUBJECT = {
 
 def _entity_context(db, log: NotificationLog) -> dict:
     """Build the template context for the rep alert from the log's entity."""
+    if log.entity_type == "offering_offer":  # a later offer: the alert text was written at the time
+        return {"kind": "offering_request", "name": None, "company": None, "items": [log.body]}
     if log.entity_type == "lead" and log.event == NotifEvent.OFFERING_REQUEST:
-        from app.db.models.offering import LeadOfferingInterest
+        from app.offerings.alerts import interest_lines
 
         lead = db.get(Lead, log.entity_id)
-        rows = (
-            db.execute(
-                select(LeadOfferingInterest).where(LeadOfferingInterest.lead_id == log.entity_id)
-            )
-            .scalars()
-            .all()
-        )
-        lines = []
-        for r in rows:
-            line = f"{r.qty} × {r.name_snapshot}"
-            if r.price_snapshot is not None:
-                line += f" (listed {r.price_snapshot:,})"
-            if r.offered_price is not None:
-                line += f", customer offered {r.offered_price:,}"
-            lines.append(line)
         return {
             "kind": "offering_request",
             "name": lead.name if lead else None,
             "company": lead.company if lead else None,
-            "items": lines,
+            "items": interest_lines(db, log.tenant_id, log.entity_id),
         }
     if log.entity_type == "lead":
         lead = db.get(Lead, log.entity_id)
@@ -214,6 +201,11 @@ async def send_visitor_meeting_confirmation(ctx, notification_log_id: str) -> No
 # ---------------------------------------------------------------------------
 
 
+def _slack_escape(text: str) -> str:
+    """Slack mrkdwn specials: names and item text must not become mentions or links."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _slack_blocks(title: str | None, body: str | None, dashboard_url: str = "") -> dict:
     """Build a minimal Block Kit payload with a header, section, and dashboard link block."""
     blocks: list[dict] = [
@@ -228,7 +220,7 @@ def _slack_blocks(title: str | None, body: str | None, dashboard_url: str = "") 
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": (body or "")[:2000] or "—",
+                "text": _slack_escape(body or "")[:2000] or "—",
             },
         },
     ]
@@ -357,6 +349,34 @@ def _crm_payload(lead: Lead) -> dict:
     }
 
 
+def _crm_interests(db, lead: Lead) -> list[dict]:
+    """The lead's wanted items (spec 8.5), so the CRM sees what the customer asked for."""
+    from app.db.models.offering import LeadOfferingInterest
+
+    rows = (
+        db.execute(
+            select(LeadOfferingInterest)
+            .where(
+                LeadOfferingInterest.tenant_id == lead.tenant_id,
+                LeadOfferingInterest.lead_id == lead.id,
+            )
+            .order_by(LeadOfferingInterest.created_at, LeadOfferingInterest.ref)
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        {
+            "ref": r.ref,
+            "name": r.name_snapshot,
+            "qty": r.qty,
+            "price": r.price_snapshot,
+            "offered_price": r.offered_price,
+        }
+        for r in rows
+    ]
+
+
 def _extract_crm_id(resp) -> str | None:
     """Best-effort: pull an id-ish value from a 2xx JSON body. Never raises."""
     try:
@@ -414,6 +434,9 @@ async def sync_lead_to_crm(ctx, notification_log_id: str) -> None:
             return
 
         payload = _crm_payload(lead)
+        interests = _crm_interests(db, lead)
+        if interests:
+            payload["interests"] = interests
         try:
             resp = await apinned_request("POST", url, json=payload, timeout=10)
         except UnsafeOutboundURLError:

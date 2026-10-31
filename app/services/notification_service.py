@@ -112,19 +112,12 @@ class NotificationService:
             return "Meeting booked", f"{who} · {when}".strip(" ·")
 
         if event == NotifEvent.OFFERING_REQUEST:
-            from app.db.models.offering import LeadOfferingInterest
+            from app.offerings.alerts import interest_lines
 
             lead = self.db.get(Lead, entity_id)
-            rows = (
-                self.db.execute(
-                    select(LeadOfferingInterest).where(LeadOfferingInterest.lead_id == entity_id)
-                )
-                .scalars()
-                .all()
-            )
             who = (lead.name if lead else None) or "A customer"
-            items = ", ".join(f"{r.qty} × {r.name_snapshot}" for r in rows[:5]) or "items"
-            return "New item request", f"{who} · {items}"
+            lines = interest_lines(self.db, lead.tenant_id, entity_id)[:5] if lead else []
+            return "New item request", f"{who} · " + ("; ".join(lines) or "items")
 
         # quote_generated (default)
         from app.sales.pricing import _currency_symbol
@@ -135,7 +128,17 @@ class NotificationService:
         total = f"{_currency_symbol(q.currency)}{int(q.total or 0):,}" if q else ""
         return "New quote", f"{total} · {company}".strip(" ·")
 
-    def dispatch(self, tenant_id, event, *, entity_type, entity_id) -> list[tuple[uuid.UUID, str]]:
+    def dispatch(
+        self,
+        tenant_id,
+        event,
+        *,
+        entity_type,
+        entity_id,
+        text: tuple[str, str] | None = None,
+        crm: bool = True,
+    ) -> list[tuple[uuid.UUID, str]]:
+        """`text` overrides the in-app/Slack title and body; `crm=False` skips the CRM webhook."""
         config = self.db.execute(
             select(TenantSalesAgentConfig).where(TenantSalesAgentConfig.tenant_id == tenant_id)
         ).scalar_one_or_none()
@@ -173,7 +176,7 @@ class NotificationService:
                         jobs.append((log_id, "send_visitor_meeting_confirmation"))
 
         if channels.get("in_app"):
-            title, body = self._render_in_app_text(event, entity_type, entity_id)
+            title, body = text or self._render_in_app_text(event, entity_type, entity_id)
             self._try_log(
                 tenant_id=tenant_id,
                 event=event,
@@ -191,7 +194,7 @@ class NotificationService:
             and channels.get("slack")
             and getattr(config, "slack_webhook_url", None)
         ):
-            title, body = self._render_in_app_text(event, entity_type, entity_id)
+            title, body = text or self._render_in_app_text(event, entity_type, entity_id)
             log_id = self._try_log(
                 tenant_id=tenant_id,
                 event=event,
@@ -208,11 +211,12 @@ class NotificationService:
 
         if (
             external_allowed
+            and crm
             and event in (NotifEvent.SALES_READY_LEAD, NotifEvent.OFFERING_REQUEST)
             and channels.get("crm")
             and getattr(config, "crm_webhook_url", None)
         ):
-            title, body = self._render_in_app_text(event, entity_type, entity_id)
+            title, body = text or self._render_in_app_text(event, entity_type, entity_id)
             log_id = self._try_log(
                 tenant_id=tenant_id,
                 event=event,

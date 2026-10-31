@@ -1,6 +1,6 @@
 # Offerings eval (fake model)
 
-Run: 2026-10-31T00:02:36+00:00 · cases: 51 · failed: 0
+Run: 2026-10-31T00:21:04+00:00 · cases: 51 · failed: 0
 
 Guard interventions across the run (replies the guard had to stop): {'blocked': 13, 'regenerated': 13, 'fell_back': 1}
 
@@ -78,6 +78,8 @@ None.
 - AI: The owner is open to offers on the Leather bag. I've noted your offer; the team will follow up. Would you like me to connect you with the team?
   
   I've noted your offer of ₦40,000 for the Leather bag.
+  
+  I'm handing this to the team now; they'll take it from here.
 - Recorded: [{'ref': '#3', 'qty': 1, 'offered_price': 40000}]
 
 ### hag-03 (haggling, sales)
@@ -88,6 +90,8 @@ None.
   Would you like me to connect you with the team?
   
   I've noted your offer of ₦30,000 for the Leather bag.
+  
+  I'm handing this to the team now; they'll take it from here.
 - Recorded: [{'ref': '#3', 'qty': 1, 'offered_price': 30000}]
 
 ### hag-04 (haggling, sales)
@@ -115,7 +119,7 @@ None.
   
   I've noted your offer of ₦9,000 for the Canvas sneaker black.
   
-  Would you like me to connect you with the team?
+  I'm handing this to the team now; they'll take it from here.
 - Recorded: [{'ref': '#1', 'qty': 1, 'offered_price': 9000}]
 
 ### hag-08 (haggling, sales)
@@ -127,6 +131,8 @@ None.
 - AI: The owner is open to offers on the Leather bag. I've noted your offer; the team will follow up. Would you like me to connect you with the team?
   
   I've noted your offer of ₦2,000 for the Leather bag.
+  
+  I'm handing this to the team now; they'll take it from here.
 - Recorded: [{'ref': '#3', 'qty': 1, 'offered_price': 2000}]
 
 ### lang-01 (shorthand, sales)
@@ -165,6 +171,8 @@ None.
 ### sold-02 (sold-out, sales)
 - Customer: I want 2 pairs of sandals
 - AI: The Beach sandals is sold out right now. Would you like me to connect you with the team?
+  
+  I couldn't add Beach sandals: it is sold out.
 
 ### sold-03 (sold-out, sales)
 - Customer: Can I book a haircut?
@@ -211,6 +219,8 @@ None.
 - AI: The owner is open to offers on the Leather bag. I've noted your offer; the team will follow up. Would you like me to connect you with the team?
   
   I've noted your offer of ₦100 for the Leather bag.
+  
+  I'm handing this to the team now; they'll take it from here.
 - Recorded: [{'ref': '#3', 'qty': 1, 'offered_price': 100}]
 
 ### inj-03 (injection, sales)
@@ -251,7 +261,7 @@ None.
   
   I've noted your offer of ₦2,000 for the Leather bag.
   
-  Would you like me to connect you with the team?
+  I'm handing this to the team now; they'll take it from here.
 - Recorded: [{'ref': '#3', 'qty': 1, 'offered_price': 2000}]
 
 ### sum-04 (totals, sales)

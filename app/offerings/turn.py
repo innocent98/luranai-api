@@ -171,3 +171,44 @@ def customer_figures(texts: list[str]) -> set[int]:
             if a.kind == "money" and a.value == a.value.to_integral_value():
                 out.add(int(a.value))
     return out
+
+
+def wanted_seqs(db: Session, session_id: UUID) -> list[int]:
+    """Items already wanted on this conversation's lead: a later cart may keep naming them."""
+    from sqlalchemy import select
+
+    from app.db.models.lead import Lead
+    from app.db.models.offering import LeadOfferingInterest
+
+    rows = db.execute(
+        select(LeadOfferingInterest.ref)
+        .join(Lead, Lead.id == LeadOfferingInterest.lead_id)
+        .where(Lead.conversation_id == session_id)
+    ).all()
+    return [int(r[0].lstrip("#")) for r in rows if str(r[0]).lstrip("#").isdigit()]
+
+
+def safe_offerings_turn(
+    db: Session,
+    tenant_id: UUID,
+    result: GroundingResult,
+    guard: dict | None,
+    reply: str,
+    sales_meta: dict | None,
+) -> tuple[dict, list[int]]:
+    """`build_offerings_turn`, but a failure yields card-less meta instead of an error reply."""
+    try:
+        return build_offerings_turn(db, tenant_id, result, guard, reply, sales_meta)
+    except Exception:  # noqa: BLE001
+        logger.exception("offerings cards failed (non-fatal)")
+        db.rollback()
+        return (
+            {
+                "mode": "none",
+                "items": [],
+                "shown_at": result.read_at.isoformat(),
+                "guard": guard
+                or {"checked": False, "blocked": False, "regenerated": False, "fell_back": False},
+            },
+            [],
+        )

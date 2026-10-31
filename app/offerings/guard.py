@@ -105,7 +105,7 @@ def _named_items(
         extra = [
             i
             for f, i, exact in scored
-            if not exact and f >= 0.5 and (_name_tokens(i) & words) - known
+            if not exact and f >= 0.6 and (_name_tokens(i) & words) - known
         ]
         return loose, explicit + extra
     best = max(f for f, _, _ in scored)

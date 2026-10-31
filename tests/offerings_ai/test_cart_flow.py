@@ -263,9 +263,9 @@ def test_offer_on_a_negotiable_item_is_stored_and_handed_over(client, db):
     row = db.execute(select(LeadOfferingInterest)).scalar_one()
     assert (row.ref, row.offered_price, row.price_snapshot) == ("#3", 30000, 45000)
     meta = _meta(r)
-    assert meta["escalation_action"] == "offer_escalation"
+    assert meta["escalation_action"] == "auto_escalate"
     assert "quote" not in meta  # a pending counter-offer means a human prices it
-    assert "connect you with the team" in r.json()["message"]["content"]
+    assert "handing this to the team" in r.json()["message"]["content"]
     assert "30,000" not in "".join(
         li["detail"] for li in (meta.get("quote") or {}).get("line_items", [])
     )
@@ -305,7 +305,7 @@ def test_insisting_on_the_same_item_hands_over(client, db):
     r2 = _run(
         client, db, tid, Model((reply, None, offer)), text="please, ₦10,000 only", session_id=sid
     )
-    assert _meta(r2)["escalation_action"] == "offer_escalation"
+    assert _meta(r2)["escalation_action"] == "auto_escalate"
 
 
 # -- lead source, scoring --------------------------------------------------------------------
@@ -374,7 +374,10 @@ def test_owner_alert_names_the_items(client, db):
     _run(client, db, tid, Model((GOOD, _cart((1, 2), (3, 1)))))
     log = _logs(db, tid, NotifEvent.OFFERING_REQUEST)[0]
     assert log.title == "New item request"
-    assert log.body == "Ada · 2 × Canvas sneaker black, 1 × Leather bag"
+    assert (
+        log.body
+        == "Ada · 2 × Canvas sneaker black (listed ₦12,000); 1 × Leather bag (listed ₦45,000)"
+    )
 
 
 def test_rep_email_context_lists_items_with_listed_and_offered_prices(client, db):
@@ -391,7 +394,7 @@ def test_rep_email_context_lists_items_with_listed_and_offered_prices(client, db
     log = _logs(db, tid, NotifEvent.OFFERING_REQUEST)[0]
     ctx = _entity_context(db, log)
     assert ctx["kind"] == "offering_request"
-    assert ctx["items"] == ["1 × Leather bag (listed 45,000), customer offered 30,000"]
+    assert ctx["items"] == ["1 × Leather bag (listed ₦45,000), customer offered ₦30,000"]
 
 
 def test_the_offer_line_is_written_by_code_and_the_model_may_not_repeat_the_figure(client, db):

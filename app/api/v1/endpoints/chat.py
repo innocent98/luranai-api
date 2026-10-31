@@ -71,16 +71,17 @@ from app.schemas.visitor import VisitorEnrichmentUpdate
 from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.offerings.cart import CartResolution, InterestSync, resolve_cart
-from app.offerings.fallback import ASK_TEAM
 from app.offerings.grounding import GroundingResult
 from app.offerings.guard_flow import guard_reply
 from app.offerings.misses import record_miss
 from app.offerings.orchestrate import (
+    QuoteOutcome,
     alert_owner,
     catalog_score_signals,
     issue_quote,
-    offer_ack,
+    lock_lead,
     record_cart,
+    reply_notes,
 )
 from app.offerings.turn import (
     customer_figures,
@@ -88,10 +89,12 @@ from app.offerings.turn import (
     ground_turn,
     kb_text_from_prompt,
     lead_source,
-    build_offerings_turn,
+    shown_seqs,
+    safe_offerings_turn,
     remember_shown,
     tier_amounts,
     turn_channel,
+    wanted_seqs,
 )
 from app.offerings.turn import sales_kwargs as catalog_sales_kwargs
 from app.sales.config_view import SalesConfigView
@@ -3018,6 +3021,7 @@ async def _send_message_impl(
         _lead_captured_meta: dict | None = None
         _cart: CartResolution | None = None  # offerings: the customer's chosen items, read live
         _cart_synced: InterestSync | None = None
+        _quote_outcome = QuoteOutcome()
         if _sales_mode and _sales_meta is not None:
             try:
                 if _offerings is not None and _offerings.mode != "unavailable":
@@ -3026,9 +3030,8 @@ async def _send_message_impl(
                         session.tenant_id,
                         _sales_meta.get("signals"),
                         _offerings,
-                        customer_amounts=customer_figures(
-                            customer_texts(conversation_history, message_data.message)
-                        ),
+                        customer_amounts=customer_figures([message_data.message]),
+                        extra_seqs=shown_seqs(session_model.meta) + wanted_seqs(db, session_id),
                     )
                 lead_svc = LeadService(db)
                 conv_id = session_id  # conversation_id == session_id in this handler
@@ -3068,21 +3071,26 @@ async def _send_message_impl(
                         utm=_utm,
                     )
 
-                    _catalog_signals: dict = {}
-                    if _cart is not None and _cart.has_content:
+                    _quote_outcome = QuoteOutcome()
+                    if _cart is not None and (_cart.has_content or _cart.dropped):
+                        lock_lead(db, lead)  # held until the items are committed
                         _cart_synced = record_cart(db, lead, _cart)
-                        _catalog_signals = catalog_score_signals(_cart_synced)
-                        _ack = offer_ack(_cart, _offerings.currency, handover=_cart_synced.handover)
-                        if _ack:
-                            ai_response_text = f"{ai_response_text}\n\n{_ack}"
-                        if _cart_synced.handover:
-                            # D1: a counter-offer is never answered by the AI; a human takes it
-                            if escalation_decision.action == EscalationAction.NO_ESCALATION:
-                                escalation_decision.action = EscalationAction.OFFER_ESCALATION
-                                escalation_decision.reason = "Customer made a price offer"
-                                escalation_decision.skip_quality_check = True
-                            if "connect you" not in ai_response_text:
-                                ai_response_text = f"{ai_response_text}\n\n{ASK_TEAM}"
+                        if (
+                            _sales_close_allowed
+                            and getattr(sales_agent_config, "quotation_enabled", False)
+                            and (_cart.lines or _cart.offered or _cart.dropped)
+                        ):
+                            try:
+                                lock_lead(db, lead)  # one quote per cart, even in parallel turns
+                                _quote_outcome = await issue_quote(
+                                    db, lead, _cart, _cart_synced, _offerings.currency
+                                )
+                            except Exception as _cq_exc:  # the wanted items are already saved
+                                db.rollback()
+                                logger.error(f"Catalog quote error (non-fatal): {_cq_exc}")
+                    _catalog_signals = (
+                        catalog_score_signals(db, lead) if _offerings is not None else {}
+                    )
 
                     _email_before = lead.email  # capture before enrich
                     _prior_score = lead.lead_score  # capture before enrich for sales_ready check
@@ -3095,7 +3103,7 @@ async def _send_message_impl(
                     )
 
                     if _cart_synced is not None:
-                        await alert_owner(db, lead, _cart_synced)
+                        await alert_owner(db, lead, _cart_synced, _cart, _offerings.currency)
 
                     # Set lead_captured only on the turn the email first appears.
                     if not _email_before and lead.email:
@@ -3119,9 +3127,25 @@ async def _send_message_impl(
                             )
                             await enqueue_jobs_async(_sr_jobs)
                     except Exception as _sr_exc:  # noqa: BLE001
+                        db.rollback()
                         logger.error(
                             f"sales_ready notification dispatch failed (non-fatal): {_sr_exc}"
                         )
+
+                if _cart is not None and _offerings is not None:
+                    _notes = reply_notes(
+                        _cart, _cart_synced, _offerings.currency, overflow=_quote_outcome.overflow
+                    )
+                    _lines = [*_notes.lines]
+                    if _quote_outcome.note and not _notes.handover_now:
+                        _lines.append(_quote_outcome.note)
+                    if _lines:
+                        ai_response_text = "\n\n".join([ai_response_text, *_lines])
+                    if _notes.handover_now:
+                        # D1: a price offer is never answered by the AI; a human takes over now
+                        escalation_decision.action = EscalationAction.AUTO_ESCALATE
+                        escalation_decision.reason = "Customer made a price offer"
+                        escalation_decision.skip_quality_check = True
 
             except Exception as _lead_exc:
                 db.rollback()  # a failed flush must not poison saving the assistant message
@@ -3173,7 +3197,7 @@ async def _send_message_impl(
             _message_meta["lead_captured"] = _lead_captured_meta
         _offerings_shown: list[int] = []
         if _offerings is not None:
-            _message_meta["offerings"], _offerings_shown = build_offerings_turn(
+            _message_meta["offerings"], _offerings_shown = safe_offerings_turn(
                 db, session.tenant_id, _offerings, _guard_record, ai_response_text, _sales_meta
             )
             if _offerings.mode == "none":
@@ -3186,24 +3210,12 @@ async def _send_message_impl(
                 and getattr(sales_agent_config, "meeting_booking_enabled", False)
             ):
                 _message_meta["offer_meeting"] = True
-            _catalog_quote: dict | None = None
-            if (
-                _sales_close_allowed
-                and getattr(sales_agent_config, "quotation_enabled", False)
-                and lead is not None
-                and _cart is not None
-                and _cart_synced is not None
-            ):
-                try:
-                    _catalog_quote = await issue_quote(
-                        db, lead, _cart, _cart_synced, _offerings.currency
-                    )
-                    if _catalog_quote is not None:
-                        _message_meta["quote"] = _catalog_quote
-                except Exception as _cq_exc:
-                    logger.error(f"Catalog quote error (non-fatal): {_cq_exc}")
+            _catalog_quote = _quote_outcome.quote
+            if _catalog_quote is not None:
+                _message_meta["quote"] = _catalog_quote
             if (
                 _catalog_quote is None
+                and not (_cart is not None and (_cart.has_content or _cart.dropped))
                 and _sales_close_allowed
                 and bool(_signals.get("offer_quote"))
                 and getattr(sales_agent_config, "quotation_enabled", False)
@@ -3246,10 +3258,12 @@ async def _send_message_impl(
                                 )
                                 await enqueue_jobs_async(_qn_jobs)
                             except Exception as _qn_exc:  # noqa: BLE001
+                                db.rollback()
                                 logger.error(
                                     f"quote notification dispatch failed (non-fatal): {_qn_exc}"
                                 )
                 except Exception as _quote_exc:
+                    db.rollback()
                     logger.error(f"Quote orchestration error (non-fatal): {_quote_exc}")
 
         assistant_message = conversation_service.add_message(

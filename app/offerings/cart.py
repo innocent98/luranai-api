@@ -2,12 +2,15 @@
 
 Rules that keep prices honest:
 - a cart line is resolved from a row read now (after the reply), never from model text or from the
-  block built before the reply, and only for items injected this turn that are still sellable;
+  block built before the reply, and only for items this session has seen (injected this turn,
+  shown earlier, or already wanted) that are still sellable; a line that cannot be resolved is
+  reported, never silently dropped;
 - the quote is `Σ qty × price` in integers, and only when every line is `fixed` and no offer is
   pending; a `from` or `on_request` line, or a customer's counter-offer, means a human prices it;
 - the customer's own figure (`offered_price`) is stored, never agreed to (decision D1).
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from uuid import UUID
 
@@ -37,10 +40,18 @@ class ResolvedOffer:
     amount: int
 
 
+@dataclass(frozen=True)
+class Dropped:
+    seq: int
+    reason: str  # "unknown" | "gone" | "sold_out"
+    name: str | None = None
+
+
 @dataclass
 class CartResolution:
     lines: list[ResolvedLine] = field(default_factory=list)
     offered: ResolvedOffer | None = None
+    dropped: list[Dropped] = field(default_factory=list)
 
     @property
     def has_content(self) -> bool:
@@ -53,34 +64,65 @@ def resolve_cart(
     signals: dict | None,
     grounding: GroundingResult,
     customer_amounts: set | None = None,
+    extra_seqs: Iterable[int] = (),
 ) -> CartResolution:
     parsed = parse_catalog_signals(signals)
-    injected = {i.seq for i in grounding.items}
-    wanted = [line.seq for line in parsed.cart if line.seq in injected]
-    if parsed.offered_price and parsed.offered_price.seq in injected:
-        wanted.append(parsed.offered_price.seq)
+    allowed = {i.seq for i in grounding.items} | set(extra_seqs)
+    offer = parsed.offered_price
+    wanted = [line.seq for line in parsed.cart if line.seq in allowed]
+    if offer and offer.seq in allowed:
+        wanted.append(offer.seq)
     rows = {r.seq: r for r in _by_seqs(db, tenant_id, wanted)}  # tenant-filtered, active only
 
     out = CartResolution()
     for line in parsed.cart:
-        row = rows.get(line.seq)
-        if row is None or row.availability == OfferingAvailability.OUT_OF_STOCK:
+        if line.seq not in allowed:
+            out.dropped.append(Dropped(line.seq, "unknown"))
             continue
-        out.lines.append(ResolvedLine(facts_from_row(row), line.qty))
-    offer = parsed.offered_price
+        row = rows.get(line.seq)
+        if row is None:
+            out.dropped.append(Dropped(line.seq, "gone"))
+        elif row.availability == OfferingAvailability.OUT_OF_STOCK:
+            out.dropped.append(Dropped(line.seq, "sold_out", facts_from_row(row).name))
+        else:
+            out.lines.append(ResolvedLine(facts_from_row(row), line.qty))
     # an offer is the customer's own figure: one they never wrote is the model's invention
-    said = customer_amounts is None or offer is not None and offer.amount in customer_amounts
-    if offer is not None and offer.seq in rows and said:
-        out.offered = ResolvedOffer(facts_from_row(rows[offer.seq]), offer.amount)
+    said = customer_amounts is None or (offer is not None and offer.amount in customer_amounts)
+    if offer is not None and said:
+        row = rows.get(offer.seq)
+        if row is None:
+            out.dropped.append(
+                Dropped(offer.seq, "unknown" if offer.seq not in allowed else "gone")
+            )
+        elif row.availability == OfferingAvailability.OUT_OF_STOCK:
+            out.dropped.append(Dropped(offer.seq, "sold_out", facts_from_row(row).name))
+        else:
+            out.offered = ResolvedOffer(facts_from_row(row), offer.amount)
     return out
 
 
 # -- the catalog quote -------------------------------------------------------------------------
 
 
+QUOTE_COLUMN_MAX = 2_147_483_647  # `quotes.total` / line amounts are 32-bit; S1 owns the schema
+
+
+def quote_too_large(lines: list[ResolvedLine]) -> bool:
+    """A line or total the quote column cannot hold: no quote, a human prices it."""
+    total = 0
+    for line in lines:
+        if line.facts.price is None:
+            continue
+        amount = line.qty * line.facts.price
+        total += amount
+        if amount > QUOTE_COLUMN_MAX or total > QUOTE_COLUMN_MAX:
+            return True
+    return False
+
+
 def catalog_quote(lines: list[ResolvedLine], currency: str) -> dict | None:
     """`meta.quote` shape, built from live rows; None unless every line has a fixed price."""
-    if not lines:
+    if not lines or quote_too_large(lines):
         return None
     line_items = []
     total = 0
@@ -104,8 +146,11 @@ def catalog_quote(lines: list[ResolvedLine], currency: str) -> dict | None:
 class InterestSync:
     first_cart: bool = False
     handover: bool = False
-    has_offer: bool = False
+    has_offer: bool = False  # the customer made an offer on this turn
+    offer_changed: bool = False  # ...and it differs from the one already stored
+    pending_offer: bool = False  # the lead carries an unanswered offer (this turn or earlier)
     has_interests: bool = False
+    partial: bool = False  # some cart lines could not be resolved
 
 
 def _scope(lead: Lead):
@@ -115,10 +160,33 @@ def _scope(lead: Lead):
     )
 
 
-def sync_interests(db: Session, lead: Lead, res: CartResolution) -> InterestSync:
-    """The lead's wanted items = the latest non-empty cart (earlier offers carry over)."""
+def has_pending_offer(db: Session, lead: Lead) -> bool:
+    return (
+        db.execute(
+            select(LeadOfferingInterest.id)
+            .where(*_scope(lead), LeadOfferingInterest.offered_price.is_not(None))
+            .limit(1)
+        ).first()
+        is not None
+    )
+
+
+def sync_interests(
+    db: Session, lead: Lead, res: CartResolution, *, commit: bool = True
+) -> InterestSync:
+    """The lead's wanted items = the latest non-empty cart (earlier offers carry over).
+
+    A cart with a line that could not be resolved never replaces the selection: its resolved lines
+    are merged into what is already wanted and nothing is deleted. `commit=False` leaves the
+    transaction (and the caller's row lock) open.
+    """
     existing = list(db.execute(select(LeadOfferingInterest).where(*_scope(lead))).scalars())
-    out = InterestSync(has_offer=res.offered is not None, has_interests=bool(existing))
+    out = InterestSync(
+        has_offer=res.offered is not None,
+        has_interests=bool(existing),
+        pending_offer=any(r.offered_price is not None for r in existing),
+        partial=bool(res.dropped and res.lines),
+    )
     if not res.has_content:
         return out
 
@@ -126,18 +194,18 @@ def sync_interests(db: Session, lead: Lead, res: CartResolution) -> InterestSync
     prior_qty = {r.offering_id: r.qty for r in existing if r.offering_id}
     offered_oid = res.offered.facts.id if res.offered else None
 
-    if res.lines:  # a cart replaces the selection
-        wanted = {line.facts.id: (line.facts, line.qty) for line in res.lines}
-        if res.offered and offered_oid not in wanted:
-            wanted[offered_oid] = (res.offered.facts, prior_qty.get(offered_oid, 1))
-        db.execute(delete(LeadOfferingInterest).where(*_scope(lead)))
-    else:  # an offer alone touches only its own item
-        wanted = {offered_oid: (res.offered.facts, prior_qty.get(offered_oid, 1))}
+    merge = bool(res.dropped) or not res.lines
+    wanted: dict = {line.facts.id: (line.facts, line.qty) for line in res.lines}
+    if res.offered and offered_oid not in wanted:
+        wanted[offered_oid] = (res.offered.facts, prior_qty.get(offered_oid, 1))
+    if merge:  # touch only the items named now; everything else already wanted stays
         db.execute(
             delete(LeadOfferingInterest).where(
-                *_scope(lead), LeadOfferingInterest.offering_id == offered_oid
+                *_scope(lead), LeadOfferingInterest.offering_id.in_(list(wanted))
             )
         )
+    else:  # a clean cart replaces the selection
+        db.execute(delete(LeadOfferingInterest).where(*_scope(lead)))
 
     for oid, (facts, qty) in wanted.items():
         offered = res.offered.amount if oid == offered_oid else prior_offer.get(oid)
@@ -155,13 +223,15 @@ def sync_interests(db: Session, lead: Lead, res: CartResolution) -> InterestSync
                 offered_price=offered,
             )
         )
-    db.commit()
+    db.commit() if commit else db.flush()
 
     if res.offered is not None:
         f = res.offered.facts
         below = f.price is None or res.offered.amount < f.price
         insisted = prior_offer.get(f.id) is not None
         out.handover = below and (f.negotiable or insisted)
+        out.offer_changed = prior_offer.get(f.id) != res.offered.amount
+        out.pending_offer = True
     out.first_cart = not existing
     out.has_interests = True
     return out
