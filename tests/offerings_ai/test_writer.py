@@ -49,7 +49,7 @@ def test_plain_mode_does_not_match_a_partial_name():
 
 
 def test_sales_mode_with_empty_refs_falls_back_to_the_reply_text():
-    out = shown_items(_g(), "The Leather bag is ₦45,000.", sales_signals={"catalog_refs": []})
+    out = shown_items(_g(), "The Leather bag is [[price:#3]].", sales_signals={"catalog_refs": []})
     assert [i.seq for i in out] == [3]
 
 
@@ -103,7 +103,7 @@ def _offerings_meta(r):
 def test_meta_items_follow_the_frozen_contract(client, db):
     tid = _shop(db, sales_enabled=True)
     row_id, img_id, img_url = _cover(db, tid, 1)
-    sales = ScriptedSales("The black sneaker is ₦12,000.")
+    sales = ScriptedSales("The black sneaker is [[price:#1]].")
     sales.signals = {"catalog_refs": ["#1"]}
     with _with_refs(sales, ["#1"]), retrieval_patch(), automation_patch():
         r = send(client, tid, "how much is the black sneaker?")
@@ -155,7 +155,7 @@ def _with_refs(sales: ScriptedSales, refs):
 
 def test_plain_mode_cards_come_from_names_in_the_reply(client, db):
     tid = _shop(db)
-    model = ScriptedPlain("We have the Canvas sneaker white at ₦13,500.")
+    model = ScriptedPlain("We have the Canvas sneaker white at [[price:#2]].")
     with model.patch(), retrieval_patch(), automation_patch():
         r = send(client, tid, "show me the white sneaker")
     assert [i["ref"] for i in _offerings_meta(r)["items"]] == ["#2"]
@@ -175,7 +175,7 @@ def test_session_remembers_what_was_shown_and_the_next_turn_uses_it(client, db):
     tid = _shop(db)
     for i in range(3, 20):
         add_offering(db, tid, i, f"Filler thing {i}", price=900 + i)
-    model = ScriptedPlain("The Canvas sneaker white is ₦13,500.", "It is ₦13,500.")
+    model = ScriptedPlain("The Canvas sneaker white is [[price:#2]].", "It is [[price:#2]].")
     with model.patch(), retrieval_patch(), automation_patch():
         r1 = send(client, tid, "show me the white sneaker")
         sid = r1.json()["session_id"]

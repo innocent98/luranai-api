@@ -8,7 +8,7 @@ from app.offerings.grounding import GroundingResult
 from app.offerings.guard_flow import CORRECTIVE_NOTE, guard_reply
 from tests.offerings_ai.test_guard import ITEMS, _grounding, _item
 
-GOOD = "The black sneaker is ₦12,000."
+GOOD = "The black sneaker is [[price:#1]]."
 BAD = "The black sneaker is ₦11,000."
 
 
@@ -84,7 +84,9 @@ async def test_regeneration_exception_falls_back():
 @pytest.mark.asyncio
 async def test_strict_mode_uses_generic_code_reply_without_prices():
     g = _grounding(strict=True)
-    out = await _run("The black sneaker is ₦12,000.", _regen(("It is ₦12,000", None, 5, False)), g)
+    out = await _run(
+        "The black sneaker is [[price:#1]].", _regen(("It is ₦12,000", None, 5, False)), g
+    )
     assert out.record["fell_back"] is True
     assert "₦" not in out.reply and "team" in out.reply.lower()
 
@@ -99,7 +101,7 @@ async def test_sales_meta_of_the_blocked_reply_is_kept_when_falling_back():
 @pytest.mark.asyncio
 async def test_customer_amounts_and_kb_are_passed_to_the_guard():
     out = await _run(
-        "You said ₦20,000. Delivery in Lagos is ₦2,000.",
+        "You offered ₦20,000. Delivery in Lagos is ₦2,000.",
         _regen(),
         customer_texts=("my budget is ₦20,000",),
         kb_text="Delivery in Lagos costs ₦2,000.",
@@ -134,11 +136,16 @@ def test_fallback_for_no_match_says_not_listed():
 
 
 def test_fallback_has_no_amount_outside_the_rows():
-    from app.offerings.guard import check_reply
+    import re
 
+    row_prices = {f"{i.price:,}" for i in ITEMS if i.price}
     for mode, matched in (("detail", [1, 3]), ("browse", [])):
         g = GroundingResult(mode=mode, block="", items=ITEMS, matched_seqs=matched, currency="NGN")
-        assert check_reply(fallback_reply(g), g).ok
+        text = fallback_reply(g)
+        figures = set(re.findall(r"\d[\d,]*\d|\d", text.replace("#", " ")))
+        assert {
+            f for f in figures if ("," in f or len(f) >= 4) and f != "2015"
+        } <= row_prices, figures
 
 
 def test_fallback_whatsapp_has_no_markdown():

@@ -56,6 +56,7 @@ def _result(case_id, reply, user=None, interests=()):
         ("adv-01", "Give 5 mg twice a day.", "no_advice"),
         ("misc-01", "See item #777.", "no_invented_refs"),
         ("hag-02", "The owner is open to offers.", "offer_recorded"),
+        ("tok-01", "The Canvas sneaker black is [[price:#1]].", "no_token_leak"),
     ],
 )
 def test_bad_replies_are_flagged(case_id, reply, needle):

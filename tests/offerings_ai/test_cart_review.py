@@ -195,18 +195,38 @@ def test_only_a_figure_in_the_customers_current_message_can_be_an_offer(client, 
 # -- 3. a pending offer blocks a later quote -------------------------------------------------
 
 
-def test_a_pending_offer_blocks_the_quote_on_a_later_turn(client, db):
+def test_a_pending_offer_on_a_negotiable_item_blocks_the_quote_and_hands_over(db):
+    import asyncio
+
+    from app.offerings.orchestrate import issue_quote
+
+    tid, g = _seed(db)
+    lead = _lead(db, tid)
+    sync_interests(
+        db, lead, resolve_cart(db, tid, _sig([(3, 1)], {"ref": "#3", "amount": 30000}), g)
+    )
+    res = resolve_cart(db, tid, _sig([(3, 1)]), g)
+    synced = sync_interests(db, lead, res)
+    out = asyncio.run(issue_quote(db, lead, res, synced, "NGN"))
+    assert out.quote is None and out.note == "A team member will confirm the price."
+    assert out.handover is True
+    assert db.execute(select(Quote).where(Quote.tenant_id == tid)).first() is None
+
+
+def test_an_offer_on_a_fixed_price_item_never_blocks_the_quote(client, db):
     tid = _shop(db)
     offer = {"ref": "#1", "amount": 10000}
     r1 = _run(
         client,
         db,
         tid,
-        Model(("The black sneaker is listed at ₦12,000.", _cart((1, 1)), offer)),
+        Model(("ignored", _cart((1, 1)), offer)),
         text="₦10,000 for the black sneaker?",
     )
+    assert "firm" in r1.json()["message"]["content"]
+    assert _meta(r1)["quote"]["total"] == 12000  # at the listed price, never at the offer
+    assert r1.json()["should_escalate"] is False
     sid = UUID(r1.json()["session_id"])
-    assert "quote" not in _meta(r1)
     r2 = _run(
         client,
         db,
@@ -215,9 +235,25 @@ def test_a_pending_offer_blocks_the_quote_on_a_later_turn(client, db):
         text="ok I'll take it",
         session_id=sid,
     )
-    assert "quote" not in _meta(r2)
-    assert db.execute(select(Quote).where(Quote.tenant_id == tid)).first() is None
-    assert "A team member will confirm the price." in r2.json()["message"]["content"]
+    assert "A team member will confirm the price." not in r2.json()["message"]["content"]
+    assert len(db.execute(select(Quote).where(Quote.tenant_id == tid)).scalars().all()) == 1
+
+
+def test_an_offer_at_the_list_price_is_a_normal_cart(client, db):
+    tid = _shop(db)
+    r = _run(
+        client,
+        db,
+        tid,
+        Model(("Noted: the leather bag.", _cart((3, 1)), {"ref": "#3", "amount": 45000})),
+        text="I'll pay ₦45,000 for the leather bag",
+    )
+    assert _meta(r)["quote"]["total"] == 45000
+    assert r.json()["should_escalate"] is False
+    row = db.execute(
+        select(LeadOfferingInterest).where(LeadOfferingInterest.tenant_id == tid)
+    ).scalar_one()
+    assert row.offered_price is None
 
 
 # -- 4. earlier items survive, dropped lines are explained ------------------------------------
@@ -483,3 +519,31 @@ def test_extra_seqs_let_earlier_choices_resolve(db):
     assert [
         l.facts.seq for l in resolve_cart(db, tid, _sig([(2, 1)]), g, extra_seqs={2}).lines
     ] == [2]
+
+
+def test_the_tier_quote_stays_off_when_the_cart_step_failed_or_is_empty(client, db):
+    from sqlalchemy import select as _select
+
+    tid = _shop(db)
+    cfg = db.execute(
+        _select(TenantSalesAgentConfig).where(TenantSalesAgentConfig.tenant_id == tid)
+    ).scalar_one()
+    cfg.pricing_tiers = [
+        {
+            "name": "Pro",
+            "base_price": 30000,
+            "min_users": 1,
+            "max_users": 50,
+            "per_seat_overage_price": 100,
+        }
+    ]
+    db.commit()
+    with patch("app.api.v1.endpoints.chat.resolve_cart", side_effect=RuntimeError("boom")):
+        r = _run(
+            client,
+            db,
+            tid,
+            Model(("Noted: one phone repair.", _cart((4, 1)))),
+            text="I'll take the phone repair",
+        )
+    assert "quote" not in _meta(r)

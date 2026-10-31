@@ -14,12 +14,13 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models.lead import Lead
 from app.db.models.offering import (
     LeadOfferingInterest,
+    Offering,
     OfferingAvailability,
     OfferingPriceMode,
 )
@@ -96,6 +97,8 @@ def resolve_cart(
             )
         elif row.availability == OfferingAvailability.OUT_OF_STOCK:
             out.dropped.append(Dropped(offer.seq, "sold_out", facts_from_row(row).name))
+        elif row.price is not None and offer.amount >= row.price:
+            pass  # at or above the list price there is nothing to negotiate: a normal cart
         else:
             out.offered = ResolvedOffer(facts_from_row(row), offer.amount)
     return out
@@ -161,14 +164,19 @@ def _scope(lead: Lead):
 
 
 def has_pending_offer(db: Session, lead: Lead) -> bool:
-    return (
-        db.execute(
-            select(LeadOfferingInterest.id)
-            .where(*_scope(lead), LeadOfferingInterest.offered_price.is_not(None))
-            .limit(1)
-        ).first()
-        is not None
-    )
+    """An offer a human is working on: stored on a negotiable (or unpriced) item. An offer on a
+    fixed-price item gets the firm-price answer and never blocks a quote."""
+    rows = db.execute(
+        select(LeadOfferingInterest.id)
+        .join(Offering, Offering.id == LeadOfferingInterest.offering_id)
+        .where(
+            *_scope(lead),
+            LeadOfferingInterest.offered_price.is_not(None),
+            or_(Offering.negotiable.is_(True), Offering.price.is_(None)),
+        )
+        .limit(1)
+    ).first()
+    return rows is not None
 
 
 def sync_interests(
@@ -184,10 +192,10 @@ def sync_interests(
     out = InterestSync(
         has_offer=res.offered is not None,
         has_interests=bool(existing),
-        pending_offer=any(r.offered_price is not None for r in existing),
         partial=bool(res.dropped and res.lines),
     )
     if not res.has_content:
+        out.pending_offer = has_pending_offer(db, lead)
         return out
 
     prior_offer = {r.offering_id: r.offered_price for r in existing if r.offering_id}
@@ -229,9 +237,9 @@ def sync_interests(
         f = res.offered.facts
         below = f.price is None or res.offered.amount < f.price
         insisted = prior_offer.get(f.id) is not None
-        out.handover = below and (f.negotiable or insisted)
+        out.handover = below and (f.negotiable or insisted or f.price is None)
         out.offer_changed = prior_offer.get(f.id) != res.offered.amount
-        out.pending_offer = True
     out.first_cart = not existing
     out.has_interests = True
+    out.pending_offer = has_pending_offer(db, lead)
     return out

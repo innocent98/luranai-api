@@ -134,6 +134,7 @@ class GroundingResult:
     currency: str = "NGN"
     read_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     strict: bool = False  # lookup failed: the guard treats any amount as a violation
+    catalog_names: list[str] = field(default_factory=list)  # every active item's name
     token_count: int = 0
 
     @property
@@ -263,6 +264,11 @@ def _count_active(db: Session, tenant_id: UUID) -> int:
     )
 
 
+def _all_names(db: Session, tenant_id: UUID) -> list[str]:
+    """Every active item's name: the guard must know items that are not in this turn's block."""
+    return [str(n) for (n,) in db.execute(select(Offering.name).where(*_active(tenant_id)))]
+
+
 def _categories(db: Session, tenant_id: UUID) -> list[tuple[str, int]]:
     rows = db.execute(
         select(func.coalesce(Offering.category, "Other"), func.count())
@@ -330,9 +336,17 @@ def ground(
     try:
         # one indexed LIMIT 1 query: this is all a tenant without a catalog ever costs per turn
         has_items = db.execute(select(Offering.id).where(*_active(tenant_id)).limit(1)).first()
-    except Exception:  # noqa: BLE001 - cannot tell whether this tenant has a catalog
-        logger.exception("offerings gate query failed; leaving the turn ungrounded")
-        return None
+    except Exception:  # noqa: BLE001 - cannot tell whether this tenant has a catalog: fail closed
+        logger.exception("offerings gate query failed; failing closed")
+        db.rollback()  # the failed statement must not leave the transaction aborted
+        block = unavailable_block(now)
+        return GroundingResult(
+            mode="unavailable",
+            block=block,
+            read_at=now,
+            strict=True,
+            token_count=count_tokens(block),
+        )
     if has_items is None:
         return None
 
@@ -385,7 +399,8 @@ def _ground(
     tokens = build_query_tokens(message, previous_message)
     matched = [] if browse else _search(db, tenant_id, tokens, DETAIL_MAX)
     detail_rows = list(matched)
-    if not browse:
+    follow_up = len(tokens) < 2 or bool(_ANAPHORA.search(message or ""))
+    if not browse and follow_up:  # "the second one": a policy question is not about the items
         have = {r.id for r in detail_rows}
         for row in _by_seqs(db, tenant_id, shown_seqs):
             if row.id not in have and len(detail_rows) < DETAIL_MAX:
@@ -427,6 +442,7 @@ def _ground(
         currency=currency,
         read_at=now,
         token_count=count_tokens(rendered.text),
+        catalog_names=_all_names(db, tenant_id),
     )
 
 

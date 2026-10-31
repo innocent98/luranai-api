@@ -7,21 +7,21 @@
     "headers": {},
     "body": {
       "message": "I'll pay 30k for the leather bag",
-      "tenant_id": "3ea71d88-0c4f-4502-92cd-00a2ba818eca",
+      "tenant_id": "034e2ec6-1119-4f4e-bdd0-f61f971e648a",
       "user_identifier": "web-7"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "e366aa08-ca12-4475-be8c-e6d46efc2ae0",
+      "session_id": "34a53ed2-97dc-420f-98a9-6ca626b47eb7",
       "message": {
         "role": "assistant",
-        "content": "The owner is open to offers on the Leather bag. I've noted your offer; the team will follow up. Would you like me to connect you with the team?\n\nI've noted your offer of ₦30,000 for the Leather bag.\n\nI'm handing this to the team now; they'll take it from here.",
-        "id": "b859cd3a-3c1d-461d-99ef-8fa3ccc3698e",
-        "session_id": "e366aa08-ca12-4475-be8c-e6d46efc2ae0",
+        "content": "I've noted your offer of ₦30,000 for the Leather bag.\n\nI'm handing this to the team now; they'll take it from here.",
+        "id": "9e1fa0a3-2103-4d9c-95d6-630bc452be9e",
+        "session_id": "34a53ed2-97dc-420f-98a9-6ca626b47eb7",
         "retrieved_chunk_ids": [],
-        "token_count": 300,
+        "token_count": 150,
         "attachments": [],
         "reply_to": null,
         "meta": {
@@ -32,20 +32,20 @@
           "response_quality": {
             "is_substantial": true,
             "has_uncertainty": false,
-            "word_count": 29,
-            "char_count": 143
+            "word_count": 0,
+            "char_count": 0
           },
           "token_breakdown": {
-            "prompt_tokens": 608,
-            "completion_tokens": -308,
-            "total_tokens": 300
+            "prompt_tokens": 661,
+            "completion_tokens": -511,
+            "total_tokens": 150
           },
           "offerings": {
             "mode": "detail",
             "items": [
               {
                 "ref": "#3",
-                "offering_id": "1730df2f-2ac6-4e46-83bd-72aea856d96e",
+                "offering_id": "ea0dc81b-d3c9-4e8c-abdb-0681a344502c",
                 "name": "Leather bag",
                 "price_text": "₦45,000",
                 "availability": "in_stock",
@@ -54,21 +54,21 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T00:25:03.040918+00:00",
+            "shown_at": "2026-10-31T01:10:16.571191+00:00",
             "guard": {
-              "checked": true,
-              "blocked": true,
-              "regenerated": true,
+              "checked": false,
+              "blocked": false,
+              "regenerated": false,
               "fell_back": false
             }
           }
         },
-        "created_at": "2026-10-31T00:25:03.092170Z"
+        "created_at": "2026-10-31T01:10:16.659419Z"
       },
       "user_message_attachments": [],
       "should_escalate": true,
       "escalation_reason": "Customer made a price offer",
-      "ticket_id": "67638461-c6d4-42e5-86cf-0eeb1afb3b42"
+      "ticket_id": "78780560-6fd2-4178-99d1-5030a76c01fe"
     }
   }
 }

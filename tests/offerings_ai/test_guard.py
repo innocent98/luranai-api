@@ -54,7 +54,12 @@ ITEMS = [
     _item(7, "Puff puff", 900),
     _item(8, "Toyota Camry 2015", 4500000),
     _item(9, "N95 Mask", 1500),
+    _item(10, "Canvas sneaker black pro", 18000),
+    _item(11, "Red bag", 25000, negotiable=True),
+    _item(12, "Red bag large", 32000),
 ]
+
+CATALOG_NAMES = ["Silver wristwatch", "Ankara dress"]  # active items that are not in the block
 
 
 def _grounding(items=ITEMS, *, strict=False, currency="NGN", matched=()):
@@ -65,368 +70,167 @@ def _grounding(items=ITEMS, *, strict=False, currency="NGN", matched=()):
         matched_seqs=list(matched),
         strict=strict,
         currency=currency,
+        catalog_names=[] if strict else list(CATALOG_NAMES),
     )
+
+
+def T(n: int) -> str:
+    """The price token of item #n."""
+    return f"[[price:#{n}]]"
 
 
 @dataclass
 class Case:
     reply: str
     ok: bool
-    reason: str | None = None  # expected violation reason when not ok
+    reason: str | None = None  # expected violation reason when not ok (None: any)
     customer: tuple = ()
     kb: str = ""
     tiers: tuple = ()
     strict: bool = False
     currency: str = "NGN"
     matched: tuple = ()
-    offer: bool = False  # the model returned an offered_price signal
+    offer: bool = False  # the customer is bargaining / the model returned an offered_price
 
 
 C = Case
+BARGAIN = ("how much is the red bag", "I go pay 20k for the red bag")
 CASES = [
-    # --- accepted ------------------------------------------------------------------------
-    C("The black sneaker is ₦12,000 and it is in stock.", True),
-    C("The black sneaker is N12,000.", True),
-    C("The black sneaker is 12,000 naira.", True),
-    C("The black sneaker is ₦12000.", True),
-    C("The black sneaker is 12k.", True),
-    C("The black sneaker is ₦12,000.00.", True),
-    C("Our black sneaker costs twelve thousand naira.", True),
-    C("Phone repair starts from ₦5,000 per phone.", True),
-    C("The leather bag is ₦45,000.", True),
-    C("The black sneaker is ₦12,000 and the white one is ₦13,500.", True),
-    C("Canvas sneaker black: ₦12,000\nCanvas sneaker white: ₦13,500", True),
+    # --- accepted: prices only as tokens ------------------------------------------------------
+    C(f"The black sneaker is {T(1)} and it is in stock.", True),
+    C(f"Canvas sneaker black: {T(1)}\nCanvas sneaker white: {T(2)}", True),
     C(
-        "#1 Canvas sneaker black ₦12,000\n#2 Canvas sneaker white ₦13,500\n#3 Leather bag ₦45,000",
+        f"#1 Canvas sneaker black {T(1)}\n#2 Canvas sneaker white {T(2)}\n#3 Leather bag {T(3)}",
         True,
     ),
-    C("Prices run from ₦5,000 up to ₦45,000 across our list.", True),
-    C("The white sneaker costs ₦13,500, which is more than the black one at ₦12,000.", True),
-    C("We have 2 pairs of the white sneaker in size 42.", True),
+    C(f"Phone repair starts from {T(4)}.", True),
+    C(f"The custom portrait is {T(6)}; I can connect you with the team.", True),
+    C(f"The black sneaker is {T(1)}, cheaper than the white one at {T(2)}.", True),
+    C(f"1. **Black sneaker**\n - Price: {T(1)}", True),
+    C(f"| Item | Price |\n|---|---|\n| Black sneaker | {T(1)} |\n| Leather bag | {T(3)} |", True),
     C("Which size do you need, 41 or 42?", True),
+    C("We have 2 pairs of the white sneaker in size 42.", True),
     C("Item #3 is the leather bag.", True),
     C("We opened in 2026 and reply 9:00 to 17:30.", True),
-    C("Call us on 08012345678 for the team.", True),
+    C("Call us on 0803 123 4567 for the team.", True),
+    C("We are open from 31/10/2026. Your reference is LUR-2041.", True),
+    C(f"The Toyota Camry 2015 costs {T(8)}.", True),
+    C(f"The N95 Mask is {T(9)}.", True),
     C("I've noted your request; the team will confirm.", True),
-    C("The custom portrait is priced on request; I can connect you with the team.", True),
-    C(
-        "You said ₦20,000. The leather bag is listed at ₦45,000.",
-        True,
-        customer=("my budget is ₦20,000",),
-    ),
-    C("With a 20k budget, the black sneaker at ₦12,000 fits.", True, customer=("budget is 20k",)),
+    C("Which item would you like?", True),
+    C("Feel free to ask me anything about the red bag.", True),
+    C("The ankara dress is free size, 100% cotton and water resistant to 50m.", True),
+    C("Visit us at Plot 1234, Admiralty Way. We have served over 2000 customers.", True),
+    C("The red bag comes with a free dust bag.", True),
+    C("I can't offer a discount on the black sneaker.", True),
+    C("There is no discount on the black sneaker.", True),
+    C(f"The black sneaker is {T(1)} and there is no discount.", True),
+    C("Pickup is free from 10am to 5pm. You can drop off the red bag at our shop.", True),
+    # knowledge base and plan amounts
     C("Delivery within Lagos is ₦2,000.", True, kb="Delivery in Lagos costs ₦2,000 per order."),
     C(
-        "The black sneaker is ₦12,000. Delivery within Lagos is ₦2,000.",
+        f"The black sneaker is {T(1)} and delivery within Lagos is ₦2,000.",
         True,
         kb="Delivery in Lagos costs ₦2,000 per order.",
     ),
+    C(
+        "Orders above ₦50,000 get free delivery.",
+        True,
+        kb="Orders above ₦50,000 get free delivery.",
+    ),
     C("Our Pro plan is ₦30,000 per month.", True, tiers=(30000,)),
-    C("The black sneaker is ₦12,000.", True, currency="NGN"),
-    C("The black sneaker is $12,000.", True, currency="USD"),
-    C("Which item would you like?", True),
-    # --- haggling and concessions (D1) --------------------------------------------------
-    C("I can do ₦10,000 for the black sneaker.", False, "concession"),
-    C("Sure, ₦10,000 works for the leather bag.", False, "concession"),
-    C("I can give you ₦2,000 off the leather bag.", False, "concession"),
-    C("We can do 2k off.", False, "concession"),
+    C("You offered ₦9,000.", True, customer=("I'll pay 9k",)),
+    # --- literal amounts are never allowed, even correct ones ----------------------------------
+    C("The black sneaker is ₦12,000.", False, "literal_amount"),
+    C("The black sneaker is N12,000.", False, "literal_amount"),
+    C("The black sneaker is 12,000 naira.", False, "literal_amount"),
+    C("The black sneaker is 12k.", False, "literal_amount"),
+    C("The black sneaker is ₦12000.", False, "literal_amount"),
+    C("The black sneaker costs twelve thousand naira.", False, "literal_amount"),
+    C("The black sneaker is 12000.", False, "literal_amount"),
+    C("Canvas sneaker black: 12,000", False, "literal_amount"),
+    C("The black sneaker is #9,000.", False, "literal_amount"),
+    C("The black sneaker is #9000.", False, "literal_amount"),
+    C("Black sneaker: #9k", False, "literal_amount"),
+    C("Yes, #9,000 is fine for the black sneaker.", False),
+    C("The black sneaker is ₦ 11 000.", False, "literal_amount"),
+    C("The black sneaker is eleven thousand naira.", False, "literal_amount"),
+    C("The black sneaker is NGN-11000.", False, "literal_amount"),
+    C("The black sneaker is ₦11,000only.", False, "literal_amount"),
+    C("Puff puff, 800 only.", False, "literal_amount"),
+    C("The black sneaker is fifteen hundred naira.", False, "literal_amount"),
+    C("The black sneaker is 5 grand.", False, "literal_amount"),
+    C("The black sneaker is 12 thousand five hundred.", False, "literal_amount"),
+    C("Two black sneakers come to ₦24,000.", False, "literal_amount"),
+    C("2 x ₦12,000 = ₦24,000 for two black sneakers.", False, "literal_amount"),
+    C("Your total is ₦57,000.", False, "literal_amount"),
+    C("It's ₦15,000.", False, "literal_amount"),
+    C("Black sneaker? Just ₦3,000!", False, "literal_amount"),
+    C("The black sneaker was ₦15,000 but is now ₦12,000.", False, "literal_amount"),
+    C("The black sneaker is $12,000.", False, "currency"),
+    C("The black sneaker is 12,000 dollars.", False, "currency"),
+    C("The black sneaker is ₦12,000.", False, "currency", currency="USD"),
+    C("Delivery is ₦3,000.", False, "literal_amount"),
+    C("Our warranty costs ₦1,750.", False, "literal_amount", kb="Delivery fee: ₦3,000."),
+    C("Pro is ₦40,000 a month.", False, "literal_amount", tiers=(30000,)),
+    C("The black sneaker is ₦30,000 on our Pro plan.", False, "literal_amount", tiers=(30000,)),
+    C("It's ₦9,000 as you mentioned.", False, "literal_amount", customer=("I'll pay 9k",)),
+    C("Your budget of ₦9,000 covers it.", False, "literal_amount", customer=("I'll pay 9k",)),
     C(
-        "Deal at ₦8,000 for the black sneaker.",
+        "₦9,000 as you said. Send your address for delivery.",
         False,
-        "concession",
-        customer=("I will pay ₦8,000",),
+        "literal_amount",
+        customer=("I'll pay 9k",),
     ),
-    C("The leather bag now goes for ₦40,000.", False, "wrong_item_price"),
+    C("The leather bag is ₦50,000 as you said.", False, "literal_amount", customer=("50k",)),
+    C("The Silver wristwatch costs ₦40,000.", False, "literal_amount"),
     C(
-        "Okay, I accept your ₦30,000 offer for the leather bag.",
+        "Silver wristwatch now costs ₦40,000.",
         False,
-        "concession",
-        customer=("I'll pay ₦30,000 for the bag",),
-    ),
-    C("The lowest I can go is ₦11,000 for the black sneaker.", False, "concession"),
-    C("Final price is ₦11,500.", False, "concession"),
-    C("I can offer a 10% discount on the black sneaker.", False, "percent"),
-    C("That works out to 5 percent off.", False, "percent"),
-    C("Meet you at ₦9,000 for the black sneaker?", False, "concession", customer=("9k?",)),
-    C("The owner is open to offers on the leather bag.", True),
-    C(
-        "I've noted your offer of ₦30,000 for the leather bag; the team will follow up.",
-        False,
-        "customer_figure_below_price",
-        customer=("can you do ₦30,000 for the bag",),
-    ),
-    C(
-        "Fine, ₦8,000 it is.",
-        False,
-        "concession",
-        customer=("can you do ₦8,000?",),
-    ),
-    C(
-        "Alright, ₦30,000 then.",
-        False,
-        "concession",
-        customer=("I'll pay ₦30,000",),
-    ),
-    C(
-        "₦8,000 works for the black sneaker.",
-        False,
-        "concession",
-        customer=("8k?",),
-    ),
-    C(
-        "That is agreeable at ₦30,000 for the leather bag.",
-        False,
-        "concession",
-        customer=("how about ₦30,000",),
+        "literal_amount",
+        kb="Silver wristwatch now costs ₦40,000.",
     ),
     C(
-        "You offered ₦30,000, but the leather bag is listed at ₦45,000.",
+        "The red bag sells for ₦20,000.",
         False,
-        "customer_figure_below_price",
-        customer=("how about ₦30,000",),
+        "literal_amount",
+        kb="The red bag sells for ₦20,000.",
     ),
-    # --- review findings: concessions at a coincidentally listed price, echoed-then-accepted ---
-    C("I can do ₦12,000 for you.", False, "concession"),
-    C("Sure, ₦12,000 for you.", False, "concession"),
+    C("Okay, I can do ₦9,000 for you.", False, "literal_amount", kb="Black sneaker ₦9,000"),
+    C("You can get 2 black sneakers for ₦12,000.", False, "literal_amount"),
+    C("Delivery is 2,5k.", False, "literal_amount"),
+    C("Delivery is 2,5k.", True, kb="Delivery costs ₦2,500."),
+    # --- tokens: unknown, foreign, malformed, on the wrong item -------------------------------
+    C("The black sneaker is [[price:#99]].", False, "unknown_token"),
+    C("The silver wristwatch is [[price:#40]].", False, "unknown_token"),
+    C("The black sneaker is [[price: abc]].", False, "bad_token"),
+    C("The black sneaker is [[price:#1.", False, "bad_token"),
+    C("The black sneaker is [[free]].", False, "bad_token"),
+    C(f"The leather bag is {T(1)}.", False, "token_mismatch"),
+    C(f"{T(1)} gets you the Canvas sneaker black pro.", False, "token_mismatch"),
+    C(f"The Canvas sneaker black pro is {T(10)}.", True),
+    C(f"The Canvas sneaker black is {T(1)} and the Canvas sneaker black pro is {T(10)}.", True),
+    C(f"The Canvas sneaker black pro and the Canvas sneaker black cost {T(1)} and {T(10)}.", True),
+    C(f"The Red bag large is {T(11)}.", False, "token_mismatch"),
+    C(f"The Red bag large is {T(12)}.", True),
+    C(f"#12 Red bag large - {T(12)}", True),
+    C(f"#11 Red bag - {T(11)}\n#12 Red bag large - {T(12)}", True),
+    # --- bundles and "same price" claims, which a token alone would let through ----------------
+    C(f"Get 2 for {T(1)}!", False, "bundle_price"),
+    C(f"2 pairs of black sneakers for {T(1)}", False, "bundle_price"),
+    C(f"Buy 2 black sneakers, pay {T(1)}.", False, "bundle_price"),
+    C(f"2 black sneakers at {T(1)} each.", True),
+    C(f"The black sneaker is {T(1)} per pair.", True),
     C(
-        "I can do ₦12,000 for you.",
+        f"The black sneaker is {T(1)}. The pro version is the same price.",
         False,
-        "concession",
-        customer=("can you do 12k for the bag",),
+        "same_price_claim",
     ),
-    C("We have a deal at ₦13,500.", False, "concession"),
-    C(
-        "You offered ₦30,000 for the leather bag, that works for me.",
-        False,
-        "concession",
-        customer=("how about ₦30,000 for the bag",),
-    ),
-    C(
-        "You offered ₦30,000 for the leather bag, so okay.",
-        False,
-        "concession",
-        customer=("how about ₦30,000 for the bag",),
-    ),
-    C(
-        "You offered ₦30,000, sounds fine to me.",
-        False,
-        "concession",
-        customer=("how about ₦30,000",),
-    ),
-    # Agreement in a separate sentence after the customer's below-list figure is echoed.
-    C(
-        "You offered ₦30,000. Sounds fine to me.",
-        False,
-        "agreement_after_offer",
-        customer=("how about ₦30,000",),
-    ),
-    C("I can do ₦12,000 for the black sneaker.", True),
-    C("The black sneaker is ₦12,000 and there is no discount.", True),
-    C("I can't offer a discount on the leather bag; it is ₦45,000.", True),
-    C(
-        "Thanks for the thought. Anyway, ₦30,000 is what you said.",
-        False,
-        customer=("how about ₦30,000",),
-    ),
-    # --- found by the eval: a percentage the customer named must not be accepted back ---------
-    C(
-        "I can offer 20% off the black sneaker.",
-        False,
-        "percent",
-        customer=("give me 20% discount",),
-    ),
-    C("Sure, 10 percent off then.", False, "percent", customer=("can I get 10 percent off",)),
-    C(
-        "You asked for 20% off, but the black sneaker is listed at ₦12,000.",
-        False,
-        "percent",
-        customer=("give me 20% discount",),
-    ),
-    C(
-        "I can't offer a 20% discount on the black sneaker.",
-        False,
-        "percent",
-        customer=("give me 20% discount",),
-    ),
-    # --- second independent review (Opus) -------------------------------------------------
-    C(
-        "Yes, the black sneaker is ₦10,000 as you said.",
-        False,
-        "customer_figure_below_price",
-        customer=("10,000",),
-    ),
-    C(
-        "As you said, ₦10,000 for the black sneaker.",
-        False,
-        "customer_figure_below_price",
-        customer=("10,000",),
-    ),
-    C(
-        "Black sneaker: your price ₦10,000 confirmed.",
-        False,
-        "customer_figure_below_price",
-        customer=("10,000",),
-    ),
-    C(
-        "Within your budget, the black sneaker is ₦9,000.",
-        False,
-        "customer_figure_below_price",
-        customer=("budget 9k",),
-    ),
-    C(
-        "You offered ₦10,000 for the black sneaker. Okay, deal!",
-        False,
-        "customer_figure_below_price",
-        customer=("10,000",),
-    ),
-    C(
-        "I'll pass your offer of ₦10,000 to the owner. Good news, the owner has agreed!",
-        False,
-        "agreement_after_offer",
-        customer=("10,000",),
-    ),
-    C("I'll pass your offer of ₦10,000 to the owner.", False, customer=("10,000",)),
-    C("Sure, 10% off the black sneaker for you.", False, "percent", customer=("10% off",)),
-    C("Okay, I can do ₦9,000 for you.", False, "concession", kb="Black sneaker ₦9,000"),
-    C("The black sneaker is ₦11,000only.", False, "wrong_item_price"),
-    C("The black sneaker is ₦11,000ish.", False, "wrong_item_price"),
-    C("Okay, 800 works for the puff puff.", False),
-    C("Puff puff, 800 only.", False, "wrong_item_price"),
-    C("Puff puff, 900 only.", True),
-    C("The black sneaker is fifteen hundred naira.", False, "wrong_item_price"),
-    C("The black sneaker is fifteen k.", False, "wrong_item_price"),
-    C("The black sneaker is 5 grand.", False, "wrong_item_price"),
-    C("The black sneaker is 12 thousand five hundred.", False, "wrong_item_price"),
-    C("The black sneaker is 12 thousand.", True),
+    C(f"The red bag is {T(11)} and the large one costs the same.", False, "same_price_claim"),
+    C(f"Both the black sneaker and the pro are {T(1)}.", False),
+    # --- discount, freebie and percentage wording ---------------------------------------------
     C("Black sneaker is half price today.", False, "discount_wording"),
     C("You can have the black sneaker for free.", False, "discount_wording"),
-    C("I'll take 500 off the black sneaker.", False),
-    C("I can't offer a discount on the black sneaker.", True),
-    C("The black sneaker is cheaper today.", False, "discount_wording"),
-    C("It's ₦13,500.", False, "not_in_block", matched=(1,)),
-    C("It's ₦12,000.", True, matched=(1,)),
-    C("The Toyota Camry 2015 is ₦4,500,000.", True),
-    C("The N95 Mask is ₦1,500.", True),
-    C("Call 0803 123 4567 for the team.", True),
-    C("We are open from 31/10/2026.", True),
-    C("Your reference is LUR-2041.", True),
-    C("Delivery is 2,5k.", True, kb="Delivery costs ₦2,500."),
-    C("Delivery is 2,5k.", False, "not_in_block"),
-    C("The black sneaker is ₦30,000 on our Pro plan.", False, "wrong_item_price", tiers=(30000,)),
-    C("Okay, I can do ₦30,000 for you.", False, "concession", tiers=(30000,)),
-    # --- automated review of fa7ce37 -----------------------------------------------------------
-    C("The black sneaker is NGN-11000.", False, "wrong_item_price"),
-    C("The black sneaker is USD-12.", False),
-    C("Your reference is LUR-2041.", True),
-    C(
-        "The black sneaker and the leather bag are ₦20,000 each.",
-        False,
-        "customer_figure_below_price",
-        customer=("20k each?",),
-    ),
-    C(
-        "I can't give a discount, but the black sneaker is half price today.",
-        False,
-        "discount_wording",
-    ),
-    C("No discount today; the black sneaker is for free.", False, "discount_wording"),
-    C("I can't offer a discount on the black sneaker.", True),
-    C("There is no discount on the black sneaker.", True),
-    C("Why not give you the black sneaker for free?", False, "discount_wording"),
-    C("No kidding \u2014 half price on the black sneaker.", False, "discount_wording"),
-    C("Not today? Fine, the black sneaker is cheaper then.", False),
-    C("The black sneaker is not on sale; it is \u20a612,000.", True),
-    C("I cannot reduce the price of the black sneaker.", True),
-    # --- second Opus pass: '#' as naira, swaps, carry-forward, agreement, freebies ----------------
-    C("The black sneaker is #9,000.", False, "wrong_item_price"),
-    C("The black sneaker is #9000.", False, "wrong_item_price"),
-    C("Black sneaker: #9k", False, "wrong_item_price"),
-    C("Yes, #9,000 is fine for the black sneaker.", False),
-    C("Item #1 is the black sneaker.", True),
-    C("The black sneaker and the leather bag are \u20a612,000 each.", False, "shared_price"),
-    C("Black sneaker - \u20a645,000, Leather bag - \u20a612,000", False, "wrong_item_price"),
-    C("Black sneaker - \u20a612,000, Leather bag - \u20a645,000", True),
-    C("1. **Black sneaker**\n - Price: \u20a613,500", False),
-    C("Black sneaker? Just \u20a613,500!", False),
-    C("We have the black sneaker. It's \u20a613,500.", False),
-    C("We have the black sneaker. It's \u20a612,000.", True),
-    C(
-        "The black sneaker is \u20a612,000. Delivery is \u20a62,000.",
-        True,
-        kb="Delivery costs \u20a62,000.",
-    ),
-    C("It's \u20a69,000 as you mentioned.", False, customer=("I'll pay 9k",)),
-    C("\u20a69,000 as you said. Send your address for delivery.", False, customer=("I'll pay 9k",)),
-    C("Your budget of \u20a69,000 covers it.", False, customer=("I'll pay 9k",)),
-    C(
-        "You offered \u20a69,000. We can do that.",
-        False,
-        "agreement_after_offer",
-        customer=("I'll pay 9k",),
-    ),
-    C("You offered \u20a69,000. Done!", False, "agreement_after_offer", customer=("I'll pay 9k",)),
-    C(
-        "You offered \u20a69,000. That's fair, let's go with that.",
-        False,
-        "agreement_after_offer",
-        customer=("I'll pay 9k",),
-    ),
-    C(
-        "You offered \u20a69,000. No wahala, it's yours.",
-        False,
-        "agreement_after_offer",
-        customer=("I'll pay 9k",),
-    ),
-    C("You offered \u20a69,000.", True, customer=("I'll pay 9k",)),
-    C(
-        "Okay, deal! I'll send you the payment details.",
-        False,
-        "agreement_after_offer",
-        customer=("I'll pay 9k for the black sneaker",),
-        offer=True,
-    ),
-    C(
-        "That's fine, we accept your offer.",
-        False,
-        "agreement_after_offer",
-        customer=("I'll pay 9k for the black sneaker",),
-        offer=True,
-    ),
-    C(
-        "No problem, half price for you.",
-        False,
-        customer=("I'll pay 9k for the black sneaker",),
-        offer=True,
-    ),
-    C(
-        "Okay, you can have it for free.",
-        False,
-        customer=("I'll pay 9k for the black sneaker",),
-        offer=True,
-    ),
-    C(
-        "Sure, I'll give you a discount.",
-        False,
-        customer=("I'll pay 9k for the black sneaker",),
-        offer=True,
-    ),
-    C(
-        "I can't accept that price, but the owner is open to offers.",
-        True,
-        customer=("I'll pay 9k for the black sneaker",),
-        offer=True,
-    ),
-    C("I'll take 500 off.", False),
-    C("Okay, great choice! Which size?", True),
-    C("No discount apart from half price on the black sneaker.", False, "discount_wording"),
-    C("There's no discount other than half price on the black sneaker.", False, "discount_wording"),
-    C("You won't believe this discount on the black sneaker.", False, "discount_wording"),
-    C("Don't miss this discount on the black sneaker.", False, "discount_wording"),
-    C("Don't miss our half price deal on the black sneaker.", False, "discount_wording"),
-    C("We won't refuse a discount on the black sneaker.", False, "discount_wording"),
-    C("We never say no to discount on the black sneaker.", False, "discount_wording"),
-    C("I can't deny you a discount on the black sneaker.", False, "discount_wording"),
-    C("You can get 2 black sneakers for \u20a612,000.", False),
     C("Buy one black sneaker, get one free.", False, "discount_wording"),
     C(
         "Take the black sneaker and add the leather bag at no extra charge.",
@@ -435,70 +239,107 @@ CASES = [
     ),
     C("The black sneaker is yours at no cost.", False, "discount_wording"),
     C("The black sneaker comes with delivery on us.", False, "discount_wording"),
-    C("Size 42 black sneaker is \u20a612,000.", True),
-    C("The leather bag is \u20a650,000 as you said.", False, customer=("50k",)),
-    C("With a 50k budget, the leather bag at \u20a645,000 fits.", True, customer=("50k",)),
-    # --- wrong, invented and stale prices ------------------------------------------------
-    C("The black sneaker is ₦11,000.", False, "wrong_item_price"),
-    C("The black sneaker is ₦12,500.", False, "wrong_item_price"),
-    C("The black sneaker is 1,200.", False, "wrong_item_price"),
-    C("The black sneaker is ₦120,000.", False, "wrong_item_price"),
-    C("The black sneaker is 12 thousand five hundred naira.", False, "wrong_item_price"),
-    C("The black sneaker is N2,500.50.", False, "wrong_item_price"),
-    C("The black sneaker is ₦12,000.50.", False, "wrong_item_price"),
-    C("The black sneaker is about 12.5k.", False, "wrong_item_price"),
-    C("The white sneaker is ₦12,000.", False, "wrong_item_price"),
-    C("The leather bag is ₦13,500.", False, "wrong_item_price"),
-    C("Phone repair is ₦8,000 per phone.", False, "wrong_item_price"),
-    C("The sold out sandals are ₦9,000.", False, "wrong_item_price"),
-    C("The custom portrait is ₦20,000.", False, "wrong_item_price"),
-    C("Phone repair starts from ₦3,000.", False, "wrong_item_price"),
-    C("Sneakers range between 10k and 12k.", False, "wrong_item_price"),
-    C("The black sneaker is NGN 12,500.", False, "wrong_item_price"),
-    C("The black sneaker was ₦15,000 but is now ₦12,000.", False, "wrong_item_price"),
-    C("Our sneakers cost ₦9,000.", False, "wrong_item_price", kb="Sneakers sell at ₦9,000 each."),
-    C("Phone repair is ₦12,000 per phone.", False, "wrong_item_price"),
-    # --- totals the model must not compute ----------------------------------------------
-    C("2 x ₦12,000 = ₦24,000 for two black sneakers.", False, "wrong_item_price"),
-    C("Two black sneakers come to 24k in total.", False, "wrong_item_price"),
-    C("Your total is ₦57,000.", False, "not_in_block"),
-    C("That is ₦25,500 for one black and one white sneaker.", False, "wrong_item_price"),
-    # --- no item named: only KB / customer / tier amounts pass --------------------------
-    C("Delivery is ₦3,000.", False, "not_in_block"),
-    C("Delivery is ₦3,000.", True, kb="Delivery fee: ₦3,000."),
-    C("Our warranty costs ₦1,750.", False, "not_in_block", kb="Delivery fee: ₦3,000."),
+    C("I can offer 10% off the black sneaker.", False, "discount_wording"),
+    C("Sure, 10 percent off then.", False, "discount_wording"),
+    C("I'll take 500 off the black sneaker.", False),
+    C("I'll take 500 off.", False),
+    C("I can give a discount on the black sneaker.", False, "discount_wording"),
+    C("No discount apart from half price on the black sneaker.", False, "discount_wording"),
+    C("There's no discount other than half price on the black sneaker.", False, "discount_wording"),
+    C("You won't believe this discount on the black sneaker.", False, "discount_wording"),
+    C("Don't miss this discount on the black sneaker.", False, "discount_wording"),
+    C("Don't miss our half price deal on the black sneaker.", False, "discount_wording"),
+    C("We won't refuse a discount on the black sneaker.", False, "discount_wording"),
+    C("We never say no to discount on the black sneaker.", False, "discount_wording"),
+    C("I can't deny you a discount on the black sneaker.", False, "discount_wording"),
+    C("Why not give you the black sneaker for free?", False, "discount_wording"),
+    C("No kidding \u2014 half price on the black sneaker.", False, "discount_wording"),
+    # --- automated review of e71cdd6 -------------------------------------------------------------
+    C(f"The silver wristwatch is {T(1)}.", False, "token_mismatch"),
+    C(f"The Ankara dress is {T(3)}.", False, "token_mismatch"),
+    C(f"The leather bag is great. It costs {T(1)}.", False, "token_mismatch"),
+    C(f"The leather bag is great. It costs {T(3)}.", True),
+    C(f"Here are two options: {T(1)} and {T(2)}.", True),
+    C("The wristwatch is half price today.", False, "discount_wording"),
+    C("Our dress is on discount this week.", False, "discount_wording"),
+    C("Canvas sneaker black 12000", False, "literal_amount"),
+    C("Black sneaker model 5100", False, "literal_amount"),
+    C("Visit Plot 1234, Admiralty Way. We have served over 2000 customers.", True),
     C(
-        "The black sneaker is ₦12,000, plus ₦2,000 delivery.",
+        "You offered ₦9,000. Okay, deal!",
         False,
-        "kb_beside_item",
-        kb="Delivery in Lagos costs ₦2,000 per order.",
+        "agreement_after_offer",
+        customer=("ok thanks", "I'll pay 9k"),
+        matched=(1,),
     ),
     C(
-        "Delivery for the leather bag is ₦3,000.",
+        "You offered ₦9,000. We can do that.",
         False,
-        "kb_beside_item",
-        kb="Delivery fee: ₦3,000.",
+        "agreement_after_offer",
+        customer=("I'll pay 9k", "yes please"),
+        matched=(1,),
     ),
-    C("You said ₦50,000 earlier.", True, customer=("my budget is ₦50,000",)),
-    C("Pro is ₦40,000 a month.", False, "not_in_block", tiers=(30000,)),
-    # --- currency ------------------------------------------------------------------------
-    C("The black sneaker is $12,000.", False, "currency", currency="NGN"),
-    C("The black sneaker is 12,000 dollars.", False, "currency"),
-    C("The black sneaker is ₦12,000.", False, "currency", currency="USD"),
-    C("The black sneaker is USD 12.", False, "currency"),
-    # --- obfuscation and format tricks ----------------------------------------------------
-    C("The black sneaker is ₦ 12 000.", True),
-    C("The black sneaker is ₦ 11 000.", False, "wrong_item_price"),
-    C("The black sneaker is ₦12,0 00.", False, "wrong_item_price"),
-    C("The black sneaker is N 11k.", False, "wrong_item_price"),
-    C("Black sneaker: eleven thousand naira.", False, "wrong_item_price"),
-    C("It's ₦10,000", False, "not_in_block"),
-    # --- strict mode (lookup failed) ------------------------------------------------------
+    C(
+        f"The black sneaker is {T(1)}. Perfect.",
+        False,
+        "agreement_after_offer",
+        customer=("I'll pay 9k", "ok"),
+        matched=(1,),
+    ),
+    # --- strict mode (lookup failed) ------------------------------------------------------------
     C("I cannot check the list right now. Shall I connect you with the team?", True, strict=True),
     C("The black sneaker is ₦12,000.", False, "strict", strict=True),
+    C(f"The black sneaker is {T(1)}.", False, "strict", strict=True),
     C("Delivery is ₦2,000.", False, "strict", strict=True, kb="Delivery is ₦2,000."),
     C("You said ₦20,000.", False, "strict", strict=True, customer=("₦20,000",)),
-    C("That is 10% off.", False, "strict", strict=True),
+]
+
+# --- agreement wording while the customer bargains (the backstop behind code-only replies) -------
+_AGREEMENTS = [
+    "Okay, half price works.",
+    "Sure, I can reduce it for you.",
+    "Deal!",
+    "You asked for 20%. Fine.",
+    "We'll honour that.",
+    "That's doable!",
+    "I'll put it through at your price.",
+    "Let's proceed with the red bag at that price.",
+    "We fit do am.",
+    "Done deal!",
+    "No wahala at all.",
+    "Perfect.",
+    "That should be possible.",
+    "Consider it settled.",
+    "Alright, I've updated your order.",
+    "Okay.",
+    "We can do that.",
+    "That's fair, let's go with that.",
+]
+CASES += [
+    C(text, False, "agreement_after_offer", customer=BARGAIN, offer=True, matched=(11,))
+    for text in _AGREEMENTS
+]
+CASES += [
+    C(
+        "I can't accept that price, but the owner is open to offers.",
+        True,
+        customer=BARGAIN,
+        offer=True,
+    ),
+    C("The owner is open to offers; the team will follow up.", True, customer=BARGAIN, offer=True),
+    C(
+        f"The red bag is listed at {T(11)}; the team will review your request.",
+        True,
+        customer=BARGAIN,
+        offer=True,
+        matched=(11,),
+    ),
+    C("Okay, great choice! Which size?", True),
+    C(f"The red bag is {T(11)}. Sure thing, it's in stock.", True),
+    C(f"Alright, the price is {T(11)}.", True),
+    C(f"Our best price on it is {T(11)}.", True),
+    C("The black sneaker is £12.", False, "currency"),
+    C("Item #1 and item #2 are both in stock.", True),
 ]
 
 
@@ -521,8 +362,8 @@ def test_guard_verdict(case: Case):
         ]
 
 
-def test_at_least_sixty_reply_strings():
-    assert len(CASES) >= 60
+def test_at_least_one_hundred_and_fifty_reply_strings():
+    assert len(CASES) >= 150
 
 
 def test_violation_reports_the_sentence_and_amount():
@@ -537,4 +378,14 @@ def test_empty_reply_is_ok():
 
 
 def test_amount_inside_decimal_is_not_split_into_sentences():
-    assert check_reply("The black sneaker is ₦12,000.00. Anything else?", _grounding()).ok
+    v = check_reply(
+        "Delivery is ₦2,000.50. Anything else?", _grounding(), kb_text="Delivery ₦2,000.50."
+    )
+    assert v.ok
+
+
+def test_a_catalog_name_outside_the_block_cannot_launder_a_kb_price():
+    g = _grounding(items=[ITEMS[0]], matched=(1,))
+    kb = "Silver wristwatch now costs ₦40,000. Delivery is ₦2,000."
+    assert not check_reply("The watch costs ₦40,000.", g, kb_text=kb).ok
+    assert check_reply("Delivery is ₦2,000.", g, kb_text=kb).ok

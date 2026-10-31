@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.db.models.conversation import ConversationSession
+from app.offerings.facts import facts_from_row
 from app.offerings.grounding import GroundingResult, attach_photos, ground
 from app.offerings.prompt import catalog_sales_addendum
 from app.offerings.writer import card, shown_items
@@ -109,6 +110,7 @@ def build_offerings_turn(
     guard: dict | None,
     reply: str,
     sales_meta: dict | None,
+    token_seqs: list[int] | None = None,
 ) -> tuple[dict, list[int]]:
     """`message.meta.offerings` (frozen contract) and the seqs this reply showed."""
     guard = guard or {"checked": False, "blocked": False, "regenerated": False, "fell_back": False}
@@ -117,6 +119,7 @@ def build_offerings_turn(
         reply,
         sales_signals=(sales_meta or {}).get("signals") if sales_meta is not None else None,
         fell_back=bool(guard.get("fell_back")),
+        token_seqs=token_seqs or [],
     )
     try:
         items = attach_photos(db, tenant_id, items)
@@ -195,10 +198,11 @@ def safe_offerings_turn(
     guard: dict | None,
     reply: str,
     sales_meta: dict | None,
+    token_seqs: list[int] | None = None,
 ) -> tuple[dict, list[int]]:
     """`build_offerings_turn`, but a failure yields card-less meta instead of an error reply."""
     try:
-        return build_offerings_turn(db, tenant_id, result, guard, reply, sales_meta)
+        return build_offerings_turn(db, tenant_id, result, guard, reply, sales_meta, token_seqs)
     except Exception:  # noqa: BLE001
         logger.exception("offerings cards failed (non-fatal)")
         db.rollback()
@@ -212,3 +216,35 @@ def safe_offerings_turn(
             },
             [],
         )
+
+
+def offered_signal(sales_meta: dict | None) -> bool:
+    return bool(((sales_meta or {}).get("signals") or {}).get("offered_price"))
+
+
+def finalize_reply(
+    db: Session, tenant_id: UUID, result: GroundingResult | None, reply: str
+) -> tuple[str, list[int]]:
+    """Resolve price tokens to the live price text of their own row (never a token on the wire).
+
+    Without a catalog block nothing legitimate can be a token, so anything token-like is removed.
+    A token that cannot be resolved (the item vanished since the block) gives the code fallback.
+    Returns the final text and the item seqs the tokens named.
+    """
+    from app.offerings import tokens
+    from app.offerings.fallback import fallback_reply
+    from app.offerings.grounding import _by_seqs
+
+    if result is None:
+        return tokens.strip(reply), []
+    seqs = tokens.token_seqs(reply)
+    if not seqs and not tokens.has_stray_markup(reply):
+        return reply, []
+    live = {
+        row.seq: facts_from_row(row).price_text(result.currency)
+        for row in _by_seqs(db, tenant_id, seqs)
+    }
+    resolved = tokens.resolve(reply, live.get)
+    if resolved is None:
+        return fallback_reply(result), seqs
+    return resolved, seqs

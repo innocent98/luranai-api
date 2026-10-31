@@ -4,7 +4,7 @@
 
 **Every body below is copied from a capture of the running app** (API + arq worker + Postgres 15 + Redis + the fake WhatsApp sidecar), stored in `docs/fe-integration-captures/offerings-ai/`; the file number is cited under each block. Re-derive any claim with `scripts/capture_offerings_ai.py` (instructions in its header). Ids and timestamps come from a throwaway database; tokens are `<jwt-placeholder>`; tenants and data are fake.
 
-**What was NOT real in the live run (read this before trusting the wording of any reply):** the language model was a **deterministic stand-in** (`tests/fakes/live_stub_offerings.py`, built on `scripts/offerings_eval.py`). It reads the catalog block the real code injected and answers from it, and it misbehaves on its first attempt when a customer haggles so the guard shows up. So the **shape** of every response, the guard, the cart, the quote, the lead and the alerts are real; the **wording** of replies is not what a real model says. Cloudinary and image moderation were stand-ins (photo URLs are made up). Voice, strict (fail-closed) mode and the WhatsApp photo/quote-text messages were not run live (see section 11). `token_breakdown` numbers in these captures come from the stand-in and are meaningless (a negative `completion_tokens` is a stand-in artefact); ignore them.
+**What was NOT real in the live run (read this before trusting the wording of any reply):** the language model was a **deterministic stand-in** (`tests/fakes/live_stub_offerings.py`, built on `scripts/offerings_eval.py`). It reads the catalog block the real code injected and answers from it, and it types a literal price on cue ("exact price" questions) so the guard shows up. So the **shape** of every response, the guard, the cart, the quote, the lead and the alerts are real; the **wording** of replies is not what a real model says. Cloudinary and image moderation were stand-ins (photo URLs are made up). Voice, strict (fail-closed) mode and the WhatsApp photo/quote-text messages were not run live (see section 11). `token_breakdown` numbers in these captures come from the stand-in and are meaningless (a negative `completion_tokens` is a stand-in artefact); ignore them.
 
 ## 1. What the feature is, in the FE's terms
 
@@ -29,8 +29,8 @@ There is **no new endpoint** in this part. What changes:
 | Names an item / asks a price | the item at its live price | `detail` | the items the reply is about | |
 | Asks for something not listed | "not listed", offers the team | `none` | none | the term is counted in Not-found |
 | Asks for a sold-out item | says it is sold out | `detail` | the item (`availability: "out_of_stock"`) | never offered as available |
-| Haggles on a listed price | the listed price stands | `detail` | | `guard.blocked` may be true |
-| Offers a price on a **negotiable** item | "the owner is open to offers" | `detail` | | offer stored on the lead; human offered; **no quote** |
+| Haggles on a listed price | code-written: `The listed price for … is ₦… and it is firm.` | `detail` | | `guard.checked` false (no model text) |
+| Offers a price on a **negotiable** item | code-written: `I've noted your offer of ₦…` + handover line | `detail` | | offer stored on the lead; `auto_escalate`; **no quote** |
 | Chooses items (sales agent on) | confirms them back | `detail` | | lead + `interests` + owner alert (+ quote when allowed) |
 
 ## 3. `meta.offerings`
@@ -62,17 +62,17 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
     "items": [
       {
         "ref": "#1",
-        "offering_id": "091fff84-9e60-48aa-9372-514f62f9b8eb",
+        "offering_id": "66a2a0db-abc6-403e-8215-c31eab75dc4c",
         "name": "Canvas sneaker black",
         "price_text": "₦12,000",
         "availability": "in_stock",
-        "cover_image_id": "98e477cd-c428-43de-828b-0ab70d098feb",
-        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/3ea71d88-0c4f-4502-92cd-00a2ba818eca/4a4d6cadda58434a9aecde2615e2316e.jpg",
+        "cover_image_id": "f806fcce-12c6-47f3-bb6a-a4111fcc92f0",
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/034e2ec6-1119-4f4e-bdd0-f61f971e648a/d739b95746584b4086adfcab53601938.jpg",
         "photo_count": 2
       },
       {
         "ref": "#2",
-        "offering_id": "3056fcaa-ecc4-4ff9-853a-a666d0d0eb9f",
+        "offering_id": "6bae8794-8c2a-41e2-97ff-144247a69979",
         "name": "Canvas sneaker white",
         "price_text": "₦13,500",
         "availability": "in_stock",
@@ -82,7 +82,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
       },
       {
         "ref": "#3",
-        "offering_id": "1730df2f-2ac6-4e46-83bd-72aea856d96e",
+        "offering_id": "ea0dc81b-d3c9-4e8c-abdb-0681a344502c",
         "name": "Leather bag",
         "price_text": "₦45,000",
         "availability": "in_stock",
@@ -92,7 +92,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
       },
       {
         "ref": "#4",
-        "offering_id": "b3ef93c6-2eae-42c1-a642-426d4f7da0cd",
+        "offering_id": "5c376554-75cb-497d-9c73-5fcc228aebdb",
         "name": "Phone repair",
         "price_text": "from ₦5,000 per phone",
         "availability": "in_stock",
@@ -102,7 +102,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
       },
       {
         "ref": "#5",
-        "offering_id": "53ac4613-bdd8-4168-bdb9-04fa1337b978",
+        "offering_id": "092138b1-20f2-4a5c-bc5f-ec92be12d9d3",
         "name": "Beach sandals",
         "price_text": "₦8,000",
         "availability": "out_of_stock",
@@ -111,7 +111,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
         "photo_count": 0
       }
     ],
-    "shown_at": "2026-10-31T00:25:02.359284+00:00",
+    "shown_at": "2026-10-31T01:10:15.845989+00:00",
     "guard": {
       "checked": true,
       "blocked": false,
@@ -130,16 +130,16 @@ A single item with two photos (capture `02`; the reply text is `"The Canvas snea
   "items": [
     {
       "ref": "#1",
-      "offering_id": "091fff84-9e60-48aa-9372-514f62f9b8eb",
+      "offering_id": "66a2a0db-abc6-403e-8215-c31eab75dc4c",
       "name": "Canvas sneaker black",
       "price_text": "₦12,000",
       "availability": "in_stock",
-      "cover_image_id": "98e477cd-c428-43de-828b-0ab70d098feb",
-      "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/3ea71d88-0c4f-4502-92cd-00a2ba818eca/4a4d6cadda58434a9aecde2615e2316e.jpg",
+      "cover_image_id": "f806fcce-12c6-47f3-bb6a-a4111fcc92f0",
+      "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/034e2ec6-1119-4f4e-bdd0-f61f971e648a/d739b95746584b4086adfcab53601938.jpg",
       "photo_count": 2
     }
   ],
-  "shown_at": "2026-10-31T00:25:02.647717+00:00",
+  "shown_at": "2026-10-31T01:10:16.131133+00:00",
   "guard": {
     "checked": true,
     "blocked": false,
@@ -155,7 +155,7 @@ Not listed (capture `04`; reply `"I don't have that listed. Would you like me to
 {
   "mode": "none",
   "items": [],
-  "shown_at": "2026-10-31T00:25:02.779890+00:00",
+  "shown_at": "2026-10-31T01:10:16.269028+00:00",
   "guard": {
     "checked": true,
     "blocked": false,
@@ -173,14 +173,17 @@ Not listed (capture `04`; reply `"I don't have that listed. Would you like me to
 - `meta.quote` in a **chat response** has only `{currency, line_items, total}`: no `id`, no `status`. The same quote read from the lead detail endpoint has `id`, `status` and `created_at`.
 - The lead detail keeps its own envelope `{ "success": true, "data": ... }`; the chat response is un-enveloped.
 
-## 4. The reply may not be what the model first wrote (price guard)
+## 4. Prices are written by code, not by the model (what the customer sees)
 
-Every reply built on a catalog block is checked by code. If the first reply states an amount that is not the item's listed price, the backend asks the model **once more**; if that also fails it sends a reply **built from the database rows**. The customer only ever sees the final text. The FE needs to know two things:
+**The model never types an amount.** In the catalog block the model sees each item's price as an internal token (`[[price:#2]]`) and writes that token; **after** the safety check, code replaces each token with the item's live `price_text` from the database. The customer (and the FE) only ever see the resolved text, for example `₦13,500`. **Tokens are internal: they never appear in a response, in `meta`, in a stored message, on WhatsApp or in voice.** If you ever see `[[price:` in a reply, that is a bug: report it.
+
+If the model types a literal amount anyway (or a token for the wrong item, or an unknown one), the reply is rejected by code, the model is asked **once more**, and if that also fails the customer gets a reply **built from the database rows**. Nothing changes in the response shape for any of this; the FE needs to know three things:
 
 1. A guarded turn takes longer (a second model call). Show your normal typing indicator; do not time out early.
-2. A fallback reply is a plain list followed by an offer of the team, and the response then carries `escalation_action: "offer_escalation"`. Treat it exactly like the existing "would you like to talk to someone" consent step (the customer answers yes/no in the next message; nothing else to build).
+2. `meta.offerings` is **unchanged** by the token design: same fields as section 3, and `items[].price_text` is the already-formatted price. `guard` is `{checked, blocked, regenerated, fell_back}`; `checked` is `false` on a turn answered entirely by code (bargaining, below).
+3. A fallback reply is a plain list of the matched items followed by an offer of the team, and `message.meta.escalation_action` is `"offer_escalation"` (it is on the message's `meta`, not at the top of the response). Treat it exactly like the existing "would you like to talk to someone" consent step (the customer answers yes/no in the next message; nothing else to build).
 
-Regenerated (capture `06`; the customer asked for ₦10,000 on a fixed-price item; final reply `"The Canvas sneaker black is listed at ₦12,000. I've noted your request.\n\nThe listed price for the Canvas sneaker black is ₦12,000 and it is firm."`; the last sentence is written by code, see section 5):
+The stand-in typed a literal price first, the guard rejected it, the regenerated reply used the token, and the customer saw only the live price (capture `25`; customer: "what is the exact price of the white sneaker?"; final reply `"The Canvas sneaker white is ₦13,500, in stock."`):
 
 ```json
 {
@@ -191,7 +194,16 @@ Regenerated (capture `06`; the customer asked for ₦10,000 on a fixed-price ite
 }
 ```
 
-Fell back to the code reply (capture `07`):
+Both attempts typed a price, so the reply was built from the rows (capture `26`; customer: "what is the final exact price of the black sneaker?"). The reply text is:
+
+```text
+Here is what we have listed:
+#1 Canvas sneaker black - ₦12,000 - in stock
+#2 Canvas sneaker white - ₦13,500 - in stock
+Would you like me to connect you with the team?
+```
+
+and the response carries:
 
 ```json
 {
@@ -200,27 +212,27 @@ Fell back to the code reply (capture `07`):
     "mode": "detail",
     "items": [
       {
+        "ref": "#1",
+        "offering_id": "66a2a0db-abc6-403e-8215-c31eab75dc4c",
+        "name": "Canvas sneaker black",
+        "price_text": "₦12,000",
+        "availability": "in_stock",
+        "cover_image_id": "f806fcce-12c6-47f3-bb6a-a4111fcc92f0",
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/034e2ec6-1119-4f4e-bdd0-f61f971e648a/d739b95746584b4086adfcab53601938.jpg",
+        "photo_count": 2
+      },
+      {
         "ref": "#2",
-        "offering_id": "3056fcaa-ecc4-4ff9-853a-a666d0d0eb9f",
+        "offering_id": "6bae8794-8c2a-41e2-97ff-144247a69979",
         "name": "Canvas sneaker white",
         "price_text": "₦13,500",
         "availability": "in_stock",
         "cover_image_id": null,
         "cover_url": null,
         "photo_count": 0
-      },
-      {
-        "ref": "#1",
-        "offering_id": "091fff84-9e60-48aa-9372-514f62f9b8eb",
-        "name": "Canvas sneaker black",
-        "price_text": "₦12,000",
-        "availability": "in_stock",
-        "cover_image_id": "98e477cd-c428-43de-828b-0ab70d098feb",
-        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/3ea71d88-0c4f-4502-92cd-00a2ba818eca/4a4d6cadda58434a9aecde2615e2316e.jpg",
-        "photo_count": 2
       }
     ],
-    "shown_at": "2026-10-31T00:25:02.953752+00:00",
+    "shown_at": "2026-10-31T01:10:22.216179+00:00",
     "guard": {
       "checked": true,
       "blocked": true,
@@ -231,20 +243,18 @@ Fell back to the code reply (capture `07`):
 }
 ```
 
-The reply text of capture `07` is:
+## 5. Price offers and haggling (the AI never agrees to a lower price)
 
-```text
-Here is what we have listed:
-#2 Canvas sneaker white - ₦13,500 - in stock
-#1 Canvas sneaker black - ₦12,000 - in stock
-Would you like me to connect you with the team?
+**Bargaining turns are answered by code, not by the model.** When the customer's latest message contains a figure below a price in play, a percentage, or bargaining words ("discount", "last price", "can you do..."), or the model reports an offer, the model's text is dropped and the reply is built from fixed sentences. The reply is one of:
 
-The listed price for the Canvas sneaker white is ₦13,500 and it is firm.
+- **firm price** (fixed-price item, first offer): `The listed price for the Canvas sneaker black is ₦12,000 and it is firm.` Captures `06` ("Can you do ₦10,000 for the black sneaker?") and `07` ("my final offer is ₦9,000 for the white sneaker"); `guard.checked` is `false` because no model text was involved. No human is pulled in and no offer is stored as pending.
+- **open to offers / noted**: for a **negotiable** item below the list price, `I've noted your offer of ₦30,000 for the Leather bag.` plus `I'm handing this to the team now; they'll take it from here.` Capture `08` ("I'll pay 30k for the leather bag"):
+
+```json
+"I've noted your offer of ₦30,000 for the Leather bag.\n\nI'm handing this to the team now; they'll take it from here."
 ```
 
-## 5. Price offers (the AI never agrees to a lower price)
-
-The AI never agrees to, counters or hints at a price below the listed one. For a **negotiable** item it says the owner is open to offers, records the customer's figure on the lead, and hands the conversation to a human. Capture `08` (customer: "I'll pay 30k for the leather bag"; the reply ends with a line written **by code**, never by the model: `I've noted your offer of ₦30,000 for the Leather bag.`, after the model's own wording and the offer of the team). The model may not repeat the customer's figure beside an item name, nor agree, accept or discount: the guard blocks it. Code only says "noted your offer" when a human will pick it up (a negotiable item, or the customer insists); for a first offer on a non-negotiable item it states the firm price instead (`The listed price for the Canvas sneaker black is ₦12,000 and it is firm.`, captures `06` and `07`). The response of capture `08` also hands the conversation to a human **now**: `should_escalate` is `true`, `ticket_id` is set and `escalation_action` is `auto_escalate`; from then on the existing escalated-conversation behaviour applies (covered by `tests/api/v1/test_chat_escalated_suppression.py`; a later customer message was not sent in the live run). The model's text says `Would you like me to connect you with the team?` only because the stand-in wrote it; the line after it, `I'm handing this to the team now; they'll take it from here.`, is added by code:
+- The conversation is handed over **now**: `should_escalate` is `true`, `ticket_id` is set and `message.meta.escalation_action` is `auto_escalate` (on a voice call it is `offer_escalation`: the customer is asked first, never handed over silently). From then on the existing escalated-conversation behaviour applies (covered by `tests/api/v1/test_chat_escalated_suppression.py`; a later customer message was not sent in the live run).
 
 ```json
 "Customer made a price offer"
@@ -253,6 +263,8 @@ The AI never agrees to, counters or hints at a price below the listed one. For a
 ```json
 true
 ```
+
+A figure **at or above** the list price is not an offer: it is ignored and the normal reply stands. A figure on a fixed-price item is stored on the lead, but the listed price stands and no human is forced; if the customer insists on the same item again, the conversation is handed over like above. **No quote is made while an offer on a negotiable or unpriced item is pending, on this turn or any later one** (a human prices it): a later turn with the same cart gets no quote card and the reply ends with `A team member will confirm the price.` The figure must be one the customer wrote in their **current** message; an offer the model invents, a sold-out item, or an amount above ₦10,000,000,000 is ignored.
 
 The stored offer, as the owner sees it on the lead (capture `09`, `data.interests`):
 
@@ -270,22 +282,20 @@ The stored offer, as the owner sees it on the lead (capture `09`, `data.interest
 ]
 ```
 
-For a **non-negotiable** item the first offer is also stored but the listed price stands and no human is forced; if the customer insists on the same item again, the conversation is handed over like above. **No quote is made while an offer is pending, on this turn or any later one** (a human prices it): a later turn with the same cart gets no quote card and the reply ends with `A team member will confirm the price.` The figure must be one the customer wrote in their **current** message; an offer the model invents, a sold-out item, or an amount above ₦10,000,000,000 is ignored.
-
 An offer made **after** the first cart (capture `23`) is recorded, hands over, makes no new quote, and raises its own owner alert titled `Price offer` (capture `24`, newest first), because the once-per-lead cart alert would otherwise swallow it:
 
 ```json
-"The owner is open to offers on the Leather bag. I've noted your offer; the team will follow up. Would you like me to connect you with the team?\n\nI've noted your offer of ₦30,000 for the Leather bag.\n\nI'm handing this to the team now; they'll take it from here."
+"I've noted your offer of ₦30,000 for the Leather bag.\n\nI'm handing this to the team now; they'll take it from here.\n\nA team member will confirm the price."
 ```
 
 ```json
 {
-  "id": "f57d1709-39da-4575-8cff-57a2d35a03b2",
+  "id": "41700b41-feca-42bd-a9e3-494ed4cdfdd3",
   "event": "offering_request",
   "title": "Price offer",
-  "body": "A customer offered ₦30,000 for Leather bag (listed ₦45,000). 2 × Canvas sneaker black (listed ₦12,000); 1 × Canvas sneaker white (listed ₦13,500); 1 × Leather bag (listed ₦45,000), customer offered ₦30,000",
+  "body": "A customer offered ₦30,000 for Leather bag (listed ₦45,000). 3 × Leather bag (listed ₦45,000), customer offered ₦30,000",
   "read_at": null,
-  "created_at": "2026-10-31T00:25:08.144117+00:00"
+  "created_at": "2026-10-31T01:10:22.058992+00:00"
 }
 ```
 
@@ -342,7 +352,7 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
     "items": [
       {
         "ref": "#4",
-        "offering_id": "b3ef93c6-2eae-42c1-a642-426d4f7da0cd",
+        "offering_id": "5c376554-75cb-497d-9c73-5fcc228aebdb",
         "name": "Phone repair",
         "price_text": "from ₦5,000 per phone",
         "availability": "in_stock",
@@ -351,7 +361,7 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
         "photo_count": 0
       }
     ],
-    "shown_at": "2026-10-31T00:25:03.495384+00:00",
+    "shown_at": "2026-10-31T01:10:17.045153+00:00",
     "guard": {
       "checked": true,
       "blocked": false,
@@ -413,7 +423,7 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
   "landing_page": "whatsapp",
   "utm": null,
   "channel": null,
-  "first_seen": "2026-10-31T00:25:04.948838+00:00"
+  "first_seen": "2026-10-31T01:10:18.132471+00:00"
 }
 ```
 
@@ -423,23 +433,23 @@ The first committed cart of a conversation raises the new event `offering_reques
 
 ```json
 {
-  "id": "4b60e94b-4211-4cc8-ab0f-85f233f24780",
+  "id": "e6220490-2bf8-4acc-84cb-039d5ffb64ef",
   "event": "offering_request",
   "title": "New item request",
   "body": "A customer · 1 × Phone repair (listed ₦5,000)",
   "read_at": null,
-  "created_at": "2026-10-31T00:25:03.539985+00:00"
+  "created_at": "2026-10-31T01:10:17.080877+00:00"
 }
 ```
 
 ```json
 {
-  "id": "324fcdb4-88f9-4582-95fc-7b87ce3fb5a4",
+  "id": "f54eaf4c-473b-4693-8fc6-921a3f875bbb",
   "event": "quote_generated",
   "title": "New quote",
   "body": "₦37,500 · a prospect",
   "read_at": null,
-  "created_at": "2026-10-31T00:25:03.333173+00:00"
+  "created_at": "2026-10-31T01:10:16.893550+00:00"
 }
 ```
 
@@ -486,16 +496,16 @@ The conversation as an agent sees it (capture `21`, last assistant message): `me
     "items": [
       {
         "ref": "#1",
-        "offering_id": "091fff84-9e60-48aa-9372-514f62f9b8eb",
+        "offering_id": "66a2a0db-abc6-403e-8215-c31eab75dc4c",
         "name": "Canvas sneaker black",
         "price_text": "₦12,000",
         "availability": "in_stock",
-        "cover_image_id": "98e477cd-c428-43de-828b-0ab70d098feb",
-        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/3ea71d88-0c4f-4502-92cd-00a2ba818eca/4a4d6cadda58434a9aecde2615e2316e.jpg",
+        "cover_image_id": "f806fcce-12c6-47f3-bb6a-a4111fcc92f0",
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/034e2ec6-1119-4f4e-bdd0-f61f971e648a/d739b95746584b4086adfcab53601938.jpg",
         "photo_count": 2
       }
     ],
-    "shown_at": "2026-10-31T00:25:05.845851+00:00",
+    "shown_at": "2026-10-31T01:10:19.557481+00:00",
     "guard": {
       "checked": true,
       "blocked": false,
@@ -526,8 +536,11 @@ Catalog **photos** and the **quote as a second text message** on WhatsApp belong
 |---|---|
 | Shape of `meta.offerings` (browse, detail with photos, none) | **Live** (captures 01, 02, 04), model stand-in |
 | `cover_url` is the 400 px rendition | **Live** (capture 02; a first run showed the stored original, fixed and re-captured) |
-| Guard regeneration and code fallback, `guard` flags, `offer_escalation` | **Live** with a stand-in that misbehaves on cue (06, 07). Behaviour against the real model: **not verified** (the eval gate on staging does that) |
-| Offer on a negotiable item stored, conversation handed over (`auto_escalate`, ticket), no quote | **Live** (08, 09) |
+| Token resolution: the customer sees live `price_text`, no token in any response | **Live** (every capture with a price; 25) with the stand-in. The real model's habit of writing tokens: **not verified** (staging eval) |
+| Guard regeneration and code fallback, `guard` flags, `message.meta.escalation_action: offer_escalation` | **Live** with a stand-in that types a literal price on cue (25, 26). Behaviour against the real model: **not verified** (the eval gate on staging does that) |
+| Bargaining turns answered by code (firm price / noted offer + handover), `guard.checked` false | **Live** (06, 07, 08, 23) |
+| Offer at or above the list price ignored; unknown/foreign token rejected; token resolved on WhatsApp and voice paths; false-block rates (n40 fashion set 0 unexpected blocks, 40-reply clinic/law set 0) | Unit tests only (`tests/offerings_ai/`) |
+| Offer on a negotiable item stored, conversation handed over (`auto_escalate`, ticket), no quote | **Live** (08, 09). On voice the handover is a consent step (`offer_escalation`): unit test only |
 | Offer after the cart: separate `Price offer` alert, no new quote | **Live** (23, 24) |
 | Overflow past the quote column, rollback of every non-fatal step, dropped/unresolved lines, pending-offer quote block, lead row lock | Unit and endpoint tests; the lock was checked against real Postgres (`tests/offerings_ai/test_lead_lock.py`). Not run live |
 | Two parallel turns on one lead | Row lock proven on Postgres; a true concurrent chat run was **not** done |
@@ -548,7 +561,8 @@ Catalog **photos** and the **quote as a second text message** on WhatsApp belong
 ## 12. UX consequences the FE must surface
 
 - **Cards are snapshots.** Show "as of <time>" when `shown_at` is older than an hour; never refresh a price client-side.
+- **Prices in a reply are always the live database price, written by code.** Never try to parse a price out of reply text or expect a token in it; use `meta.offerings.items[].price_text` for cards.
 - **A reply can come from the database, not the model** (guard fallback). Show it like any reply; the offer of the team that ends it is real and the next "yes" opens the existing consent flow.
-- **The AI will not discount.** If a customer asks for a lower price the answer is the listed price; for negotiable items the owner is told. Do not add your own "make an offer" UI.
+- **The AI will not discount.** If a customer asks for a lower price the answer is a fixed code-written sentence with the listed price; for negotiable items the owner is told and the conversation is handed over. Do not add your own "make an offer" UI.
 - **No quote is not an error.** Quote cards are conditional (section 6); the wanted items are still on the lead.
 - **Do not show `guard` or `mode` to customers.** They exist for the audit.

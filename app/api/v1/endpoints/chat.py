@@ -73,6 +73,7 @@ from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.offerings.cart import CartResolution, InterestSync, resolve_cart
 from app.offerings.grounding import GroundingResult
 from app.offerings.guard_flow import guard_reply
+from app.offerings.offer_turn import compose_offer_turn, is_offer_turn
 from app.offerings.misses import record_miss
 from app.offerings.orchestrate import (
     QuoteOutcome,
@@ -86,9 +87,11 @@ from app.offerings.orchestrate import (
 from app.offerings.turn import (
     customer_figures,
     customer_texts,
+    finalize_reply,
     ground_turn,
     kb_text_from_prompt,
     lead_source,
+    offered_signal,
     shown_seqs,
     safe_offerings_turn,
     remember_shown,
@@ -2704,6 +2707,9 @@ async def _send_message_impl(
         _sales_meta: dict | None = None  # populated only in sales mode
         _offerings: GroundingResult | None = None  # set only on the generation path below
         _guard_record: dict | None = None
+        is_api_error = False  # set by the generation path below
+        _offer_turn = False
+        _token_seqs: list[int] = []
 
         if not scope_allowed:
             policy_action = "refuse"
@@ -2923,9 +2929,20 @@ async def _send_message_impl(
                     )
                 )
 
+            # Bargaining is answered by code, not by the model (D1): its text is dropped here and
+            # the reply is composed from the rows after the cart step below.
+            _offer_turn = bool(
+                _offerings is not None
+                and not is_api_error
+                and is_offer_turn(message_data.message, _offerings, offered_signal(_sales_meta))
+            )
+            if _offer_turn:
+                ai_response_text = ""
+                escalation_decision.skip_quality_check = True
+
             # Offerings price guard: every reply built on a catalog block is checked in code;
             # one regeneration, then a reply built from the rows (never an empty reply).
-            if _offerings is not None and not is_api_error:
+            if _offerings is not None and not is_api_error and not _offer_turn:
 
                 async def _regenerate(note: str):  # same call type as the first attempt
                     _retry = prompt_components.model_copy(
@@ -3022,6 +3039,8 @@ async def _send_message_impl(
         _cart: CartResolution | None = None  # offerings: the customer's chosen items, read live
         _cart_synced: InterestSync | None = None
         _quote_outcome = QuoteOutcome()
+        _extra_lines: list[str] = []
+        _handover_now = False
         if _sales_mode and _sales_meta is not None:
             try:
                 if _offerings is not None and _offerings.mode != "unavailable":
@@ -3133,23 +3152,44 @@ async def _send_message_impl(
                         )
 
                 if _cart is not None and _offerings is not None:
-                    _notes = reply_notes(
-                        _cart, _cart_synced, _offerings.currency, overflow=_quote_outcome.overflow
-                    )
-                    _lines = [*_notes.lines]
-                    if _quote_outcome.note and not _notes.handover_now:
-                        _lines.append(_quote_outcome.note)
-                    if _lines:
-                        ai_response_text = "\n\n".join([ai_response_text, *_lines])
-                    if _notes.handover_now:
-                        # D1: a price offer is never answered by the AI; a human takes over now
-                        escalation_decision.action = EscalationAction.AUTO_ESCALATE
-                        escalation_decision.reason = "Customer made a price offer"
-                        escalation_decision.skip_quality_check = True
+                    _notes = reply_notes(_cart, _quote_outcome)
+                    _extra_lines, _handover_now = [*_notes.lines], _notes.handover_now
 
             except Exception as _lead_exc:
                 db.rollback()  # a failed flush must not poison saving the assistant message
                 logger.error(f"Sales lead orchestration error (non-fatal): {_lead_exc}")
+
+        if _offerings is not None and not is_api_error:
+            _offer_lines: list[str] = [ai_response_text] if ai_response_text else []
+            _consent = False
+            if _offer_turn:
+                _ot = compose_offer_turn(
+                    _offerings,
+                    _cart,
+                    bool(_cart_synced and _cart_synced.handover),
+                    _offerings.currency,
+                    amount_recorded=bool(_cart_synced and _cart_synced.has_offer),
+                )
+                _offer_lines = _ot.lines
+                _handover_now = _handover_now or _ot.handover_now
+                _consent = _ot.consent
+            _reply_lines = list(dict.fromkeys([*_offer_lines, *_extra_lines]))
+            if _reply_lines:
+                ai_response_text = "\n\n".join(_reply_lines)
+            if _handover_now and turn_channel() != "voice":
+                # D1: a price offer is never answered by the AI; a human takes over now
+                escalation_decision.action = EscalationAction.AUTO_ESCALATE
+                escalation_decision.reason = "Customer made a price offer"
+                escalation_decision.skip_quality_check = True
+            elif _handover_now or _consent:
+                # voice speaks the reply and waits for a yes (a tool call would stay silent)
+                if escalation_decision.action == EscalationAction.NO_ESCALATION:
+                    escalation_decision.action = EscalationAction.OFFER_ESCALATION
+                    escalation_decision.reason = "Customer made a price offer"
+                escalation_decision.skip_quality_check = True
+        ai_response_text, _token_seqs = finalize_reply(
+            db, session.tenant_id, _offerings, ai_response_text
+        )
 
         # Step 8: Save assistant message
         # Store as strings to keep JSON serialization safe (JSON column doesn't
@@ -3198,7 +3238,13 @@ async def _send_message_impl(
         _offerings_shown: list[int] = []
         if _offerings is not None:
             _message_meta["offerings"], _offerings_shown = safe_offerings_turn(
-                db, session.tenant_id, _offerings, _guard_record, ai_response_text, _sales_meta
+                db,
+                session.tenant_id,
+                _offerings,
+                _guard_record,
+                ai_response_text,
+                _sales_meta,
+                _token_seqs,
             )
             if _offerings.mode == "none":
                 record_miss(db, session.tenant_id, message_data.message)
@@ -3215,7 +3261,10 @@ async def _send_message_impl(
                 _message_meta["quote"] = _catalog_quote
             if (
                 _catalog_quote is None
-                and not (_cart is not None and (_cart.has_content or _cart.dropped))
+                and not (
+                    _offerings is not None  # a catalog turn never gets a plan-tier quote
+                    and (_offerings.mode != "none" or _cart is not None or _offer_turn)
+                )
                 and _sales_close_allowed
                 and bool(_signals.get("offer_quote"))
                 and getattr(sales_agent_config, "quotation_enabled", False)

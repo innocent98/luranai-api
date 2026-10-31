@@ -15,17 +15,19 @@ from sqlalchemy.orm import Session
 
 from app.db.models.lead import Lead
 from app.db.models.notification_log import NotifEvent
-from app.db.models.offering import LeadOfferingInterest
 from app.db.models.quote import Quote
 from app.offerings.alerts import interest_lines
+from app.db.models.offering import LeadOfferingInterest, OfferingAvailability
 from app.offerings.cart import (
     CartResolution,
     InterestSync,
+    ResolvedLine,
     catalog_quote,
-    has_pending_offer,
     quote_too_large,
     sync_interests,
 )
+from app.offerings.facts import facts_from_row
+from app.offerings.grounding import _by_seqs
 from app.offerings.facts import format_amount
 from app.services.notification_enqueue import enqueue_jobs_async
 from app.services.notification_service import NotificationService
@@ -127,28 +129,18 @@ class TurnNotes:
     handover_now: bool = False
 
 
-def reply_notes(
-    res: CartResolution, synced: InterestSync | None, currency: str, *, overflow: bool = False
-) -> TurnNotes:
+def reply_notes(res: CartResolution, outcome: "QuoteOutcome") -> TurnNotes:
+    """Dropped lines, an order too large to total, a price a team member must confirm."""
     notes = TurnNotes()
     for d in res.dropped:
         label = d.name or f"#{d.seq}"
         notes.lines.append(f"I couldn't add {label}: it {_DROPPED_WORDING[d.reason]}.")
-    if res.offered is not None and synced is not None:
-        item, amount = res.offered.facts, res.offered.amount
-        if synced.handover:
-            notes.lines.append(
-                f"I've noted your offer of {format_amount(amount, currency)} for the {item.name}."
-            )
-            notes.handover_now = True
-        elif item.price is not None and amount < item.price:
-            notes.lines.append(
-                f"The listed price for the {item.name} is {format_amount(item.price, currency)} "
-                "and it is firm."
-            )
-    if overflow:
+    if outcome.overflow:
         notes.lines.append(TOO_LARGE_LINE)
         notes.handover_now = True
+    elif outcome.note:
+        notes.lines.append(outcome.note)
+        notes.handover_now = outcome.handover
     if notes.handover_now:
         notes.lines.append(HANDOVER_LINE)
     return notes
@@ -178,20 +170,48 @@ class QuoteOutcome:
     quote: dict | None = None
     note: str | None = None  # a sentence code adds when the customer should hear why
     overflow: bool = False
+    handover: bool = False
+
+
+def stored_lines(db: Session, lead: Lead) -> list[ResolvedLine] | None:
+    """The quote is built from what is stored at write time (quantities from the lead's rows,
+    prices from the live items), so parallel turns can never leave it out of step. None when a
+    stored item can no longer be sold."""
+    rows = list(
+        db.execute(
+            select(LeadOfferingInterest).where(
+                LeadOfferingInterest.tenant_id == lead.tenant_id,
+                LeadOfferingInterest.lead_id == lead.id,
+            )
+        ).scalars()
+    )
+    seqs = [int(r.ref.lstrip("#")) for r in rows if r.ref.lstrip("#").isdigit()]
+    live = {o.seq: o for o in _by_seqs(db, lead.tenant_id, seqs)}
+    lines = []
+    for r in rows:
+        row = live.get(int(r.ref.lstrip("#"))) if r.ref.lstrip("#").isdigit() else None
+        if row is None or row.availability == OfferingAvailability.OUT_OF_STOCK:
+            return None
+        lines.append(ResolvedLine(facts_from_row(row), r.qty))
+    return lines
 
 
 async def issue_quote(
     db: Session, lead: Lead, res: CartResolution, synced: InterestSync, currency: str
 ) -> QuoteOutcome:
-    """The catalog quote for this cart, or none (and why): not all fixed, an offer pending, a line
-    that could not be resolved, a total the quote column cannot hold, or an unchanged cart."""
+    """The catalog quote for the lead's stored selection, or none (and why): a line that could not
+    be resolved, an offer a human is working on, a total the quote column cannot hold, a line
+    that is not fixed-price, or an unchanged selection."""
     if res.dropped or not res.lines:
         return QuoteOutcome()  # the selection is not trustworthy yet; a human confirms
-    if synced.pending_offer or has_pending_offer(db, lead):
-        return QuoteOutcome(note=PRICE_CONFIRM_LINE if not synced.has_offer else None)
-    if quote_too_large(res.lines):
+    if synced.pending_offer:
+        return QuoteOutcome(note=PRICE_CONFIRM_LINE, handover=True)
+    lines = stored_lines(db, lead)
+    if not lines:
+        return QuoteOutcome()
+    if quote_too_large(lines):
         return QuoteOutcome(overflow=True)
-    quote = catalog_quote(res.lines, currency)
+    quote = catalog_quote(lines, currency)
     if quote is None or _same_as_latest(db, lead, quote):
         return QuoteOutcome()
     created = QuoteService(db).create_quote(

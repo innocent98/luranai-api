@@ -3,7 +3,7 @@
   "note": "`source` is `whatsapp` (it used to be hard-coded `chat_widget`).",
   "request": {
     "method": "GET",
-    "path": "/api/v1/leads/97e491b6-750f-4e35-8615-8c1f425e0387",
+    "path": "/api/v1/leads/2fdb6e67-beb1-47d5-9cac-5c4d6e842a43",
     "headers": {
       "Authorization": "Bearer <jwt-placeholder>"
     }
@@ -13,7 +13,7 @@
     "body": {
       "success": true,
       "data": {
-        "id": "97e491b6-750f-4e35-8615-8c1f425e0387",
+        "id": "2fdb6e67-beb1-47d5-9cac-5c4d6e842a43",
         "name": null,
         "company": null,
         "intent": "PURCHASE_INTENT",
@@ -21,11 +21,11 @@
         "tier": "cold",
         "status": "new",
         "source_label": "whatsapp",
-        "created_at": "2026-10-31T00:25:04.948838+00:00",
+        "created_at": "2026-10-31T01:10:18.132471+00:00",
         "email": null,
         "team_size": null,
         "industry": null,
-        "conversation_id": "1c28988a-e697-4e93-b2b2-69caa076768b",
+        "conversation_id": "f7231444-7229-4a36-9c5a-9c1ad8633d25",
         "score_breakdown": [
           {
             "key": "provided_email",
@@ -92,11 +92,11 @@
           "landing_page": "whatsapp",
           "utm": null,
           "channel": null,
-          "first_seen": "2026-10-31T00:25:04.948838+00:00"
+          "first_seen": "2026-10-31T01:10:18.132471+00:00"
         },
         "meeting": null,
         "quote": {
-          "id": "f762cd82-738d-4192-938c-22fe171072b6",
+          "id": "ada00506-86c5-4009-92f5-4d74dcbac168",
           "currency": "NGN",
           "line_items": [
             {
@@ -107,7 +107,7 @@
           ],
           "total": 24000,
           "status": "draft",
-          "created_at": "2026-10-31T00:25:05.903781+00:00"
+          "created_at": "2026-10-31T01:10:19.622680+00:00"
         },
         "crm": {
           "connected": false,

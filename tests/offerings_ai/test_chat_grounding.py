@@ -18,7 +18,7 @@ from tests.offerings_ai.helpers import (
 
 _SALES_REPLY = json.dumps(
     {
-        "reply": "The black sneaker is ₦12,000.",
+        "reply": "The black sneaker is [[price:#1]].",
         "intent": "PRICING_INQUIRY",
         "signals": {
             "asked_features": False,
@@ -53,7 +53,7 @@ def _shop(db, **kw):
 class Plain:
     """Records what the plain model call receives and answers with a fixed reply."""
 
-    def __init__(self, reply="The black sneaker is ₦12,000."):
+    def __init__(self, reply="The black sneaker is [[price:#1]]."):
         self.prompts: list[str] = []
         self.reply = reply
 
@@ -75,7 +75,7 @@ class Sales:
         async def fake(_self, prompt, config, **kwargs):
             self.calls.append({"prompt": prompt.full_prompt, **kwargs})
             return (
-                "The black sneaker is ₦12,000.",
+                "The black sneaker is [[price:#1]].",
                 {
                     "intent": "PRICING_INQUIRY",
                     "captured": {},
@@ -95,7 +95,8 @@ def test_block_is_appended_to_the_plain_prompt(client, db):
         r = send(client, tid, "how much is the black sneaker?")
     assert r.status_code == 200, r.text
     prompt = plain.prompts[0]
-    assert '<offering ref="#1">' in prompt and "₦12,000" in prompt
+    assert '<offering ref="#1">' in prompt and "[[price:#1]]" in prompt
+    assert "₦12,000" not in prompt  # the model is never shown an amount to copy
     assert prompt.index("Runtime policy decision") < prompt.index("## Offerings catalog")
 
 
@@ -122,7 +123,7 @@ def test_no_match_keeps_the_clarify_policy_and_says_not_listed(client, db):
     with plain.patch(), retrieval_patch(), automation_patch():
         send(client, tid, "do you sell helicopters")
     assert "Required action: clarify" in plain.prompts[0]
-    assert "Nothing listed matches" in plain.prompts[0]
+    assert "No listed item matches" in plain.prompts[0]
 
 
 def test_sales_mode_gets_the_catalog_addendum(client, db):
