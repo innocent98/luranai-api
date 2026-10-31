@@ -209,6 +209,8 @@ Why: owner's prod test: the AI asked "should I email it to you?", the visitor sa
 - [x] C. Guard: prompt rule 12 + code filter removes model "I'll email it" sentences on every reply path; test that no reply path promises an email when none will be sent
 - [x] `EmailService` optional `reply_to` / `from_name` with header-injection guard; migration one head, round trip on scratch Postgres
 - [x] Live run (real API, worker, Postgres, Redis, Mailpit; model stood in) with captures
+- [x] Follow-up from the owner's staging test (2026-10-31, branch `fix/sales-quote-email-followup` + `luran-chat` `fix/quote-card-emailed-state`): card keeps the email prompt after the send -> additive `meta.quote.emailed/emailed_to/email_offer` + `meta.quote_emailed_to`, card shows `Sent to <masked>`; second "Yes, email me" echoed the full address -> addresses scrubbed from every model reply, code-written `already` sentence; SOP section "Follow-up", FE guide section 8, live captures `followup/`
+- [ ] Follow-up PRs merged and deployed (lead); owner re-test on staging (real model, mobile)
 - [ ] Real model on staging: confirm the strip filter covers its real phrasings; real inbox/SMTP check
 - [ ] Offerings (S2) quote path: call `email_quote_to_visitor` after `issue_quote` and keep the reply guard (lines in the SOP)
 - [ ] Prod promotion — lead / Adebayo

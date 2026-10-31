@@ -26,9 +26,18 @@ async def generate_sales_response(self, prompt, config, *, model_name=None, know
                 "company": "Northwind", "team_size": "58", "industry": None,
                 "plan_interest": "Growth"}
     signals = {"asked_features": False, "requested_demo": False, "mentioned_competitor": False,
-               "ready_to_buy": True, "offer_meeting": False, "offer_quote": True}
+               "ready_to_buy": True, "offer_meeting": False,
+               "offer_quote": bool(re.search(r"how much|quote|people", last, re.I))}
     reply = ("Thanks! For 58 people the Growth plan fits. Your quote is below. "
              "Should I email it to you?")
+    if re.search(r"email me", last, re.I):
+        # What the production model improvised on a second "Yes, email me" (staging, 2026-10-31):
+        # it repeated the full address from the conversation.
+        known = EMAIL.findall(text)
+        who = known[0].rstrip(".,;") if known else "the address you gave"
+        reply = (f"Your Growth quote for \u20a662,050 was previously marked as sent to {who}. "
+                 "Please check your inbox and spam folder. I can't send another email from here.")
+        signals = {**signals, "offer_quote": False}
     return reply, {"intent": "PRICING_INQUIRY", "captured": captured, "signals": signals}, 50, False
 
 

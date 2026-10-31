@@ -1,0 +1,61 @@
+{
+  "status": 200,
+  "body": {
+    "session_id": "e6c8a288-9ec0-44ea-9671-bbf1c4cd86bf",
+    "message": {
+      "role": "assistant",
+      "content": "Thanks! For 58 people the Growth plan fits. Your quote is below.",
+      "id": "48514a93-c052-4a1f-a1db-06be74b8cc76",
+      "session_id": "e6c8a288-9ec0-44ea-9671-bbf1c4cd86bf",
+      "retrieved_chunk_ids": [],
+      "token_count": 50,
+      "attachments": [],
+      "reply_to": null,
+      "meta": {
+        "chunks_used": 0,
+        "avg_similarity": 0.0,
+        "retrieval_hit": false,
+        "escalation_action": "no_escalation",
+        "response_quality": {
+          "is_substantial": true,
+          "has_uncertainty": false,
+          "word_count": 18,
+          "char_count": 90
+        },
+        "token_breakdown": {
+          "prompt_tokens": 153,
+          "completion_tokens": -103,
+          "total_tokens": 50
+        },
+        "quote": {
+          "currency": "NGN",
+          "line_items": [
+            {
+              "label": "Growth",
+              "detail": "11–50 users",
+              "amount": 45000
+            },
+            {
+              "label": "Extra seats (×8)",
+              "detail": "₦3,500 / seat",
+              "amount": 28000
+            },
+            {
+              "label": "Annual discount",
+              "detail": "−15%",
+              "amount": -10950
+            }
+          ],
+          "total": 62050,
+          "emailed": false,
+          "email_offer": false
+        }
+      },
+      "created_at": "2026-10-31T11:03:34.137473Z"
+    },
+    "user_message_attachments": [],
+    "should_escalate": false,
+    "escalation_reason": null,
+    "ticket_id": null
+  }
+}
