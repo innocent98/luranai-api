@@ -13,6 +13,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
 
+from app.offerings.names import NameIndex, as_index
+
 _NUM = r"(?:\d{1,3}(?:,\d{3})+|\d{1,3}(?:[   ]\d{3})+|\d+)(?:\.\d+)?"
 _AMOUNT = re.compile(
     rf"""
@@ -501,7 +503,10 @@ def find_all(haystack: str, needle: str):
 
 
 def blank_names(text: str, names: Iterable[str]) -> str:
-    """`text` with every occurrence of any name replaced by spaces (same length), in one pass."""
+    """`text` with every occurrence of any name replaced by spaces (same length), in one pass.
+    With a `NameIndex` only the names that share a word with the text are looked for."""
+    if isinstance(names, NameIndex):
+        return names.blank(text)
     spans = [(i, i + len(n)) for n in {n for n in names if n} for i in find_all(text, n)]
     if not spans:
         return text
@@ -621,22 +626,15 @@ def _mask_years(text: str) -> str:
 def _mask_quantities(text: str, names: Iterable[str]) -> str:
     """ "50 sausage rolls", "2 chocolate cakes": a bare count written before an item's name is a
     quantity. A figure written after the name ("black sneaker 9000") stays a price."""
-    words = {
-        w
-        for n in names
-        for w in re.findall(r"[a-z]{4,}", (n or "").lower())
-        if w not in {"with", "pack", "from", "that", "this"}
-    }
+    index = as_index(names)
+    words = index.quantity_words
     if not words:
         return text
+    stems = {x.rstrip("s") for x in words}
 
     def blank(m: re.Match) -> str:
         nxt = re.findall(r"[a-z]+", m.group("rest").lower())[:2]
-        return (
-            " " * len(m.group(0))
-            if any(w.rstrip("s") in {x.rstrip("s") for x in words} for w in nxt)
-            else m.group(0)
-        )
+        return " " * len(m.group(0)) if any(w.rstrip("s") in stems for w in nxt) else m.group(0)
 
     return re.sub(
         r"(?<![\d,.₦#$£€])\b\d{1,3}(?P<rest>\s{1,3}[A-Za-z]+(?:\s{1,3}[A-Za-z]+)?)", blank, text
@@ -653,7 +651,7 @@ def _numbers_of(name: str) -> frozenset[str]:
 
 def mask_for_offers(text: str | None, names: Iterable[str] = ()) -> str:
     """The customer's text with phones, dates, item names, years, units and identifiers blanked."""
-    names = list(names)
+    names = as_index(names)
     base = _mask_years(mask_non_money(text, names))
     return _NOT_AN_OFFER.sub(lambda m: " " * len(m.group(0)), _mask_quantities(base, names))
 
@@ -673,9 +671,9 @@ def customer_amounts(
     `strict` keeps the figures next to units and identifiers too (only phones, dates, item names
     and years are dropped): the guard reads the customer that way, so a masked figure can never
     hide an offer from the agreement rules; only the code-only reply decision uses the full mask."""
-    names = list(names)
+    names = as_index(names)
     base = _mask_years(mask_non_money(text, names))
-    numbers = {n for name in names for n in _numbers_of(name or "")}
+    numbers = names.numbers
     if numbers:
         # "camry 2018", "a1500", "840 g5": the number is part of an item's name, not an offer
         # (unless offer wording sits right before it); one pass, no regex built per number

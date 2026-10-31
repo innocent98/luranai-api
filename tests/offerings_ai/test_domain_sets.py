@@ -177,27 +177,53 @@ def test_a_price_claim_below_the_list_is_an_offer_even_phrased_as_a_check():
     assert not is_offer_turn("Your Instagram says 12,000, is that correct?", g, False)
 
 
-@pytest.mark.parametrize("count,limit", [(500, 1.0), (2000, 3.0)])
-def test_the_guard_stays_fast_with_a_large_catalog(count, limit):
-    import time
-
-    items = [
+def _catalog(count):
+    return [
         item(i, f"Gadget {chr(97 + i % 26)}{chr(97 + (i // 26) % 26)}x{i} pro", 1000 + i)
         for i in range(1, count + 1)
     ]
+
+
+def _guard_time(count, repeats=5):
+    """Median CPU time of one guarded turn at a catalog size (warmed up first)."""
+    import statistics
+    import time
+
+    items = _catalog(count)
     g = grounding(items[:12], [1])
     g.catalog_names = [i.name for i in items]
-    reply = ("The Gadget aax1 pro is [[price:#1]]. It is in stock and ships today. " * 30)[:600]
-    long_reply = ("The Gadget aax1 pro is [[price:#1]]. It is in stock and ships today. " * 120)[
-        :7500
+    replies = [
+        "The Gadget aax1 pro is [[price:#1]]. It is in stock and ships today. " * 8,
+        " ".join(
+            f"The Gadget {chr(97 + k % 26)}ax{k} pro is in stock and ships today."
+            for k in range(60)
+        ),
     ]
-    start = time.process_time()  # CPU time: a busy machine must not fail it
-    for text in (reply, long_reply):
-        check_reply(
-            text, g, customer_texts=["how much is gadget aax1", "ok"], kb_text="Delivery is ₦2,000."
-        )
-        is_offer_turn("how much is gadget aax1", g, False)
-    assert time.process_time() - start < limit
+
+    def one():
+        start = time.process_time()
+        for text in replies:
+            check_reply(
+                text,
+                g,
+                customer_texts=["how much is gadget aax1", "ok"],
+                kb_text="Delivery is ₦2,000.",
+            )
+            is_offer_turn("how much is gadget aax1", g, False)
+        return time.process_time() - start
+
+    one()  # warm-up: first-call compilation and the per-request index
+    return statistics.median(one() for _ in range(repeats))
+
+
+@pytest.mark.parametrize("count", [500, 2000])
+def test_the_guard_cost_follows_the_reply_not_the_catalog(count):
+    """Machine-independent: the same turn on a big catalog must cost about what it does on a tiny
+    one. A loop over every item name per sentence (the old shape) is 20-100x; the index is a small
+    multiple. Coverage tracing (CI runs `--cov`) slows both sides alike, so the ratio holds."""
+    small = _guard_time(12)
+    big = _guard_time(count)
+    assert big < small * 12 + 0.02, (count, round(small, 4), round(big, 4))
 
 
 def test_a_sold_out_item_called_available_without_a_token_is_blocked():
