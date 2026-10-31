@@ -55,3 +55,67 @@ def test_the_guard_reads_figures_next_to_units_as_money_so_nothing_hides_an_offe
 
     assert customer_amounts("size 9000") == []
     assert [a.value for a in customer_amounts("size 9000", strict=True)] == [9000]
+
+
+def _browse_grounding():
+    g = _grounding()
+    g.items = [i for i in g.items if i.price != 18000]  # the messages offer 18k: not a listed price
+    g.matched_seqs = []
+    g.mode = "browse"
+    return g
+
+
+def test_realistic_haggling_is_caught_with_the_item_matched(grounding):
+    from tests.offerings_ai.bargain_sets import HAGGLING_REAL
+
+    missed = [m for m in HAGGLING_REAL if not is_offer_turn(m, grounding, False)]
+    assert 1 - len(missed) / len(HAGGLING_REAL) >= 0.90, missed
+
+
+def test_realistic_ordinary_messages_are_not_offers_with_the_item_matched(grounding):
+    from tests.offerings_ai.bargain_sets import ORDINARY_REAL
+
+    wrong = [m for m in ORDINARY_REAL if is_offer_turn(m, grounding, False)]
+    assert len(wrong) / len(ORDINARY_REAL) <= 0.03, wrong
+
+
+def test_figure_only_offers_are_caught_when_nothing_was_matched():
+    from tests.offerings_ai.bargain_sets import HAGGLING_REAL
+
+    g = _browse_grounding()
+    missed = [m for m in HAGGLING_REAL if not is_offer_turn(m, g, False)]
+    assert 1 - len(missed) / len(HAGGLING_REAL) >= 0.90, missed
+
+
+def test_ordinary_messages_stay_ordinary_when_nothing_was_matched():
+    from tests.offerings_ai.bargain_sets import ORDINARY_REAL
+
+    g = _browse_grounding()
+    wrong = [m for m in ORDINARY_REAL if is_offer_turn(m, g, False)]
+    assert len(wrong) / len(ORDINARY_REAL) <= 0.03, wrong
+
+
+def test_context_prices_give_a_figure_something_to_compare_with():
+    g = _browse_grounding()
+    assert is_offer_turn("abeg 9000", g, False, context_prices=lambda: [25000])
+    assert not is_offer_turn("abeg 30000", g, False, context_prices=lambda: [25000])
+
+
+def test_a_payment_plan_is_not_an_offer(grounding):
+    assert not is_offer_turn("Can I pay 12,500 now and the balance on delivery?", grounding, False)
+    assert not is_offer_turn("I'll pay 10k deposit and the rest later", grounding, False)
+
+
+def test_a_time_of_day_is_not_a_figure_but_an_amount_after_at_is(grounding):
+    assert is_offer_turn("Can you sell it at 20,000?", grounding, False)
+    assert is_offer_turn("I can pay around 20,000", grounding, False)
+    assert not is_offer_turn("Can you deliver at 5pm?", grounding, False)
+
+
+def test_adversarial_numbers_are_bounded_and_never_raise(grounding):
+    import time
+
+    start = time.perf_counter()
+    for text in ("1 " * 5000, "#" + "1" * 4400, "1," * 5000, "1k " * 3000, "₦1 " * 3000):
+        is_offer_turn(text, grounding, False)
+    assert time.perf_counter() - start < 1.0

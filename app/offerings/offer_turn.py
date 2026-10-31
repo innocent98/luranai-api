@@ -47,7 +47,10 @@ def is_offer_turn(
     if not prices:
         # nothing to compare with: a bare figure from a shop with items is still an offer
         # candidate unless the message is a question or a budget search
-        return bool(customer_amounts(text, small_ok=False)) and not BROWSE.search(text)
+        listed = {i.price for i in grounding.items if i.price is not None}
+        figures = [a.value for a in customer_amounts(text, small_ok=False)]
+        # a figure that is some listed price is the customer quoting the list, not an offer
+        return any(v not in listed for v in figures) and not BROWSE.search(text)
     low = min(prices)
     return any(a.value < low for a in customer_amounts(text, small_ok=low < 1000))
 

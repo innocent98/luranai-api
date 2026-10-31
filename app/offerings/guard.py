@@ -71,7 +71,9 @@ _FILLER = {
     "more", "this", "that", "such", "special", "provide", "make", "allow", "apply", "grant",
 }  # fmt: skip
 _AGREE_STRONG = re.compile(
-    r"\b(?:deal|agreed?|granted|approved|we\s+can\s+do\s+that|can\s+do\s+that"
+    r"\b(?:deal|agreed?|granted|approved|we\s+can\s+do\s+that|can\s+do\s+that|honou?r(?:ed)?"
+    r"|(?:we\s+)?accept(?:ed)?(?!\s+(?:bank|cash|card|transfers?|payments?|pos|visa|master\s?card|cheques?"
+    r"|crypto|ussd|naira|dollars?|orders?|returns?|exchanges?))"
     r"|it'?s\s+yours|you\s+got\s+it|settled|put\s+(?:it|that)\s+through|at\s+(?:that|your)\s+price"
     r"|go\s+with\s+that|let'?s\s+go|fair\s+enough|that'?s\s+fair|e\s+don\s+do|we\s+fit"
     r"|fit\s+do\s+am|wahala|oya|doable|good\s+news|great\s+news|we\s+agree|i\s+agree)\b",
@@ -80,7 +82,7 @@ _AGREE_STRONG = re.compile(
 # ordinary yes/sure/okay: an agreement only when the sentence is about an item, a price or an offer
 _AGREE_WEAK = re.compile(
     r"\b(?:yes|yeah|yep|okay|ok|sure|alright|perfect|confirmed|fine|works?|no\s+problem|of\s+course"
-    r"|certainly|absolutely|done|possible|accept(?:ed)?|we\s+accept|honou?r|proceed)\b",
+    r"|certainly|absolutely|done|possible|proceed)\b",
     re.IGNORECASE,
 )
 _PRICE_TALK = re.compile(
@@ -93,15 +95,23 @@ _SAME = re.compile(
     r"|also\s+costs?|for\s+the\s+same|at\s+the\s+same|matches\s+(?:it|that|this))\b",
     re.IGNORECASE,
 )
-_NOT_PRODUCT = (
-    r"(?!\s*(?:sizes?|colou?rs?|options?|photos?|pictures?|variants?|ways?|days?|weeks?|hours?"
+# a count before one of these is a unit of measure or a time span, never a bundle of the item
+_UNITLIKE = (
+    r"(?:sizes?|colou?rs?|options?|photos?|pictures?|variants?|ways?|days?|weeks?|hours?"
     r"|minutes?|mins?|months?|years?|steps?|stores?|branch(?:es)?|locations?|payment|methods?"
-    r"|sim|slots?|cameras?|lens(?:es)?|ports?|hdmi|usb|speakers?|cores?|screens?|toilets?|bathrooms?"
-    r"|bedrooms?|beds?|cars?|spaces?|floors?|doors?|windows?|seats?|rooms?|inch(?:es)?|cm|mm|sqm|gb|tb"
-    r"|mp|hz|ghz|mah|watts?|volts?|kg|litres?|liters?|people|persons?|guests?|pax|garages?|balcon\w+"
-    r"|kitchens?|bays?|sides?|pockets?|layers?|stars?)\b)"
-    r"(?!\s*(?:to|-|\u2013)\s*\d)"
+    r"|inch(?:es)?|cm|mm|sqm|gb|tb|mp|hz|ghz|mah|watts?|volts?|kg|litres?|liters?)"
 )
+_NOT_PRODUCT = (
+    rf"(?!\s*{_UNITLIKE}\b)(?!\s{{0,3}}(?:to|-|\u2013)\s{{0,3}}\d{{1,3}}\s{{0,3}}{_UNITLIKE}\b)"
+)
+# nouns that describe a feature of what is sold ("2 SIM slots", "parking for 2 cars"): not a bundle
+# unless the shop sells that noun (then "2 rooms at [[price]]" is a real quantity)
+_FEATURE_NOUNS = {
+    "sim", "slot", "camera", "lens", "port", "hdmi", "usb", "speaker", "core", "screen", "toilet",
+    "bathroom", "bedroom", "bed", "car", "space", "floor", "door", "window", "seat", "room",
+    "people", "person", "guest", "pax", "garage", "balcony", "kitchen", "bay", "side", "pocket",
+    "layer", "star",
+}  # fmt: skip
 _QTY = (
     r"(?<!size\s)(?<!sizes\s)(?<!to\s)(?<!-)(?<![#\d.,₦$£€N])\b(?:[2-9]|[1-9]\d|two|three|four|five|six|seven|eight|nine|ten"
     rf"|dozen)\b(?![,.]\d){_NOT_PRODUCT}"
@@ -117,7 +127,15 @@ _TOTAL = re.compile(
 _FIN_PERCENT = re.compile(
     r"\b(?:deposit|fees?|commission|interest|tax|vat|payment|instal+ments?|down\s*payment|upfront"
     r"|advance|balance|refund|discount|off|reduction|less|mark-?up|surcharge|price|cost|pay|paid"
-    r"|rate|extra|more)\b",
+    r"|rate|extra|more|save|savings?|cheaper|cash[\s-]?back|promo\w*|sale|bonus|below|lower|slash\w*"
+    r"|special|waive[ds]?|knock\w*)\b",
+    re.IGNORECASE,
+)
+# properties a percentage can describe: "100% original", "charges to 50%", "battery health 90%"
+_SPEC_PERCENT = re.compile(
+    r"\b(?:original|genuine|authentic|pure|cotton|polyester|leather|wool|silk|nylon|linen|fabric"
+    r"|material|battery|charge[sd]?|charging|health|waterproof|humidity|protection|alcohol|sugar"
+    r"|fat|organic|natural|recycled|cacao|cocoa|spf|uv|brightness|volume|capacity|power)\b",
     re.IGNORECASE,
 )
 _GROUP = re.compile(
@@ -137,14 +155,27 @@ _DESCRIBES = re.compile(
 )
 
 
-def _bundle_hit(plain: str, distinct_tokens: int) -> bool:
-    """A token sentence that quantifies, groups or totals what the token prices."""
+def _feature_count(plain: str, end: int, sold: set[str]) -> bool:
+    """The count ending at `end` describes a feature ("5 toilets", "2 to 3 cars"), not units sold."""
+    rest = plain[end:]
+    rng = re.match(r"\s{0,3}(?:to|-|\u2013)\s{0,3}\d{1,3}", rest, re.IGNORECASE)
+    if rng:
+        rest = rest[rng.end() :]
+    nxt = re.match(r"\s{0,3}([a-z]+)", rest, re.IGNORECASE)
+    word = singular(nxt.group(1).lower()) if nxt else ""
+    return word in _FEATURE_NOUNS and word not in sold
+
+
+def _bundle_hit(plain: str, distinct_tokens: int, sold: set[str] = frozenset()) -> bool:
+    """A token sentence that quantifies, groups or totals what the token prices. `sold`: the words
+    of the shop's item names (a feature noun the shop sells is a real quantity)."""
     if _TOTAL.search(plain):
         return True
     if distinct_tokens < 2 and _GROUP.search(plain):
         return True
     return any(
         not _DESCRIBES.search(plain[max(0, m.start() - 24) : m.start()])
+        and not _feature_count(plain, m.end(), sold)
         for m in _QTY_RE.finditer(plain)
     )
 
@@ -540,6 +571,9 @@ def check_reply(
     all_prices = {Decimal(i.price) for i in items if i.price is not None}
     small_ok = any(p < 1000 for p in all_prices)
     catalog_names = list({*grounding.catalog_names, *(i.name for i in items)})
+    sold_words = {
+        singular(w) for n in catalog_names for w in re.findall(r"[a-z]+", n.lower()) if len(w) >= 3
+    }
     customer_money = _values(customer_texts, small_ok, strict=True)  # echo and laundering checks
     kb_money = _kb_values(kb_text, catalog_names, small_ok)
     tiers = {Decimal(t) for t in tier_amounts}
@@ -634,7 +668,7 @@ def check_reply(
                 carried = _top_mentions(sentence, items)
             if (
                 seqs
-                and _bundle_hit(_without_names(plain, catalog_names), len(set(seqs)))
+                and _bundle_hit(_without_names(plain, catalog_names), len(set(seqs)), sold_words)
                 and not _PER.search(plain)
             ):
                 violations.append(Violation(sentence, "bundle_price"))
@@ -669,7 +703,10 @@ def check_reply(
                 if (
                     not grounding.strict
                     and a.value not in percents
-                    and _FIN_PERCENT.search(sentence)
+                    and (
+                        _FIN_PERCENT.search(sentence)
+                        or (anchored and not _SPEC_PERCENT.search(sentence))
+                    )
                 ):
                     violations.append(Violation(sentence, "percent_claim", [a.value]))
                 continue  # a percentage is a business term nobody sanctioned unless it is known
