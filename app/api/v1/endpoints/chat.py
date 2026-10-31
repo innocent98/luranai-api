@@ -83,6 +83,7 @@ from app.offerings.orchestrate import (
     record_cart,
 )
 from app.offerings.turn import (
+    customer_figures,
     customer_texts,
     ground_turn,
     kb_text_from_prompt,
@@ -3021,7 +3022,13 @@ async def _send_message_impl(
             try:
                 if _offerings is not None and _offerings.mode != "unavailable":
                     _cart = resolve_cart(
-                        db, session.tenant_id, _sales_meta.get("signals"), _offerings
+                        db,
+                        session.tenant_id,
+                        _sales_meta.get("signals"),
+                        _offerings,
+                        customer_amounts=customer_figures(
+                            customer_texts(conversation_history, message_data.message)
+                        ),
                     )
                 lead_svc = LeadService(db)
                 conv_id = session_id  # conversation_id == session_id in this handler
@@ -3065,7 +3072,7 @@ async def _send_message_impl(
                     if _cart is not None and _cart.has_content:
                         _cart_synced = record_cart(db, lead, _cart)
                         _catalog_signals = catalog_score_signals(_cart_synced)
-                        _ack = offer_ack(_cart, _offerings.currency)
+                        _ack = offer_ack(_cart, _offerings.currency, handover=_cart_synced.handover)
                         if _ack:
                             ai_response_text = f"{ai_response_text}\n\n{_ack}"
                         if _cart_synced.handover:
@@ -3117,6 +3124,7 @@ async def _send_message_impl(
                         )
 
             except Exception as _lead_exc:
+                db.rollback()  # a failed flush must not poison saving the assistant message
                 logger.error(f"Sales lead orchestration error (non-fatal): {_lead_exc}")
 
         # Step 8: Save assistant message

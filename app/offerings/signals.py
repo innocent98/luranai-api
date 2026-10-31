@@ -8,6 +8,8 @@ a ref is a live, sellable item is checked later against the database, never here
 import re
 from dataclasses import dataclass, field
 
+from app.db.models.offering import MAX_PRICE
+
 MAX_REFS = 5
 MAX_QTY = 999
 _REF = re.compile(r"^\s*#?(\d{1,9})\s*$")
@@ -81,6 +83,6 @@ def parse_catalog_signals(signals: dict | None) -> CatalogSignals:
     offered = signals.get("offered_price")
     if isinstance(offered, dict):
         seq, amount = _seq(offered.get("ref")), _whole(offered.get("amount"))
-        if seq is not None and amount is not None and amount > 0:
+        if seq is not None and amount is not None and 0 < amount <= MAX_PRICE:
             out.offered_price = OfferedPrice(seq, amount)
     return out

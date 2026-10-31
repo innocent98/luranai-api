@@ -42,14 +42,23 @@ async def alert_owner(db: Session, lead: Lead, synced: InterestSync) -> None:
         await _notify(db, lead.tenant_id, NotifEvent.OFFERING_REQUEST, "lead", lead.id)
 
 
-def offer_ack(res: CartResolution, currency: str) -> str | None:
-    """The only sentence that repeats a customer's price offer, written by code (never the model)."""
+def offer_ack(res: CartResolution, currency: str, *, handover: bool) -> str | None:
+    """The only sentences that mention a customer's price offer, written by code (never the model).
+
+    "Noted your offer" is only said when a human will pick it up (negotiable item, or the customer
+    insists); otherwise code states that the listed price is firm.
+    """
     if res.offered is None:
         return None
-    return (
-        f"I've noted your offer of {format_amount(res.offered.amount, currency)} "
-        f"for the {res.offered.facts.name}."
-    )
+    item, amount = res.offered.facts, res.offered.amount
+    if handover:
+        return f"I've noted your offer of {format_amount(amount, currency)} for the {item.name}."
+    if item.price is not None and amount < item.price:
+        return (
+            f"The listed price for the {item.name} is {format_amount(item.price, currency)} "
+            "and it is firm."
+        )
+    return None
 
 
 def catalog_score_signals(synced: InterestSync) -> dict:

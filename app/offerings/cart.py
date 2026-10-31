@@ -48,7 +48,11 @@ class CartResolution:
 
 
 def resolve_cart(
-    db: Session, tenant_id: UUID, signals: dict | None, grounding: GroundingResult
+    db: Session,
+    tenant_id: UUID,
+    signals: dict | None,
+    grounding: GroundingResult,
+    customer_amounts: set | None = None,
 ) -> CartResolution:
     parsed = parse_catalog_signals(signals)
     injected = {i.seq for i in grounding.items}
@@ -64,7 +68,9 @@ def resolve_cart(
             continue
         out.lines.append(ResolvedLine(facts_from_row(row), line.qty))
     offer = parsed.offered_price
-    if offer is not None and offer.seq in rows:
+    # an offer is the customer's own figure: one they never wrote is the model's invention
+    said = customer_amounts is None or offer is not None and offer.amount in customer_amounts
+    if offer is not None and offer.seq in rows and said:
         out.offered = ResolvedOffer(facts_from_row(rows[offer.seq]), offer.amount)
     return out
 

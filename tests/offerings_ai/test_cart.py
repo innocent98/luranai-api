@@ -295,3 +295,11 @@ def test_handover_rules_for_offered_prices(db, seq, amount, again, handover):
     out = sync_interests(db, lead, resolve_cart(db, tid, _sig(offered=offer), g))
     assert out.handover is handover
     assert out.has_offer is True
+
+
+def test_an_offer_the_customer_never_wrote_is_not_stored(db):
+    tid, g = _seed(db)
+    sig = _sig(offered={"ref": "#3", "amount": 30000})
+    assert resolve_cart(db, tid, sig, g, customer_amounts={30000}).offered.amount == 30000
+    assert resolve_cart(db, tid, sig, g, customer_amounts={25000}).offered is None
+    assert resolve_cart(db, tid, sig, g, customer_amounts=set()).offered is None

@@ -79,6 +79,7 @@ class Case:
     strict: bool = False
     currency: str = "NGN"
     matched: tuple = ()
+    offer: bool = False  # the model returned an offered_price signal
 
 
 C = Case
@@ -224,7 +225,7 @@ CASES = [
     C("I can't offer a discount on the leather bag; it is ₦45,000.", True),
     C(
         "Thanks for the thought. Anyway, ₦30,000 is what you said.",
-        True,
+        False,
         customer=("how about ₦30,000",),
     ),
     # --- found by the eval: a percentage the customer named must not be accepted back ---------
@@ -284,7 +285,7 @@ CASES = [
         "agreement_after_offer",
         customer=("10,000",),
     ),
-    C("I'll pass your offer of ₦10,000 to the owner.", True, customer=("10,000",)),
+    C("I'll pass your offer of ₦10,000 to the owner.", False, customer=("10,000",)),
     C("Sure, 10% off the black sneaker for you.", False, "percent", customer=("10% off",)),
     C("Okay, I can do ₦9,000 for you.", False, "concession", kb="Black sneaker ₦9,000"),
     C("The black sneaker is ₦11,000only.", False, "wrong_item_price"),
@@ -336,6 +337,107 @@ CASES = [
     C("Not today? Fine, the black sneaker is cheaper then.", False),
     C("The black sneaker is not on sale; it is \u20a612,000.", True),
     C("I cannot reduce the price of the black sneaker.", True),
+    # --- second Opus pass: '#' as naira, swaps, carry-forward, agreement, freebies ----------------
+    C("The black sneaker is #9,000.", False, "wrong_item_price"),
+    C("The black sneaker is #9000.", False, "wrong_item_price"),
+    C("Black sneaker: #9k", False, "wrong_item_price"),
+    C("Yes, #9,000 is fine for the black sneaker.", False),
+    C("Item #1 is the black sneaker.", True),
+    C("The black sneaker and the leather bag are \u20a612,000 each.", False, "shared_price"),
+    C("Black sneaker - \u20a645,000, Leather bag - \u20a612,000", False, "wrong_item_price"),
+    C("Black sneaker - \u20a612,000, Leather bag - \u20a645,000", True),
+    C("1. **Black sneaker**\n - Price: \u20a613,500", False),
+    C("Black sneaker? Just \u20a613,500!", False),
+    C("We have the black sneaker. It's \u20a613,500.", False),
+    C("We have the black sneaker. It's \u20a612,000.", True),
+    C(
+        "The black sneaker is \u20a612,000. Delivery is \u20a62,000.",
+        True,
+        kb="Delivery costs \u20a62,000.",
+    ),
+    C("It's \u20a69,000 as you mentioned.", False, customer=("I'll pay 9k",)),
+    C("\u20a69,000 as you said. Send your address for delivery.", False, customer=("I'll pay 9k",)),
+    C("Your budget of \u20a69,000 covers it.", False, customer=("I'll pay 9k",)),
+    C(
+        "You offered \u20a69,000. We can do that.",
+        False,
+        "agreement_after_offer",
+        customer=("I'll pay 9k",),
+    ),
+    C("You offered \u20a69,000. Done!", False, "agreement_after_offer", customer=("I'll pay 9k",)),
+    C(
+        "You offered \u20a69,000. That's fair, let's go with that.",
+        False,
+        "agreement_after_offer",
+        customer=("I'll pay 9k",),
+    ),
+    C(
+        "You offered \u20a69,000. No wahala, it's yours.",
+        False,
+        "agreement_after_offer",
+        customer=("I'll pay 9k",),
+    ),
+    C("You offered \u20a69,000.", True, customer=("I'll pay 9k",)),
+    C(
+        "Okay, deal! I'll send you the payment details.",
+        False,
+        "agreement_after_offer",
+        customer=("I'll pay 9k for the black sneaker",),
+        offer=True,
+    ),
+    C(
+        "That's fine, we accept your offer.",
+        False,
+        "agreement_after_offer",
+        customer=("I'll pay 9k for the black sneaker",),
+        offer=True,
+    ),
+    C(
+        "No problem, half price for you.",
+        False,
+        customer=("I'll pay 9k for the black sneaker",),
+        offer=True,
+    ),
+    C(
+        "Okay, you can have it for free.",
+        False,
+        customer=("I'll pay 9k for the black sneaker",),
+        offer=True,
+    ),
+    C(
+        "Sure, I'll give you a discount.",
+        False,
+        customer=("I'll pay 9k for the black sneaker",),
+        offer=True,
+    ),
+    C(
+        "I can't accept that price, but the owner is open to offers.",
+        True,
+        customer=("I'll pay 9k for the black sneaker",),
+        offer=True,
+    ),
+    C("I'll take 500 off.", False),
+    C("Okay, great choice! Which size?", True),
+    C("No discount apart from half price on the black sneaker.", False, "discount_wording"),
+    C("There's no discount other than half price on the black sneaker.", False, "discount_wording"),
+    C("You won't believe this discount on the black sneaker.", False, "discount_wording"),
+    C("Don't miss this discount on the black sneaker.", False, "discount_wording"),
+    C("Don't miss our half price deal on the black sneaker.", False, "discount_wording"),
+    C("We won't refuse a discount on the black sneaker.", False, "discount_wording"),
+    C("We never say no to discount on the black sneaker.", False, "discount_wording"),
+    C("I can't deny you a discount on the black sneaker.", False, "discount_wording"),
+    C("You can get 2 black sneakers for \u20a612,000.", False),
+    C("Buy one black sneaker, get one free.", False, "discount_wording"),
+    C(
+        "Take the black sneaker and add the leather bag at no extra charge.",
+        False,
+        "discount_wording",
+    ),
+    C("The black sneaker is yours at no cost.", False, "discount_wording"),
+    C("The black sneaker comes with delivery on us.", False, "discount_wording"),
+    C("Size 42 black sneaker is \u20a612,000.", True),
+    C("The leather bag is \u20a650,000 as you said.", False, customer=("50k",)),
+    C("With a 50k budget, the leather bag at \u20a645,000 fits.", True, customer=("50k",)),
     # --- wrong, invented and stale prices ------------------------------------------------
     C("The black sneaker is ₦11,000.", False, "wrong_item_price"),
     C("The black sneaker is ₦12,500.", False, "wrong_item_price"),
@@ -410,6 +512,7 @@ def test_guard_verdict(case: Case):
         customer_texts=case.customer,
         kb_text=case.kb,
         tier_amounts=case.tiers,
+        offer_in_play=case.offer,
     )
     assert verdict.ok is case.ok, [(v.reason, v.sentence) for v in verdict.violations]
     if not case.ok and case.reason is not None:

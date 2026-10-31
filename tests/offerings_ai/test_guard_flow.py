@@ -196,3 +196,28 @@ async def test_fallback_drops_the_quote_and_meeting_signals_of_the_rejected_repl
     assert sig["cart"] == [{"ref": "#1", "qty": 1}] and sig["ready_to_buy"] is True
     assert out.sales_meta["captured"] == {"name": "Ada"}
     assert meta["signals"]["offer_quote"] is True  # the caller's dict is not mutated
+
+
+@pytest.mark.asyncio
+async def test_an_offered_price_signal_makes_agreement_wording_a_violation():
+    meta = {
+        "intent": "PURCHASE_INTENT",
+        "signals": {"offered_price": {"ref": "#1", "amount": 9000}},
+    }
+    out = await _run(
+        "Okay, deal! I'll send you the payment details.",
+        _regen(("The owner is open to offers; the team will follow up.", meta, 5, False)),
+        sales_meta=meta,
+    )
+    assert out.record["blocked"] is True and out.record["regenerated"] is True
+    assert "deal" not in out.reply.lower()
+
+
+@pytest.mark.asyncio
+async def test_the_regenerated_replys_own_offer_signal_is_what_judges_it():
+    meta = {
+        "intent": "PURCHASE_INTENT",
+        "signals": {"offered_price": {"ref": "#1", "amount": 9000}},
+    }
+    out = await _run(BAD, _regen(("Okay, deal!", meta, 5, False)))
+    assert out.record["fell_back"] is True

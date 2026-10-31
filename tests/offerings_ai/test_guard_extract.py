@@ -85,6 +85,15 @@ CASES = [
     ("starts from 2000", [(D(2000), M)]),
     ("price of 2000", [(D(2000), M)]),
     ("₦12.000", [(D(12), M)]),
+    # second Opus pass
+    ("The price is #9,000", [(D(9000), M)]),
+    ("#9000", [(D(9000), M)]),
+    ("#9k", [(D(9000), M)]),
+    ("between 9 and 12 thousand", [(D(9000), M), (D(12000), M)]),
+    ("9 or 10k", [(D(9000), M), (D(10000), M)]),
+    ("9 thou", [(D(9000), M)]),
+    ("nine-k", [(D(9000), M)]),
+    ("two thousand five hundred", [(D(2500), M)]),
     # NOT money
     ("We have 2 pairs left", []),
     ("Size 42 is available", []),
@@ -93,6 +102,7 @@ CASES = [
     ("Call +2348012345678", []),
     ("Open 9:00 to 17:30", []),
     ("Item #12 and #3", []),
+    ("Item #3 costs", []),
     ("It is 5m wide", []),
     ("A 25 kg bag", []),
     ("Order 3 items for 2 people", []),

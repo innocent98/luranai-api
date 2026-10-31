@@ -20,7 +20,7 @@ _AMOUNT = re.compile(
     (?P<tail>
         \s?%
       | \s?per\s?cent\b | \s?percent\b
-      | \s?(?:thousand|million|billion|mil|bn|grand)\b
+      | \s?(?:thousand|thou|million|billion|mil|bn|grand)\b
       | \s?[kK](?![A-Za-z0-9²]) | [mMbB](?![A-Za-z0-9²])
     )?
     (?P<cur>\s?(?:naira|ngn|kobo|dollars?|usd|pounds?|gbp|euros?|eur)\b)?
@@ -30,6 +30,7 @@ _AMOUNT = re.compile(
 _MULT = {
     "k": 10**3,
     "thousand": 10**3,
+    "thou": 10**3,
     "grand": 10**3,
     "m": 10**6,
     "mil": 10**6,
@@ -39,6 +40,7 @@ _MULT = {
     "billion": 10**9,
 }
 _PRE_CCY = {
+    "#": "NGN",
     "₦": "NGN",
     "n": "NGN",
     "ngn": "NGN",
@@ -186,7 +188,7 @@ def _next_word(text: str, pos: int) -> str:
     return m.group(1).lower() if m else ""
 
 
-def _digit_amounts(text: str, small_ok: bool) -> list[Amount]:
+def _digit_amounts(text: str, small_ok: bool, ref_seqs: frozenset) -> list[Amount]:
     found: list[tuple[Amount, bool]] = []  # (amount, had_magnitude)
     for m in _AMOUNT.finditer(text):
         raw_num = m.group("num")
@@ -223,8 +225,19 @@ def _digit_amounts(text: str, small_ok: bool) -> list[Amount]:
         glued = re.match(r"[A-Za-z]", text[m.end() : m.end() + 1] or "")
         if glued and not (tail or cur or pre or grouped):
             continue  # "5pm", "42cm": a bare number glued to a word
-        if before.rstrip().endswith("#") and not pre:
-            continue  # item ref
+        if before.endswith("#") and not pre:
+            # "#12" is an item ref; "#9,000", "#9k", "#9000" is how many Nigerians write naira
+            seq_like = not (tail or grouped) and digits.isdigit() and int(digits) in ref_seqs
+            as_money = not seq_like and (
+                grouped
+                or bool(tail)
+                or len(digits) >= 4
+                or (small_ok and 100 <= value <= 999 and "." not in raw_num)
+            )
+            if not as_money:
+                continue
+            pre = "#"
+            has_marker = True
 
         if has_marker or grouped:
             money = True
@@ -281,7 +294,7 @@ def _digit_amounts(text: str, small_ok: bool) -> list[Amount]:
             a.kind == "skip"
             and nxt_mag
             and nxt.kind == "money"
-            and re.fullmatch(r"\s*(?:-|–|—|to)\s*", text[a.end : nxt.start] or "")
+            and re.fullmatch(r"\s*(?:-|–|—|to|and|or)\s*", text[a.end : nxt.start] or "")
         ):
             tail_m = _AMOUNT.match(text, nxt.start)
             tail = (tail_m.group("tail") or "").strip().lower() if tail_m else ""
@@ -346,7 +359,7 @@ def _word_amounts(text: str, taken: list[Amount]) -> list[Amount]:
         nxt = re.match(
             r"\s*(naira|ngn|kobo|dollars?|usd|pounds?|euros?)\b", text[end:], re.IGNORECASE
         )
-        tail_k = re.match(r"\s?(?:k|grand)\b", text[end:], re.IGNORECASE)
+        tail_k = re.match(r"[\s-]?(?:k|grand|thou)\b", text[end:], re.IGNORECASE)
         if tail_k:  # "fifteen k", "five grand"
             value *= 1000
             end += tail_k.end()
@@ -414,10 +427,13 @@ def _merge_word_tails(digit: list[Amount], words: list[Amount], text: str) -> li
     return merged
 
 
-def extract_amounts(text: str, *, small_ok: bool = False) -> list[Amount]:
-    """Every amount in `text`. `small_ok`: count bare 3-digit numbers (a catalog under 1,000)."""
+def extract_amounts(
+    text: str, *, small_ok: bool = False, ref_seqs: frozenset = frozenset()
+) -> list[Amount]:
+    """Every amount in `text`. `small_ok`: count bare 3-digit numbers (a catalog under 1,000);
+    `ref_seqs`: item numbers, so that `#12` stays a reference."""
     text = normalise(text)
-    digit = _digit_amounts(text, small_ok)
+    digit = _digit_amounts(text, small_ok, ref_seqs)
     taken = digit
     words = _word_amounts(text, taken)
     combined = _merge_word_tails(digit, words, text)

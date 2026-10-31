@@ -159,3 +159,15 @@ def lead_source(channel: str | None, visitor) -> str:
     if getattr(visitor, "created_from", None) == VisitorSource.SUPPORT_PAGE:
         return "hosted_page"
     return "chat_widget"
+
+
+def customer_figures(texts: list[str]) -> set[int]:
+    """Whole-naira figures the customer wrote (so a recorded offer is provably theirs)."""
+    from app.offerings.amounts import extract_amounts
+
+    out: set[int] = set()
+    for text in texts:
+        for a in extract_amounts(text, small_ok=True):
+            if a.kind == "money" and a.value == a.value.to_integral_value():
+                out.add(int(a.value))
+    return out

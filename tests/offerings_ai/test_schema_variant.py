@@ -173,3 +173,15 @@ async def test_generate_sales_response_uses_variant_only_when_asked():
     assert seen["messages"][0]["content"].startswith(base_system)
     assert seen["messages"][0]["content"].endswith("CART RULES")
     assert meta["signals"]["cart"] == [{"ref": "#1", "qty": 2}]
+
+
+def test_an_offered_amount_beyond_the_price_ceiling_is_dropped():
+    from app.db.models.offering import MAX_PRICE
+
+    big = parse_catalog_signals({"offered_price": {"ref": "#1", "amount": MAX_PRICE + 1}})
+    ok = parse_catalog_signals({"offered_price": {"ref": "#1", "amount": MAX_PRICE}})
+    assert big.offered_price is None and ok.offered_price.amount == MAX_PRICE
+    assert (
+        parse_catalog_signals({"offered_price": {"ref": "#1", "amount": 10**30}}).offered_price
+        is None
+    )

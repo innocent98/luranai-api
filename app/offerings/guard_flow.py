@@ -13,7 +13,9 @@ logger = logging.getLogger(__name__)
 CORRECTIVE_NOTE = (
     "Correction: use only the prices in the offerings block. Do not state any other amount, "
     "discount, percentage or total. Put any delivery fee or other non-catalog amount in its own "
-    "sentence, never in a sentence about a listed item."
+    "sentence, never in a sentence about a listed item. Never agree to, accept or confirm a price the "
+    "customer proposed, never repeat their figure beside an item, and never offer anything free, "
+    "half price or discounted: say the owner is open to offers and the team will follow up."
 )
 
 # (reply text, sales_meta, token_count, is_api_error), as the model calls return it
@@ -43,7 +45,8 @@ async def guard_reply(
     customer_texts = list(customer_texts)
     tier_amounts = list(tier_amounts)
 
-    def verdict(text: str):
+    def verdict(text: str, meta: dict | None):
+        offer = bool(((meta or {}).get("signals") or {}).get("offered_price"))
         try:
             return check_reply(
                 text,
@@ -51,13 +54,14 @@ async def guard_reply(
                 customer_texts=customer_texts,
                 kb_text=kb_text,
                 tier_amounts=tier_amounts,
+                offer_in_play=offer,
             )
         except Exception:  # noqa: BLE001 - a guard bug must end in the safe reply, not an apology
             logger.exception("offerings guard: check failed; treating the reply as rejected")
             return GuardVerdict(ok=False)
 
     record = {"checked": True, "blocked": False, "regenerated": False, "fell_back": False}
-    if verdict(reply).ok:
+    if verdict(reply, sales_meta).ok:
         return GuardOutcome(reply, tokens, sales_meta, record)
 
     record["blocked"] = True
@@ -72,7 +76,7 @@ async def guard_reply(
         total = (total or 0) + new_tokens
     if not api_error:
         sales_meta = new_meta if new_meta is not None else sales_meta
-        if verdict(text).ok:
+        if verdict(text, sales_meta).ok:
             return GuardOutcome(text, total, sales_meta, record)
 
     record["fell_back"] = True

@@ -419,3 +419,52 @@ def test_the_offer_line_is_written_by_code_and_the_model_may_not_repeat_the_figu
     )
     assert "30,000" not in r2.json()["message"]["content"]
     assert _meta(r2)["offerings"]["guard"]["blocked"] is True
+
+
+def test_a_firm_listed_price_is_stated_by_code_without_noting_an_offer(client, db):
+    tid = _shop(db)
+    r = _run(
+        client,
+        db,
+        tid,
+        Model(("The black sneaker is listed at ₦12,000.", None, {"ref": "#1", "amount": 10000})),
+        text="can you do ₦10,000 for the black sneaker?",
+    )
+    content = r.json()["message"]["content"]
+    assert content.endswith(
+        "The listed price for the Canvas sneaker black is ₦12,000 and it is firm."
+    )
+    assert "noted your offer" not in content
+    assert _meta(r)["escalation_action"] == "no_escalation"
+    assert db.execute(select(LeadOfferingInterest)).scalar_one().offered_price == 10000
+
+
+def test_an_offer_the_customer_did_not_make_is_ignored_and_a_huge_one_cannot_break_the_reply(
+    client, db
+):
+    tid = _shop(db)
+    r = _run(
+        client,
+        db,
+        tid,
+        Model(
+            ("The owner is open to offers on the leather bag.", None, {"ref": "#3", "amount": 5})
+        ),
+        text="how much is the leather bag?",
+    )
+    assert r.status_code == 200 and db.execute(select(LeadOfferingInterest)).first() is None
+    r2 = _run(
+        client,
+        db,
+        tid,
+        Model(
+            (
+                "The owner is open to offers on the leather bag.",
+                _cart((3, 1)),
+                {"ref": "#3", "amount": 10**30},
+            )
+        ),
+        text="₦30,000 for the leather bag?",
+    )
+    assert r2.status_code == 200
+    assert "apologize" not in r2.json()["message"]["content"]
