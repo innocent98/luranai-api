@@ -465,6 +465,18 @@ def _free_same_hit(sentence: str, plain: str, items, names: list[str]) -> bool:
 _NUMBERS = re.compile(r"\d[\d,.]*")
 
 
+def _says_sold_out_item_is_available(sentence: str, plain: str, items) -> bool:
+    """ "Yes, the White sneaker is available in size 42" when the block marks it sold out: judged
+    per clause, so "the Corolla is sold out; the Camry is available" is fine."""
+    for m in _AVAILABLE.finditer(sentence):
+        if _negated(sentence, m):
+            continue
+        top = _top_mentions(_clause_at(plain, m.start()), items)
+        if any(i.seq in top and i.availability == OfferingAvailability.OUT_OF_STOCK for i in items):
+            return True
+    return False
+
+
 def _kb_states(kb_sentences: list[tuple[set[str], set[str]]], sentence: str) -> bool:
     """The sentence is (nearly) a KB sentence that itself holds a discount word: the tenant stated
     that offer and the model may relay it. Close means: at least 70% of its content words are the
@@ -733,6 +745,8 @@ def check_reply(
                     # nothing in the sentence says whose price this is: only the one item the
                     # customer's question matched can be meant
                     violations.append(Violation(sentence, "token_mismatch"))
+            if _says_sold_out_item_is_available(sentence, plain, items):
+                violations.append(Violation(sentence, "sold_out_claim"))
             for seq in seqs:
                 row = by_seq.get(seq)
                 if (
@@ -769,12 +783,18 @@ def check_reply(
             # every catalog reply is judged: "I can give you a discount on it" names no item
             if _unnegated(_DISCOUNT_WORDS, sentence) and not _kb_states(kb_discounts, sentence):
                 violations.append(Violation(sentence, "discount_wording"))
-            talks_price = offer_now or bool(
-                seqs
-                or amounts
-                or names_catalog
-                or _names_strongly(plain, items)
-                or _PRICE_TALK.search(sentence)
+            # during the countdown a plain yes/okay beside nothing but a valid token of the item
+            # ("Okay, the Black sneaker is [[price:#1]]. Shall I prepare your quote?") is fine
+            only_a_token = (not offer_now) and bool(seqs) and not amounts
+            talks_price = offer_now or (
+                not only_a_token
+                and bool(
+                    seqs
+                    or amounts
+                    or names_catalog
+                    or _names_strongly(plain, items)
+                    or _PRICE_TALK.search(sentence)
+                )
             )
             if offer and (
                 _unnegated(_AGREE_STRONG, sentence)

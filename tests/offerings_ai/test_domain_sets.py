@@ -198,3 +198,17 @@ def test_the_guard_stays_fast_with_a_large_catalog(count, limit):
         )
         is_offer_turn("how much is gadget aax1", g, False)
     assert time.perf_counter() - start < limit
+
+
+def test_a_sold_out_item_called_available_without_a_token_is_blocked():
+    g = grounding(CARS, [4, 1])
+    bad = check_reply(
+        "Yes, the Toyota Corolla 2012 is available in white.", g, customer_texts=["corolla?"]
+    )
+    assert not bad.ok and "sold_out_claim" in {v.reason for v in bad.violations}
+    fine = check_reply(
+        "The Toyota Corolla 2012 is sold out; the Toyota Camry 2018 is available at [[price:#1]].",
+        g,
+        customer_texts=["corolla?"],
+    )
+    assert fine.ok, [(v.reason, v.sentence) for v in fine.violations]

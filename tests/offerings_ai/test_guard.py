@@ -725,3 +725,20 @@ def test_a_catalog_name_outside_the_block_cannot_launder_a_kb_price():
     kb = "Silver wristwatch now costs ₦40,000. Delivery is ₦2,000."
     assert not check_reply("The watch costs ₦40,000.", g, kb_text=kb).ok
     assert check_reply("Delivery is ₦2,000.", g, kb_text=kb).ok
+
+
+def test_a_plain_okay_beside_only_a_valid_token_passes_during_the_countdown():
+    v = check_reply(
+        f"Okay, the Canvas sneaker black is {T(1)}. Shall I prepare your quote?",
+        _grounding(matched=(1,)),
+        customer_texts=("abeg 9000", "ok", "where is your shop?"),
+        offer_watch=True,
+    )
+    assert v.ok, [(x.reason, x.sentence) for x in v.violations]
+    still = check_reply(
+        f"Okay, deal on the Canvas sneaker black at {T(1)}.",
+        _grounding(matched=(1,)),
+        customer_texts=("abeg 9000", "ok", "where is your shop?"),
+        offer_watch=True,
+    )
+    assert not still.ok

@@ -17,6 +17,7 @@ from uuid import UUID
 from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
+from app.db.models.conversation import ConversationSession
 from app.db.models.lead import Lead
 from app.db.models.offering import (
     LeadOfferingInterest,
@@ -164,15 +165,24 @@ def _scope(lead: Lead):
 
 
 def has_pending_offer(db: Session, lead: Lead) -> bool:
-    """An offer a human is working on: stored on a negotiable (or unpriced) item. An offer on a
-    fixed-price item gets the firm-price answer and never blocks a quote."""
+    """An offer a human is working on: stored on a negotiable (or unpriced) item, until a human has
+    joined the conversation after it was made. An offer on a fixed-price item gets the firm-price
+    answer and never blocks a quote."""
     rows = db.execute(
         select(LeadOfferingInterest.id)
         .join(Offering, Offering.id == LeadOfferingInterest.offering_id)
+        .join(Lead, Lead.id == LeadOfferingInterest.lead_id)
+        .outerjoin(ConversationSession, ConversationSession.id == Lead.conversation_id)
         .where(
             *_scope(lead),
             LeadOfferingInterest.offered_price.is_not(None),
             or_(Offering.negotiable.is_(True), Offering.price.is_(None)),
+            # a human who joined the conversation after the offer was made has taken it up: it is
+            # no longer pending, so the next cart can be quoted again
+            or_(
+                ConversationSession.agent_joined_at.is_(None),
+                ConversationSession.agent_joined_at < LeadOfferingInterest.created_at,
+            ),
         )
         .limit(1)
     ).first()

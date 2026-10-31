@@ -70,7 +70,12 @@ from app.schemas.user import UserResponse
 from app.schemas.visitor import VisitorEnrichmentUpdate
 from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
-from app.offerings.cart import CartResolution, InterestSync, resolve_cart
+from app.offerings.cart import (
+    CartResolution,
+    InterestSync,
+    has_pending_offer,
+    resolve_cart,
+)
 from app.offerings.grounding import GroundingResult
 from app.offerings.guard_flow import guard_reply
 from app.offerings.offer_turn import ASK_TEAM, HANDOVER_LINE, compose_offer_turn, is_offer_turn
@@ -93,7 +98,6 @@ from app.offerings.turn import (
     ground_turn,
     kb_text_from_prompt,
     lead_source,
-    next_offer_watch,
     offer_watch,
     offered_signal,
     shown_seqs,
@@ -2715,6 +2719,7 @@ async def _send_message_impl(
         is_api_error = False  # set by the generation path below
         _offer_turn = False
         _offer_watch = 0  # replies left under the offer rules (catalog tenants only)
+        _pending_offer = False  # an offer on this lead no human has taken up yet
         _kb_text = ""
         _token_seqs: list[int] = []
 
@@ -2898,6 +2903,12 @@ async def _send_message_impl(
                         Lead.conversation_id == session_id,
                     )
                 ).scalar_one_or_none()
+                if _offerings is not None and _existing_lead is not None:
+                    try:  # an offer no human has taken up yet keeps the agreement rules armed
+                        _pending_offer = has_pending_offer(db, _existing_lead)
+                    except Exception as _po_exc:  # noqa: BLE001
+                        db.rollback()
+                        logger.error(f"pending-offer check failed (non-fatal): {_po_exc}")
                 if _existing_lead is not None:
                     _known_facts = {
                         "name": _existing_lead.name,
@@ -3001,7 +3012,7 @@ async def _send_message_impl(
                     customer_texts=customer_texts(conversation_history, message_data.message),
                     kb_text=_kb_text,
                     tier_amounts=tier_amounts(sales_agent_config if _sales_mode else None),
-                    offer_hint=_offer_watch > 0,
+                    offer_hint=_offer_watch > 0 or _pending_offer,
                 )
                 ai_response_text, token_count, _sales_meta = (
                     _guarded.reply,
@@ -3449,14 +3460,9 @@ async def _send_message_impl(
             db,
             session_id,
             _offerings_shown,
-            watch=(
-                next_offer_watch(
-                    _offer_watch,
-                    _offer_turn
-                    and arms_countdown(
-                        message_data.message, _offerings, offered_signal(_sales_meta)
-                    ),
-                )
+            armed=(
+                _offer_turn
+                and arms_countdown(message_data.message, _offerings, offered_signal(_sales_meta))
                 if _offerings is not None
                 else None
             ),

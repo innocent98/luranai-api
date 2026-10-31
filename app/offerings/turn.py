@@ -176,12 +176,13 @@ def next_offer_watch(current: int, offer_turn: bool) -> int:
 
 
 def remember_shown(
-    db: Session, session_id: UUID, seqs: list[int], *, watch: int | None = None
+    db: Session, session_id: UUID, seqs: list[int], *, armed: bool | None = None
 ) -> None:
     """`session_meta["offerings_shown"]`: the last five refs shown, so "the second one" resolves;
-    `watch` (when given) is the offer-in-play countdown: "so you agree?" two turns after a figure
-    must still meet the agreement rules."""
-    if not seqs and watch is None:
+    `armed` (catalog tenants only; None for everyone else) updates the offer-in-play countdown from
+    the value read under the row lock, so two concurrent messages cannot overwrite each other's
+    count: an offer arms it, any other turn runs it down."""
+    if not seqs and armed is None:
         return
     try:
         from sqlalchemy import select
@@ -201,9 +202,11 @@ def remember_shown(
             merged = [s for s in shown_seqs(meta) if s not in seqs] + seqs
             meta[SHOWN_KEY] = merged[-5:]
             changed = True
-        if watch is not None and watch != offer_watch(meta):
-            meta[OFFER_WATCH_KEY] = watch
-            changed = True
+        if armed is not None:
+            watch = next_offer_watch(offer_watch(meta), armed)
+            if watch != offer_watch(meta):
+                meta[OFFER_WATCH_KEY] = watch
+                changed = True
         if changed:
             row.meta = meta
             db.commit()
