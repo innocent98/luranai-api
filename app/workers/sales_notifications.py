@@ -421,7 +421,7 @@ def _slack_blocks(title: str | None, body: str | None, dashboard_url: str = "") 
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": _slack_escape(body or "")[:2000] or "—",
+                "text": (body or "")[:2000] or "—",
             },
         },
     ]

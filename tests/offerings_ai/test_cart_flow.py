@@ -395,7 +395,7 @@ def test_rep_email_context_lists_items_with_listed_and_offered_prices(client, db
     log = next(x for x in _logs(db, tid, NotifEvent.OFFERING_REQUEST) if x.entity_type == "lead")
     ctx = _entity_context(db, log)
     assert ctx["kind"] == "offering_request"
-    assert ctx["items"] == ["1 × Leather bag (listed ₦45,000), customer offered ₦30,000"]
+    assert ctx["wanted"] == ["1 × Leather bag (listed ₦45,000), customer offered ₦30,000"]
 
 
 def test_a_bargaining_turn_is_answered_by_code_and_the_models_text_is_dropped(client, db):
