@@ -93,6 +93,7 @@ from app.offerings.turn import (
     lead_source,
     offered_signal,
     shown_seqs,
+    strip_token_text,
     safe_offerings_turn,
     remember_shown,
     tier_amounts,
@@ -2864,6 +2865,9 @@ async def _send_message_impl(
             prompt_components.full_prompt = f"{prompt_components.full_prompt}{directive_block}"
             _kb_text = kb_text_from_prompt(prompt_components.full_prompt)
             if _offerings is not None:
+                # nothing a customer, the history, the KB or the tenant wrote can look like a
+                # price token to the model: only the block below holds the real ones
+                prompt_components.full_prompt = strip_token_text(prompt_components.full_prompt)
                 prompt_components.full_prompt += f"\n\n{_offerings.block}"
                 if prompt_components.prompt_tokens is not None:
                     prompt_components.prompt_tokens += _offerings.token_count

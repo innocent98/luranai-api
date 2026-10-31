@@ -222,6 +222,13 @@ def offered_signal(sales_meta: dict | None) -> bool:
     return bool(((sales_meta or {}).get("signals") or {}).get("offered_price"))
 
 
+def strip_token_text(text: str) -> str:
+    """Prompt text with any token-like markup removed; byte-identical when it has none."""
+    from app.offerings import tokens
+
+    return tokens.strip(text) if tokens.has_markup(text) else text
+
+
 def finalize_reply(
     db: Session, tenant_id: UUID, result: GroundingResult | None, reply: str
 ) -> tuple[str, list[int]]:
