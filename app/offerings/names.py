@@ -17,6 +17,16 @@ _WORD = re.compile(r"[a-z0-9]+")
 _QTY_SKIP = {"with", "pack", "from", "that", "this"}
 
 
+def lower_same_len(text: str) -> str:
+    """Lower-case without ever changing the length (`"İ".lower()` is two characters), so a match
+    position in the lowered text is a position in the original. A character whose lowering would
+    change the length stays as it is: it can still match itself."""
+    low = text.lower()
+    if len(low) == len(text):
+        return low
+    return "".join(c.lower() if len(c.lower()) == 1 else c for c in text)
+
+
 def singular(token: str) -> str:
     if len(token) > 4 and token.endswith("ies"):
         return token[:-3] + "y"
@@ -88,9 +98,7 @@ class NameIndex:
         cached = self.__dict__.setdefault("_mentions", {}).get(text)
         if cached is not None:
             return cached
-        low = text.lower()
-        if len(low) != len(text):  # a character that changes length when lowered: never guess
-            return []
+        low = lower_same_len(text)
         out = []
         for i in self.candidates(words_of(text)):
             name = self.low[i]

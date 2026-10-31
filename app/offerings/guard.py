@@ -34,7 +34,14 @@ from app.offerings.amounts import (
 )
 from app.offerings.facts import OfferingFacts
 from app.offerings.grounding import GroundingResult
-from app.offerings.names import NAME_STOP, NameIndex, as_index, singular, words_of
+from app.offerings.names import (
+    NAME_STOP,
+    NameIndex,
+    as_index,
+    lower_same_len,
+    singular,
+    words_of,
+)
 
 _SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
 _REF = re.compile(r"#\s?(\d{1,9})\b")
@@ -276,7 +283,7 @@ def _spans(text: str, needle: str) -> list[tuple[int, int]]:
 def named_items(sentence: str, items: list[OfferingFacts]) -> list[OfferingFacts]:
     """The items a sentence mentions (by `#ref`, full name or a name word). A more specific name
     shadows a shorter one it contains: "Black Sneaker Pro" is not also "Black Sneaker"."""
-    lowered = sentence.lower()
+    lowered = lower_same_len(sentence)
     words = {singular(w) for w in re.findall(r"[a-z0-9]+", lowered)}
     refs = {int(n) for n in _REF.findall(sentence)}
     hits: list[OfferingFacts] = []
@@ -311,7 +318,7 @@ def _mentions(
     """Where a sentence mentions an item: (start, end, item, strength). Strength is how many of the
     item's name words the mention covers, so "the Pro version of the Black Sneaker" is the Pro item,
     not the base one; an explicit #ref is the strongest."""
-    low = sentence.lower()
+    low = lower_same_len(sentence)
     words = [(m.start(), m.end(), singular(m.group())) for m in re.finditer(r"[a-z0-9]+", low)]
     out = []
     for it in items:
@@ -380,7 +387,7 @@ def _foreign_mentions(sentence: str, names, known: set[str]) -> list:
     cache_key = (sentence, frozenset(known))
     if cache_key in cache:  # a reply (or its regeneration) often repeats a sentence
         return cache[cache_key]
-    low = sentence.lower()
+    low = lower_same_len(sentence)
     positions: dict[str, list[tuple[int, int]]] = {}
     for m in re.finditer(r"[a-z0-9]+", low):
         positions.setdefault(singular(m.group()), []).append((m.start(), m.end()))

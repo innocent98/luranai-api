@@ -13,7 +13,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from decimal import Decimal
 
-from app.offerings.names import NameIndex, as_index
+from app.offerings.names import NameIndex, as_index, lower_same_len
 
 _NUM = r"(?:\d{1,3}(?:,\d{3})+|\d{1,3}(?:[   ]\d{3})+|\d+)(?:\.\d+)?"
 _AMOUNT = re.compile(
@@ -493,9 +493,7 @@ def find_all(haystack: str, needle: str):
     per name, so a catalog of thousands of items cannot flood Python's regex cache."""
     if not needle:
         return
-    low, key = haystack.lower(), needle.lower()
-    if len(low) != len(haystack):  # a character that changes length when lowered: never guess
-        return
+    low, key = lower_same_len(haystack), lower_same_len(needle)
     i = low.find(key)
     while i != -1:
         yield i

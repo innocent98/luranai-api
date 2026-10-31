@@ -283,3 +283,18 @@ def test_detection_on_the_pass_seven_sets(name, matched):
     wrong = [m for m in ordinary if is_offer_turn(m, g, False)]
     assert 1 - len(missed) / len(haggle) >= 0.90, missed
     assert len(wrong) / len(ordinary) <= 0.03, wrong
+
+
+def test_a_character_that_changes_length_when_lowered_never_blinds_the_freebie_check():
+    """ "İ".lower() is two characters; the old length guard returned no mentions at all."""
+    g = grounding(SHOP, [1])
+    for reply in (
+        "İstanbul special: the Black sneaker for free.",
+        "ǅ the Black sneaker as a gift, İ İ İ.",
+    ):
+        v = check_reply(reply, g, customer_texts=["black sneaker?"])
+        assert not v.ok, reply
+    from app.offerings.names import NameIndex, lower_same_len
+
+    assert len(lower_same_len("İx")) == 2
+    assert [m[:2] for m in NameIndex(["Black sneaker"]).mentions("İ Black sneaker")] == [(2, 15)]
