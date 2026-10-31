@@ -209,6 +209,11 @@ def sync_interests(
         return out
 
     prior_offer = {r.offering_id: r.offered_price for r in existing if r.offering_id}
+    # `created_at` doubles as "when this offer was made": it is carried across the delete and
+    # re-insert below and only moves when the offered amount is stored for the first time or
+    # changes, so a human who took the offer up stays later than it however often the customer
+    # names the item again
+    prior_made = {r.offering_id: r.created_at for r in existing if r.offering_id}
     prior_qty = {r.offering_id: r.qty for r in existing if r.offering_id}
     offered_oid = res.offered.facts.id if res.offered else None
 
@@ -227,6 +232,7 @@ def sync_interests(
 
     for oid, (facts, qty) in wanted.items():
         offered = res.offered.amount if oid == offered_oid else prior_offer.get(oid)
+        carried = prior_made.get(oid) if offered == prior_offer.get(oid) else None
         db.add(
             LeadOfferingInterest(
                 tenant_id=lead.tenant_id,
@@ -239,6 +245,7 @@ def sync_interests(
                 price_note_snapshot=facts.price_note,
                 qty=qty,
                 offered_price=offered,
+                **({"created_at": carried} if carried is not None else {}),
             )
         )
     db.commit() if commit else db.flush()

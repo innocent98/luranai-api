@@ -615,3 +615,53 @@ def test_the_countdown_is_updated_from_the_value_read_under_the_lock(db):
     remember_shown(db, sess.id, [], armed=None)  # a tenant without a catalog: untouched
     db.refresh(sess)
     assert offer_watch(sess.meta) == 4
+
+
+def test_a_taken_up_offer_stays_resolved_when_the_customer_names_the_item_again(db):
+    """Offer, a human joins, the customer re-selects the item twice: the quote goes out at list."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.db.models.conversation import ConversationSession
+    from app.offerings.cart import (
+        CartResolution,
+        ResolvedLine,
+        ResolvedOffer,
+        has_pending_offer,
+        sync_interests,
+    )
+    from app.offerings.facts import facts_from_row
+
+    tid = _shop(db)
+    lead = Lead(tenant_id=tid, conversation_id=None, name="Pat", source="chat_widget")
+    sess = ConversationSession(tenant_id=tid, user_identifier="u-resel")
+    db.add_all([lead, sess])
+    db.flush()
+    lead.conversation_id = sess.id
+    bag = db.execute(
+        select(Offering).where(Offering.tenant_id == tid, Offering.seq == 3)
+    ).scalar_one()
+    facts = facts_from_row(bag)
+    sync_interests(
+        db,
+        lead,
+        CartResolution(lines=[ResolvedLine(facts, 1)], offered=ResolvedOffer(facts, 30000)),
+        commit=False,
+    )
+    assert has_pending_offer(db, lead) is True
+    sess.agent_joined_at = datetime.now(UTC) + timedelta(seconds=30)  # a human took it up
+    db.flush()
+    assert has_pending_offer(db, lead) is False
+    for _ in range(2):  # "ok I'll take the leather bag", twice: delete and re-insert, offer carried
+        sync_interests(db, lead, CartResolution(lines=[ResolvedLine(facts, 1)]), commit=False)
+        assert has_pending_offer(db, lead) is False
+    # a NEW or CHANGED figure is a new offer: pending again until the next human reply
+    sync_interests(
+        db,
+        lead,
+        CartResolution(lines=[ResolvedLine(facts, 1)], offered=ResolvedOffer(facts, 28000)),
+        commit=False,
+    )
+    row = db.execute(
+        select(LeadOfferingInterest).where(LeadOfferingInterest.lead_id == lead.id)
+    ).scalar_one()
+    assert row.offered_price == 28000
