@@ -88,7 +88,8 @@ _AGREE_WEAK = re.compile(
 )
 _PRICE_TALK = re.compile(
     r"\b(?:price|prices|priced|offer|offered|amount|figure|budget|bid|proposal|cost|costs|pay|payment"
-    r"|naira|total|discount|your\s+(?:number|request))\b",
+    r"|naira|total|discount|your\s+(?:number|request)|for\s+that|have\s+it|owner\s+(?:said|agreed)"
+    r"|that\s+(?:price|amount|figure|offer)|sorted|you\s+win)\b",
     re.IGNORECASE,
 )
 _SAME = re.compile(

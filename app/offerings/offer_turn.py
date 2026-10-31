@@ -11,7 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from app.offerings.amounts import customer_amounts
-from app.offerings.bargain import BROWSE, PAYMENT_PLAN, QUOTING, cap, has_bargain_wording
+from app.offerings.bargain import BROWSE, PAYMENT_PLAN, cap, has_bargain_wording, is_price_check
 from app.offerings.cart import CartResolution
 from app.offerings.facts import OfferingFacts, format_amount
 from app.offerings.grounding import GroundingResult
@@ -49,7 +49,7 @@ def is_offer_turn(
         # candidate unless the message is a question or a budget search
         # "is it ₦25,000 for each?": the customer asking whether a price is right is not offering
         return bool(customer_amounts(text, small_ok=False)) and not (
-            BROWSE.search(text) or QUOTING.search(text)
+            BROWSE.search(text) or is_price_check(text)
         )
     low = min(prices)
     return any(a.value < low for a in customer_amounts(text, small_ok=low < 1000))

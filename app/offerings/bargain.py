@@ -69,6 +69,18 @@ QUOTING = re.compile(
 )
 
 
+_OFFERISH = re.compile(
+    r"\b(?:pay|offer|can|could|will|would|take|sell|give|let|abeg|ok|okay|possible|fit|go)\b",
+    re.IGNORECASE,
+)
+
+
+def is_price_check(text: str) -> bool:
+    """A real confirmation question: ends with `?`, asks whether a price is right, and says nothing
+    that offers, pays or asks for a deal."""
+    return bool(QUOTING.search(text)) and "?" in text and not _OFFERISH.search(text)
+
+
 def fold(text: str | None) -> str:
     """Accents folded away ("ẹ jọ ẹ din owo rẹ" reads "e jo e din owo re"), width folded too."""
     decomposed = unicodedata.normalize("NFKD", normalise((text or "")[:MAX_CHARS]))

@@ -304,4 +304,6 @@ def finalize_reply(
     final = fallback_reply(result) if resolved is None else resolved
     if tokens.has_markup(final):  # last scan: tenant text or a price note cannot smuggle one out
         final = tokens.strip(final)
+        if tokens.has_markup(final):  # still there (an entity-disguised one): the code reply
+            final = tokens.strip(fallback_reply(result))
     return final, seqs

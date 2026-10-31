@@ -136,3 +136,18 @@ def test_html_entity_tokens_are_caught_and_removed():
     text = "The Black Sneaker is &#91;&#91;price:#1&#93;&#93;."
     assert markup.has_price_markup(text)
     assert not markup.has_price_markup(markup.strip_price_markup(text))
+
+
+def test_entity_disguised_tokens_are_dropped_without_decoding_anything_else():
+    from app.offerings import markup
+
+    text = "A &lt;b&gt;bold&lt;/b&gt; &#91;&#91;price:#1&#93;&#93; claim."
+    out = markup.strip_price_markup(text)
+    assert "<" not in out and not markup.has_price_markup(out)
+
+
+def test_only_a_real_confirmation_question_counts_as_a_price_check():
+    g = _browse_grounding()
+    assert not is_offer_turn("is it ₦25,000 for each?", g, False)
+    assert is_offer_turn("is it ₦25,000? can you take 18k", g, False)
+    assert is_offer_turn("is it ok if I pay ₦9,000?", g, False)

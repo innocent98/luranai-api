@@ -56,6 +56,9 @@ def _may_hold_price_markup(text: str) -> bool:
     return "price" in fold(text).lower()
 
 
+_ENTITY = re.compile(r"&#?[A-Za-z0-9]{1,10};")
+
+
 def _unescaped(text: str) -> str:
     """HTML entities read as characters (`&#91;&#91;price:#1&#93;&#93;`), for detection."""
     return html.unescape(text) if "&" in text else text
@@ -77,13 +80,16 @@ def has_price_markup(text: str | None) -> bool:
 def strip_price_markup(text: str | None) -> str:
     """Exact tokens and bracketed look-alikes removed from the text as written; everything else
     (spaces, line breaks, folding-sensitive characters) is left alone. Byte-identical when there
-    is nothing to remove. A look-alike hidden in HTML entities is decoded first (that reply only).
+    is nothing to remove. A look-alike hidden in HTML entities has its entities dropped (never
+    decoded, so no tag or character can appear that the reply did not already contain).
     """
     out = text or ""
     if not _may_hold_price_markup(_unescaped(out)):
         return out
     if not (TOKEN.search(out) or LOOKALIKE.search(out)) and LOOKALIKE.search(fold(_unescaped(out))):
-        out = _unescaped(out)
+        out = _ENTITY.sub(
+            "", out
+        )  # entity-disguised: drop every entity, never decode (no new tags)
     for _ in range(4):  # removing one can join the halves of another
         cleaned = LOOKALIKE.sub("", TOKEN.sub("", out))
         if cleaned == out:
