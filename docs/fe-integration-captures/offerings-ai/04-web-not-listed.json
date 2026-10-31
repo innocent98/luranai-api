@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "Do you sell helicopters?",
-      "tenant_id": "60b080c1-74fa-4f5d-b054-38b4462948c7",
+      "tenant_id": "2c69e301-ee2d-4ab0-af75-3694e0c34a8c",
       "user_identifier": "web-4"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "b4c5724d-affc-45e1-ac35-8f719c8c61d1",
+      "session_id": "3301b576-862b-4b7a-8c96-e78b8036d0d0",
       "message": {
         "role": "assistant",
         "content": "I don't have that listed. Would you like me to connect you with the team?",
-        "id": "39f81294-bfd3-4662-ba2a-f414b420b42c",
-        "session_id": "b4c5724d-affc-45e1-ac35-8f719c8c61d1",
+        "id": "f6f7c5e5-211c-4dbc-8524-a013238934db",
+        "session_id": "3301b576-862b-4b7a-8c96-e78b8036d0d0",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -43,7 +43,7 @@
           "offerings": {
             "mode": "none",
             "items": [],
-            "shown_at": "2026-10-31T09:49:01.650345+00:00",
+            "shown_at": "2026-10-31T11:24:21.883130+00:00",
             "guard": {
               "checked": true,
               "blocked": false,
@@ -52,7 +52,7 @@
             }
           }
         },
-        "created_at": "2026-10-31T09:49:01.680376Z"
+        "created_at": "2026-10-31T11:24:21.931075Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,

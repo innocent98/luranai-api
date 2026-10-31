@@ -49,7 +49,7 @@ def is_offer_turn(
     if grounding.strict or grounding.mode == "unavailable":
         return False
     text = (cap([message]) or [""])[0]
-    names = grounding.catalog_names or [i.name for i in grounding.items]
+    names = grounding.name_index()  # built once per request; the guard reuses it
     if offered_signal or has_bargain_wording(text):
         return True
     prices = [i.price for i in _matched(grounding) if i.price is not None]
@@ -101,6 +101,8 @@ def is_offer_turn(
 
 
 def _name_words(names) -> set[str]:
+    if hasattr(names, "words"):
+        return set(names.words)
     return {w for n in names for w in re.findall(r"[a-z0-9]{3,}", (n or "").lower())}
 
 

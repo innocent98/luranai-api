@@ -7,20 +7,20 @@
     "headers": {},
     "body": {
       "message": "and one white one",
-      "tenant_id": "60b080c1-74fa-4f5d-b054-38b4462948c7",
+      "tenant_id": "2c69e301-ee2d-4ab0-af75-3694e0c34a8c",
       "user_identifier": "web-8",
-      "session_id": "c924f510-8ef8-4234-9586-bdc5b63325bb"
+      "session_id": "cd690db6-78c9-48f2-be22-f656952f518d"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "c924f510-8ef8-4234-9586-bdc5b63325bb",
+      "session_id": "cd690db6-78c9-48f2-be22-f656952f518d",
       "message": {
         "role": "assistant",
-        "content": "Noted: 1 × Canvas sneaker white. What name should I put down?",
-        "id": "1a52aa96-c011-4a1c-a33f-195c2152fbf3",
-        "session_id": "c924f510-8ef8-4234-9586-bdc5b63325bb",
+        "content": "Noted: 1 × Canvas sneaker white. What name should I put down?\n\nIf you'd like a copy by email, share your email address here and I'll send it.",
+        "id": "f01ef46d-9dba-4c23-8775-84add043f32f",
+        "session_id": "cd690db6-78c9-48f2-be22-f656952f518d",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -37,8 +37,8 @@
             "char_count": 61
           },
           "token_breakdown": {
-            "prompt_tokens": 725,
-            "completion_tokens": -575,
+            "prompt_tokens": 743,
+            "completion_tokens": -593,
             "total_tokens": 150
           },
           "offerings": {
@@ -46,7 +46,7 @@
             "items": [
               {
                 "ref": "#2",
-                "offering_id": "96cff34c-3484-4ba0-92a5-2084d4a22f55",
+                "offering_id": "31dcf8e1-49d3-4fd3-a73c-e6a03502ae80",
                 "name": "Canvas sneaker white",
                 "price_text": "₦13,500",
                 "availability": "in_stock",
@@ -55,7 +55,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T09:49:02.111454+00:00",
+            "shown_at": "2026-10-31T11:24:22.663406+00:00",
             "guard": {
               "checked": true,
               "blocked": false,
@@ -77,10 +77,12 @@
                 "amount": 13500
               }
             ],
-            "total": 37500
+            "total": 37500,
+            "emailed": false,
+            "email_offer": true
           }
         },
-        "created_at": "2026-10-31T09:49:02.173347Z"
+        "created_at": "2026-10-31T11:24:22.749517Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,

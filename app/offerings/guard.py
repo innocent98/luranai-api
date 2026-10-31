@@ -15,7 +15,6 @@ This module only judges; the regenerate-then-fall-back flow is `guard_flow.py`.
 """
 
 import re
-from functools import lru_cache
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -34,11 +33,19 @@ from app.offerings.amounts import (
     normalise,
 )
 from app.offerings.facts import OfferingFacts
-from app.offerings.grounding import GroundingResult, singular
+from app.offerings.grounding import GroundingResult
+from app.offerings.names import (
+    NAME_STOP,
+    NameIndex,
+    as_index,
+    lower_same_len,
+    singular,
+    words_of,
+)
 
 _SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
 _REF = re.compile(r"#\s?(\d{1,9})\b")
-_NAME_STOP = {"out", "and", "the", "for", "with", "new", "set"}
+_NAME_STOP = NAME_STOP
 _CUES = re.compile(
     r"\b(?:(?:i|we)(?:'ll|\s+will|\s+can|\s+could|\s+would)\s+"
     r"(?:do|give|offer|accept|sell|take|let|go|make|settle|meet|reduce|lower|drop|knock|cut|agree|throw)"
@@ -188,10 +195,14 @@ def _bundle_hit(plain: str, distinct_tokens: int, sold: set[str] = frozenset()) 
     )
 
 
-def _sold_words(names: list[str]) -> set[str]:
+def _sold_words(names) -> set[str]:
     """Words of the shop's item names, plus the adjacent "word number" pairs ("iphone 14")."""
+    index = as_index(names)
+    cached = index.__dict__.get("_sold")
+    if cached is not None:
+        return cached
     out: set[str] = set()
-    for n in names:
+    for n in index.names:
         toks = re.findall(r"[a-z0-9]+", n.lower())
         for w in toks:
             if len(w) >= 3 or w.isdigit():
@@ -199,6 +210,7 @@ def _sold_words(names: list[str]) -> set[str]:
         out.update(
             f"{singular(a)} {b}" for a, b in zip(toks, toks[1:], strict=False) if b.isdigit()
         )
+    index.__dict__["_sold"] = out
     return out
 
 
@@ -271,7 +283,7 @@ def _spans(text: str, needle: str) -> list[tuple[int, int]]:
 def named_items(sentence: str, items: list[OfferingFacts]) -> list[OfferingFacts]:
     """The items a sentence mentions (by `#ref`, full name or a name word). A more specific name
     shadows a shorter one it contains: "Black Sneaker Pro" is not also "Black Sneaker"."""
-    lowered = sentence.lower()
+    lowered = lower_same_len(sentence)
     words = {singular(w) for w in re.findall(r"[a-z0-9]+", lowered)}
     refs = {int(n) for n in _REF.findall(sentence)}
     hits: list[OfferingFacts] = []
@@ -306,7 +318,7 @@ def _mentions(
     """Where a sentence mentions an item: (start, end, item, strength). Strength is how many of the
     item's name words the mention covers, so "the Pro version of the Black Sneaker" is the Pro item,
     not the base one; an explicit #ref is the strongest."""
-    low = sentence.lower()
+    low = lower_same_len(sentence)
     words = [(m.start(), m.end(), singular(m.group())) for m in re.finditer(r"[a-z0-9]+", low)]
     out = []
     for it in items:
@@ -364,25 +376,41 @@ class _Foreign:
     seq = -1
 
 
-def _foreign_mentions(sentence: str, names: list[str], known: set[str]) -> list:
-    low = sentence.lower()
-    words = [(m.start(), m.end(), singular(m.group())) for m in re.finditer(r"[a-z0-9]+", low)]
-    out = []
-    for name in names:
-        key = name.lower()
-        if not key or key in known:
+def _foreign_mentions(sentence: str, names, known: set[str]) -> list:
+    """Mentions of catalog items that are NOT in this turn's block (a token can never be theirs).
+
+    Cost follows the sentence, not the catalog: a name is looked at only when it shares words with
+    the sentence, the word positions are computed once, and equal spans from different names (a
+    catalog full of "... Pro" items) collapse into one mention."""
+    index = as_index(names)
+    cache = index.__dict__.setdefault("_foreign", {})
+    cache_key = (sentence, frozenset(known))
+    if cache_key in cache:  # a reply (or its regeneration) often repeats a sentence
+        return cache[cache_key]
+    low = lower_same_len(sentence)
+    positions: dict[str, list[tuple[int, int]]] = {}
+    for m in re.finditer(r"[a-z0-9]+", low):
+        positions.setdefault(singular(m.group()), []).append((m.start(), m.end()))
+    word_set = set(positions)
+    spans: set[tuple[int, int, int]] = set()
+    for n in index.candidates(word_set):
+        key = index.low[n]
+        if key in known:
             continue
-        for i in find_all(low, key):
-            out.append((i, i + len(key), _Foreign(), 100))
-        toks = {
-            singular(t)
-            for t in re.findall(r"[a-z0-9]+", key)
-            if len(t) >= 3 and t not in _NAME_STOP
-        }
-        hit = [(s0, e0) for s0, e0, w in words if w in toks]
-        if toks and len({w for _, _, w in words if w in toks}) >= min(2, len(toks)):
-            out.append((hit[0][0], max(e0 for _, e0 in hit), _Foreign(), 1))
-    return out
+        toks = index.tokens[n]
+        matched = toks & word_set
+        if toks and not matched:
+            continue
+        if toks <= word_set:  # every word is there: the full name may be too
+            for i in find_all(low, key):
+                spans.add((i, i + len(key), 100))
+        if toks and len(matched) >= min(2, len(toks)):
+            hit = [pos for w in matched for pos in positions[w]]
+            spans.add((min(a for a, _b in hit), max(b for _a, b in hit), 1))
+    result = [(a, b, _Foreign(), strength) for a, b, strength in spans]
+    if len(cache) < 512:
+        cache[cache_key] = result
+    return result
 
 
 def bound_items(
@@ -443,23 +471,15 @@ def _names_strongly(sentence: str, items: list[OfferingFacts]) -> bool:
     return False
 
 
-@lru_cache(maxsize=8192)
-def _tokens_of(name: str) -> frozenset[str]:
-    return frozenset(
-        singular(t)
-        for t in re.findall(r"[a-z0-9]+", name.lower())
-        if (len(t) >= 3 or t.isdigit()) and t not in _NAME_STOP
-    )
-
-
-def _names_catalog_strongly(sentence: str, names: list[str]) -> bool:
+def _names_catalog_strongly(sentence: str, names) -> bool:
     """A full item name, or two of its name words, from the tenant's whole active catalog."""
+    index = as_index(names)
     lowered = sentence.lower()
-    words = {singular(w) for w in re.findall(r"[a-z0-9]+", lowered)}
-    for name in names:
-        toks = _tokens_of(name)
-        if name and name.lower() in lowered:
+    words = words_of(sentence)
+    for i in index.candidates(words):
+        if index.low[i] in lowered:
             return True
+        toks = index.tokens[i]
         if toks and len(toks & words) >= min(2, len(toks)):
             return True
     return False
@@ -550,8 +570,7 @@ def _free_beside_item(
 ) -> bool:
     """A freebie word right beside a catalog item's full name or #ref ("a free Leather Wallet",
     "the Red Bag as a gift"): at most two words between, no clause break, not negated."""
-    low = sentence.lower()
-    spots = [(i, i + len(n)) for n in names if n for i in find_all(low, n)]
+    spots = [(a, b) for a, b, _i in as_index(names).mentions(sentence)]
     spots += [m.span() for m in _REF.finditer(sentence)]
     # a partial name ("black sneaker" for "Canvas sneaker black") still points at the item
     spots += [(a, b) for a, b, _it, strength in _mentions(sentence, items or []) if strength >= 2]
@@ -584,14 +603,10 @@ def _clause_at(text: str, pos: int) -> str:
     return text[start:]
 
 
-def _names_any(sentence: str, names: list[str]) -> bool:
+def _names_any(sentence: str, names) -> bool:
     """Does a sentence name a catalog item (any of the tenant's active items, in the block or not)?"""
-    words = {singular(w) for w in re.findall(r"[a-z0-9]+", sentence.lower())}
-    for name in names:
-        toks = _tokens_of(name)
-        if toks and toks & words:
-            return True
-    return False
+    index = as_index(names)
+    return any(w in index.by_word for w in words_of(sentence))
 
 
 def _negated(sentence: str, match: re.Match) -> bool:
@@ -695,9 +710,10 @@ def check_reply(
     injected = {i.seq for i in items}
     all_prices = {Decimal(i.price) for i in items if i.price is not None}
     small_ok = any(p < 1000 for p in all_prices)
-    catalog_names = list({*grounding.catalog_names, *(i.name for i in items)})
+    catalog_names = grounding.name_index()  # built once per request, shared with offer detection
     by_seq = {i.seq: i for i in items}
-    outside_names = [n for n in catalog_names if n.lower() not in {i.name.lower() for i in items}]
+    in_block = {i.name.lower() for i in items}
+    outside_names = NameIndex(n for n in catalog_names.names if n.lower() not in in_block)
     sold_words = _sold_words(catalog_names)
     customer_money = _values(
         customer_texts, small_ok, strict=True, names=catalog_names

@@ -28,6 +28,7 @@ from app.db.models.offering import (
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.offerings.block import BLOCK_TOKEN_CAP, render_block, unavailable_block
 from app.offerings.facts import OfferingFacts, facts_from_row
+from app.offerings.names import NameIndex, singular  # noqa: F401  (singular is re-exported)
 from app.offerings.prompt import channel_formatting
 from app.services.rag_service import RAGService
 from app.utils.datetime import ensure_utc_aware
@@ -137,6 +138,15 @@ class GroundingResult:
     strict: bool = False  # lookup failed: the guard treats any amount as a violation
     catalog_names: list[str] = field(default_factory=list)  # every active item's name
     token_count: int = 0
+    _name_index: tuple | None = field(default=None, repr=False, compare=False)
+
+    def name_index(self) -> NameIndex:
+        """The index over every active item name (and the block's own), built once per request."""
+        names = [*self.catalog_names, *(i.name for i in self.items)]
+        key = (len(names), hash(tuple(names)))
+        if self._name_index is None or self._name_index[0] != key:
+            self._name_index = (key, NameIndex(names))
+        return self._name_index[1]
 
     @property
     def allowed_amounts(self) -> frozenset[int]:
@@ -157,16 +167,6 @@ class GroundingResult:
 
 
 # -- query building ---------------------------------------------------------------------------
-
-
-def singular(token: str) -> str:
-    if len(token) > 4 and token.endswith("ies"):
-        return token[:-3] + "y"
-    if len(token) > 4 and token.endswith(("ches", "shes", "sses", "xes")):
-        return token[:-2]
-    if len(token) > 3 and token.endswith("s") and not token.endswith("ss"):
-        return token[:-1]
-    return token
 
 
 def tokenize(text: str | None) -> list[str]:

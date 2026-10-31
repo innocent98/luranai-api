@@ -58,6 +58,29 @@ def mask_email(address: str) -> str:
     return f"{local[:1]}***@{domain}"
 
 
+def scrub_addresses(text: str, addresses) -> str:
+    """Replace every occurrence of the visitor's own address(es) in `text` with the masked form.
+
+    The model sees the lead's address and sometimes repeats it ("sent to alice@..."); the visitor
+    is only ever shown the masked address. Other addresses in the text (the tenant's support
+    mailbox, say) are left alone.
+    """
+    for address in addresses:
+        if address and address.strip():
+            text = re.sub(re.escape(address.strip()), mask_email(address), text, flags=re.I)
+    return text
+
+
+_ASKS_FOR_EMAIL = re.compile(
+    r"\be-?mail(?:ed|ing)?\b|\bpdf\b|\bre-?send\b|\bsend (?:it|me|that|this|the quote)\b", re.I
+)
+
+
+def asks_for_email(visitor_message: str | None) -> bool:
+    """Whether the visitor is asking for the quote by email ("Yes, email me", "send it to me")."""
+    return bool(visitor_message and _ASKS_FOR_EMAIL.search(visitor_message))
+
+
 def strip_email_promises(reply: str) -> str:
     """Remove every sentence that promises or offers to email the quote.
 
@@ -87,12 +110,17 @@ def strip_email_promises(reply: str) -> str:
 class SentOutcome:
     """What the platform did about emailing the quote this turn."""
 
-    kind: str  # "queued" | "capped" | "invite"
+    kind: str  # "queued" | "capped" | "invite" | "already"
     masked: str | None = None
+    announce: bool = True  # False: only the quote card is told (nothing is added to the reply)
 
     @classmethod
     def queued(cls, masked: str) -> "SentOutcome":
         return cls("queued", masked)
+
+    @classmethod
+    def already(cls, masked: str, *, announce: bool = True) -> "SentOutcome":
+        return cls("already", masked, announce)
 
     @classmethod
     def capped(cls) -> "SentOutcome":
@@ -109,16 +137,55 @@ class SentOutcome:
                 f"I've sent the quote to {self.masked}. "
                 "If it doesn't arrive in a few minutes, please check your spam folder."
             )
+        if self.kind == "already":
+            return (
+                f"I already emailed this quote to {self.masked}. Please check your inbox and spam "
+                "folder; if it still hasn't arrived in a few minutes, ask the team to resend it."
+            )
         if self.kind == "capped":
             return "I couldn't email the quote just now, but it's right here in our chat."
         return "If you'd like a copy by email, share your email address here and I'll send it."
 
 
-def finalize_reply(reply: str, outcome: SentOutcome | None) -> str:
-    """The reply as the visitor sees it: no model-made email promises, plus the true note."""
-    cleaned = strip_email_promises(reply)
-    if outcome is None:
+_MENTIONS_EMAIL = re.compile(r"@|\binbox\b|\bspam\b|\bpdf\b", re.I)
+
+
+def _drop_email_talk(reply: str) -> str:
+    """Remove every sentence about email, the inbox or a sent copy (used when code states it)."""
+    kept_lines = []
+    for line in reply.split("\n"):
+        kept = [
+            sentence
+            for sentence in _SENTENCE_BREAK.split(line)
+            if sentence.strip()
+            and not _EMAIL_WORD.search(sentence)
+            and not _MENTIONS_EMAIL.search(sentence)
+        ]
+        if kept or not line.strip():
+            kept_lines.append(" ".join(kept))
+    return "\n".join(kept_lines).strip()
+
+
+def quote_card_fields(outcome: SentOutcome | None) -> dict:
+    """Additive keys for `meta.quote`: what the card may say about emailing it.
+
+    `emailed`/`emailed_to` (masked) once a copy is on its way; `email_offer` is True only while
+    asking for an email can still lead to one (the visitor has no address yet and a send is
+    possible). Old messages carry none of these and the card renders as before.
+    """
+    if outcome is not None and outcome.kind in ("queued", "already"):
+        return {"emailed": True, "emailed_to": outcome.masked, "email_offer": False}
+    return {"emailed": False, "email_offer": bool(outcome and outcome.kind == "invite")}
+
+
+def finalize_reply(reply: str, outcome: SentOutcome | None, *, addresses=()) -> str:
+    """The reply as the visitor sees it: no model-made email promises, the visitor's address only
+    ever masked, plus the true note."""
+    cleaned = strip_email_promises(scrub_addresses(reply, addresses))
+    if outcome is None or not outcome.announce:
         return cleaned
+    if outcome.kind == "already":
+        cleaned = _drop_email_talk(cleaned) or _FALLBACK
     if cleaned == _FALLBACK:
         return outcome.note
     return f"{cleaned}\n\n{outcome.note}"

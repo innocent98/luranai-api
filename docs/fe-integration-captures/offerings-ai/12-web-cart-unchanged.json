@@ -7,20 +7,20 @@
     "headers": {},
     "body": {
       "message": "yes that is right",
-      "tenant_id": "60b080c1-74fa-4f5d-b054-38b4462948c7",
+      "tenant_id": "2c69e301-ee2d-4ab0-af75-3694e0c34a8c",
       "user_identifier": "web-8",
-      "session_id": "c924f510-8ef8-4234-9586-bdc5b63325bb"
+      "session_id": "cd690db6-78c9-48f2-be22-f656952f518d"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "c924f510-8ef8-4234-9586-bdc5b63325bb",
+      "session_id": "cd690db6-78c9-48f2-be22-f656952f518d",
       "message": {
         "role": "assistant",
         "content": "The Canvas sneaker white is ₦13,500, in stock.",
-        "id": "4cd122a1-0ee8-4e2d-9d7d-59bb3acd12f5",
-        "session_id": "c924f510-8ef8-4234-9586-bdc5b63325bb",
+        "id": "7e943896-45b5-4684-bed2-29fa6972d3b8",
+        "session_id": "cd690db6-78c9-48f2-be22-f656952f518d",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -37,8 +37,8 @@
             "char_count": 51
           },
           "token_breakdown": {
-            "prompt_tokens": 753,
-            "completion_tokens": -603,
+            "prompt_tokens": 789,
+            "completion_tokens": -639,
             "total_tokens": 150
           },
           "offerings": {
@@ -46,7 +46,7 @@
             "items": [
               {
                 "ref": "#2",
-                "offering_id": "96cff34c-3484-4ba0-92a5-2084d4a22f55",
+                "offering_id": "31dcf8e1-49d3-4fd3-a73c-e6a03502ae80",
                 "name": "Canvas sneaker white",
                 "price_text": "₦13,500",
                 "availability": "in_stock",
@@ -55,7 +55,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T09:49:02.317189+00:00",
+            "shown_at": "2026-10-31T11:24:22.791499+00:00",
             "guard": {
               "checked": true,
               "blocked": false,
@@ -64,7 +64,7 @@
             }
           }
         },
-        "created_at": "2026-10-31T09:49:02.406417Z"
+        "created_at": "2026-10-31T11:24:22.853371Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,

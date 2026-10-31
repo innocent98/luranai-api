@@ -165,7 +165,7 @@ def arms_countdown(message: str, grounding, signal: bool) -> bool:
 
     if signal:
         return True
-    names = grounding.catalog_names or [i.name for i in grounding.items]
+    names = grounding.name_index()
     text = (cap([message]) or [""])[0]
     return bool(customer_amounts(text, small_ok=True, names=names))
 

@@ -3372,13 +3372,21 @@ async def _send_message_impl(
         # and words it; any "I'll email it" the model wrote is removed from the reply.
         from app.services.quote_email_service import finalize_turn_reply
 
-        ai_response_text = await finalize_turn_reply(
+        _turn_reply = await finalize_turn_reply(
             db,
             ai_response_text,
             lead=lead,
             new_quote=_new_quote,
             email_just_captured=_lead_captured_meta is not None,
+            session_id=session_id,
+            visitor_message=message_data.message,
         )
+        ai_response_text = _turn_reply.text
+        if _new_quote is not None and isinstance(_message_meta.get("quote"), dict):
+            _message_meta["quote"].update(_turn_reply.card_fields)  # card: sent / may offer
+        elif _turn_reply.outcome is not None and _turn_reply.outcome.masked:
+            # the email went out for a card shown earlier: tell the open chat to flip it
+            _message_meta["quote_emailed_to"] = _turn_reply.outcome.masked
 
         assistant_message = conversation_service.add_message(
             session_id=session_id,
