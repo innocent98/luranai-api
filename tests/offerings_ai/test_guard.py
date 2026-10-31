@@ -107,7 +107,8 @@ CASES = [
     C(f"Phone repair starts from {T(4)}.", True),
     C(f"The custom portrait is {T(6)}; I can connect you with the team.", True),
     C(f"The black sneaker is {T(1)}, cheaper than the white one at {T(2)}.", True),
-    C(f"1. **Black sneaker**\n - Price: {T(1)}", True),
+    C(f"1. **Canvas sneaker black**\n - Price: {T(1)}", True),
+    C(f"1. **Black sneaker**\n - Price: {T(1)}", False, "token_mismatch"),  # base or pro?
     C(f"| Item | Price |\n|---|---|\n| Black sneaker | {T(1)} |\n| Leather bag | {T(3)} |", True),
     C("Which size do you need, 41 or 42?", True),
     C("We have 2 pairs of the white sneaker in size 42.", True),
@@ -376,6 +377,68 @@ CASES += [
     C("A 7.5% VAT applies to all orders.", True, kb="A 7.5% VAT applies to all orders."),
     C("A 7.5% VAT applies to all orders.", False, "percent_claim"),
 ]
+
+CASES += [
+    # review pass 5: carried binding names only the most specific item, never two candidates
+    C(f"The Canvas sneaker black is a classic.\nIt costs {T(10)}.", False, "token_mismatch"),
+    C(f"The Canvas sneaker black is a classic.\nIt costs {T(1)}.", True),
+    C(f"*Canvas sneaker black*\nPrice: {T(10)}", False, "token_mismatch"),
+    C(f"The sneaker is a classic.\nIt costs {T(1)}.", False, "token_mismatch"),
+    # concessions with no offer in play, and wording the old patterns missed
+    C("For you, I can go a little lower on the Red bag.", False, "discount_wording"),
+    C("Sure, the Red bag can be yours for less.", False, "discount_wording"),
+    C(f"The least we can do is a little below {T(11)}.", False, "discount_wording"),
+    C(f"I can manage something on the Red bag, {T(11)} is not final.", False, "discount_wording"),
+    # ordinary replies during an offer countdown: only sentences about an item or price are judged
+    C(
+        "Yes, we deliver to Lekki within 2 days.",
+        True,
+        customer=("abeg 9000", "ok", "do you deliver to Lekki?"),
+        offer=False,
+    ),
+    C(
+        "Sure, we are open from 9am to 5pm.",
+        True,
+        customer=("abeg 9000", "ok", "when do you open?"),
+    ),
+    C(
+        "Of course, we accept bank transfer.",
+        True,
+        customer=("abeg 9000", "ok", "can I pay by transfer?"),
+    ),
+    C(
+        "Okay, the team can book Saturday.",
+        True,
+        customer=("abeg 9000", "ok", "can I pick up Saturday?"),
+    ),
+    C("Yes, we deliver to Lekki within 2 days.", True, customer=("my order number is 10021",)),
+    C("Yes, we deliver.", True, customer=("I paid 5000 deposit yesterday",)),
+    C(
+        "Deal! I'll let the team know.",
+        False,
+        customer=("how much is the red bag", "I fit pay 18k"),
+    ),
+    C(
+        "Sure, we can do that for you!",
+        False,
+        customer=("how much is the red bag", "Pls sell for 18,000"),
+    ),
+    # spec shorthand and descriptive numbers are not money, bundles or percent claims
+    C("The Samsung TV is 4K UHD and supports 4K.", True),
+    C("It charges to 50% in 30 minutes.", True),
+    C("The phone is 100% original with battery health 90%.", True),
+    C(f"The Canvas sneaker black is {T(1)} and comes with 2 SIM slots.", True),
+    C(f"The Canvas sneaker black is {T(1)} with a 14 inch screen.", True),
+    C(f"The Canvas sneaker black is {T(1)}; parking for 2 cars, 5 toilets.", True),
+    C(f"The Canvas sneaker black is {T(1)}; it takes 5 to 6 hours.", True),
+    C(
+        f"The Canvas sneaker black is {T(1)} and a deposit of 50% secures it.",
+        False,
+        "percent_claim",
+    ),
+    C(f"The Canvas sneaker black is {T(1)} with a 20% discount.", False),
+]
+
 
 BARE = ("how much is the red bag", "abeg 9000")
 CASES += [

@@ -71,16 +71,16 @@ _FILLER = {
     "more", "this", "that", "such", "special", "provide", "make", "allow", "apply", "grant",
 }  # fmt: skip
 _AGREE_STRONG = re.compile(
-    r"\b(?:deal|agreed?|accept(?:ed)?|granted|approved|we\s+accept|we\s+can\s+do\s+that|can\s+do\s+that"
+    r"\b(?:deal|agreed?|granted|approved|we\s+can\s+do\s+that|can\s+do\s+that"
     r"|it'?s\s+yours|you\s+got\s+it|settled|put\s+(?:it|that)\s+through|at\s+(?:that|your)\s+price"
-    r"|go\s+with\s+that|let'?s\s+go|fair\s+enough|that'?s\s+fair|honou?r|proceed|e\s+don\s+do|we\s+fit"
+    r"|go\s+with\s+that|let'?s\s+go|fair\s+enough|that'?s\s+fair|e\s+don\s+do|we\s+fit"
     r"|fit\s+do\s+am|wahala|oya|doable|good\s+news|great\s+news|we\s+agree|i\s+agree)\b",
     re.IGNORECASE,
 )
 # ordinary yes/sure/okay: an agreement only when the sentence is about an item, a price or an offer
 _AGREE_WEAK = re.compile(
     r"\b(?:yes|yeah|yep|okay|ok|sure|alright|perfect|confirmed|fine|works?|no\s+problem|of\s+course"
-    r"|certainly|absolutely|done|possible)\b",
+    r"|certainly|absolutely|done|possible|accept(?:ed)?|we\s+accept|honou?r|proceed)\b",
     re.IGNORECASE,
 )
 _PRICE_TALK = re.compile(
@@ -95,7 +95,12 @@ _SAME = re.compile(
 )
 _NOT_PRODUCT = (
     r"(?!\s*(?:sizes?|colou?rs?|options?|photos?|pictures?|variants?|ways?|days?|weeks?|hours?"
-    r"|minutes?|mins?|months?|years?|steps?|stores?|branch(?:es)?|locations?|payment|methods?))"
+    r"|minutes?|mins?|months?|years?|steps?|stores?|branch(?:es)?|locations?|payment|methods?"
+    r"|sim|slots?|cameras?|lens(?:es)?|ports?|hdmi|usb|speakers?|cores?|screens?|toilets?|bathrooms?"
+    r"|bedrooms?|beds?|cars?|spaces?|floors?|doors?|windows?|seats?|rooms?|inch(?:es)?|cm|mm|sqm|gb|tb"
+    r"|mp|hz|ghz|mah|watts?|volts?|kg|litres?|liters?|people|persons?|guests?|pax|garages?|balcon\w+"
+    r"|kitchens?|bays?|sides?|pockets?|layers?|stars?)\b)"
+    r"(?!\s*(?:to|-|\u2013)\s*\d)"
 )
 _QTY = (
     r"(?<!size\s)(?<!sizes\s)(?<!to\s)(?<!-)(?<![#\d.,₦$£€N])\b(?:[2-9]|[1-9]\d|two|three|four|five|six|seven|eight|nine|ten"
@@ -108,6 +113,13 @@ _TOTAL = re.compile(
     re.IGNORECASE,
 )
 # words that group items under one price; several distinct tokens in a sentence are separate prices
+# a percentage is a business term only beside money talk; "100% original", "charges to 50%" are specs
+_FIN_PERCENT = re.compile(
+    r"\b(?:deposit|fees?|commission|interest|tax|vat|payment|instal+ments?|down\s*payment|upfront"
+    r"|advance|balance|refund|discount|off|reduction|less|mark-?up|surcharge|price|cost|pay|paid"
+    r"|rate|extra|more)\b",
+    re.IGNORECASE,
+)
 _GROUP = re.compile(
     r"\b(?:pair|set|bundle|both|all\s+(?:of\s+)?our|together|package|the\s+two|those\s+two"
     r"|second|third|every\s+other|everything|every\s+item|all\s+(?:items|products|prices)|any\s+item"
@@ -246,6 +258,17 @@ def _mentions(
             else:  # one word of a longer name: a weak mention
                 out.append((*span, it, 0))
     return out
+
+
+def _top_mentions(sentence: str, items: list[OfferingFacts]) -> set[int]:
+    """The items a sentence is most specifically about (its strongest mentions): what "It costs
+    ..." in the next sentence can refer to. Two equally strong candidates stay ambiguous."""
+    hidden = tokens.TOKEN.sub(lambda m: "\x00" * len(m.group(0)), sentence)
+    found = _mentions(hidden, items)
+    if not found:
+        return set()
+    top = max(m[3] for m in found)
+    return {m[2].seq for m in found if m[3] == top}
 
 
 def _clusters(hits: list, gap: int = 20) -> list[list]:
@@ -598,7 +621,7 @@ def check_reply(
                         Violation(sentence, "token_mismatch")
                     )  # names an item outside the block
                 elif pool is None and carried:
-                    if seq not in carried:  # "It costs ..." after another item
+                    if carried != {seq}:  # "It costs ..." after another item, or after two
                         violations.append(Violation(sentence, "token_mismatch"))
                 elif pool is None and matched_seqs != {seq}:
                     # nothing in the sentence says whose price this is: only the one item the
@@ -606,9 +629,9 @@ def check_reply(
                     violations.append(Violation(sentence, "token_mismatch"))
             if seqs and named_seqs:
                 last = bound.get(seqs[-1])
-                carried = last if last else named_seqs
+                carried = last if last else _top_mentions(sentence, items)
             elif named_seqs:
-                carried = named_seqs
+                carried = _top_mentions(sentence, items)
             if (
                 seqs
                 and _bundle_hit(_without_names(plain, catalog_names), len(set(seqs)))
@@ -643,7 +666,11 @@ def check_reply(
                 violations.append(Violation(sentence, "agreement_after_offer"))
         for a in amounts:
             if a.kind == "percent":
-                if not grounding.strict and a.value not in percents:
+                if (
+                    not grounding.strict
+                    and a.value not in percents
+                    and _FIN_PERCENT.search(sentence)
+                ):
                     violations.append(Violation(sentence, "percent_claim", [a.value]))
                 continue  # a percentage is a business term nobody sanctioned unless it is known
             if a.kind != "money":

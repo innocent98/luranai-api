@@ -28,14 +28,11 @@ _AMOUNT = re.compile(
     re.VERBOSE | re.IGNORECASE,
 )
 _SPEC_AFTER = {
-    "uhd", "hd", "ultra", "resolution", "video", "videos", "display", "screen", "tv", "monitor", "hdr",
-    "oled", "qled", "fps", "camera", "ready", "content", "quality", "panel", "projector", "gaming",
-    "recording", "footage", "capable", "support", "supported",
+    "uhd", "hd", "ultra", "resolution", "video", "videos", "display", "screen", "tv", "monitor",
+    "hdr", "oled", "qled", "fps", "camera", "panel", "projector",
 }  # fmt: skip
 _SPEC_BEFORE = re.compile(
-    r"\b(?:supports?|supporting|plays?|records?|recording|shoots?|resolution|ultra|full|uhd|up\s+to"
-    r"|in)\s+$",
-    re.IGNORECASE,
+    r"\b(?:supports?|supporting|plays?|records?|resolution|ultra|uhd)\s+$", re.IGNORECASE
 )
 _MULT = {
     "k": 10**3,
