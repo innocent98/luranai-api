@@ -149,7 +149,7 @@ def build_offerings_turn(
 
 
 OFFER_WATCH_KEY = "offer_watch"
-OFFER_WATCH_TURNS = 3  # replies after a bargaining turn that still answer under the offer rules
+OFFER_WATCH_TURNS = 5  # replies after a bargaining turn that still answer under the offer rules
 
 
 def offer_watch(session_meta: dict | None) -> int:
@@ -171,10 +171,17 @@ def remember_shown(
     if not seqs and watch is None:
         return
     try:
-        row = db.get(ConversationSession, session_id)
+        from sqlalchemy import select
+
+        # the row lock keeps two concurrent messages (WhatsApp) from losing each other's write
+        row = db.execute(
+            select(ConversationSession)
+            .where(ConversationSession.id == session_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
         if row is None:
             return
-        db.refresh(row)
         meta = dict(row.meta or {})
         changed = False
         if seqs:
@@ -292,6 +299,8 @@ def finalize_reply(
         for row in _by_seqs(db, tenant_id, seqs)
     }
     resolved = tokens.resolve(reply, live.get)
+    if resolved is not None:
+        resolved = tokens.collapse_mode_words(resolved)
     final = fallback_reply(result) if resolved is None else resolved
     if tokens.has_markup(final):  # last scan: tenant text or a price note cannot smuggle one out
         final = tokens.strip(final)

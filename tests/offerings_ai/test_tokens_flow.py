@@ -343,3 +343,9 @@ def test_interleaved_markup_cannot_reassemble_into_a_token():
         assert not markup.has_price_markup(strip_token_text(raw)), raw
         assert not tokens.has_markup(tokens.strip(raw)), raw
         assert not tokens.has_markup(clean_text("Bag " + raw, 80)), raw
+
+
+def test_a_doubled_mode_word_after_resolution_is_collapsed():
+    assert tokens.collapse_mode_words("It starts from from ₦25,000.") == "It starts from ₦25,000."
+    assert tokens.collapse_mode_words("₦4.5m per annum per annum") == "₦4.5m per annum"
+    assert tokens.collapse_mode_words("from ₦5,000 per phone") == "from ₦5,000 per phone"

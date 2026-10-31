@@ -19,6 +19,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from app.db.models.offering import OfferingAvailability
 from app.offerings import tokens
 from app.offerings.bargain import cap, has_bargain_wording
 from app.offerings.amounts import (
@@ -109,7 +110,7 @@ _NOT_PRODUCT = (
 _FEATURE_NOUNS = {
     "sim", "slot", "camera", "lens", "port", "hdmi", "usb", "speaker", "core", "screen", "toilet",
     "bathroom", "bedroom", "bed", "car", "space", "floor", "door", "window", "seat", "room",
-    "people", "person", "guest", "pax", "garage", "balcony", "kitchen", "bay", "side", "pocket",
+    "people", "person", "guest", "pax", "parking", "garage", "balcony", "kitchen", "bay", "side", "pocket",
     "layer", "star",
 }  # fmt: skip
 _QTY = (
@@ -180,6 +181,11 @@ def _bundle_hit(plain: str, distinct_tokens: int, sold: set[str] = frozenset()) 
     )
 
 
+_AVAILABLE = re.compile(
+    r"\b(?:available|in\s+stock|ready|we\s+have\s+(?:it|them|this)|can\s+order|order\s+now"
+    r"|ships?\s+today|get\s+it\s+now)\b",
+    re.IGNORECASE,
+)
 _PER = re.compile(r"\b(?:each|per|apiece|every|a\s+pair|one|unit)\b", re.IGNORECASE)
 # a freebie word is only a problem next to a catalog item ("a free Leather Wallet", "the Red Bag as a
 # gift"); "feel free", "free size" and "a free dust bag" are ordinary words
@@ -571,6 +577,7 @@ def check_reply(
     all_prices = {Decimal(i.price) for i in items if i.price is not None}
     small_ok = any(p < 1000 for p in all_prices)
     catalog_names = list({*grounding.catalog_names, *(i.name for i in items)})
+    by_seq = {i.seq: i for i in items}
     sold_words = {
         singular(w) for n in catalog_names for w in re.findall(r"[a-z]+", n.lower()) if len(w) >= 3
     }
@@ -661,6 +668,14 @@ def check_reply(
                     # nothing in the sentence says whose price this is: only the one item the
                     # customer's question matched can be meant
                     violations.append(Violation(sentence, "token_mismatch"))
+            for seq in seqs:
+                row = by_seq.get(seq)
+                if (
+                    row is not None
+                    and row.availability == OfferingAvailability.OUT_OF_STOCK
+                    and _unnegated(_AVAILABLE, sentence)
+                ):
+                    violations.append(Violation(sentence, "sold_out_claim"))
             if seqs and named_seqs:
                 last = bound.get(seqs[-1])
                 carried = last if last else _top_mentions(sentence, items)
@@ -708,7 +723,7 @@ def check_reply(
                     not grounding.strict
                     and a.value not in percents
                     and (
-                        _FIN_PERCENT.search(sentence)
+                        _FIN_PERCENT.search(tokens.TOKEN.sub(" ", sentence))
                         or (anchored and not _SPEC_PERCENT.search(sentence))
                     )
                 ):

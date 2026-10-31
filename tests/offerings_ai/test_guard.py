@@ -576,6 +576,19 @@ CASES += [
 ]
 
 
+CASES += [
+    # a sold-out item's token next to "available" is a claim the shop cannot honour
+    C(f"The Sold out sandals are {T(5)} and available now.", False, "sold_out_claim"),
+    C(f"The Sold out sandals are {T(5)}, but they are sold out right now.", True),
+]
+
+
+CASES += [
+    C(f"The Canvas sneaker black is {T(1)} and it is 100% original.", True),
+    C(f"The Canvas sneaker black is {T(1)} with 2 parking spaces.", True),
+    C(f"The Canvas sneaker black is {T(1)} with a 20% discount.", False),
+]
+
 BARE = ("how much is the red bag", "abeg 9000")
 CASES += [
     # an offer written as a bare number still puts the reply under the agreement rules

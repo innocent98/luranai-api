@@ -533,5 +533,15 @@ def test_an_offer_keeps_the_agreement_rules_armed_for_the_next_replies(client, d
 def test_next_offer_watch_counts_down_and_rearms():
     from app.offerings.turn import next_offer_watch
 
-    assert next_offer_watch(0, True) == 3
-    assert [next_offer_watch(n, False) for n in (3, 1, 0)] == [2, 0, 0]
+    assert next_offer_watch(0, True) == 5
+    assert [next_offer_watch(n, False) for n in (5, 1, 0)] == [4, 0, 0]
+
+
+def test_a_figure_only_offer_with_no_item_named_goes_to_a_human_not_the_model(client, db):
+    tid = _shop(db)
+    r = _run(
+        client, db, tid, Model(("Sure, we can do that for you!", None, None)), text="I fit pay 18k"
+    )
+    content = r.json()["message"]["content"]
+    assert "we can do that" not in content
+    assert "team" in content

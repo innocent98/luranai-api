@@ -68,6 +68,16 @@ def resolve(text: str, price_text: Callable[[int], str | None]) -> str | None:
     return out
 
 
+_FROM_FROM = re.compile(r"\b(from)\s+from\b", re.IGNORECASE)
+_PER_PER = re.compile(r"\b(per\s+[^\W\d_]+)\s+\1\b", re.IGNORECASE)
+
+
+def collapse_mode_words(text: str) -> str:
+    """The resolved price text carries its own mode ("from ₦25,000", "₦4.5m per annum"); the model
+    cannot see it, so it may write "starts from [[price]]": the doubled word is removed."""
+    return _PER_PER.sub(r"\1", _FROM_FROM.sub(r"\1", text))
+
+
 def price_order_line(items: Iterable[OfferingFacts]) -> str:
     """ "Price order, lowest first: #3, #1, #2": lets the model compare without ever seeing amounts."""
     priced = sorted((i for i in items if i.price is not None), key=lambda i: (i.price, i.seq))
