@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "what is the exact price of the white sneaker?",
-      "tenant_id": "034e2ec6-1119-4f4e-bdd0-f61f971e648a",
+      "tenant_id": "2cda0a18-8efa-4fbe-8be5-e8540f00733e",
       "user_identifier": "web-11"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "a86c8fa7-411c-4ab6-bbab-cb07e0e21013",
+      "session_id": "7863b9f7-7dd8-40a9-b87b-94d67207c0c1",
       "message": {
         "role": "assistant",
         "content": "The Canvas sneaker white is ₦13,500, in stock.",
-        "id": "b5fd8989-59d5-40d0-b1ec-f98054ec830e",
-        "session_id": "a86c8fa7-411c-4ab6-bbab-cb07e0e21013",
+        "id": "3c0ff5f5-1440-42c2-aa12-292859804ea2",
+        "session_id": "7863b9f7-7dd8-40a9-b87b-94d67207c0c1",
         "retrieved_chunk_ids": [],
         "token_count": 300,
         "attachments": [],
@@ -36,8 +36,8 @@
             "char_count": 51
           },
           "token_breakdown": {
-            "prompt_tokens": 680,
-            "completion_tokens": -380,
+            "prompt_tokens": 707,
+            "completion_tokens": -407,
             "total_tokens": 300
           },
           "offerings": {
@@ -45,7 +45,7 @@
             "items": [
               {
                 "ref": "#2",
-                "offering_id": "6bae8794-8c2a-41e2-97ff-144247a69979",
+                "offering_id": "4d407677-4c41-402d-a7dd-ed667e86e48f",
                 "name": "Canvas sneaker white",
                 "price_text": "₦13,500",
                 "availability": "in_stock",
@@ -54,7 +54,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T01:10:22.147323+00:00",
+            "shown_at": "2026-10-31T02:03:02.832840+00:00",
             "guard": {
               "checked": true,
               "blocked": true,
@@ -63,7 +63,7 @@
             }
           }
         },
-        "created_at": "2026-10-31T01:10:22.173106Z"
+        "created_at": "2026-10-31T02:03:02.910707Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,

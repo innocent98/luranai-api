@@ -7,20 +7,20 @@
     "headers": {},
     "body": {
       "message": "I'll pay 30k for the leather bag",
-      "tenant_id": "034e2ec6-1119-4f4e-bdd0-f61f971e648a",
+      "tenant_id": "2cda0a18-8efa-4fbe-8be5-e8540f00733e",
       "user_identifier": "web-8",
-      "session_id": "03f29a56-673f-4794-8219-3d5fe0f36303"
+      "session_id": "3caa560a-1971-48fd-b9dc-0ca1e6afbb53"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "03f29a56-673f-4794-8219-3d5fe0f36303",
+      "session_id": "3caa560a-1971-48fd-b9dc-0ca1e6afbb53",
       "message": {
         "role": "assistant",
         "content": "I've noted your offer of ₦30,000 for the Leather bag.\n\nI'm handing this to the team now; they'll take it from here.\n\nA team member will confirm the price.",
-        "id": "26d689c9-524f-4d0e-81f0-733b72fa41b5",
-        "session_id": "03f29a56-673f-4794-8219-3d5fe0f36303",
+        "id": "da11ae73-7ce7-4974-9fab-b6977bd571bc",
+        "session_id": "3caa560a-1971-48fd-b9dc-0ca1e6afbb53",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -37,8 +37,8 @@
             "char_count": 0
           },
           "token_breakdown": {
-            "prompt_tokens": 744,
-            "completion_tokens": -594,
+            "prompt_tokens": 771,
+            "completion_tokens": -621,
             "total_tokens": 150
           },
           "offerings": {
@@ -46,7 +46,7 @@
             "items": [
               {
                 "ref": "#3",
-                "offering_id": "ea0dc81b-d3c9-4e8c-abdb-0681a344502c",
+                "offering_id": "af8218b2-1ec2-45b3-827f-98b308f54986",
                 "name": "Leather bag",
                 "price_text": "₦45,000",
                 "availability": "in_stock",
@@ -55,7 +55,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T01:10:22.018876+00:00",
+            "shown_at": "2026-10-31T02:03:02.610140+00:00",
             "guard": {
               "checked": false,
               "blocked": false,
@@ -64,12 +64,12 @@
             }
           }
         },
-        "created_at": "2026-10-31T01:10:22.073893Z"
+        "created_at": "2026-10-31T02:03:02.709598Z"
       },
       "user_message_attachments": [],
       "should_escalate": true,
       "escalation_reason": "Customer made a price offer",
-      "ticket_id": "a906a429-2bb3-4c61-9611-9c116840bfc0"
+      "ticket_id": "85bfbab0-6902-49b2-bded-a5eab138257f"
     }
   }
 }

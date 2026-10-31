@@ -3,7 +3,7 @@
   "note": "`data.interests` is what the AI wrote; `source` follows the channel.",
   "request": {
     "method": "GET",
-    "path": "/api/v1/leads/30414a6c-343d-4639-8395-e06784862061",
+    "path": "/api/v1/leads/45b02cac-eb72-41fc-9c09-1961d3f98876",
     "headers": {
       "Authorization": "Bearer <jwt-placeholder>"
     }
@@ -13,7 +13,7 @@
     "body": {
       "success": true,
       "data": {
-        "id": "30414a6c-343d-4639-8395-e06784862061",
+        "id": "45b02cac-eb72-41fc-9c09-1961d3f98876",
         "name": null,
         "company": null,
         "intent": "PURCHASE_INTENT",
@@ -21,11 +21,11 @@
         "tier": "cold",
         "status": "new",
         "source_label": "chat_widget",
-        "created_at": "2026-10-31T01:10:16.755812+00:00",
+        "created_at": "2026-10-31T02:02:56.797528+00:00",
         "email": null,
         "team_size": null,
         "industry": null,
-        "conversation_id": "03f29a56-673f-4794-8219-3d5fe0f36303",
+        "conversation_id": "3caa560a-1971-48fd-b9dc-0ca1e6afbb53",
         "score_breakdown": [
           {
             "key": "provided_email",
@@ -92,11 +92,11 @@
           "landing_page": "chat_widget",
           "utm": null,
           "channel": null,
-          "first_seen": "2026-10-31T01:10:16.755812+00:00"
+          "first_seen": "2026-10-31T02:02:56.797528+00:00"
         },
         "meeting": null,
         "quote": {
-          "id": "71a255d4-ac94-4826-b8a8-34698eb5eb1d",
+          "id": "d11e94ec-e73b-4336-81b4-a6f6ac5d023d",
           "currency": "NGN",
           "line_items": [
             {
@@ -112,7 +112,7 @@
           ],
           "total": 37500,
           "status": "draft",
-          "created_at": "2026-10-31T01:10:16.886362+00:00"
+          "created_at": "2026-10-31T02:02:56.969027+00:00"
         },
         "crm": {
           "connected": false,

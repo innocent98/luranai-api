@@ -531,6 +531,21 @@ def main():
         note="Both attempts typed a price: the reply is built from the rows, `fell_back` is true "
         "and the team is offered (`escalation_action` `offer_escalation`).",
     )
+    # --- bargaining written as a bare number, and an ordinary question that only looks like it ----
+    chat(
+        "web-bare-number-offer",
+        tenant_id,
+        "black sneaker abeg 9000",
+        user="web-13",
+        note="A bare figure below the price is an offer: code answers (firm price), no model text.",
+    )
+    chat(
+        "web-ordinary-question",
+        tenant_id,
+        "can you do delivery to Lekki for the black sneaker?",
+        user="web-14",
+        note="Looks like 'can you do' but names no figure: the model answers, the guard checks it.",
+    )
     print("done:", _n["i"], "captures in", OUT)
 
 
