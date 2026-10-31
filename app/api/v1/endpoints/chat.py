@@ -73,7 +73,7 @@ from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.offerings.cart import CartResolution, InterestSync, resolve_cart
 from app.offerings.grounding import GroundingResult
 from app.offerings.guard_flow import guard_reply
-from app.offerings.offer_turn import compose_offer_turn, is_offer_turn
+from app.offerings.offer_turn import ASK_TEAM, HANDOVER_LINE, compose_offer_turn, is_offer_turn
 from app.offerings.misses import record_miss
 from app.offerings.orchestrate import (
     QuoteOutcome,
@@ -91,8 +91,11 @@ from app.offerings.turn import (
     ground_turn,
     kb_text_from_prompt,
     lead_source,
+    next_offer_watch,
+    offer_watch,
     offered_signal,
     shown_seqs,
+    strip_token_text,
     safe_offerings_turn,
     remember_shown,
     tier_amounts,
@@ -2709,6 +2712,7 @@ async def _send_message_impl(
         _guard_record: dict | None = None
         is_api_error = False  # set by the generation path below
         _offer_turn = False
+        _offer_watch = offer_watch(session.meta)  # replies left under the offer rules
         _token_seqs: list[int] = []
 
         if not scope_allowed:
@@ -2864,6 +2868,9 @@ async def _send_message_impl(
             prompt_components.full_prompt = f"{prompt_components.full_prompt}{directive_block}"
             _kb_text = kb_text_from_prompt(prompt_components.full_prompt)
             if _offerings is not None:
+                # nothing a customer, the history, the KB or the tenant wrote can look like a
+                # price token to the model: only the block below holds the real ones
+                prompt_components.full_prompt = strip_token_text(prompt_components.full_prompt)
                 prompt_components.full_prompt += f"\n\n{_offerings.block}"
                 if prompt_components.prompt_tokens is not None:
                     prompt_components.prompt_tokens += _offerings.token_count
@@ -2975,6 +2982,7 @@ async def _send_message_impl(
                     customer_texts=customer_texts(conversation_history, message_data.message),
                     kb_text=_kb_text,
                     tier_amounts=tier_amounts(sales_agent_config if _sales_mode else None),
+                    offer_hint=_offer_watch > 0,
                 )
                 ai_response_text, token_count, _sales_meta = (
                     _guarded.reply,
@@ -3173,7 +3181,14 @@ async def _send_message_impl(
                 _offer_lines = _ot.lines
                 _handover_now = _handover_now or _ot.handover_now
                 _consent = _ot.consent
+            if _handover_now and turn_channel() == "voice":
+                # voice only offers the team and waits for a yes: the words must say that
+                _offer_lines = [ASK_TEAM if x == HANDOVER_LINE else x for x in _offer_lines]
+                _extra_lines = [ASK_TEAM if x == HANDOVER_LINE else x for x in _extra_lines]
             _reply_lines = list(dict.fromkeys([*_offer_lines, *_extra_lines]))
+            if _handover_now and turn_channel() == "voice" and ASK_TEAM in _reply_lines:
+                _reply_lines.remove(ASK_TEAM)
+                _reply_lines.append(ASK_TEAM)  # the question comes last: that is what is answered
             if _reply_lines:
                 ai_response_text = "\n\n".join(_reply_lines)
             if _handover_now and turn_channel() != "voice":
@@ -3406,7 +3421,12 @@ async def _send_message_impl(
                 contact_email=contact_email,
             )
 
-        remember_shown(db, session_id, _offerings_shown)
+        remember_shown(
+            db,
+            session_id,
+            _offerings_shown,
+            watch=next_offer_watch(_offer_watch, _offer_turn) if _offerings is not None else None,
+        )
 
         # Step 10: Return response
         return ChatResponse(

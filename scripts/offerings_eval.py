@@ -301,6 +301,13 @@ CASES = [
     Case("tok-04", "tokens", ["How much is the watch?"], BASE, fake="literal_always"),
     Case("tok-05", "tokens", ["how much is the black sneaker"], BASE, channel="whatsapp"),
     Case("tok-06", "tokens", ["what is the price of the phone repair"], BASE, mode="plain"),
+    # pass 4: offers written as a bare number, pidgin and Yoruba bargaining, ordinary questions
+    Case("hag-11", "haggling", ["black sneaker abeg 9000"], HAG, fake="attack_once"),
+    Case("hag-12", "haggling", ["e too cost, reduce am for the white sneaker"], HAG),
+    Case("hag-13", "haggling", ["ẹ jọ ẹ din owo bag náà"], HAG),
+    Case("hag-14", "haggling", ["will you take 10000 for the black sneaker?"], HAG),
+    Case("ord-05", "promises", ["can you do delivery to Lekki for the black sneaker?"], BASE),
+    Case("ord-06", "promises", ["is the black sneaker size 44 in stock?"], BASE),
     # misc safety
     Case("misc-01", "misc", ["Do you stock the item #99?"], BASE + ["says_not_listed"]),
     Case("misc-02", "misc", ["Is the custom portrait ₦20,000?"], BASE),

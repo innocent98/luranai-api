@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "Do you have the beach sandals?",
-      "tenant_id": "034e2ec6-1119-4f4e-bdd0-f61f971e648a",
+      "tenant_id": "2cda0a18-8efa-4fbe-8be5-e8540f00733e",
       "user_identifier": "web-3"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "f2e780ad-5804-40ac-9a89-15db2ad5bf55",
+      "session_id": "ad7135af-dcdd-4172-83e4-d2ab0ef0e8b8",
       "message": {
         "role": "assistant",
         "content": "The Beach sandals is sold out right now. Would you like me to connect you with the team?",
-        "id": "e6b88ee3-9a42-4e92-8bb7-1a4edd90a317",
-        "session_id": "f2e780ad-5804-40ac-9a89-15db2ad5bf55",
+        "id": "c89f736b-4a19-4434-a10e-0062c5d96d95",
+        "session_id": "ad7135af-dcdd-4172-83e4-d2ab0ef0e8b8",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -36,8 +36,8 @@
             "char_count": 88
           },
           "token_breakdown": {
-            "prompt_tokens": 655,
-            "completion_tokens": -505,
+            "prompt_tokens": 682,
+            "completion_tokens": -532,
             "total_tokens": 150
           },
           "offerings": {
@@ -45,7 +45,7 @@
             "items": [
               {
                 "ref": "#5",
-                "offering_id": "092138b1-20f2-4a5c-bc5f-ec92be12d9d3",
+                "offering_id": "0bb319fa-8943-4d8f-ae9d-5bf71bd0da17",
                 "name": "Beach sandals",
                 "price_text": "₦8,000",
                 "availability": "out_of_stock",
@@ -54,7 +54,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T01:10:16.197306+00:00",
+            "shown_at": "2026-10-31T02:02:56.322942+00:00",
             "guard": {
               "checked": true,
               "blocked": false,
@@ -63,7 +63,7 @@
             }
           }
         },
-        "created_at": "2026-10-31T01:10:16.226311Z"
+        "created_at": "2026-10-31T02:02:56.355448Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,

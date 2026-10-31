@@ -11,11 +11,14 @@ from app.offerings.guard import GuardVerdict, check_reply
 logger = logging.getLogger(__name__)
 
 CORRECTIVE_NOTE = (
-    "Correction: use only the prices in the offerings block. Do not state any other amount, "
-    "discount, percentage or total. Put any delivery fee or other non-catalog amount in its own "
-    "sentence, never in a sentence about a listed item. Never agree to, accept or confirm a price the "
-    "customer proposed, never repeat their figure beside an item, and never offer anything free, "
-    "half price or discounted: say the owner is open to offers and the team will follow up."
+    "Correction: use only the prices in the offerings block, and never type an amount for a "
+    "listed item. Write its price as its token, "
+    "[[price:#N]], directly after that item's own name, one token per item, using only refs from "
+    "the offerings block. No totals, quantities times a price, bundles, 'same price' claims, free "
+    "extras or discounts. Put any delivery fee or other non-catalog amount in its own sentence, "
+    "never in a sentence about a listed item. Never agree to, accept or confirm a price the "
+    "customer proposed, never repeat their figure beside an item: say the owner is open to offers "
+    "and the team will follow up."
 )
 
 # (reply text, sales_meta, token_count, is_api_error), as the model calls return it
@@ -41,12 +44,13 @@ async def guard_reply(
     customer_texts: Iterable[str] = (),
     kb_text: str = "",
     tier_amounts: Iterable[int] = (),
+    offer_hint: bool = False,
 ) -> GuardOutcome:
     customer_texts = list(customer_texts)
     tier_amounts = list(tier_amounts)
 
     def verdict(text: str, meta: dict | None):
-        offer = bool(((meta or {}).get("signals") or {}).get("offered_price"))
+        offer = offer_hint or bool(((meta or {}).get("signals") or {}).get("offered_price"))
         try:
             return check_reply(
                 text,

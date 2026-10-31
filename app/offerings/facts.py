@@ -24,6 +24,11 @@ _ANGLE = re.compile(r"[<>]")
 _SPACE = re.compile(r"\s+")
 
 
+_TOKENISH = re.compile(
+    r"[\[\]{}]{2}|[\[\{(<【「『]\s*price\s*[:：]|price\s*[:：]\s*#", re.IGNORECASE
+)
+
+
 def clean_text(value: str | None, limit: int) -> str:
     """Item text is data: no control characters, no angle brackets, one line, bounded."""
     if not value:
@@ -32,6 +37,12 @@ def clean_text(value: str | None, limit: int) -> str:
         " " if unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") else ch for ch in value
     )
     kept = _SPACE.sub(" ", _ANGLE.sub("", kept)).strip()
+    folded = unicodedata.normalize("NFKC", kept)
+    if _TOKENISH.search(folded):  # tenant text can never carry a price token into a reply
+        kept = folded
+        for _ in range(8):  # one pass can join the halves of another token
+            kept = _TOKENISH.sub(" ", kept)
+        kept = _SPACE.sub(" ", re.sub(r"[\[\]{}]", "", kept)).strip()
     return kept if len(kept) <= limit else kept[: limit - 1].rstrip() + "…"
 
 

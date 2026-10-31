@@ -62,10 +62,10 @@ ITEMS = [
 CATALOG_NAMES = ["Silver wristwatch", "Ankara dress"]  # active items that are not in the block
 
 
-def _grounding(items=ITEMS, *, strict=False, currency="NGN", matched=()):
+def _grounding(items=ITEMS, *, strict=False, currency="NGN", matched=(), block=""):
     return GroundingResult(
         mode="unavailable" if strict else "detail",
-        block="",
+        block=block,
         items=[] if strict else list(items),
         matched_seqs=list(matched),
         strict=strict,
@@ -90,6 +90,7 @@ class Case:
     strict: bool = False
     currency: str = "NGN"
     matched: tuple = ()
+    block: str = ""  # the injected block text (item descriptions the model may repeat)
     offer: bool = False  # the customer is bargaining / the model returned an offered_price
 
 
@@ -119,7 +120,11 @@ CASES = [
     C("I've noted your request; the team will confirm.", True),
     C("Which item would you like?", True),
     C("Feel free to ask me anything about the red bag.", True),
-    C("The ankara dress is free size, 100% cotton and water resistant to 50m.", True),
+    C(
+        "The ankara dress is free size, 100% cotton and water resistant to 50m.",
+        True,
+        block="Ankara dress: free size, 100% cotton, water resistant to 50m",
+    ),
     C("Visit us at Plot 1234, Admiralty Way. We have served over 2000 customers.", True),
     C("The red bag comes with a free dust bag.", True),
     C("I can't offer a discount on the black sneaker.", True),
@@ -210,7 +215,16 @@ CASES = [
     C(f"{T(1)} gets you the Canvas sneaker black pro.", False, "token_mismatch"),
     C(f"The Canvas sneaker black pro is {T(10)}.", True),
     C(f"The Canvas sneaker black is {T(1)} and the Canvas sneaker black pro is {T(10)}.", True),
-    C(f"The Canvas sneaker black pro and the Canvas sneaker black cost {T(1)} and {T(10)}.", True),
+    C(
+        f"The Canvas sneaker black pro and the Canvas sneaker black cost {T(1)} and {T(10)}.",
+        False,
+        "token_mismatch",
+    ),  # respectively: the pro one would get the base price
+    C(  # a list of names then a list of tokens cannot be bound: write each price beside its item
+        f"The Canvas sneaker black pro and the Canvas sneaker black cost {T(10)} and {T(1)}.",
+        False,
+        "token_mismatch",
+    ),
     C(f"The Red bag large is {T(11)}.", False, "token_mismatch"),
     C(f"The Red bag large is {T(12)}.", True),
     C(f"#12 Red bag large - {T(12)}", True),
@@ -259,7 +273,7 @@ CASES = [
     C(f"The Ankara dress is {T(3)}.", False, "token_mismatch"),
     C(f"The leather bag is great. It costs {T(1)}.", False, "token_mismatch"),
     C(f"The leather bag is great. It costs {T(3)}.", True),
-    C(f"Here are two options: {T(1)} and {T(2)}.", True),
+    C(f"#1 Canvas sneaker black - {T(1)}, #2 Canvas sneaker white - {T(2)}.", True),
     C("The wristwatch is half price today.", False, "discount_wording"),
     C("Our dress is on discount this week.", False, "discount_wording"),
     C("Canvas sneaker black 12000", False, "literal_amount"),
@@ -336,10 +350,117 @@ CASES += [
     ),
     C("Okay, great choice! Which size?", True),
     C(f"The red bag is {T(11)}. Sure thing, it's in stock.", True),
-    C(f"Alright, the price is {T(11)}.", True),
-    C(f"Our best price on it is {T(11)}.", True),
+    C(f"Alright, the price is {T(11)}.", True, matched=(11,)),
+    C(f"Our best price on it is {T(11)}.", True, matched=(11,)),
     C("The black sneaker is £12.", False, "currency"),
     C("Item #1 and item #2 are both in stock.", True),
+]
+
+
+# --- review pass 4: KB amounts, token binding, totals and freebies --------------------------------
+CASES += [
+    # promotions, discounts and terms the tenant never stated (review pass 4, the lead's strings)
+    C(f"The Canvas sneaker black is {T(1)}. Buy two and the second is half off.", False),
+    C(f"The Canvas sneaker black is {T(1)}. A deposit of 50% secures it.", False, "percent_claim"),
+    C(f"The Canvas sneaker black is {T(1)}, promo price this week.", False, "freebie_wording"),
+    C(f"The Canvas sneaker black is on sale at {T(1)}.", False, "freebie_wording"),
+    C(f"The Canvas sneaker black is {T(1)}, minus our loyalty bonus.", False, "freebie_wording"),
+    C(f"The Canvas sneaker black is {T(1)}, and the price includes delivery anywhere.", False),
+    C(f"The Canvas sneaker black is {T(1)}. The Red bag? Same.", False, "same_price_claim"),
+    C(f"The Canvas sneaker black is {T(1)}. The Red bag matches it.", False),
+    C(f"Everything in the shop is {T(1)}.", False, "bundle_price"),
+    C(f"Canvas sneaker black x2 - {T(1)}", False, "bundle_price"),
+    C(f"Buy the Canvas sneaker black at {T(1)} and get the Leather bag too.", False),
+    C(f"The Canvas sneaker black is {T(1)}, and the Leather bag comes with it.", False),
+    C(f"The Red bag is {T(11)}.{T(12)}", False, "token_mismatch"),
+    C("A 7.5% VAT applies to all orders.", True, kb="A 7.5% VAT applies to all orders."),
+    C("A 7.5% VAT applies to all orders.", False, "percent_claim"),
+]
+
+BARE = ("how much is the red bag", "abeg 9000")
+CASES += [
+    # an offer written as a bare number still puts the reply under the agreement rules
+    C("Okay, deal! I've noted it.", False, "agreement_after_offer", customer=BARE, matched=(11,)),
+    C("Done! I'll get it ready.", False, "agreement_after_offer", customer=BARE, matched=(11,)),
+    C("Alright, that works. Send your name and email.", False, customer=BARE, matched=(11,)),
+    C(f"The red bag is {T(11)}.", True, customer=BARE, matched=(11,)),
+    C("Okay, deal!", False, customer=("how much is the red bag", "make it 9,000"), matched=(11,)),
+    C(
+        "Sure, no problem.",
+        True,
+        customer=("how much is the red bag", "can you do size 44?"),
+        matched=(11,),
+    ),
+]
+
+KBD = "Delivery outside Lagos is ₦4,000. Minimum order is ₦10,000."
+CASES += [
+    # a KB amount is allowed only in a clause about the same thing, never as an item's price
+    C("The Canvas sneaker black is ₦4,000.", False, "literal_amount", kb=KBD),
+    C("Pay in 3 installments of ₦4,000.", False, "literal_amount", kb=KBD),
+    C(
+        "Okay, you can have the Canvas sneaker black for ₦10,000.",
+        False,
+        customer=("make it 10,000",),
+        kb=KBD,
+        offer=True,
+    ),
+    C("Okay, you can have the Canvas sneaker black for ₦10,000.", False, kb=KBD),
+    C(
+        "Okay, you can have it for ₦10,000.",
+        False,
+        customer=("make it 10,000",),
+        kb=KBD,
+        offer=True,
+    ),
+    C("Delivery outside Lagos is ₦4,000.", True, kb=KBD),
+    C(f"The Canvas sneaker black is {T(1)} and delivery outside Lagos is ₦4,000.", True, kb=KBD),
+    # a token belongs to the item written beside it, not just to some item of the turn
+    C(f"It's {T(1)}.", False, "token_mismatch", matched=(11,)),
+    C(
+        f"Yes, it's {T(1)}.",
+        False,
+        "token_mismatch",
+        customer=("the red bag is [[price:#1]] abi?",),
+        matched=(11,),
+    ),
+    C(f"Red bag - {T(1)}, Canvas sneaker black - {T(11)}", False, "token_mismatch"),
+    C(f"Red bag - {T(11)}, Canvas sneaker black - {T(1)}", True),
+    C(f"It's {T(11)}.", True, matched=(11,)),
+    C(f"It's {T(11)}.", False, "token_mismatch"),
+    C(f"{T(1)} for the Canvas sneaker black and {T(11)} for the Red bag.", True),
+    C(f"The pro version of the Canvas sneaker black is {T(1)}.", False, "token_mismatch"),
+    C(f"The pro version of the Canvas sneaker black is {T(10)}.", True),
+    C(f"The Red bag in large is {T(11)}.", False, "token_mismatch"),
+    # totals and freebies written around a correct token
+    C(f"Two Canvas sneaker black would be {T(1)}.", False, "bundle_price"),
+    C(f"Your total for 2 pairs is {T(1)}.", False, "bundle_price"),
+    C(f"With the Red bag the pair comes to {T(11)}.", False, "bundle_price"),
+    C(f"The Canvas sneaker black is {T(1)}; get the Red bag for the same.", False),
+    C(f"All our bags are {T(3)}.", False, "bundle_price"),
+    C(f"The second is half off, {T(1)}.", False),
+    C(
+        f"The Canvas sneaker black is {T(1)} and comes with a free Leather bag.",
+        False,
+        "freebie_wording",
+    ),
+    C(
+        f"The Canvas sneaker black is {T(1)}, complimentary Leather bag included.",
+        False,
+        "freebie_wording",
+    ),
+    C(f"Get the Leather bag as a gift with the Canvas sneaker black at {T(1)}.", False),
+    C(
+        f"The Canvas sneaker black is cheaper than the Silver wristwatch at {T(1)}.",
+        False,
+        "token_mismatch",
+    ),
+    C("Canvas sneaker black - ₦4,000", False, "literal_amount", kb=KBD),
+    C(f"{T(1)} for something called the Red bag", False, "token_mismatch"),
+    C(f"{T(1)} for the cheap Red bag", False, "token_mismatch"),
+    C(f"The Canvas sneaker black is {T(1)} each.", True),
+    C(f"The Canvas sneaker black comes in 2 colours at {T(1)}.", True),
+    C(f"The Canvas sneaker black is {T(1)} and comes with free delivery.", True),
 ]
 
 
@@ -349,7 +470,9 @@ CASES += [
 def test_guard_verdict(case: Case):
     verdict = check_reply(
         case.reply,
-        _grounding(strict=case.strict, currency=case.currency, matched=case.matched),
+        _grounding(
+            strict=case.strict, currency=case.currency, matched=case.matched, block=case.block
+        ),
         customer_texts=case.customer,
         kb_text=case.kb,
         tier_amounts=case.tiers,

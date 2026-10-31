@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "my final offer is ₦9,000 for the white sneaker",
-      "tenant_id": "034e2ec6-1119-4f4e-bdd0-f61f971e648a",
+      "tenant_id": "2cda0a18-8efa-4fbe-8be5-e8540f00733e",
       "user_identifier": "web-6"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "250e0023-920c-4410-885e-a9219424f803",
+      "session_id": "3faaa916-244f-4fdd-96c4-034441991034",
       "message": {
         "role": "assistant",
         "content": "The listed price for the Canvas sneaker white is ₦13,500 and it is firm.",
-        "id": "46a3be5b-b18b-4ebf-ad7c-45618f7da209",
-        "session_id": "250e0023-920c-4410-885e-a9219424f803",
+        "id": "4bc4f60c-efb1-4e7b-8c3f-38a7eda4279b",
+        "session_id": "3faaa916-244f-4fdd-96c4-034441991034",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -36,8 +36,8 @@
             "char_count": 0
           },
           "token_breakdown": {
-            "prompt_tokens": 686,
-            "completion_tokens": -536,
+            "prompt_tokens": 713,
+            "completion_tokens": -563,
             "total_tokens": 150
           },
           "offerings": {
@@ -45,7 +45,7 @@
             "items": [
               {
                 "ref": "#2",
-                "offering_id": "6bae8794-8c2a-41e2-97ff-144247a69979",
+                "offering_id": "4d407677-4c41-402d-a7dd-ed667e86e48f",
                 "name": "Canvas sneaker white",
                 "price_text": "₦13,500",
                 "availability": "in_stock",
@@ -54,7 +54,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T01:10:16.463919+00:00",
+            "shown_at": "2026-10-31T02:02:56.567334+00:00",
             "guard": {
               "checked": false,
               "blocked": false,
@@ -63,7 +63,7 @@
             }
           }
         },
-        "created_at": "2026-10-31T01:10:16.524375Z"
+        "created_at": "2026-10-31T02:02:56.616109Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,

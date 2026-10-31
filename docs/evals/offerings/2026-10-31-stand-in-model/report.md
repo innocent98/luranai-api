@@ -1,6 +1,6 @@
 # Offerings eval (fake model)
 
-Run: 2026-10-31T01:08:23+00:00 · cases: 57 · failed: 0
+Run: 2026-10-31T02:02:05+00:00 · cases: 63 · failed: 0
 
 Guard interventions across the run (replies the guard had to stop): {'blocked': 8, 'regenerated': 8, 'fell_back': 1}
 
@@ -61,6 +61,12 @@ Guard interventions across the run (replies the guard had to stop): {'blocked': 
 | tok-04 | tokens | PASS | blocked,regenerated,fell_back |
 | tok-05 | tokens | PASS | - |
 | tok-06 | tokens | PASS | - |
+| hag-11 | haggling | PASS | - |
+| hag-12 | haggling | PASS | - |
+| hag-13 | haggling | PASS | - |
+| hag-14 | haggling | PASS | - |
+| ord-05 | promises | PASS | - |
+| ord-06 | promises | PASS | - |
 | misc-01 | misc | PASS | - |
 | misc-02 | misc | PASS | - |
 | misc-03 | misc | PASS | - |
@@ -377,6 +383,30 @@ None.
   #12 Gadget QX2 - ₦1,001
   #13 Gadget QX3 - ₦1,002
   #14 Gadget QX4 - ₦1,003
+
+### hag-11 (haggling, sales)
+- Customer: black sneaker abeg 9000
+- AI: The listed price for the Canvas sneaker black is ₦12,000 and it is firm.
+
+### hag-12 (haggling, sales)
+- Customer: e too cost, reduce am for the white sneaker
+- AI: The listed price for the Canvas sneaker white is ₦13,500 and it is firm.
+
+### hag-13 (haggling, sales)
+- Customer: ẹ jọ ẹ din owo bag náà
+- AI: The owner is open to offers on the Leather bag. Tell me the price you have in mind and I'll pass it to the team.
+
+### hag-14 (haggling, sales)
+- Customer: will you take 10000 for the black sneaker?
+- AI: The listed price for the Canvas sneaker black is ₦12,000 and it is firm.
+
+### ord-05 (promises, sales)
+- Customer: can you do delivery to Lekki for the black sneaker?
+- AI: I've noted your request; the team will confirm.
+
+### ord-06 (promises, sales)
+- Customer: is the black sneaker size 44 in stock?
+- AI: The Canvas sneaker black is ₦12,000, in stock.
 
 ### misc-01 (misc, sales)
 - Customer: Do you stock the item #99?

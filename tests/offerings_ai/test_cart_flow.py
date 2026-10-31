@@ -467,3 +467,71 @@ def test_an_offer_the_customer_did_not_make_is_ignored_and_a_huge_one_cannot_bre
     )
     assert r2.status_code == 200
     assert "apologize" not in r2.json()["message"]["content"]
+
+
+def test_a_bare_number_offer_is_stored_and_handed_over_not_a_dead_end(client, db):
+    tid = _shop(db)
+    r = _run(
+        client,
+        db,
+        tid,
+        Model((NEG_REPLY, _cart((3, 1)), {"ref": "#3", "amount": 30000})),
+        text="leather bag abeg 30000",
+    )
+    row = db.execute(select(LeadOfferingInterest)).scalar_one()
+    assert (row.ref, row.offered_price) == ("#3", 30000)
+    content = r.json()["message"]["content"]
+    assert "noted your offer" in content and "handing this to the team" in content
+    assert "Tell me the price you have in mind" not in content
+    assert _meta(r)["escalation_action"] == "auto_escalate"
+
+
+def test_on_voice_the_words_match_the_state_it_asks_it_does_not_claim_a_handover(client, db):
+    from app.services.conversation_service import voice_channel
+
+    tid = _shop(db)
+    marker = voice_channel.set(True)
+    try:
+        r = _run(
+            client,
+            db,
+            tid,
+            Model((NEG_REPLY, _cart((3, 1)), {"ref": "#3", "amount": 30000})),
+            text="leather bag abeg 30000",
+        )
+    finally:
+        voice_channel.reset(marker)
+    content = r.json()["message"]["content"]
+    assert "noted your offer" in content
+    assert "handing this to the team" not in content
+    assert content.rstrip().endswith("Would you like me to connect you with the team?")
+    assert _meta(r)["escalation_action"] == "offer_escalation"
+    assert r.json()["should_escalate"] is False
+
+
+def test_an_offer_keeps_the_agreement_rules_armed_for_the_next_replies(client, db):
+    from app.offerings.turn import OFFER_WATCH_KEY, OFFER_WATCH_TURNS
+
+    tid = _shop(db)
+    r = _run(
+        client,
+        db,
+        tid,
+        Model((NEG_REPLY, _cart((3, 1)), {"ref": "#3", "amount": 30000})),
+        text="leather bag abeg 30000",
+    )
+    sid = r.json()["session_id"]
+    from app.db.models.conversation import ConversationSession
+
+    from uuid import UUID
+
+    row = db.get(ConversationSession, UUID(sid))
+    db.refresh(row)
+    assert (row.meta or {}).get(OFFER_WATCH_KEY) == OFFER_WATCH_TURNS
+
+
+def test_next_offer_watch_counts_down_and_rearms():
+    from app.offerings.turn import next_offer_watch
+
+    assert next_offer_watch(0, True) == 3
+    assert [next_offer_watch(n, False) for n in (3, 1, 0)] == [2, 0, 0]

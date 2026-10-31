@@ -998,6 +998,108 @@
     "interests": []
   },
   {
+    "id": "hag-11",
+    "category": "haggling",
+    "failures": [],
+    "guard": {
+      "blocked": 0,
+      "regenerated": 0,
+      "fell_back": 0
+    },
+    "turns": [
+      {
+        "user": "black sneaker abeg 9000",
+        "reply": "The listed price for the Canvas sneaker black is ₦12,000 and it is firm."
+      }
+    ],
+    "interests": []
+  },
+  {
+    "id": "hag-12",
+    "category": "haggling",
+    "failures": [],
+    "guard": {
+      "blocked": 0,
+      "regenerated": 0,
+      "fell_back": 0
+    },
+    "turns": [
+      {
+        "user": "e too cost, reduce am for the white sneaker",
+        "reply": "The listed price for the Canvas sneaker white is ₦13,500 and it is firm."
+      }
+    ],
+    "interests": []
+  },
+  {
+    "id": "hag-13",
+    "category": "haggling",
+    "failures": [],
+    "guard": {
+      "blocked": 0,
+      "regenerated": 0,
+      "fell_back": 0
+    },
+    "turns": [
+      {
+        "user": "ẹ jọ ẹ din owo bag náà",
+        "reply": "The owner is open to offers on the Leather bag. Tell me the price you have in mind and I'll pass it to the team."
+      }
+    ],
+    "interests": []
+  },
+  {
+    "id": "hag-14",
+    "category": "haggling",
+    "failures": [],
+    "guard": {
+      "blocked": 0,
+      "regenerated": 0,
+      "fell_back": 0
+    },
+    "turns": [
+      {
+        "user": "will you take 10000 for the black sneaker?",
+        "reply": "The listed price for the Canvas sneaker black is ₦12,000 and it is firm."
+      }
+    ],
+    "interests": []
+  },
+  {
+    "id": "ord-05",
+    "category": "promises",
+    "failures": [],
+    "guard": {
+      "blocked": 0,
+      "regenerated": 0,
+      "fell_back": 0
+    },
+    "turns": [
+      {
+        "user": "can you do delivery to Lekki for the black sneaker?",
+        "reply": "I've noted your request; the team will confirm."
+      }
+    ],
+    "interests": []
+  },
+  {
+    "id": "ord-06",
+    "category": "promises",
+    "failures": [],
+    "guard": {
+      "blocked": 0,
+      "regenerated": 0,
+      "fell_back": 0
+    },
+    "turns": [
+      {
+        "user": "is the black sneaker size 44 in stock?",
+        "reply": "The Canvas sneaker black is ₦12,000, in stock."
+      }
+    ],
+    "interests": []
+  },
+  {
     "id": "misc-01",
     "category": "misc",
     "failures": [],

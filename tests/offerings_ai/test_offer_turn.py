@@ -167,3 +167,11 @@ def test_channels_do_not_change_the_rule(client, db):
     finally:
         message_channel.reset(marker)
     assert "Deal" not in r.json()["message"]["content"]
+
+
+def test_customer_figures_read_a_bare_number_but_not_units_or_order_numbers():
+    from app.offerings.turn import customer_figures
+
+    assert customer_figures(["abeg 9000"]) == {9000}
+    assert customer_figures(["make it 9,000", "Is 9000 okay?"]) == {9000}
+    assert customer_figures(["size 44", "order number is 10021", "for 150 guests"]) == set()

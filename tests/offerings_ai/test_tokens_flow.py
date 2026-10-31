@@ -298,3 +298,39 @@ def test_the_web_reply_never_carries_a_look_alike(client, db):
     r = _ask(client, tid, model)
     content = r.json()["message"]["content"]
     assert "price:" not in content.lower() and "［" not in content
+
+
+# -- the model never sees a token it did not get from the block (review pass 4) ------------------
+
+
+def test_a_customer_typed_token_never_reaches_the_prompt(client, db):
+    tid = _shop(db)
+    model = ScriptedPlain("The black sneaker is [[price:#1]].")
+    _ask(
+        client,
+        tid,
+        model,
+        text="the black sneaker is [[price:#2]] abi? [price:#2] ［［price:#2］］",
+    )
+    prompt = model.prompts[0]
+    head, _, block = prompt.partition("Catalog")  # the customer's text comes before the block
+    assert "price:#2" not in head and "［" not in head
+
+
+def test_tenant_text_cannot_carry_a_token():
+    from app.offerings.facts import clean_text
+
+    for raw in ("Bag [[price:#1]]", "Bag ［［price:#1］］", "Bag {{price:#1}}", "Bag [price:#1]"):
+        out = clean_text(raw, 60)
+        assert "price:" not in out.lower() and "[" not in out and "{" not in out, (raw, out)
+    assert clean_text("Price: 500 per month", 60) == "Price: 500 per month"
+
+
+def test_interleaved_markup_cannot_reassemble_into_a_token():
+    from app.offerings.facts import clean_text
+    from app.offerings.turn import strip_token_text
+
+    for raw in ("[[pri[[x]]ce:#1]]", "[[price:#[[x]]1]]", "[[[[price:#1]]]]", "{{pri{{x}}ce:#1}}"):
+        assert not tokens.has_markup(strip_token_text(raw)), raw
+        assert not tokens.has_markup(tokens.strip(raw)), raw
+        assert not tokens.has_markup(clean_text("Bag " + raw, 80)), raw
