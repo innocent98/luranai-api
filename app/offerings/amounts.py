@@ -151,7 +151,6 @@ _UNIT_AFTER = {
     "slice",
     "slices",
     "km",
-    "hr",
     "room",
     "rooms",
     "seat",

@@ -134,9 +134,27 @@ def build_offerings_turn(
     return meta, [i.seq for i in items]
 
 
-def remember_shown(db: Session, session_id: UUID, seqs: list[int]) -> None:
-    """`session_meta["offerings_shown"]`: the last five refs shown, so "the second one" resolves."""
-    if not seqs:
+OFFER_WATCH_KEY = "offer_watch"
+OFFER_WATCH_TURNS = 3  # replies after a bargaining turn that still answer under the offer rules
+
+
+def offer_watch(session_meta: dict | None) -> int:
+    raw = (session_meta or {}).get(OFFER_WATCH_KEY)
+    return raw if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0 else 0
+
+
+def next_offer_watch(current: int, offer_turn: bool) -> int:
+    """Re-armed by a bargaining turn, then runs down one reply at a time."""
+    return OFFER_WATCH_TURNS if offer_turn else max(current - 1, 0)
+
+
+def remember_shown(
+    db: Session, session_id: UUID, seqs: list[int], *, watch: int | None = None
+) -> None:
+    """`session_meta["offerings_shown"]`: the last five refs shown, so "the second one" resolves;
+    `watch` (when given) is the offer-in-play countdown: "so you agree?" two turns after a figure
+    must still meet the agreement rules."""
+    if not seqs and watch is None:
         return
     try:
         row = db.get(ConversationSession, session_id)
@@ -144,10 +162,17 @@ def remember_shown(db: Session, session_id: UUID, seqs: list[int]) -> None:
             return
         db.refresh(row)
         meta = dict(row.meta or {})
-        merged = [s for s in shown_seqs(meta) if s not in seqs] + seqs
-        meta[SHOWN_KEY] = merged[-5:]
-        row.meta = meta
-        db.commit()
+        changed = False
+        if seqs:
+            merged = [s for s in shown_seqs(meta) if s not in seqs] + seqs
+            meta[SHOWN_KEY] = merged[-5:]
+            changed = True
+        if watch is not None and watch != offer_watch(meta):
+            meta[OFFER_WATCH_KEY] = watch
+            changed = True
+        if changed:
+            row.meta = meta
+            db.commit()
     except Exception:  # noqa: BLE001
         logger.exception("offerings shown-memory write failed (non-fatal)")
         db.rollback()

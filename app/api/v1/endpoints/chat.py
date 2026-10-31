@@ -91,6 +91,8 @@ from app.offerings.turn import (
     ground_turn,
     kb_text_from_prompt,
     lead_source,
+    next_offer_watch,
+    offer_watch,
     offered_signal,
     shown_seqs,
     strip_token_text,
@@ -2710,6 +2712,7 @@ async def _send_message_impl(
         _guard_record: dict | None = None
         is_api_error = False  # set by the generation path below
         _offer_turn = False
+        _offer_watch = offer_watch(session.meta)  # replies left under the offer rules
         _token_seqs: list[int] = []
 
         if not scope_allowed:
@@ -2979,6 +2982,7 @@ async def _send_message_impl(
                     customer_texts=customer_texts(conversation_history, message_data.message),
                     kb_text=_kb_text,
                     tier_amounts=tier_amounts(sales_agent_config if _sales_mode else None),
+                    offer_hint=_offer_watch > 0,
                 )
                 ai_response_text, token_count, _sales_meta = (
                     _guarded.reply,
@@ -3417,7 +3421,12 @@ async def _send_message_impl(
                 contact_email=contact_email,
             )
 
-        remember_shown(db, session_id, _offerings_shown)
+        remember_shown(
+            db,
+            session_id,
+            _offerings_shown,
+            watch=next_offer_watch(_offer_watch, _offer_turn) if _offerings is not None else None,
+        )
 
         # Step 10: Return response
         return ChatResponse(

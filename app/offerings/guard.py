@@ -534,7 +534,7 @@ def check_reply(
         amounts = extract_amounts(masked, small_ok=small_ok, anchored=anchored)
         named_seqs = {i.seq for i in named}
         if not grounding.strict:
-            bound = {seq: pool for seq, pool in bound_items(sentence, items, catalog_names)}
+            bound = dict(bound_items(sentence, items, catalog_names))
             for seq in seqs:
                 pool = bound.get(seq)
                 if seq not in injected:

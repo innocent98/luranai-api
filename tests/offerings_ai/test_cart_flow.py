@@ -507,3 +507,31 @@ def test_on_voice_the_words_match_the_state_it_asks_it_does_not_claim_a_handover
     assert content.rstrip().endswith("Would you like me to connect you with the team?")
     assert _meta(r)["escalation_action"] == "offer_escalation"
     assert r.json()["should_escalate"] is False
+
+
+def test_an_offer_keeps_the_agreement_rules_armed_for_the_next_replies(client, db):
+    from app.offerings.turn import OFFER_WATCH_KEY, OFFER_WATCH_TURNS
+
+    tid = _shop(db)
+    r = _run(
+        client,
+        db,
+        tid,
+        Model((NEG_REPLY, _cart((3, 1)), {"ref": "#3", "amount": 30000})),
+        text="leather bag abeg 30000",
+    )
+    sid = r.json()["session_id"]
+    from app.db.models.conversation import ConversationSession
+
+    from uuid import UUID
+
+    row = db.get(ConversationSession, UUID(sid))
+    db.refresh(row)
+    assert (row.meta or {}).get(OFFER_WATCH_KEY) == OFFER_WATCH_TURNS
+
+
+def test_next_offer_watch_counts_down_and_rearms():
+    from app.offerings.turn import next_offer_watch
+
+    assert next_offer_watch(0, True) == 3
+    assert [next_offer_watch(n, False) for n in (3, 1, 0)] == [2, 0, 0]

@@ -228,3 +228,12 @@ async def test_the_regenerated_replys_own_offer_signal_is_what_judges_it():
     }
     out = await _run(BAD, _regen(("Okay, deal!", meta, 5, False)))
     assert out.record["fell_back"] is True
+
+
+@pytest.mark.asyncio
+async def test_the_offer_hint_keeps_agreement_words_blocked_on_a_later_reply():
+    agree = "Okay, deal! The black sneaker is [[price:#1]]."
+    out = await _run(agree, _regen((GOOD, None, 80, False)), offer_hint=True)
+    assert out.reply == GOOD and out.record["blocked"] is True
+    out = await _run(agree, _regen(), offer_hint=False)
+    assert out.reply == agree and out.record["blocked"] is False

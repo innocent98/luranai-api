@@ -44,12 +44,13 @@ async def guard_reply(
     customer_texts: Iterable[str] = (),
     kb_text: str = "",
     tier_amounts: Iterable[int] = (),
+    offer_hint: bool = False,
 ) -> GuardOutcome:
     customer_texts = list(customer_texts)
     tier_amounts = list(tier_amounts)
 
     def verdict(text: str, meta: dict | None):
-        offer = bool(((meta or {}).get("signals") or {}).get("offered_price"))
+        offer = offer_hint or bool(((meta or {}).get("signals") or {}).get("offered_price"))
         try:
             return check_reply(
                 text,
