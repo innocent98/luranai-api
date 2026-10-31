@@ -3261,7 +3261,10 @@ async def _send_message_impl(
                 _message_meta["quote"] = _catalog_quote
             if (
                 _catalog_quote is None
-                and not (_cart is not None and (_cart.has_content or _cart.dropped))
+                and not (
+                    _offerings is not None  # a catalog turn never gets a plan-tier quote
+                    and (_offerings.mode != "none" or _cart is not None or _offer_turn)
+                )
                 and _sales_close_allowed
                 and bool(_signals.get("offer_quote"))
                 and getattr(sales_agent_config, "quotation_enabled", False)

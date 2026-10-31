@@ -35,7 +35,8 @@ def mask(text: str, replacement: str = "PRICE") -> str:
 
 def strip(text: str) -> str:
     """Remove anything token-like (used when no catalog block was injected)."""
-    return re.sub(r"\s{2,}", " ", _BRACKETS.sub("", TOKEN.sub("", text or "")))
+    cleaned = re.sub(r"\[\[.*?\]\]", "", text or "")
+    return re.sub(r"\s{2,}", " ", _BRACKETS.sub("", cleaned)).strip()
 
 
 def resolve(text: str, price_text: Callable[[int], str | None]) -> str | None:

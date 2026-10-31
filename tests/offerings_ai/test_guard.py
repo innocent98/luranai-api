@@ -260,6 +260,8 @@ CASES = [
     C(f"The leather bag is great. It costs {T(1)}.", False, "token_mismatch"),
     C(f"The leather bag is great. It costs {T(3)}.", True),
     C(f"Here are two options: {T(1)} and {T(2)}.", True),
+    C("The wristwatch is half price today.", False, "discount_wording"),
+    C("Our dress is on discount this week.", False, "discount_wording"),
     C("Canvas sneaker black 12000", False, "literal_amount"),
     C("Black sneaker model 5100", False, "literal_amount"),
     C("Visit Plot 1234, Admiralty Way. We have served over 2000 customers.", True),

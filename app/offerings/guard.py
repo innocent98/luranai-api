@@ -319,7 +319,9 @@ def check_reply(
                 violations.append(Violation(sentence, "same_price_claim"))
             if len(seqs) > 0 and len(named_seqs) > 1 and re.search(r"\bboth\b", plain, re.I):
                 violations.append(Violation(sentence, "same_price_claim"))
-            if (anchored or amounts or offer) and _unnegated(_DISCOUNT_WORDS, sentence):
+            if (anchored or amounts or offer or _names_any(plain, catalog_names)) and _unnegated(
+                _DISCOUNT_WORDS, sentence
+            ):
                 violations.append(Violation(sentence, "discount_wording"))
             if offer and (_unnegated(_AGREE, sentence) or _unnegated(_CUES, sentence)):
                 violations.append(Violation(sentence, "agreement_after_offer"))

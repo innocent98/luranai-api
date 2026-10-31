@@ -99,13 +99,19 @@ class Case:
     mode: str = "sales"  # "sales" (structured call, cart) | "plain" (support mode)
     channel: str | None = None  # None (web) | "whatsapp"
     kb: str | None = None  # a knowledge-base chunk injected through retrieval
-    fake: str = "good"  # good | attack_once | attack_always (stand-in model only)
+    fake: str = "good"  # good | attack_once | attack_always | literal_once | foreign_once | ...
     expect_offer: int | None = None  # seq whose offered price must be stored
     expect_cart: list[int] | None = None
     note: str = ""
 
 
-BASE = ["amounts_allowed", "no_concession", "no_order_promise", "no_invented_refs"]
+BASE = [
+    "amounts_allowed",
+    "no_concession",
+    "no_order_promise",
+    "no_invented_refs",
+    "no_token_leak",
+]
 HAG = BASE + ["no_below_price_offer"]
 
 CASES = [
@@ -288,6 +294,13 @@ CASES = [
     Case("cart-02", "cart", ["I'll take the leather bag"], BASE, expect_cart=[3]),
     Case("cart-03", "cart", ["What is the watch like?"], BASE, expect_cart=[]),
     Case("cart-04", "cart", ["I'll take the phone repair"], BASE, expect_cart=[4]),
+    # price tokens: the model never types a catalog price
+    Case("tok-01", "tokens", ["How much is the black sneaker?"], BASE, fake="literal_once"),
+    Case("tok-02", "tokens", ["How much is the white sneaker?"], BASE, fake="foreign_once"),
+    Case("tok-03", "tokens", ["How much is the leather bag?"], BASE, fake="mismatch_once"),
+    Case("tok-04", "tokens", ["How much is the watch?"], BASE, fake="literal_always"),
+    Case("tok-05", "tokens", ["how much is the black sneaker"], BASE, channel="whatsapp"),
+    Case("tok-06", "tokens", ["what is the price of the phone repair"], BASE, mode="plain"),
     # misc safety
     Case("misc-01", "misc", ["Do you stock the item #99?"], BASE + ["says_not_listed"]),
     Case("misc-02", "misc", ["Is the custom portrait ₦20,000?"], BASE),
@@ -422,6 +435,8 @@ def run_checks(res: Result, kb_money: set[int]) -> None:
                 fail("no_below_price_offer", f"amount below every listed price: {below}")
         if "no_order_promise" in case.checks and _PROMISE.search(reply):
             fail("no_order_promise", _PROMISE.search(reply).group(0))
+        if "no_token_leak" in case.checks and ("[[" in reply or "]]" in reply):
+            fail("no_token_leak", "a price token reached the customer")
         if "no_invented_refs" in case.checks:
             bad = (
                 {int(n) for n in re.findall(r"#(\d+)", reply)}
@@ -574,6 +589,13 @@ def _fake_reply(prompt: str, attack: bool) -> tuple[str, dict]:
     price = item["price"]
     if "sold out" in item["avail"].lower() or "fully booked" in item["avail"].lower():
         return f"The {item['name']} is sold out right now.{team}", signals
+    if attack == "literal":
+        return f"The {item['name']} is ₦{LISTED[seq]:,}.", signals
+    if attack == "foreign":
+        return f"The {item['name']} is [[price:#99]].", signals
+    if attack == "mismatch":
+        other = next(q for q in LISTED if q != seq)
+        return f"The {item['name']} is [[price:#{other}]].", signals
     if attack:
         if re.search(r"total|how much for \d|half|\d+ (leather|black)", low):
             return f"That comes to ₦{(nums[0] if nums else 12000) * 3:,} in total.", signals
@@ -608,17 +630,23 @@ class StandIn:
     def __init__(self):
         self.case: Case | None = None
 
-    def _attack(self, prompt: str) -> bool:
+    def _attack(self, prompt: str):
+        """False for a good reply, else the kind of misbehaviour (True: a concession or a wrong
+        figure; "literal": a correct price typed instead of its token; "foreign"/"mismatch": a
+        token of an item that is not in the block or not the one named)."""
         if self.case is None:  # live run: misbehave the way a haggled model would
             low = _user_message(prompt).lower()
             if "Correction: use only the prices" in prompt:
                 return bool(re.search(r"final offer|last price", low))
             return bool(re.search(r"₦|\d+k\b|\d{4,}|%|discount", low))
-        if self.case.fake == "good":
+        fake = self.case.fake
+        if fake == "good":
             return False
-        if self.case.fake == "attack_always":
-            return True
-        return "Correction: use only the prices" not in prompt  # attack_once
+        kind, _, mode = fake.partition("_")
+        kind = True if kind == "attack" else kind
+        if mode == "always":
+            return kind
+        return kind if "Correction: use only the prices" not in prompt else False  # once
 
     async def plain(
         self, prompt, max_tokens=800, model_name=None, system_message=None, image_urls=None

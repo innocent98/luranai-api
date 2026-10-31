@@ -519,3 +519,31 @@ def test_extra_seqs_let_earlier_choices_resolve(db):
     assert [
         l.facts.seq for l in resolve_cart(db, tid, _sig([(2, 1)]), g, extra_seqs={2}).lines
     ] == [2]
+
+
+def test_the_tier_quote_stays_off_when_the_cart_step_failed_or_is_empty(client, db):
+    from sqlalchemy import select as _select
+
+    tid = _shop(db)
+    cfg = db.execute(
+        _select(TenantSalesAgentConfig).where(TenantSalesAgentConfig.tenant_id == tid)
+    ).scalar_one()
+    cfg.pricing_tiers = [
+        {
+            "name": "Pro",
+            "base_price": 30000,
+            "min_users": 1,
+            "max_users": 50,
+            "per_seat_overage_price": 100,
+        }
+    ]
+    db.commit()
+    with patch("app.api.v1.endpoints.chat.resolve_cart", side_effect=RuntimeError("boom")):
+        r = _run(
+            client,
+            db,
+            tid,
+            Model(("Noted: one phone repair.", _cart((4, 1)))),
+            text="I'll take the phone repair",
+        )
+    assert "quote" not in _meta(r)
