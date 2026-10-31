@@ -555,3 +555,16 @@ def test_a_bargaining_question_without_a_figure_does_not_arm_the_countdown():
     assert not arms_countdown("is the price negotiable?", g, False)
     assert arms_countdown("abeg 9000", g, False)
     assert arms_countdown("ok", g, True)  # the model returned a figure
+
+
+def test_a_tenant_without_a_catalog_keeps_todays_lead_source_on_whatsapp(client, db):
+    from tests.offerings_ai.helpers import make_tenant
+
+    tid = make_tenant(db, sales_enabled=True, quotation_enabled=True)
+    marker = message_channel.set("whatsapp")
+    try:
+        _run(client, db, tid, Model(("Hello! How can I help?", None)), text="hi, what do you do?")
+    finally:
+        message_channel.reset(marker)
+    leads = db.execute(select(Lead).where(Lead.tenant_id == tid)).scalars().all()
+    assert all(lead.source == "chat_widget" for lead in leads)

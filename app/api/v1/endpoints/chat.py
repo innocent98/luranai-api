@@ -3108,7 +3108,12 @@ async def _send_message_impl(
                         session.tenant_id,
                         conv_id,
                         intent=_sales_meta["intent"],
-                        source=lead_source(turn_channel(), linked_visitor),
+                        # the channel label is part of the catalog feature: other tenants keep today's
+                        source=(
+                            lead_source(turn_channel(), linked_visitor)
+                            if _offerings is not None
+                            else "chat_widget"
+                        ),
                         utm=_utm,
                     )
 

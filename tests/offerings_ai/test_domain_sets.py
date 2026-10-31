@@ -157,3 +157,21 @@ def test_a_discount_the_knowledge_base_states_may_be_repeated():
         kb_text=kb,
     )
     assert v.ok, [(x.reason, x.sentence) for x in v.violations]
+
+
+def test_a_kb_discount_sentence_may_not_be_stretched_into_a_new_promise():
+    g = grounding(SHOP, [1])
+    kb = "Students get a 10% discount on orders above ₦50,000 with a valid ID."
+    for reply in (
+        "Students get a 10% discount on orders above ₦50,000 with a valid ID, and you get 20% too.",
+        "Students get a 15% discount on orders above ₦50,000 with a valid ID.",
+        "Students get a 10% discount, and I can give you a discount on the black sneaker as well.",
+    ):
+        v = check_reply(reply, g, customer_texts=["is there student pricing?"], kb_text=kb)
+        assert not v.ok, reply
+
+
+def test_a_price_claim_below_the_list_is_an_offer_even_phrased_as_a_check():
+    g = grounding(SHOP, [1])
+    assert is_offer_turn("Your Instagram says 9,000, is that correct?", g, False)
+    assert not is_offer_turn("Your Instagram says 12,000, is that correct?", g, False)

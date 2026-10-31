@@ -7,6 +7,7 @@ firm, or the owner is open to offers, or a human takes over. This removes the fr
 agreement could hide, whatever words it used.
 """
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -48,21 +49,41 @@ def is_offer_turn(
     names = grounding.catalog_names or [i.name for i in grounding.items]
     if offered_signal or has_bargain_wording(text):
         return True
-    if BUNDLE_OFFER.search(text) and not is_price_check(text):
-        return True
-    if PAYMENT_PLAN.search(text) or is_price_check(text):
-        return False  # a payment plan, or "is the meat pie 800 or 1000?": not a price offered
     prices = [i.price for i in _matched(grounding) if i.price is not None]
     if not prices and context_prices is not None:
         prices = [p for p in context_prices() if p is not None]
-    if not prices:
-        # nothing to compare with: a bare figure from a shop with items is still an offer
-        # candidate unless the message is a question or a budget search
-        # "is it ₦25,000 for each?": the customer asking whether a price is right is not offering
-        figures = customer_amounts(text, small_ok=False, names=names)
-        return bool(figures) and (bool(OFFER_CUE.search(text)) or not BROWSE.search(text))
-    low = min(prices)
-    return any(a.value < low for a in customer_amounts(text, small_ok=low < 1000, names=names))
+    check = is_price_check(text)
+    if BUNDLE_OFFER.search(text) and not check:
+        return True
+    if PAYMENT_PLAN.search(text):
+        return False  # "12,500 now and the balance on delivery": a payment plan, not a price
+    if prices:
+        low = min(prices)
+        below = [
+            a.value
+            for a in customer_amounts(text, small_ok=low < 1000, names=names)
+            if a.value < low
+        ]
+        if not below:
+            return False
+        # "is the meat pie 800 or 1000?", "10 pies, 8000 total right?": the customer quotes a
+        # listed price or the total of a quantity; any other figure below the price is an offer
+        everything = [a.value for a in customer_amounts(text, small_ok=True, names=names)]
+        if check and _quotes_the_list(text, everything or below, grounding):
+            return False
+        return True
+    if check:
+        return False
+    # nothing to compare with: a bare figure from a shop with items is still an offer candidate
+    # unless the message is a budget search
+    figures = customer_amounts(text, small_ok=False, names=names)
+    return bool(figures) and (bool(OFFER_CUE.search(text)) or not BROWSE.search(text))
+
+
+def _quotes_the_list(text: str, figures: list, grounding: GroundingResult) -> bool:
+    listed = {i.price for i in grounding.items if i.price is not None}
+    counts = {int(n) for n in re.findall(r"\b\d{1,3}\b", text)}
+    return any(f in listed or any(n * p == f for n in counts for p in listed) for f in figures)
 
 
 @dataclass

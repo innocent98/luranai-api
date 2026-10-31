@@ -456,16 +456,24 @@ def _free_same_hit(sentence: str, plain: str, items, names: list[str]) -> bool:
     return False
 
 
-def _kb_states(kb_sentences: list[set[str]], sentence: str) -> bool:
-    """The sentence repeats (at least three content words in common) a KB sentence that itself
-    holds a discount word: the tenant stated that offer, the model may relay it."""
+_NUMBERS = re.compile(r"\d[\d,.]*")
+
+
+def _kb_states(kb_sentences: list[tuple[set[str], set[str]]], sentence: str) -> bool:
+    """The sentence is (nearly) a KB sentence that itself holds a discount word: the tenant stated
+    that offer and the model may relay it. Close means: at least 70% of its content words are the
+    KB sentence's, and every number it states is the KB sentence's."""
     mine = _content_words(sentence)
-    return any(len(mine & words) >= 3 for words in kb_sentences)
+    numbers = set(_NUMBERS.findall(sentence))
+    return any(
+        len(mine & words) >= max(3, int(0.7 * len(mine))) and numbers <= kb_numbers
+        for words, kb_numbers in kb_sentences
+    )
 
 
-def _kb_discount_sentences(kb_text: str) -> list[set[str]]:
+def _kb_discount_sentences(kb_text: str) -> list[tuple[set[str], set[str]]]:
     return [
-        _content_words(sent)
+        (_content_words(sent), set(_NUMBERS.findall(sent)))
         for sent in _SENTENCE.split(normalise(kb_text or ""))
         if _DISCOUNT_WORDS.search(sent)
     ]
