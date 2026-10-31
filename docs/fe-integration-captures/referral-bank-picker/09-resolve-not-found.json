@@ -1,0 +1,30 @@
+{
+  "description": "Paystack says no such account (HTTP 422 from the fake).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/banks/resolve",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "bank_code": "058",
+      "account_number": "0000000001"
+    }
+  },
+  "response": {
+    "status": 422,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": {
+        "code": "account_not_resolved",
+        "message": "Paystack could not find an account with that number at that bank. Check both and try again."
+      }
+    }
+  }
+}

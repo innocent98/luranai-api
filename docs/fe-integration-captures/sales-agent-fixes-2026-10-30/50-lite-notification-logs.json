@@ -1,0 +1,22 @@
+{
+  "scenario": "lite-notification-logs",
+  "note": "Lite tenant: email + in-app only, no slack/crm",
+  "data": [
+    {
+      "event": "sales_ready_lead",
+      "channel": "email",
+      "status": "sent",
+      "recipient": "lite-rep@example.com",
+      "error": null,
+      "entity_type": "lead"
+    },
+    {
+      "event": "sales_ready_lead",
+      "channel": "in_app",
+      "status": "sent",
+      "recipient": "in_app",
+      "error": null,
+      "entity_type": "lead"
+    }
+  ]
+}

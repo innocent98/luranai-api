@@ -1,0 +1,62 @@
+{
+  "scenario": "notification-logs-after-sales-ready-and-quote",
+  "note": "notification_logs rows (db)",
+  "data": [
+    {
+      "event": "sales_ready_lead",
+      "channel": "email",
+      "status": "sent",
+      "recipient": "sales-rep@example.com",
+      "error": null,
+      "entity_type": "lead"
+    },
+    {
+      "event": "sales_ready_lead",
+      "channel": "in_app",
+      "status": "sent",
+      "recipient": "in_app",
+      "error": null,
+      "entity_type": "lead"
+    },
+    {
+      "event": "sales_ready_lead",
+      "channel": "slack",
+      "status": "sent",
+      "recipient": "slack",
+      "error": null,
+      "entity_type": "lead"
+    },
+    {
+      "event": "sales_ready_lead",
+      "channel": "crm",
+      "status": "sent",
+      "recipient": "crm",
+      "error": null,
+      "entity_type": "lead"
+    },
+    {
+      "event": "quote_generated",
+      "channel": "email",
+      "status": "sent",
+      "recipient": "sales-rep@example.com",
+      "error": null,
+      "entity_type": "quote"
+    },
+    {
+      "event": "quote_generated",
+      "channel": "in_app",
+      "status": "sent",
+      "recipient": "in_app",
+      "error": null,
+      "entity_type": "quote"
+    },
+    {
+      "event": "quote_generated",
+      "channel": "slack",
+      "status": "sent",
+      "recipient": "slack",
+      "error": null,
+      "entity_type": "quote"
+    }
+  ]
+}

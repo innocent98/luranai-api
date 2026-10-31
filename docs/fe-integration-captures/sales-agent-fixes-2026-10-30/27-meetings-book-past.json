@@ -1,0 +1,23 @@
+{
+  "scenario": "meetings-book-past",
+  "note": "A slot in the past",
+  "request": {
+    "method": "POST",
+    "path": "/chat/meetings",
+    "headers": {},
+    "body": {
+      "conversation_id": "728f400a-cb64-4b1a-889b-5c42e053cc42",
+      "scheduled_at": "2026-10-29T22:24:52.679968+00:00"
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "success": false,
+      "error": {
+        "code": "SLOT_UNAVAILABLE",
+        "message": "Slot is in the past"
+      }
+    }
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "description": "A plain ADMIN may not resolve accounts.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/banks/resolve",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "bank_code": "058",
+      "account_number": "0000000000"
+    }
+  },
+  "response": {
+    "status": 403,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": "Not enough permissions. Super admin access required."
+    }
+  }
+}

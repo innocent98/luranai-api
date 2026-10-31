@@ -194,6 +194,7 @@ Why: plans differed only by volume plus five flags; the sales agent, Slack/CRM, 
 - [x] FE guide with live captures; SOP
 - [ ] Paystack: create the Lite 15,000 monthly/annual plans and point the env at them BEFORE the new price reaches prod (owner action, see SOP)
 - [ ] Chat sales branch and the queued-worker paths verified with a real LLM / real Slack (unit/integration tests only)
+  - 2026-10-30: re-run end to end locally on the real code with a stand-in LLM, local Slack/CRM receivers and a mail stub: 69/69 live checks + 396 tests pass (SOP `docs/sop/sales_agent_smoke_2026-10-30.md`). Still open: real model, real Slack/CRM/inbox, staging/prod. Defects from it: quote PDF naira box, lead score not sticky and rep-email CTA `#` are fixed in PR #194 (pending merge, SOP `docs/sop/sales_quote_pdf_score_link_fixes.md`); still open: WhatsApp does not carry the quote card/picker (catalog plan).
 - [ ] Dashboard: lock badges, upgrade prompts, 403 `feature_not_in_plan` handling (separate track)
 - [ ] Docs site and public pricing page copy (after prod promotion)
 - [ ] Prod promotion (migration + seed review) — lead / Adebayo
@@ -252,6 +253,11 @@ Why: Luran wants marketers and influencers to bring businesses, paid a one-time 
 - [x] Marketer page follows R44: a `void` reward shows `not_converted`; capture 69's `signed_up` is explained by a failed upgrade in the scratch run (FE guide 6.2, SOP)
 - [x] Unmatched dispute logs an ERROR with Paystack's dispute id; SMTP socket timeout raised to 30 s; exception text no longer logged in the new referral code
 - [ ] PR opened to `develop`, reviewed and merged (lead)
+
+### Bank picker on the marketer forms (2026-10-30)
+- [x] Backend: `GET /platform/referrals/banks` (any platform admin, cached 24 h, `{name, code}` only, stale copy up to 7 days) and `POST /platform/referrals/banks/resolve` (super admin, per-admin 10/min, holder name only); errors `bank_provider_unavailable` / `account_not_resolved`; tests with a fake Paystack; 23 live captures against a FAKE Paystack; FE guide section 15; SOP `docs/sop/referral_bank_picker_backend.md` (PR `feature/referral-bank-picker-backend` to `develop`)
+- [ ] Dashboard: searchable bank select + Verify step on `MarketerForm` and `MarketerBankForm` (PR `feature/referral-bank-picker-dashboard` to `staging`)
+- [ ] Owner: one real call of both endpoints with the live Paystack key to confirm the real shapes (never exercised; no key was available)
 
 ### Not done: frontend and owner items
 - [ ] Dashboard: marketer page `/marketer`, admin screens (marketers, review queue, payout batches, settings) against `docs/fe-integration-guide-referral.md`

@@ -1,0 +1,28 @@
+{
+  "scenario": "crm-webhook-received",
+  "note": "Exact POST body the worker sent to the local CRM stand-in",
+  "data": [
+    {
+      "path": "/crm",
+      "content_type": "application/json",
+      "body": {
+        "lead_id": "a40f052f-acfd-4907-be3e-b5b9fe18196f",
+        "tenant_id": "b9790fa8-38ff-454e-908d-96dd0f639e9d",
+        "name": "Ada Okafor",
+        "email": "ada.okafor@example.com",
+        "company": "Acme Group Logistics",
+        "team_size": "40",
+        "industry": "logistics",
+        "intent": "PURCHASE_INTENT",
+        "lead_score": 100,
+        "status": "new",
+        "source": "chat_widget",
+        "utm": {
+          "utm_source": "google_ads",
+          "utm_medium": "cpc"
+        },
+        "created_at": "2026-10-30T22:24:49.574539+00:00"
+      }
+    }
+  ]
+}

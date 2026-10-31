@@ -43,6 +43,41 @@ class MarketerBankDetails(BaseModel):
         return value.strip() if isinstance(value, str) else value
 
 
+class BankOption(BaseModel):
+    """One bank in the picker. Name and Paystack code only."""
+
+    name: str
+    code: str
+
+
+class BankListResponse(BaseModel):
+    banks: list[BankOption]
+    stale: bool = Field(
+        ..., description="True when Paystack could not be reached and a cached copy was served"
+    )
+    test_mode: bool = Field(
+        ..., description="True when Luran runs on a Paystack test key (account lookups are limited)"
+    )
+
+
+class ResolveAccountRequest(BaseModel):
+    """Sent as a body, not a query string, so the account number stays out of access logs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    bank_code: str = Field(..., min_length=1, max_length=10, pattern=r"^[A-Za-z0-9_-]+$")
+    account_number: str = Field(..., pattern=_ACCOUNT_NUMBER_PATTERN)
+
+    @field_validator("bank_code", mode="before")
+    @classmethod
+    def _strip_code(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+class ResolveAccountResponse(BaseModel):
+    account_name: str
+
+
 class MarketerCreateRequest(MarketerBankDetails):
     name: str = Field(..., min_length=1, max_length=255)
     email: EmailStr

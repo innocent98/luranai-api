@@ -1,0 +1,40 @@
+{
+  "description": "Account number is not 10 digits (rejected before any Paystack call).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/banks/resolve",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "bank_code": "058",
+      "account_number": "123"
+    }
+  },
+  "response": {
+    "status": 422,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": [
+        {
+          "type": "string_pattern_mismatch",
+          "loc": [
+            "body",
+            "account_number"
+          ],
+          "msg": "String should match pattern '^\\d{10}$'",
+          "input": "123",
+          "ctx": {
+            "pattern": "^\\d{10}$"
+          }
+        }
+      ]
+    }
+  }
+}

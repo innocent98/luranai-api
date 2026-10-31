@@ -1,0 +1,94 @@
+{
+  "scenario": "notification-logs-final",
+  "note": "all notification_logs rows after the full journey",
+  "data": [
+    {
+      "event": "sales_ready_lead",
+      "channel": "email",
+      "status": "sent",
+      "recipient": "sales-rep@example.com",
+      "error": null,
+      "entity_type": "lead"
+    },
+    {
+      "event": "sales_ready_lead",
+      "channel": "in_app",
+      "status": "sent",
+      "recipient": "in_app",
+      "error": null,
+      "entity_type": "lead"
+    },
+    {
+      "event": "sales_ready_lead",
+      "channel": "slack",
+      "status": "sent",
+      "recipient": "slack",
+      "error": null,
+      "entity_type": "lead"
+    },
+    {
+      "event": "sales_ready_lead",
+      "channel": "crm",
+      "status": "sent",
+      "recipient": "crm",
+      "error": null,
+      "entity_type": "lead"
+    },
+    {
+      "event": "quote_generated",
+      "channel": "email",
+      "status": "sent",
+      "recipient": "sales-rep@example.com",
+      "error": null,
+      "entity_type": "quote"
+    },
+    {
+      "event": "quote_generated",
+      "channel": "in_app",
+      "status": "sent",
+      "recipient": "in_app",
+      "error": null,
+      "entity_type": "quote"
+    },
+    {
+      "event": "quote_generated",
+      "channel": "slack",
+      "status": "sent",
+      "recipient": "slack",
+      "error": null,
+      "entity_type": "quote"
+    },
+    {
+      "event": "meeting_booked",
+      "channel": "email",
+      "status": "sent",
+      "recipient": "sales-rep@example.com",
+      "error": null,
+      "entity_type": "meeting"
+    },
+    {
+      "event": "meeting_booked",
+      "channel": "email",
+      "status": "sent",
+      "recipient": "ada.okafor@example.com",
+      "error": null,
+      "entity_type": "meeting"
+    },
+    {
+      "event": "meeting_booked",
+      "channel": "in_app",
+      "status": "sent",
+      "recipient": "in_app",
+      "error": null,
+      "entity_type": "meeting"
+    },
+    {
+      "event": "meeting_booked",
+      "channel": "slack",
+      "status": "sent",
+      "recipient": "slack",
+      "error": null,
+      "entity_type": "meeting"
+    }
+  ]
+}

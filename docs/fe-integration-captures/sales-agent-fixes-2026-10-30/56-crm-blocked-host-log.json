@@ -1,0 +1,30 @@
+{
+  "scenario": "crm-blocked-host-log",
+  "note": "CRM log rows after pointing at 169.254.169.254",
+  "data": [
+    {
+      "event": "sales_ready_lead",
+      "channel": "crm",
+      "status": "sent",
+      "recipient": "crm",
+      "error": null,
+      "entity_type": "lead"
+    },
+    {
+      "event": "sales_ready_lead",
+      "channel": "crm",
+      "status": "sent",
+      "recipient": "crm",
+      "error": null,
+      "entity_type": "lead"
+    },
+    {
+      "event": "sales_ready_lead",
+      "channel": "crm",
+      "status": "failed",
+      "recipient": "crm",
+      "error": "blocked webhook host",
+      "entity_type": "lead"
+    }
+  ]
+}

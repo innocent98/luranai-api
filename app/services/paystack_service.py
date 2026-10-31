@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import json
+import logging
 import re
 from typing import Any, cast
 from uuid import uuid4
@@ -19,6 +20,14 @@ from app.services.plan_service import PlanService
 # Paystack: lowercase letters, digits, "-" and "_"; at least 16 characters; we cap at 100.
 _TRANSFER_REFERENCE_RE = re.compile(r"^[a-z0-9_-]{16,100}$")
 _TRANSFER_TIMEOUT = httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=5.0)
+# Bank list / account lookups sit behind a form the admin is waiting on, so they give up sooner.
+_LOOKUP_TIMEOUT = httpx.Timeout(connect=4.0, read=8.0, write=5.0, pool=4.0)
+_BANK_PAGE_SIZE = 100
+_BANK_MAX_PAGES = 10
+
+# httpx logs every request URL at INFO, and the account-resolve call carries the account number in
+# its query string (Paystack offers no other way). Keep that logger quiet whatever the root level.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 class PaystackTransferError(Exception):
@@ -632,7 +641,13 @@ class PaystackService:
     # be able to commit a claim before the call and record the result after it.
 
     def _transfers_request(
-        self, method: str, path: str, *, json_body: dict[str, Any] | None = None
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, Any] | None = None,
+        params: dict[str, str] | None = None,
+        timeout: httpx.Timeout = _TRANSFER_TIMEOUT,
     ) -> tuple[int, dict[str, Any]]:
         """Send one Transfers API request; returns (http_status, parsed_json_object).
 
@@ -640,9 +655,13 @@ class PaystackService:
         than 404 on a GET (the caller decides what a 404 means). Never logs headers or bodies.
         """
         try:
-            with httpx.Client(timeout=_TRANSFER_TIMEOUT, transport=self._transport) as client:
+            with httpx.Client(timeout=timeout, transport=self._transport) as client:
                 response = client.request(
-                    method, f"{self.base_url}{path}", headers=self.headers, json=json_body
+                    method,
+                    f"{self.base_url}{path}",
+                    headers=self.headers,
+                    json=json_body,
+                    params=params,
                 )
         except httpx.HTTPError as exc:
             # Timeout / connection reset: Paystack may or may not have processed the request.
@@ -770,3 +789,61 @@ class PaystackService:
             ),
             "message": str(payload.get("message", ""))[:200],
         }
+
+    # ------------------------------------------------------------------ Banks (lookups)
+
+    def list_banks(self, country: str = "nigeria") -> list[dict[str, Any]]:
+        """Every bank Paystack returns for ``country``, following cursor pages. ``GET /bank``.
+
+        Returns Paystack's raw bank objects (the caller filters and trims them). Raises
+        ``PaystackTransferError`` on any failure; a half-fetched list is never returned.
+        """
+        collected: list[dict[str, Any]] = []
+        cursor: str | None = None
+        for _ in range(_BANK_MAX_PAGES):
+            query = {
+                "country": country,
+                "perPage": str(_BANK_PAGE_SIZE),
+                "use_cursor": "true",
+            }
+            if cursor:
+                query["next"] = cursor
+            _, payload = self._transfers_request(
+                "GET", "/bank", params=query, timeout=_LOOKUP_TIMEOUT
+            )
+            data = payload.get("data")
+            if not payload.get("status") or not isinstance(data, list):
+                raise PaystackTransferError(
+                    "Paystack returned an unreadable bank list", definitive=False
+                )
+            collected.extend(row for row in data if isinstance(row, dict))
+            meta = payload.get("meta")
+            cursor = meta.get("next") if isinstance(meta, dict) else None
+            if not isinstance(cursor, str) or not cursor:
+                return collected
+        raise PaystackTransferError("Paystack bank list has too many pages", definitive=False)
+
+    def resolve_account(self, *, account_number: str, bank_code: str) -> str:
+        """The holder name Paystack has for a bank account. ``GET /bank/resolve``.
+
+        Raises ``PaystackTransferError`` with ``status_code`` 400/404/422 when Paystack says the
+        account does not resolve, and with another status / ``None`` for anything else. The
+        account number only ever travels in the request; it is not logged or put in an error.
+        """
+        status_code, payload = self._transfers_request(
+            "GET",
+            "/bank/resolve",
+            params={"account_number": account_number, "bank_code": bank_code},
+            timeout=_LOOKUP_TIMEOUT,
+        )
+        if status_code == 404:
+            raise PaystackTransferError(
+                "Paystack could not find the account", definitive=True, status_code=404
+            )
+        data = payload.get("data")
+        name = data.get("account_name") if isinstance(data, dict) else None
+        if not payload.get("status") or not isinstance(name, str) or not name.strip():
+            raise PaystackTransferError(
+                "Paystack returned no account name", definitive=False, status_code=status_code
+            )
+        return name.strip()

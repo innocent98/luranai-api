@@ -1,0 +1,36 @@
+{
+  "scenario": "leads-after-turn-2",
+  "note": "Lead after qualification answer",
+  "request": {
+    "method": "GET",
+    "path": "/leads",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "items": [
+          {
+            "id": "91f0b5fd-3a2c-4316-bc0d-b3488b27df91",
+            "name": null,
+            "company": null,
+            "intent": "PRICING_INQUIRY",
+            "lead_score": 5,
+            "tier": "cold",
+            "status": "new",
+            "source_label": "chat_widget · Paid ad",
+            "created_at": "2026-10-30T22:06:27.344100+00:00"
+          }
+        ],
+        "total": 1,
+        "limit": 50,
+        "offset": 0
+      }
+    }
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "scenario": "lite-config-enable-quotes",
+  "note": "Lite tenant tries to enable quotes + booking",
+  "request": {
+    "method": "PATCH",
+    "path": "/sales/config",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "agent_enabled": true,
+      "meeting_booking_enabled": true,
+      "quotation_enabled": true
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "code": "feature_not_in_plan",
+      "feature": "sales_close",
+      "min_tier": "professional",
+      "message": "Your plan does not include meeting booking and quotes. Upgrade to Professional to use it."
+    }
+  }
+}
