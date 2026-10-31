@@ -158,6 +158,23 @@ def _names_strongly(sentence: str, items: list[OfferingFacts]) -> bool:
     return False
 
 
+def _names_catalog_strongly(sentence: str, names: list[str]) -> bool:
+    """A full item name, or two of its name words, from the tenant's whole active catalog."""
+    lowered = sentence.lower()
+    words = {singular(w) for w in re.findall(r"[a-z0-9]+", lowered)}
+    for name in names:
+        toks = {
+            singular(t)
+            for t in re.findall(r"[a-z0-9]+", name.lower())
+            if len(t) >= 3 and t not in _NAME_STOP
+        }
+        if name and name.lower() in lowered:
+            return True
+        if toks and len(toks & words) >= min(2, len(toks)):
+            return True
+    return False
+
+
 def _names_any(sentence: str, names: list[str]) -> bool:
     """Does a sentence name a catalog item (any of the tenant's active items, in the block or not)?"""
     words = {singular(w) for w in re.findall(r"[a-z0-9]+", sentence.lower())}
@@ -249,9 +266,9 @@ def check_reply(
     currency = (grounding.currency or "NGN").upper()
     matched = {Decimal(i.price) for i in items if i.seq in grounding.matched_seqs and i.price}
     ceiling = max(matched or all_prices, default=None)
-    current = customer_texts[-1] if customer_texts else ""
+    recent = customer_texts[-3:]  # a figure named a turn or two ago still frames this reply
     offer = offer_in_play or (
-        ceiling is not None and any(v < ceiling for v in _values([current], small_ok))
+        ceiling is not None and any(v < ceiling for v in _values(recent, small_ok))
     )
 
     violations: list[Violation] = []
@@ -262,32 +279,47 @@ def check_reply(
     elif tokens.has_stray_markup(text):
         violations.append(Violation(reply, "bad_token"))
 
-    for sentence in (s.strip() for s in _SENTENCE.split(text) if s.strip()):
+    sentences = [s.strip() for s in _SENTENCE.split(text) if s.strip()]
+    # a sentence that quotes the customer's own figure back poisons agreement words anywhere
+    for sentence in sentences:
+        for a in extract_amounts(
+            mask_non_money(tokens.mask(sentence), catalog_names), small_ok=small_ok
+        ):
+            if a.kind == "money" and _has(customer_money, a.value) and _pure_echo(sentence, a):
+                offer = True
+    carried: set[int] = set()  # the items the last sentence naming any was about
+    for sentence in sentences:
         seqs = tokens.token_seqs(sentence)
         plain = tokens.mask(sentence)  # the "#1" inside a token is not a mention of item #1
-        masked = mask_non_money(plain, catalog_names)
-        amounts = extract_amounts(masked, small_ok=small_ok)
         named = named_items(plain, items)
+        names_catalog = _names_catalog_strongly(plain, catalog_names)
+        anchored = bool(named or seqs or names_catalog)
+        masked = mask_non_money(plain, catalog_names)
+        amounts = extract_amounts(masked, small_ok=small_ok, anchored=anchored)
+        named_seqs = {i.seq for i in named}
         if not grounding.strict:
             for seq in seqs:
                 if seq not in injected:
                     violations.append(Violation(sentence, "unknown_token"))
-                elif named and seq not in {i.seq for i in named}:
+                elif named_seqs and seq not in named_seqs:
                     violations.append(Violation(sentence, "token_mismatch"))
+                elif not named_seqs and names_catalog:
+                    violations.append(
+                        Violation(sentence, "token_mismatch")
+                    )  # names an item outside the block
+                elif not named_seqs and carried and seq not in carried:
+                    violations.append(
+                        Violation(sentence, "token_mismatch")
+                    )  # "It costs ..." after another item
+            if named_seqs:
+                carried = named_seqs
             if seqs and _BUNDLE.search(plain) and not _PER.search(plain):
                 violations.append(Violation(sentence, "bundle_price"))
             if (seqs or named) and _SAME.search(plain):
                 violations.append(Violation(sentence, "same_price_claim"))
-            if (
-                len(seqs) > 0
-                and len({i.seq for i in named}) > 1
-                and re.search(r"\bboth\b", plain, re.I)
-            ):
+            if len(seqs) > 0 and len(named_seqs) > 1 and re.search(r"\bboth\b", plain, re.I):
                 violations.append(Violation(sentence, "same_price_claim"))
-            anchored = bool(
-                named or seqs or amounts or offer or _names_any(sentence, catalog_names)
-            )
-            if anchored and _unnegated(_DISCOUNT_WORDS, sentence):
+            if (anchored or amounts or offer) and _unnegated(_DISCOUNT_WORDS, sentence):
                 violations.append(Violation(sentence, "discount_wording"))
             if offer and (_unnegated(_AGREE, sentence) or _unnegated(_CUES, sentence)):
                 violations.append(Violation(sentence, "agreement_after_offer"))
@@ -300,7 +332,7 @@ def check_reply(
             elif a.currency and a.currency != currency:
                 reason = "currency"
             elif _has(kb_money, a.value) or (
-                _has(tiers, a.value) and not _names_strongly(plain, items)
+                _has(tiers, a.value) and not (_names_strongly(plain, items) or names_catalog)
             ):
                 reason = None
             elif _has(customer_money, a.value) and _pure_echo(sentence, a):

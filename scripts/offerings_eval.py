@@ -560,7 +560,7 @@ def _fake_reply(prompt: str, attack: bool) -> tuple[str, dict]:
     team = " Would you like me to connect you with the team?"
     if target is not None and nums and re.search(r"\d|reduce|lowest|price|off", low):
         signals["offered_price"] = {"ref": f"#{target[0]}", "amount": nums[0]}
-    if "Nothing listed matches" in prompt or (not items and "unavailable" in prompt):
+    if "No listed item matches" in prompt or (not items and "unavailable" in prompt):
         return "I don't have that listed." + team, signals
     if re.search(r"reserve|payment link|arrive|deliver|confirm my order|invoice|refund", low):
         return "I've noted your request; the team will confirm.", signals

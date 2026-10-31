@@ -191,7 +191,7 @@ def _next_word(text: str, pos: int) -> str:
     return m.group(1).lower() if m else ""
 
 
-def _digit_amounts(text: str, small_ok: bool, ref_seqs: frozenset) -> list[Amount]:
+def _digit_amounts(text: str, small_ok: bool, ref_seqs: frozenset, anchored: bool) -> list[Amount]:
     found: list[tuple[Amount, bool]] = []  # (amount, had_magnitude)
     for m in _AMOUNT.finditer(text):
         raw_num = m.group("num")
@@ -242,6 +242,7 @@ def _digit_amounts(text: str, small_ok: bool, ref_seqs: frozenset) -> list[Amoun
             near = (
                 bool(_PRICE_CUE.search(before) or _KEYED.search(before) or _WEAK_CUE.search(before))
                 or follow in _MONEY_FOLLOW
+                or anchored
             )
             if (
                 big
@@ -428,12 +429,17 @@ def _merge_word_tails(digit: list[Amount], words: list[Amount], text: str) -> li
 
 
 def extract_amounts(
-    text: str, *, small_ok: bool = False, ref_seqs: frozenset = frozenset()
+    text: str,
+    *,
+    small_ok: bool = False,
+    ref_seqs: frozenset = frozenset(),
+    anchored: bool = False,
 ) -> list[Amount]:
     """Every amount in `text`. `small_ok`: count bare 3-digit numbers (a catalog under 1,000);
-    `ref_seqs`: item numbers, so that `#12` stays a reference."""
+    `ref_seqs`: item numbers, so that `#12` stays a reference; `anchored`: the sentence names a
+    catalog item or carries a price token, so a bare grouped or 4+ digit number is a price."""
     text = normalise(text)
-    digit = _digit_amounts(text, small_ok, ref_seqs)
+    digit = _digit_amounts(text, small_ok, ref_seqs, anchored)
     taken = digit
     words = _word_amounts(text, taken)
     combined = _merge_word_tails(digit, words, text)
