@@ -39,7 +39,10 @@ def clean_text(value: str | None, limit: int) -> str:
     kept = _SPACE.sub(" ", _ANGLE.sub("", kept)).strip()
     folded = unicodedata.normalize("NFKC", kept)
     if _TOKENISH.search(folded):  # tenant text can never carry a price token into a reply
-        kept = _SPACE.sub(" ", _TOKENISH.sub(" ", folded)).strip()
+        kept = folded
+        for _ in range(8):  # one pass can join the halves of another token
+            kept = _TOKENISH.sub(" ", kept)
+        kept = _SPACE.sub(" ", re.sub(r"[\[\]{}]", "", kept)).strip()
     return kept if len(kept) <= limit else kept[: limit - 1].rstrip() + "…"
 
 

@@ -324,3 +324,13 @@ def test_tenant_text_cannot_carry_a_token():
         out = clean_text(raw, 60)
         assert "price:" not in out.lower() and "[" not in out and "{" not in out, (raw, out)
     assert clean_text("Price: 500 per month", 60) == "Price: 500 per month"
+
+
+def test_interleaved_markup_cannot_reassemble_into_a_token():
+    from app.offerings.facts import clean_text
+    from app.offerings.turn import strip_token_text
+
+    for raw in ("[[pri[[x]]ce:#1]]", "[[price:#[[x]]1]]", "[[[[price:#1]]]]", "{{pri{{x}}ce:#1}}"):
+        assert not tokens.has_markup(strip_token_text(raw)), raw
+        assert not tokens.has_markup(tokens.strip(raw)), raw
+        assert not tokens.has_markup(clean_text("Bag " + raw, 80)), raw

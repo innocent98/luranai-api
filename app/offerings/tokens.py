@@ -56,7 +56,15 @@ def mask(text: str, replacement: str = "PRICE") -> str:
 def strip(text: str) -> str:
     """Remove the token text and nothing else: spaces and line breaks around it stay as written
     (no catalog block was injected, so this must never reshape an ordinary reply)."""
-    return _TOKEN_SPAN.sub("", fold(text))
+    out = fold(text)
+    for _ in range(8):  # removing one token can join the halves of another: go until stable
+        cleaned = _TOKEN_SPAN.sub("", out)
+        if cleaned == out:
+            break
+        out = cleaned
+    if has_stray_markup(out):  # still something after eight passes: drop every bracket
+        out = re.sub(r"[\[\]{}]", "", out)
+    return out
 
 
 def resolve(text: str, price_text: Callable[[int], str | None]) -> str | None:
