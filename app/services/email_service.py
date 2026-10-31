@@ -1,11 +1,13 @@
 """Email service for sending transactional emails."""
 
+import re
 import smtplib
 import ssl
 from datetime import datetime
 from email.mime.application import MIMEApplication
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +20,15 @@ from app.core.config import settings
 # (payment webhook, payout approval), and a dead mail server must not hang that request. 30 s
 # leaves room for slow handshakes and quote-PDF attachments, which share this code path.
 SMTP_TIMEOUT_SECONDS = 30
+
+
+_ADDRESS = re.compile(r"[^\s<>,;\"']+@[^\s<>,;\"']+")
+
+
+def header_text(value: str) -> str:
+    """One line, no control characters: a value that came from a visitor or a tenant must never
+    be able to end a header and start another."""
+    return " ".join("".join(c if c.isprintable() else " " for c in value).split())
 
 
 class EmailService:
@@ -41,6 +52,8 @@ class EmailService:
         html_content: str,
         text_content: str | None = None,
         attachments: list[tuple[str, bytes, str]] | None = None,
+        reply_to: str | None = None,
+        from_name: str | None = None,
     ) -> bool:
         """
         Send an email using SMTP.
@@ -51,15 +64,23 @@ class EmailService:
             html_content: HTML content of the email
             text_content: Plain text fallback (optional)
             attachments: Optional list of (filename, content_bytes, mime_type) tuples
+            reply_to: Optional Reply-To address (the From address stays the platform's)
+            from_name: Optional sender display name; the From address stays the platform's
 
         Returns:
             True if sent successfully, False otherwise
         """
         try:
+            sender = f"{settings.EMAILS_FROM_NAME} <{settings.EMAILS_FROM_EMAIL}>"
+            if from_name and header_text(from_name):
+                sender = formataddr((header_text(from_name), str(settings.EMAILS_FROM_EMAIL)))
+            found = _ADDRESS.search(header_text(reply_to)) if reply_to else None
+            reply_address = found.group(0) if found else ""
+
             # Build message — mixed (with attachments) or alternative (plain)
             if attachments:
                 msg = MIMEMultipart("mixed")
-                msg["From"] = f"{settings.EMAILS_FROM_NAME} <{settings.EMAILS_FROM_EMAIL}>"
+                msg["From"] = sender
                 msg["To"] = to_email
                 msg["Subject"] = subject
                 body = MIMEMultipart("alternative")
@@ -74,12 +95,14 @@ class EmailService:
                     msg.attach(part)
             else:
                 msg = MIMEMultipart("alternative")
-                msg["From"] = f"{settings.EMAILS_FROM_NAME} <{settings.EMAILS_FROM_EMAIL}>"
+                msg["From"] = sender
                 msg["To"] = to_email
                 msg["Subject"] = subject
                 if text_content:
                     msg.attach(MIMEText(text_content, "plain"))
                 msg.attach(MIMEText(html_content, "html"))
+            if reply_address:
+                msg["Reply-To"] = reply_address
 
             # Send email based on configuration
             # Note: Port 465 uses SSL (implicit), port 587 uses STARTTLS
@@ -126,6 +149,8 @@ class EmailService:
         template_name: str,
         context: dict[str, Any],
         text_content: str | None = None,
+        reply_to: str | None = None,
+        from_name: str | None = None,
     ) -> bool:
         """Render and send a templated email."""
         html_content = self.render_template(template_name, **context)
@@ -134,7 +159,13 @@ class EmailService:
             subject=subject,
             html_content=html_content,
             text_content=text_content,
+            **self._sender_kwargs(reply_to, from_name),
         )
+
+    @staticmethod
+    def _sender_kwargs(reply_to: str | None, from_name: str | None) -> dict[str, str]:
+        """Only pass the optional sender fields when set, so existing callers see no change."""
+        return {k: v for k, v in (("reply_to", reply_to), ("from_name", from_name)) if v}
 
     def send_templated_email_with_attachments(
         self,
@@ -143,6 +174,9 @@ class EmailService:
         template_name: str,
         context: dict[str, Any],
         attachments: list[tuple[str, bytes, str]] | None = None,
+        text_content: str | None = None,
+        reply_to: str | None = None,
+        from_name: str | None = None,
     ) -> bool:
         """Render and send a templated email with optional binary attachments."""
         html_content = self.render_template(template_name, **context)
@@ -150,7 +184,9 @@ class EmailService:
             to_email=to_email,
             subject=subject,
             html_content=html_content,
+            text_content=text_content,
             attachments=attachments,
+            **self._sender_kwargs(reply_to, from_name),
         )
 
     def send_platform_broadcast_email(

@@ -41,6 +41,9 @@ def _fmt(amount: int, currency: str) -> str:
     return f"{sign}{sym}{abs(int(amount)):,}"
 
 
+format_amount = _fmt  # public name: the rep alert and the visitor email format money like the PDF
+
+
 def render_quote_pdf(quote, *, lead=None) -> bytes:
     """Render `quote` to PDF bytes. Raises RuntimeError if generation fails."""
     items = [

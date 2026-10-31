@@ -6,15 +6,18 @@ import uuid
 from sqlalchemy import select
 
 from app.db.session import SessionLocal
+from app.db.models.conversation import ConversationSession
 from app.db.models.lead import Lead
 from app.db.models.meeting import Meeting
 from app.db.models.quote import Quote
 from app.db.models.notification_log import NotificationLog, NotifEvent, NotifStatus
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
-from app.services.email_service import EmailService
+from app.db.models.visitor import Visitor
+from app.db.models.tenant import Tenant
+from app.services.email_service import EmailService, header_text
 from app.services.entitlements import tenant_has
 from app.sales.links import lead_dashboard_url
-from app.services.quote_pdf_service import render_quote_pdf
+from app.services.quote_pdf_service import format_amount, render_quote_pdf
 from app.utils.pinned_http import ResponseRejectedError, UnsafeOutboundURLError, apinned_request
 
 logger = logging.getLogger(__name__)
@@ -47,6 +50,16 @@ def _lead_id_for(db, log: NotificationLog):
     return q.lead_id if q else None
 
 
+_CHANNEL_LABELS = {
+    "widget": "Website chat",
+    "whatsapp": "WhatsApp",
+    "direct": "Direct chat link",
+    "explore_personal": "Luran Explore",
+    "explore_browse": "Luran Explore",
+    "explore_search": "Luran Explore",
+}
+
+
 def _entity_context(db, log: NotificationLog) -> dict:
     """Build the template context for the rep alert from the log's entity."""
     context = _entity_fields(db, log)
@@ -54,34 +67,67 @@ def _entity_context(db, log: NotificationLog) -> dict:
     return context
 
 
+def _quote_items(quote: Quote | None) -> list[dict]:
+    """The quote's lines, formatted the way the PDF prints them."""
+    if quote is None:
+        return []
+    return [
+        {
+            "label": li.get("label", ""),
+            "detail": li.get("detail", ""),
+            "amount_fmt": format_amount(int(li.get("amount", 0)), quote.currency),
+            "negative": int(li.get("amount", 0)) < 0,
+        }
+        for li in (quote.line_items or [])
+    ]
+
+
+def _lead_contact(db, lead: Lead | None) -> dict:
+    """Who the visitor is and how to reach them. Keys are absent when nothing was captured."""
+    if lead is None:
+        return {}
+    contact: dict = {}
+    if lead.name:
+        contact["name"] = lead.name
+    if lead.company:
+        contact["company"] = lead.company
+    if lead.email:
+        contact["email"] = lead.email
+    session = db.get(ConversationSession, lead.conversation_id) if lead.conversation_id else None
+    if session is not None:
+        visitor = db.get(Visitor, session.visitor_id) if session.visitor_id else None
+        if visitor is not None and visitor.phone:
+            contact["phone"] = visitor.phone
+        if session.source and session.source != "unknown":
+            contact["channel"] = _CHANNEL_LABELS.get(session.source, "Chat")
+    return contact
+
+
 def _entity_fields(db, log: NotificationLog) -> dict:
+    quote: Quote | None = None
     if log.entity_type == "lead":
         lead = db.get(Lead, log.entity_id)
-        return {
-            "kind": "lead",
-            "name": lead.name if lead else None,
-            "company": lead.company if lead else None,
-            "score": lead.lead_score if lead else None,
-        }
-    if log.entity_type == "meeting":
+        fields = {"kind": "lead", "score": lead.lead_score if lead else None}
+    elif log.entity_type == "meeting":
         m = db.get(Meeting, log.entity_id)
         lead = db.get(Lead, m.lead_id) if m else None
-        return {
-            "kind": "meeting",
-            "scheduled_at": m.scheduled_at if m else None,
-            "name": lead.name if lead else None,
-            "company": lead.company if lead else None,
+        fields = {"kind": "meeting", "scheduled_at": m.scheduled_at if m else None}
+    else:  # default: quote
+        q = quote = db.get(Quote, log.entity_id)
+        lead = db.get(Lead, q.lead_id) if q else None
+        fields = {
+            "kind": "quote",
+            "total": q.total if q else None,
+            "currency": q.currency if q else None,
+            "total_fmt": format_amount(int(q.total or 0), q.currency) if q else None,
         }
-    # default: quote
-    q = db.get(Quote, log.entity_id)
-    lead = db.get(Lead, q.lead_id) if q else None
-    return {
-        "kind": "quote",
-        "total": q.total if q else None,
-        "currency": q.currency if q else None,
-        "name": lead.name if lead else None,
-        "company": lead.company if lead else None,
-    }
+    # Existing keys stay (None when unknown); the contact details and items are additive.
+    fields.update(name=None, company=None)
+    fields.update(_lead_contact(db, lead))
+    if quote is None and lead is not None and lead.quote_id:
+        quote = db.get(Quote, lead.quote_id)  # a lead/meeting alert shows what they asked for
+    fields["items"] = _quote_items(quote)
+    return fields
 
 
 async def send_rep_alert(ctx, notification_log_id: str) -> None:
@@ -200,9 +246,149 @@ async def send_visitor_meeting_confirmation(ctx, notification_log_id: str) -> No
         db.close()
 
 
+def _visitor_quote_text(
+    *, tenant: str, greeting: str, items: list[dict], total_fmt: str, has_pdf: bool
+) -> str:
+    """Plain-text alternative of the visitor email (same facts as the HTML)."""
+    lines = [
+        f"{it['label']}{' (' + it['detail'] + ')' if it['detail'] else ''}: {it['amount_fmt']}"
+        for it in items
+    ]
+    return "\n".join(
+        [
+            greeting,
+            "",
+            f"Here is the quote you asked for in your chat with {tenant}.",
+            "",
+            *lines,
+            f"Estimated total: {total_fmt}",
+            "",
+            ("The same quote is attached as a PDF. " if has_pdf else "")
+            + f"Reply to this email to reach {tenant}.",
+            "",
+            f"You received this because this address was entered in a chat with {tenant}. "
+            "If that wasn't you, you can ignore this email.",
+        ]
+    )
+
+
+async def send_visitor_quote_email(ctx, notification_log_id: str) -> None:
+    """Email the quote (body + PDF) to the visitor who asked for it.
+
+    Idempotent: exits early if the log is missing or already SENT; the log row is locked while
+    sending so a redelivered job waits and then sees SENT. FAILED + re-raise lets ARQ retry. The
+    send is plain on purpose: the tenant's name, the quote, a reply-to the rep, nothing else.
+    """
+    db = SessionLocal()
+    try:
+        log = db.get(NotificationLog, uuid.UUID(notification_log_id), with_for_update=True)
+        if log is None or log.status == NotifStatus.SENT:
+            return
+        quote = db.get(Quote, log.entity_id)
+        lead = db.get(Lead, quote.lead_id) if quote else None
+        tenant = db.get(Tenant, log.tenant_id)
+        if quote is None or tenant is None:
+            log.status = NotifStatus.FAILED
+            log.error = "quote or tenant not found"
+            db.commit()
+            return
+        cfg = db.execute(
+            select(TenantSalesAgentConfig).where(TenantSalesAgentConfig.tenant_id == log.tenant_id)
+        ).scalar_one_or_none()
+        from app.services.notification_service import NotificationService
+
+        reply_to = NotificationService(db)._rep_recipient(log.tenant_id, cfg)
+        company = header_text(tenant.display_name or tenant.name or "us")
+        items = _quote_items(quote)
+        total_fmt = format_amount(int(quote.total or 0), quote.currency)
+        # No visitor-typed name: whoever used the chat chose it, the recipient may be a stranger.
+        greeting = "Hello,"
+
+        pdf_bytes = None
+        try:
+            pdf_bytes = render_quote_pdf(quote, lead=lead)
+        except Exception as pdf_exc:  # noqa: BLE001 - the body already carries the quote
+            logger.warning(f"visitor quote PDF render failed (sending without it): {pdf_exc}")
+        ok = EmailService().send_templated_email_with_attachments(
+            to_email=log.recipient,
+            subject=f"Your quote from {company}",
+            template_name="sales_quote_visitor.html",
+            context={
+                "company": company,
+                "greeting": greeting,
+                "items": items,
+                "total_fmt": total_fmt,
+                "has_pdf": bool(pdf_bytes),
+            },
+            attachments=(
+                [(f"quote-{quote.id}.pdf", pdf_bytes, "application/pdf")] if pdf_bytes else None
+            ),
+            text_content=_visitor_quote_text(
+                tenant=company,
+                greeting=greeting,
+                items=items,
+                total_fmt=total_fmt,
+                has_pdf=bool(pdf_bytes),
+            ),
+            reply_to=reply_to,
+            from_name=f"{company} via Luran",  # the sender is the platform, not the tenant
+        )
+        if not ok:
+            log.status = NotifStatus.FAILED
+            log.error = "send_templated_email returned False"
+            db.commit()
+            raise _EmailSendFailed("email send failed")
+        log.status = NotifStatus.SENT
+        log.error = None
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        if isinstance(exc, _EmailSendFailed):
+            raise
+        logger.error(f"send_visitor_quote_email failed: {exc}")
+        try:
+            db.rollback()
+            log = db.get(NotificationLog, uuid.UUID(notification_log_id))
+            if log is not None:
+                log.status = NotifStatus.FAILED
+                log.error = str(exc)[:500]
+                db.commit()
+        except Exception:
+            pass
+        raise
+    finally:
+        db.close()
+
+
 # ---------------------------------------------------------------------------
 # Slack delivery (Stage 3 Slice 5d)
 # ---------------------------------------------------------------------------
+
+
+def _slack_escape(text: str) -> str:
+    """Slack treats & < > as control characters (links, @channel mentions): escape them."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _slack_body(db, log: NotificationLog) -> str:
+    """The Slack message body: the log's one-liner plus who to contact and what they asked for.
+
+    Every visitor-supplied value is escaped, so a name like `<!channel>` cannot ping the room.
+    """
+    f = _entity_fields(db, log)
+    lines = [_slack_escape(log.body or "")]
+    for label, key in (
+        ("Name", "name"),
+        ("Email", "email"),
+        ("Phone", "phone"),
+        ("Channel", "channel"),
+    ):
+        if f.get(key):
+            lines.append(f"{label}: {_slack_escape(str(f[key]))}")
+    if f.get("total_fmt"):
+        lines.append(f"Total: {_slack_escape(f['total_fmt'])}")
+    for it in f.get("items") or []:
+        lines.append(f"• {_slack_escape(str(it['label']))}: {_slack_escape(it['amount_fmt'])}")
+    return "\n".join(line for line in lines if line)
 
 
 def _slack_blocks(title: str | None, body: str | None, dashboard_url: str = "") -> dict:
@@ -277,7 +463,10 @@ async def send_slack_notification(ctx, notification_log_id: str) -> None:
         dashboard_url = lead_dashboard_url(_lead_id_for(db, log)) or ""
         try:
             resp = await apinned_request(
-                "POST", url, json=_slack_blocks(log.title, log.body, dashboard_url), timeout=10
+                "POST",
+                url,
+                json=_slack_blocks(log.title, _slack_body(db, log), dashboard_url),
+                timeout=10,
             )
         except UnsafeOutboundURLError:
             log.status = NotifStatus.FAILED

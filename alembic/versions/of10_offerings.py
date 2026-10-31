@@ -1,7 +1,7 @@
 """Offerings catalog: six tables, two plan columns, the OFFERING_REQUEST notification event
 
 Revision ID: of10offerings
-Revises: wa40contactexclusion
+Revises: qv10quotevisitoremail
 Create Date: 2026-10-30
 
 Docs: docs/superpowers/specs/2026-10-30-offerings-catalog-design.md (sections 6 and 12).
@@ -34,7 +34,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "of10offerings"
-down_revision: str | Sequence[str] | None = "wa40contactexclusion"
+down_revision: str | Sequence[str] | None = "qv10quotevisitoremail"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
