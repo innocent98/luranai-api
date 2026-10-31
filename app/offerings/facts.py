@@ -16,17 +16,13 @@ from app.db.models.offering import (
     OfferingKind,
     OfferingPriceMode,
 )
+from app.offerings.markup import strip_brackets
 from app.sales.pricing import _currency_symbol
 
 NAME_MAX = 120
 DESCRIPTION_MAX = 240
 _ANGLE = re.compile(r"[<>]")
 _SPACE = re.compile(r"\s+")
-
-
-_TOKENISH = re.compile(
-    r"[\[\]{}]{2}|[\[\{(<【「『]\s*price\s*[:：]|price\s*[:：]\s*#", re.IGNORECASE
-)
 
 
 def clean_text(value: str | None, limit: int) -> str:
@@ -37,12 +33,7 @@ def clean_text(value: str | None, limit: int) -> str:
         " " if unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") else ch for ch in value
     )
     kept = _SPACE.sub(" ", _ANGLE.sub("", kept)).strip()
-    folded = unicodedata.normalize("NFKC", kept)
-    if _TOKENISH.search(folded):  # tenant text can never carry a price token into a reply
-        kept = folded
-        for _ in range(8):  # one pass can join the halves of another token
-            kept = _TOKENISH.sub(" ", kept)
-        kept = _SPACE.sub(" ", re.sub(r"[\[\]{}]", "", kept)).strip()
+    kept = strip_brackets(kept).strip()  # tenant text can never carry a price token
     return kept if len(kept) <= limit else kept[: limit - 1].rstrip() + "…"
 
 

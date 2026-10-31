@@ -248,10 +248,11 @@ def offered_signal(sales_meta: dict | None) -> bool:
 
 
 def strip_token_text(text: str) -> str:
-    """Prompt text with any token-like markup removed; byte-identical when it has none."""
-    from app.offerings import tokens
+    """Prompt text with exact tokens and bracketed look-alikes removed (catalog tenants only);
+    byte-identical when it has none."""
+    from app.offerings import markup
 
-    return tokens.strip(text) if tokens.has_markup(text) else text
+    return markup.strip_price_markup(text)
 
 
 def finalize_reply(
@@ -259,7 +260,7 @@ def finalize_reply(
 ) -> tuple[str, list[int]]:
     """Resolve price tokens to the live price text of their own row (never a token on the wire).
 
-    Without a catalog block nothing legitimate can be a token, so anything token-like is removed.
+    A tenant without a catalog block (result None) gets its reply back untouched: no scan at all.
     A token that cannot be resolved (the item vanished since the block) gives the code fallback.
     Returns the final text and the item seqs the tokens named.
     """
@@ -267,11 +268,11 @@ def finalize_reply(
     from app.offerings.fallback import fallback_reply
     from app.offerings.grounding import _by_seqs
 
+    if result is None:
+        return reply, []  # no catalog for this tenant: the reply is never touched, not even read
     if not tokens.has_markup(reply):
         return reply, []  # byte-identical: an ordinary reply is never touched
-    if result is None:
-        return tokens.strip(reply), []
-    seqs = tokens.token_seqs(tokens.fold(reply))
+    seqs = tokens.token_seqs(reply)
     live = {
         row.seq: facts_from_row(row).price_text(result.currency)
         for row in _by_seqs(db, tenant_id, seqs)

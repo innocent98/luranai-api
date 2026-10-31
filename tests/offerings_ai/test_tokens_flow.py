@@ -3,7 +3,7 @@
 from sqlalchemy import select
 
 from app.db.models.offering import Offering, OfferingPriceMode, OfferingStatus
-from app.offerings import tokens
+from app.offerings import markup, tokens
 from app.services.conversation_service import message_channel, voice_channel
 from tests.offerings_ai.helpers import (
     add_offering,
@@ -187,8 +187,9 @@ def test_two_noncompliant_replies_fall_back_to_the_rows(client, db):
 
 def test_a_tenant_without_a_catalog_never_sends_a_token(client, db):
     tid = make_tenant(db)
-    r = _ask(client, tid, ScriptedPlain("Sure: [[price:#1]] is the price [[oops]]."))
-    assert "[[" not in r.json()["message"]["content"]
+    text = "Sure: [[price:#1]] is the price [[oops]]."
+    r = _ask(client, tid, ScriptedPlain(text))
+    assert r.json()["message"]["content"] == text  # nothing in the catalog code runs for them
     assert "offerings" not in _meta(r)
 
 
@@ -253,11 +254,11 @@ def test_a_tenant_without_items_gets_the_model_reply_unchanged_on_voice(client, 
         voice_channel.reset(marker)
 
 
-def test_a_stray_token_without_a_catalog_loses_only_its_own_text(client, db):
+def test_a_stray_token_without_a_catalog_is_left_exactly_as_written(client, db):
     tid = _plain_tenant(db)
     text = "Our plan is\n\n[[price:#1]] a month.\n\nThanks"
     r = _ask(client, tid, ScriptedPlain(text), text="what do you offer?")
-    assert r.json()["message"]["content"] == "Our plan is\n\n a month.\n\nThanks"
+    assert r.json()["message"]["content"] == text
 
 
 # -- token look-alikes never survive (review pass 4) ---------------------------------------------
@@ -272,20 +273,28 @@ def test_look_alike_tokens_are_markup():
         "It is [[pri\u200bce:#3]].",
         "It is (price:#3).",
         "It is <price: 3>.",
-        "It is price:#3 now.",
     ):
         assert tokens.has_markup(text), text
 
 
 def test_ordinary_words_with_price_are_not_markup():
-    for text in ("Price: 500 per month", "The price: ₦5,000", "price list: see below"):
+    for text in (
+        "Price: 500 per month",
+        "The price: ₦5,000",
+        "price list: see below",
+        "Price: #5,000 per bag.",
+        "Delivery price: #2500 within Lagos.",
+        "It is price:#3 now.",
+        "Gold plan (price: 5000 naira/month)",
+    ):
         assert not tokens.has_markup(text), text
 
 
-def test_fullwidth_and_zero_width_tokens_resolve_on_the_folded_text():
+def test_disguised_tokens_are_never_resolved_they_are_bad_tokens():
     live = {3: "₦25,000"}.get
-    assert tokens.resolve("It is ［［price:#3］］.", live) == "It is ₦25,000."
-    assert tokens.resolve("It is [[pri\u200bce:#3]].", live) == "It is ₦25,000."
+    assert tokens.resolve("It is ［［price:#3］］.", live) is None
+    assert tokens.resolve("It is [[pri\u200bce:#3]].", live) is None
+    assert tokens.resolve("It is [[ price : # 3 ]].", live) == "It is ₦25,000."
     assert tokens.resolve("It is [price:#3].", live) is None
     assert tokens.resolve("It is {{price:#3}}.", live) is None
 
@@ -331,6 +340,6 @@ def test_interleaved_markup_cannot_reassemble_into_a_token():
     from app.offerings.turn import strip_token_text
 
     for raw in ("[[pri[[x]]ce:#1]]", "[[price:#[[x]]1]]", "[[[[price:#1]]]]", "{{pri{{x}}ce:#1}}"):
-        assert not tokens.has_markup(strip_token_text(raw)), raw
+        assert not markup.has_price_markup(strip_token_text(raw)), raw
         assert not tokens.has_markup(tokens.strip(raw)), raw
         assert not tokens.has_markup(clean_text("Bag " + raw, 80)), raw

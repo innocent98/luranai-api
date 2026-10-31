@@ -509,10 +509,13 @@ def check_reply(
     }
     violations: list[Violation] = []
     text = normalise(reply)
+    # tokens are judged on the reply as written: a fullwidth or zero-width disguise folds into a
+    # valid-looking token in `text`, which code would then fail to resolve
+    disguised = tokens.token_seqs(reply) != tokens.token_seqs(text)
     if grounding.strict:
-        if tokens.token_seqs(text) or tokens.has_stray_markup(text):
+        if tokens.token_seqs(text) or tokens.has_stray_markup(reply):
             violations.append(Violation(reply, "strict"))
-    elif tokens.has_stray_markup(text):
+    elif disguised or tokens.has_stray_markup(reply):
         violations.append(Violation(reply, "bad_token"))
 
     sentences = [s.strip() for s in _SENTENCE.split(text) if s.strip()]
