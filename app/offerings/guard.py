@@ -1,17 +1,15 @@
 """The price guard (spec 7.5): code, not prompt, decides whether a reply may be sent.
 
-Every money amount in the reply (see `amounts.py`) is checked, sentence by sentence, against what the
-model was actually shown this turn:
+Structural rules (the model never types a catalog price, see `tokens.py`):
 
-* a listed price only counts for the item it belongs to (and, in a sentence naming no item, for the
-  items this turn is about);
-* concession wording beside any other figure fails, even if that figure is some item's price;
-* the customer's own figure is never repeated beside an item name when it is below the listed price,
-  never accepted (decision D1: code writes the "noted your offer" line, not the model), and an echo of
-  a below-list figure poisons any agreement word anywhere in the reply;
-* percentages and number-less discounts ("half price", "for free") beside an item fail;
-* knowledge-base and plan prices never sit beside an item name, and KB sentences that name a catalog
-  item are ignored (a stale KB price must not beat the catalog).
+* a price is a token bound to one row (`[[price:#12]]`); an unknown, foreign or malformed token, or a
+  token beside the name of a different item, is a violation;
+* any literal amount outside a token is a violation, unless it comes from a knowledge-base sentence
+  that names no catalog item (a delivery fee), is a plan price in a sentence naming no item, or is a
+  pure "You offered ₦X." echo of the customer's own figure;
+* discount and agreement wording is a violation when anchored to an item, a price or an offer; when
+  the customer is bargaining (or the model returned an offered price) the pipeline sends code-only
+  lines (`offer_turn.py`), and this module is the backstop.
 
 This module only judges; the regenerate-then-fall-back flow is `guard_flow.py`.
 """
@@ -21,6 +19,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from app.offerings import tokens
 from app.offerings.amounts import Amount, extract_amounts, mask_non_money, normalise
 from app.offerings.facts import OfferingFacts
 from app.offerings.grounding import GroundingResult, singular
@@ -42,11 +41,47 @@ _CUES = re.compile(
 )
 
 
-_ECHO = re.compile(
-    r"\b(?:you(?:'ve|\s+have)?\s+(?:said|mentioned|offered|asked|told|wrote|quoted|suggested|"
-    r"proposed|stated|shared)|you(?:'re|\s+are)\s+(?:offering|proposing|asking|suggesting)"
-    r"|your\s+(?:offer|offered|figure|price|proposal|bid|quote|suggestion)|noted\s+(?:your|the)"
-    r"|as\s+you\s+(?:said|mentioned)|you(?:'d|\s+would)\s+(?:like|want)\s+to\s+pay|budget)\b",
+_DISCOUNT_WORDS = re.compile(
+    r"half[\s-]?price|\bfor free\b|free of charge|on the house|discount|reduc(?:e|ed|tion)"
+    r"|\d[\d,.]*\s*(?:%|percent|per cent)\s*(?:off|discount|reduction)"
+    r"|\d[\d,.]*\s*(?:k|naira)?\s+off\b|\b(?:take|knock|knocked|get|extra|some)\s+(?:\w+\s+){0,2}off\b"
+    r"|price (?:drop|cut|off)|\boff (?:the )?price\b|markdown|bargain|lower (?:the )?price"
+    r"|cut (?:the )?price|get one free|buy one|no (?:extra )?(?:cost|charge)|\bon us\b",
+    re.IGNORECASE,
+)
+_NEGATION = re.compile(
+    r"\b(?:can't|cannot|can not|unable to|not able to|won't|will not|don't|do not|never"
+    r"|no discounts?|no reductions?|not (?:on )?sale|not discounted)\b",
+    re.IGNORECASE,
+)
+# Only these may stand between a negation and the word it governs ("can't GIVE A discount").
+_FILLER = {
+    "a", "an", "any", "the", "give", "offer", "do", "get", "you", "ever", "further", "extra",
+    "more", "this", "that", "such", "special", "provide", "make", "allow", "apply", "grant",
+}  # fmt: skip
+_AGREE = re.compile(
+    r"\b(?:yes|yeah|yep|okay|ok|sure|deal|agreed?|accept(?:ed)?|alright|perfect|good news|great news"
+    r"|granted|approved|confirmed|fine|works?|no problem|of course|certainly|absolutely|done"
+    r"|wahala|oya|e don do|it'?s yours|go with that|we can do that|that'?s fair|let'?s go"
+    r"|fair enough|you got it|we accept|can do|doable|honou?r|settled|proceed|possible"
+    r"|put\s+(?:it|that)\s+through|at\s+(?:that|your)\s+price|we\s+fit|fit\s+do\s+am)\b",
+    re.IGNORECASE,
+)
+_SAME = re.compile(
+    r"\b(?:same\s+(?:price|cost|amount)|costs?\s+(?:the\s+)?same|(?:priced|is|are)\s+the\s+same"
+    r"|also\s+costs?)\b",
+    re.IGNORECASE,
+)
+_QTY = r"(?<!size\s)(?<!sizes\s)(?<![#\d.,])\b(?:[2-9]|two|three|four|five|six|seven|eight|nine|ten|both)\b"
+_BUNDLE = re.compile(
+    rf"{_QTY}[^.!?\n]{{0,50}}?\b(?:for|pay|total|altogether|only)\s+PRICE\b"
+    r"|\bPRICE\s+(?:for\s+(?:both|two|three|four|five)|total|altogether)\b",
+    re.IGNORECASE,
+)
+_PER = re.compile(r"\b(?:each|per|apiece|every|a\s+pair|one)\b", re.IGNORECASE)
+_PURE_ECHO = re.compile(
+    r"^\s*(?:and\s+)?you(?:'ve|\s+have)?\s+(?:offered|said|mentioned|asked\s+for|proposed|"
+    r"suggested|quoted|stated)\b",
     re.IGNORECASE,
 )
 
@@ -65,11 +100,6 @@ class GuardVerdict:
     checked: bool = True
 
 
-def _echoed(sentence: str, amount: Amount) -> bool:
-    """The sentence attributes the figure to the customer, right beside it."""
-    return bool(_ECHO.search(sentence[max(0, amount.start - 60) : amount.end + 20]))
-
-
 def _name_tokens(item: OfferingFacts) -> set[str]:
     return {
         singular(t)
@@ -78,74 +108,68 @@ def _name_tokens(item: OfferingFacts) -> set[str]:
     }
 
 
-def _named_items(
-    sentence: str, items: list[OfferingFacts]
-) -> tuple[list[OfferingFacts], list[OfferingFacts]]:
-    """(loose, strict): every item the sentence touches, and the best-matching subset."""
+def _spans(text: str, needle: str) -> list[tuple[int, int]]:
+    return [m.span() for m in re.finditer(re.escape(needle), text)] if needle else []
+
+
+def named_items(sentence: str, items: list[OfferingFacts]) -> list[OfferingFacts]:
+    """The items a sentence mentions (by `#ref`, full name or a name word). A more specific name
+    shadows a shorter one it contains: "Black Sneaker Pro" is not also "Black Sneaker"."""
     lowered = sentence.lower()
     words = {singular(w) for w in re.findall(r"[a-z0-9]+", lowered)}
     refs = {int(n) for n in _REF.findall(sentence)}
-    scored: list[tuple[float, OfferingFacts, bool]] = []
+    hits: list[OfferingFacts] = []
+    full_spans: dict[int, list[tuple[int, int]]] = {}
     for item in items:
-        by_ref = item.seq in refs
-        full = bool(item.name) and item.name.lower() in lowered
-        tokens = _name_tokens(item)
-        hit = len(tokens & words)
-        frac = hit / len(tokens) if tokens else 0.0
-        if by_ref or full or hit:
-            scored.append((1.0 if (by_ref or full) else frac, item, by_ref or full))
-    if not scored:
-        return [], []
-    loose = [i for _, i, _ in scored]
-    explicit = [i for _, i, exact in scored if exact]
-    if explicit:
-        # another item that the sentence names only in part still counts when it brings words the
-        # explicit ones do not ("Black sneaker - ..., Leather bag - ...")
-        known = set().union(*(_name_tokens(i) for i in explicit))
-        extra = [
-            i
-            for f, i, exact in scored
-            if not exact and f >= 0.6 and (_name_tokens(i) & words) - known
-        ]
-        return loose, explicit + extra
-    best = max(f for f, _, _ in scored)
-    return loose, [i for f, i, _ in scored if f == best]
+        spans = _spans(lowered, item.name.lower())
+        if spans:
+            full_spans[item.seq] = spans
+        if item.seq in refs or spans or (_name_tokens(item) & words):
+            hits.append(item)
+    out = []
+    for a in hits:
+        a_spans = full_spans.get(a.seq)
+        shadowed = bool(a_spans) and all(
+            any(
+                b.seq != a.seq
+                and len(b.name) > len(a.name)
+                and a.name.lower() in b.name.lower()
+                and any(bs <= s and e <= be for bs, be in full_spans.get(b.seq, []))
+                for b in hits
+            )
+            for s, e in a_spans
+        )
+        if not shadowed:
+            out.append(a)
+    return out
 
 
-_DISCOUNT_WORDS = re.compile(
-    r"half[\s-]?price|\bfor free\b|\bfree\b|free of charge|on the house|discount|\boff\b|reduc"
-    r"|cheaper|lower (?:the )?price|cut (?:the )?price|price (?:drop|cut)|markdown|bargain"
-    r"|knock(?:ed)?|get one free|buy one|no (?:extra )?(?:cost|charge)|\bon us\b",
-    re.IGNORECASE,
-)
-_NEGATION = re.compile(
-    r"\b(?:can't|cannot|can not|unable to|not able to|won't|will not|don't|do not|never"
-    r"|no discounts?|no reductions?|not (?:on )?sale|not discounted)\b",
-    re.IGNORECASE,
-)
-# Only these may stand between a negation and the word it governs ("can't GIVE A discount").
-_FILLER = {
-    "a", "an", "any", "the", "give", "offer", "do", "get", "you", "ever", "further", "extra",
-    "more", "this", "that", "such", "special", "provide", "make", "allow", "apply", "grant",
-}  # fmt: skip
-_AGREE = re.compile(
-    r"\b(?:yes|yeah|yep|okay|ok|sure|deal|agreed?|accept(?:ed)?|alright|perfect|good news|great news"
-    r"|granted|approved|confirmed|fine|works?|no problem|of course|certainly|absolutely|done"
-    r"|wahala|oya|e don do|it'?s yours|go with that|we can do that|that'?s fair|let'?s go"
-    r"|fair enough|you got it|we accept|can do)\b",
-    re.IGNORECASE,
-)
-_PURE_ECHO = re.compile(
-    r"^\s*(?:and\s+)?you(?:'ve|\s+have)?\s+(?:offered|said|mentioned|asked\s+for|proposed|"
-    r"suggested|quoted|stated)\b",
-    re.IGNORECASE,
-)
-_SHARED = re.compile(r"\b(?:each|both|same|all)\b", re.IGNORECASE)
-_QTY_BEFORE = re.compile(
-    r"(?<!size )(?<!sizes )(?<!#)\b(?:[2-9]|[1-9]\d|two|three|four|five|six|seven|eight|nine|ten|both)"
-    r"\s+(?:of\s+)?(?:the\s+)?$",
-    re.IGNORECASE,
-)
+def _names_strongly(sentence: str, items: list[OfferingFacts]) -> bool:
+    """A ref, a full name, or at least two of an item's name words ("Pro plan" is not an item)."""
+    lowered = sentence.lower()
+    words = {singular(w) for w in re.findall(r"[a-z0-9]+", lowered)}
+    refs = {int(n) for n in _REF.findall(sentence)}
+    for i in items:
+        toks = _name_tokens(i)
+        if i.seq in refs or (i.name and i.name.lower() in lowered):
+            return True
+        if toks and len(toks & words) >= min(2, len(toks)):
+            return True
+    return False
+
+
+def _names_any(sentence: str, names: list[str]) -> bool:
+    """Does a sentence name a catalog item (any of the tenant's active items, in the block or not)?"""
+    words = {singular(w) for w in re.findall(r"[a-z0-9]+", sentence.lower())}
+    for name in names:
+        toks = {
+            singular(t)
+            for t in re.findall(r"[a-z0-9]+", name.lower())
+            if len(t) >= 3 and t not in _NAME_STOP
+        }
+        if toks and toks & words:
+            return True
+    return False
 
 
 def _negated(sentence: str, match: re.Match) -> bool:
@@ -170,69 +194,28 @@ def _unnegated(pattern: re.Pattern, sentence: str) -> bool:
     return any(not _negated(sentence, m) for m in pattern.finditer(sentence))
 
 
-def _values(texts: Iterable[str], kind: str, small_ok: bool = False) -> set[Decimal]:
-    return {a.value for t in texts for a in extract_amounts(t, small_ok=small_ok) if a.kind == kind}
+def _values(texts: Iterable[str], small_ok: bool = False) -> set[Decimal]:
+    return {
+        a.value for t in texts for a in extract_amounts(t, small_ok=small_ok) if a.kind == "money"
+    }
 
 
 def _has(values: Iterable, v: Decimal) -> bool:
     return any(v == x for x in values)
 
 
-def _kb_values(kb_text: str, items: list[OfferingFacts], small_ok: bool) -> tuple[set, set]:
-    """Amounts and percentages from KB sentences that do not name a catalog item."""
-    names = [i.name for i in items]
-    money: set[Decimal] = set()
-    pct: set[Decimal] = set()
+def _kb_values(kb_text: str, names: list[str], small_ok: bool) -> set[Decimal]:
+    """Amounts from KB sentences that name no catalog item (a stale KB price must not win)."""
+    out: set[Decimal] = set()
     for sentence in _SENTENCE.split(normalise(kb_text)):
-        if _named_items(sentence, items)[0]:
+        if _names_any(sentence, names):
             continue
-        for a in extract_amounts(mask_non_money(sentence, names), small_ok=small_ok):
-            (money if a.kind == "money" else pct).add(a.value)
-    return money, pct
-
-
-def _anchors(sentence: str, item: OfferingFacts) -> list[tuple[int, int]]:
-    """Where the sentence mentions this item: its ref, its full name, or any of its name words."""
-    spans = [m.span() for m in re.finditer(rf"#\s?{item.seq}\b", sentence)]
-    if item.name:
-        spans += [m.span() for m in re.finditer(re.escape(item.name), sentence, re.IGNORECASE)]
-    tokens = _name_tokens(item)
-    for m in re.finditer(r"[A-Za-z0-9]+", sentence):
-        if singular(m.group().lower()) in tokens:
-            spans.append(m.span())
-    return sorted(spans)
-
-
-def _items_for_amount(
-    sentence: str, strict: list[OfferingFacts], amount: Amount
-) -> list[OfferingFacts]:
-    """The named item this amount belongs to: the nearest mention before it, else the first after."""
-    if len(strict) < 2:
-        return strict
-    before: dict[int, list[OfferingFacts]] = {}
-    after: dict[int, list[OfferingFacts]] = {}
-    for item in strict:
-        spans = _anchors(sentence, item)
-        prior = [e for _, e in spans if e <= amount.start]
-        if prior:
-            before.setdefault(max(prior), []).append(item)
-        later = [st for st, _ in spans if st >= amount.end]
-        if later:
-            after.setdefault(min(later), []).append(item)
-    if before:
-        return before[max(before)]
-    if after:
-        return after[min(after)]
-    return strict
-
-
-def _bundle(sentence: str, items: list[OfferingFacts]) -> bool:
-    """A quantity right before the item name beside a single price reads as a bundle price."""
-    for item in items:
-        spans = _anchors(sentence, item)
-        if spans and _QTY_BEFORE.search(sentence[max(0, spans[0][0] - 14) : spans[0][0]]):
-            return True
-    return False
+        out |= {
+            a.value
+            for a in extract_amounts(mask_non_money(sentence, names), small_ok=small_ok)
+            if a.kind == "money"
+        }
+    return out
 
 
 def _pure_echo(sentence: str, amount: Amount) -> bool:
@@ -256,151 +239,74 @@ def check_reply(
 ) -> GuardVerdict:
     customer_texts = list(customer_texts)
     items = grounding.items
-    refs = frozenset(i.seq for i in items)
+    injected = {i.seq for i in items}
     all_prices = {Decimal(i.price) for i in items if i.price is not None}
     small_ok = any(p < 1000 for p in all_prices)
-    customer_money = _values(customer_texts, "money", small_ok)
-    customer_pct = _values(customer_texts, "percent")
-    kb_money, kb_pct = _kb_values(kb_text, items, small_ok)
+    catalog_names = list({*grounding.catalog_names, *(i.name for i in items)})
+    customer_money = _values(customer_texts, small_ok)
+    kb_money = _kb_values(kb_text, catalog_names, small_ok)
     tiers = {Decimal(t) for t in tier_amounts}
-    matched = {Decimal(i.price) for i in items if i.seq in grounding.matched_seqs and i.price}
-    turn_prices = matched or all_prices  # what a sentence naming no item may quote
-    ceiling = max(turn_prices, default=None)
     currency = (grounding.currency or "NGN").upper()
-    names = [i.name for i in items]
-
-    # the customer is bargaining when their latest message names a figure below a price in play,
-    # or the model recorded an offer
+    matched = {Decimal(i.price) for i in items if i.seq in grounding.matched_seqs and i.price}
+    ceiling = max(matched or all_prices, default=None)
     current = customer_texts[-1] if customer_texts else ""
     offer = offer_in_play or (
-        ceiling is not None and any(v < ceiling for v in _values([current], "money", small_ok))
+        ceiling is not None and any(v < ceiling for v in _values([current], small_ok))
     )
 
     violations: list[Violation] = []
-    echoed_below = False
-    carried: list[OfferingFacts] = []  # the item the previous named sentence was about
-    sentences = [s.strip() for s in _SENTENCE.split(normalise(reply)) if s.strip()]
-    for sentence in sentences:
-        masked = mask_non_money(sentence, names)
-        amounts = extract_amounts(masked, small_ok=small_ok, ref_seqs=refs)
-        loose, strict = _named_items(sentence, items)
-        if strict:
-            carried = strict
-        cue = bool(_CUES.search(sentence))
+    text = normalise(reply)
+    if grounding.strict:
+        if tokens.token_seqs(text) or tokens.has_stray_markup(text):
+            violations.append(Violation(reply, "strict"))
+    elif tokens.has_stray_markup(text):
+        violations.append(Violation(reply, "bad_token"))
+
+    for sentence in (s.strip() for s in _SENTENCE.split(text) if s.strip()):
+        seqs = tokens.token_seqs(sentence)
+        plain = tokens.mask(sentence)  # the "#1" inside a token is not a mention of item #1
+        masked = mask_non_money(plain, catalog_names)
+        amounts = extract_amounts(masked, small_ok=small_ok)
+        named = named_items(plain, items)
         if not grounding.strict:
-            if (loose or amounts or offer or re.search(r"\d", sentence)) and _unnegated(
-                _DISCOUNT_WORDS, sentence
+            for seq in seqs:
+                if seq not in injected:
+                    violations.append(Violation(sentence, "unknown_token"))
+                elif named and seq not in {i.seq for i in named}:
+                    violations.append(Violation(sentence, "token_mismatch"))
+            if seqs and _BUNDLE.search(plain) and not _PER.search(plain):
+                violations.append(Violation(sentence, "bundle_price"))
+            if (seqs or named) and _SAME.search(plain):
+                violations.append(Violation(sentence, "same_price_claim"))
+            if (
+                len(seqs) > 0
+                and len({i.seq for i in named}) > 1
+                and re.search(r"\bboth\b", plain, re.I)
             ):
+                violations.append(Violation(sentence, "same_price_claim"))
+            anchored = bool(
+                named or seqs or amounts or offer or _names_any(sentence, catalog_names)
+            )
+            if anchored and _unnegated(_DISCOUNT_WORDS, sentence):
                 violations.append(Violation(sentence, "discount_wording"))
-            if amounts and len(strict) > 1 and _SHARED.search(sentence):
-                prices = {i.price for i in strict}
-                if len(prices) > 1:
-                    violations.append(Violation(sentence, "shared_price"))
             if offer and (_unnegated(_AGREE, sentence) or _unnegated(_CUES, sentence)):
                 violations.append(Violation(sentence, "agreement_after_offer"))
-        listed_here = {Decimal(i.price) for i in strict if i.price is not None}
-        states_listed = any(_has(listed_here, a.value) for a in amounts)
         for a in amounts:
+            if a.kind != "money":
+                continue  # percentages are judged by the discount wording above
             reason = None
             if grounding.strict:
                 reason = "strict"
-            elif a.kind == "percent":
-                # a customer's own percentage may be quoted back, never accepted (D1)
-                ok = (
-                    not loose
-                    and not cue
-                    and (
-                        _has(kb_pct, a.value)
-                        or (_has(customer_pct, a.value) and _pure_echo(sentence, a))
-                    )
-                )
-                reason = None if ok else "percent"
             elif a.currency and a.currency != currency:
                 reason = "currency"
+            elif _has(kb_money, a.value) or (
+                _has(tiers, a.value) and not _names_strongly(plain, items)
+            ):
+                reason = None
+            elif _has(customer_money, a.value) and _pure_echo(sentence, a):
+                reason = None
             else:
-                target = _items_for_amount(sentence, strict, a)
-                listed = {Decimal(i.price) for i in target if i.price is not None}
-                reason = _judge_money(
-                    a,
-                    sentence,
-                    bool(target),
-                    listed,
-                    states_listed,
-                    carried if not strict else [],
-                    turn_prices,
-                    cue,
-                    customer_money,
-                    kb_money,
-                    tiers,
-                )
-                if (
-                    reason is None
-                    and target
-                    and _has(listed, a.value)
-                    and _bundle(sentence, target)
-                ):
-                    reason = "bundle_price"
-                if reason == "echo":  # a pure "you offered X": allowed, but it poisons agreement
-                    reason = None
-                    if ceiling is not None and a.value < ceiling:
-                        echoed_below = True
+                reason = "literal_amount"
             if reason:
                 violations.append(Violation(sentence, reason, [a.value]))
-
-    if echoed_below and not offer and not grounding.strict:
-        # an echoed below-list figure followed by agreement anywhere in the reply
-        joined = " ".join(sentences)
-        if _unnegated(_AGREE, joined) or _unnegated(_CUES, joined):
-            violations.append(Violation(reply, "agreement_after_offer"))
     return GuardVerdict(ok=not violations, violations=violations)
-
-
-def _judge_money(
-    a: Amount,
-    sentence: str,
-    names_item: bool,
-    listed: set,
-    states_listed: bool,
-    carried: list[OfferingFacts],
-    turn_prices: set,
-    cue: bool,
-    customer_money: set,
-    kb_money: set,
-    tiers: set,
-) -> str | None:
-    v = a.value
-    customer_ok = _has(customer_money, v)
-    echoed = _echoed(sentence, a)
-    if names_item:
-        if _has(listed, v):
-            return None  # the named item's own listed price, whatever the wording
-        if customer_ok:
-            if cue:
-                return "concession"
-            if not listed or v < max(listed):
-                return (
-                    "customer_figure_below_price"  # code, not the model, writes "noted your offer"
-                )
-            # above the list price: only as a budget beside the item's own price
-            return None if echoed and states_listed else "unattributed_customer_amount"
-        if cue:
-            return "concession"
-        if _has(kb_money, v):
-            return "kb_beside_item"
-        return "wrong_item_price"  # includes a plan price beside an item name
-    if customer_ok:
-        if cue:
-            return "concession"
-        if echoed and _pure_echo(sentence, a):
-            return "echo"
-        return "unattributed_customer_amount"
-    if cue:
-        return "concession"  # even at a listed price: "I can do ₦12,000 for you"
-    if carried:  # a sentence right after one naming an item is still about that item
-        carried_prices = {Decimal(i.price) for i in carried if i.price is not None}
-        if _has(carried_prices, v):
-            return None
-        return None if _has(tiers, v) or _has(kb_money, v) else "wrong_item_price"
-    if _has(turn_prices, v) or _has(tiers, v) or _has(kb_money, v):
-        return None
-    return "not_in_block"

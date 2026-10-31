@@ -73,10 +73,11 @@ def _meta(r):
 
 def test_clean_reply_is_sent_unchanged_and_recorded(client, db):
     tid = _shop(db)
-    model = ScriptedPlain("The black sneaker is ₦12,000.")
+    model = ScriptedPlain("The black sneaker is [[price:#1]].")
     with model.patch(), retrieval_patch(), automation_patch():
         r = send(client, tid, "how much is the black sneaker?")
     assert r.json()["message"]["content"] == "The black sneaker is ₦12,000."
+    assert "[[" not in r.json()["message"]["content"]
     assert _meta(r)["offerings"]["guard"] == {
         "checked": True,
         "blocked": False,
@@ -88,10 +89,11 @@ def test_clean_reply_is_sent_unchanged_and_recorded(client, db):
 
 def test_wrong_price_is_regenerated_and_both_calls_are_counted(client, db):
     tid = _shop(db)
-    model = ScriptedPlain("The black sneaker is ₦11,000.", "The black sneaker is ₦12,000.")
+    model = ScriptedPlain("The black sneaker is ₦11,000.", "The black sneaker is [[price:#1]].")
     with model.patch(), retrieval_patch(), automation_patch():
         r = send(client, tid, "how much is the black sneaker?")
     assert r.json()["message"]["content"] == "The black sneaker is ₦12,000."
+    assert "[[" not in r.json()["message"]["content"]
     assert _meta(r)["offerings"]["guard"] == {
         "checked": True,
         "blocked": True,
@@ -126,7 +128,7 @@ def test_haggling_below_listed_price_never_reaches_the_customer(client, db):
 
 def test_sales_mode_regenerates_with_the_same_call_and_keeps_structured_meta(client, db):
     tid = _shop(db, sales_enabled=True)
-    model = ScriptedSales("The black sneaker is ₦11,000.", "The black sneaker is ₦12,000.")
+    model = ScriptedSales("The black sneaker is ₦11,000.", "The black sneaker is [[price:#1]].")
     with model.patch(), retrieval_patch(), automation_patch():
         r = send(client, tid, "how much is the black sneaker?")
     assert r.json()["message"]["content"] == "The black sneaker is ₦12,000."
@@ -140,7 +142,7 @@ def test_strict_mode_after_lookup_failure_sends_no_price_at_all(client, db):
     from app.offerings import grounding
 
     tid = _shop(db)
-    model = ScriptedPlain("The black sneaker is ₦12,000.", "It is ₦12,000.")
+    model = ScriptedPlain("The black sneaker is [[price:#1]].", "It is [[price:#1]].")
     with (
         patch.object(grounding, "_search", side_effect=RuntimeError("db down")),
         model.patch(),
@@ -165,7 +167,7 @@ def test_tenant_without_items_has_no_offerings_meta_and_no_guard(client, db):
 
 def test_knowledge_base_amount_is_allowed_in_its_own_sentence(client, db):
     tid = _shop(db)
-    model = ScriptedPlain("The black sneaker is ₦12,000. Delivery within Lagos is ₦2,000.")
+    model = ScriptedPlain("The black sneaker is [[price:#1]]. Delivery within Lagos is ₦2,000.")
 
     async def fake_retrieve(self, *, tenant_id, query, max_chunks, score_threshold):
         from types import SimpleNamespace

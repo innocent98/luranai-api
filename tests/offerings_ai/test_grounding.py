@@ -99,7 +99,7 @@ def test_specific_query_returns_detail_with_live_price(db):
     assert res.mode == "detail"
     assert res.items[0].seq == 1
     assert '<offering ref="#1">' in res.block
-    assert "₦12,000" in res.block
+    assert "[[price:#1]]" in res.block and "₦12,000" not in res.block  # a token, never an amount
     assert 12000 in res.allowed_amounts
     assert 45000 not in res.allowed_amounts or "#3" in res.injected_refs
 
@@ -137,9 +137,9 @@ def test_price_modes_and_note(db):
     tid = _shop(db)
     add_offering(db, tid, 20, "Custom portrait", price_mode=OfferingPriceMode.ON_REQUEST)
     block = ground(db, tid, "phone repair", now=NOW).block
-    assert "from ₦5,000" in block and "per phone" in block
+    assert "[[price:#4]]" in block and "₦5,000" not in block
     block = ground(db, tid, "custom portrait", now=NOW).block
-    assert "price on request" in block.lower()
+    assert "[[price:#20]]" in block
 
 
 def test_negotiable_flag_in_detail_and_menu(db):
@@ -183,7 +183,7 @@ def test_no_match_big_catalog_gets_stub_and_no_items(db):
     res = ground(db, tid, "do you sell helicopters", now=NOW)
     assert res.mode == "none"
     assert res.items == [] and res.allowed_amounts == frozenset()
-    assert "nothing listed matches" in res.block.lower()
+    assert "no listed item matches" in res.block.lower()
     assert "<offering ref=" not in res.block
 
 
@@ -203,7 +203,8 @@ def test_shown_refs_are_hydrated_live(db):
     db.commit()
     res = ground(db, tid, "the second one", shown_seqs=[1, 3], now=NOW)
     assert {i.seq for i in res.items} >= {1, 3}
-    assert "₦47,000" in res.block and 45000 not in res.allowed_amounts
+    assert "[[price:#3]]" in res.block and 47000 in res.allowed_amounts
+    assert 45000 not in res.allowed_amounts
 
 
 def test_shown_ref_that_was_archived_is_not_injected(db):

@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 from app.offerings.facts import OfferingFacts, format_amount
 from app.offerings.rules import OFFERINGS_RULES
+from app.offerings.tokens import price_order_line, token
 from app.utils.token_counter import count_tokens
 
 BLOCK_TOKEN_CAP = 1000
@@ -59,7 +60,8 @@ def _header(now, confirmed_at, stale_after_days, currency) -> str:
         [
             "## Offerings catalog (authoritative: the only source of prices, stock and items)",
             *freshness_lines(now, confirmed_at, stale_after_days),
-            f"Currency: {currency}. Amounts are whole units.",
+            "Prices are never typed: write an item's price as its token, e.g. [[price:#12]] "
+            "(replaced by the live price after you answer).",
             OFFERINGS_RULES,
         ]
     )
@@ -72,7 +74,7 @@ def detail_line(item: OfferingFacts, currency: str) -> str:
     ]
     if item.category:
         parts.append(f"category: {item.category}")
-    parts.append(f"price: {item.price_text(currency)}")
+    parts.append(f"price: {token(item.seq)}")
     parts.append(f"availability: {item.availability_text(with_quantity=True)}")
     parts.append("negotiable: yes (owner open to offers)" if item.negotiable else "negotiable: no")
     parts.append(f"photos: {item.photo_count}")
@@ -82,7 +84,7 @@ def detail_line(item: OfferingFacts, currency: str) -> str:
 
 
 def menu_line(item: OfferingFacts, currency: str) -> str:
-    parts = [item.name, item.kind.value, item.price_text(currency), item.availability_text()]
+    parts = [item.name, item.kind.value, token(item.seq), item.availability_text()]
     if item.negotiable:
         parts.append("negotiable")
     return f'<offering ref="{item.ref}">{" · ".join(parts)}</offering>'
@@ -112,8 +114,9 @@ def render_block(
     if formatting:
         header = f"{header}\n{formatting}"
     note = (
-        "Nothing listed matches this message. Say it is not listed and offer to connect the "
-        "customer with the team. Do not suggest or invent items."
+        "No listed item matches this message. If the customer asked about an item or a price, "
+        "say it is not listed and offer to connect them with the team; otherwise answer normally. "
+        "Do not suggest or invent items."
         if nothing_matched
         else ""
     )
@@ -122,6 +125,9 @@ def render_block(
         sections = [header]
         if note:
             sections.append(note)
+        order = price_order_line([*d, *m])
+        if order:
+            sections.append(order)
         if d:
             sections.append("Items in full:\n" + "\n".join(detail_line(i, currency) for i in d))
         if m:

@@ -33,6 +33,7 @@ def shown_items(
     *,
     sales_signals: dict | None,
     fell_back: bool = False,
+    token_seqs: list[int] | None = None,
 ) -> list[OfferingFacts]:
     if not grounding.items:
         return []
@@ -44,6 +45,8 @@ def shown_items(
         chosen = [
             by_seq[s] for s in parse_catalog_signals(sales_signals).catalog_seqs if s in by_seq
         ]
+    if not chosen and token_seqs:  # items the reply priced by token
+        chosen = [by_seq[q] for q in dict.fromkeys(token_seqs) if q in by_seq]
     if not chosen:
         found = [(pos, i) for i in grounding.items if (pos := _mentions(i, reply)) is not None]
         chosen = [i for _, i in sorted(found, key=lambda p: p[0])]

@@ -278,8 +278,8 @@ def test_snapshots_survive_item_deletion(db):
     "seq, amount, again, handover",
     [
         (3, 30000, False, True),  # negotiable, below listed: hand over
-        (3, 45000, False, False),  # at the listed price: nothing to negotiate
-        (3, 50000, False, False),  # above it
+        (3, 45000, False, False),  # at the listed price: not an offer at all
+        (3, 50000, False, False),  # above it: not an offer either
         (1, 10000, False, False),  # not negotiable, first ask: the listed price stands
         (1, 10000, True, True),  # not negotiable but the customer insists
     ],
@@ -293,8 +293,9 @@ def test_handover_rules_for_offered_prices(db, seq, amount, again, handover):
             db, lead, resolve_cart(db, tid, _sig(offered={"ref": f"#{seq}", "amount": amount}), g)
         )
     out = sync_interests(db, lead, resolve_cart(db, tid, _sig(offered=offer), g))
+    listed = {3: 45000, 1: 12000}[seq]
     assert out.handover is handover
-    assert out.has_offer is True
+    assert out.has_offer is (amount < listed)  # at or above the list price there is no offer
 
 
 def test_an_offer_the_customer_never_wrote_is_not_stored(db):

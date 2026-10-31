@@ -146,6 +146,9 @@ _PRICE_CUE = re.compile(
     r"(?:(?:is|are|of|was|at|just|only|about|around|approximately|roughly|to|you|it|them|that|the)\s+){0,3}$",
     re.IGNORECASE,
 )
+_KEYED = re.compile(r"[:=@\-–—]\s*$")  # "Red Bag: 25000", "Red Bag - 25,000"
+_WEAK_CUE = re.compile(r"\b(?:is|are|was|at|for|from|only|about|around|just)\s+$", re.IGNORECASE)
+_MONEY_FOLLOW = {"only", "naira", "ngn", "each", "per", "kobo"}
 _YEAR_CUE = re.compile(
     r"(?:\b(?:in|since|year|during|copyright|jan|feb|mar|apr|may|"
     r"jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|"
@@ -206,20 +209,8 @@ def _digit_amounts(text: str, small_ok: bool, ref_seqs: frozenset) -> list[Amoun
             continue
 
         mult = _MULT.get(tail, 1) if tail else 1
-        if (
-            tail in ("m", "b", "bn")
-            and not pre
-            and not cur
-            and (
-                tail != "m"
-                or _next_word(text, m.end()) in _UNIT_AFTER_M
-                or text[m.end() : m.end() + 1] == "²"
-            )
-        ):
-            mult = 1
-            tail = ""
-            end = m.start("tail")
-        if tail == "b" and not pre:
+        if tail in ("m", "b", "bn") and not pre and not cur:
+            # "50m" is metres, "5b" a size: a million or billion needs a currency mark or the word
             mult, tail, end = 1, "", m.start("tail")
         has_marker = bool(pre or cur or tail)
         glued = re.match(r"[A-Za-z]", text[m.end() : m.end() + 1] or "")
@@ -239,19 +230,28 @@ def _digit_amounts(text: str, small_ok: bool, ref_seqs: frozenset) -> list[Amoun
             pre = "#"
             has_marker = True
 
-        if has_marker or grouped:
+        if has_marker:
             money = True
         else:
             money = False
             has_decimal = "." in raw_num
+            big = grouped or (
+                not has_decimal and not digits.startswith("0") and 4 <= len(digits) < 10
+            )
+            follow = _next_word(text, m.end())
+            near = (
+                bool(_PRICE_CUE.search(before) or _KEYED.search(before) or _WEAK_CUE.search(before))
+                or follow in _MONEY_FOLLOW
+            )
             if (
-                not has_decimal
-                and not digits.startswith("0")
-                and len(digits) >= 4
-                and len(digits) < 10
+                big
+                and near
+                and len(digits) < 12
+                and follow not in _UNIT_AFTER
+                and not _is_year_like(digits, before)
+                and not before.rstrip().endswith("+")
             ):
-                if not _is_year_like(digits, before) and not before.rstrip().endswith("+"):
-                    money = True
+                money = True  # "Plot 1234" and "2000 customers" have no price context: not money
             if (
                 not money
                 and not has_decimal
