@@ -30,7 +30,7 @@ def test_token_helpers():
         "[[price:#1]]"
     )
     assert tokens.mask("A [[price:#1]] B") == "A PRICE B"
-    assert tokens.strip("A [[price:#1]] B [[x]]") == "A B"
+    assert tokens.strip("A [[price:#1]] B [[x]]") == "A  B "
     assert tokens.resolve("A [[price:#1]]", {1: "₦5"}.get) == "A ₦5"
     assert tokens.resolve("A [[price:#9]]", {1: "₦5"}.get) is None
     assert tokens.resolve("A [[oops]]", {1: "₦5"}.get) is None
@@ -196,3 +196,105 @@ def test_cards_follow_the_items_the_reply_priced_by_token(client, db):
     tid = _shop(db)
     r = _ask(client, tid, ScriptedPlain("It is [[price:#2]]."), text="how much is the white one?")
     assert [i["ref"] for i in _meta(r)["offerings"]["items"]] == ["#2"]
+
+
+# -- stop-ship (review pass 4): a reply without a token is never reshaped --------------------------
+
+LAYOUTS = [
+    "Here are our plans:\n\n1. Basic\n2. Pro\n\nWould you like to start a trial?",
+    "**Hours**\n- Mon-Fri  9am to 5pm\n- Sat   10am to 2pm\n\nSee you soon!",
+    "Step one: open Settings.\n\n\nStep two:   tap Billing.\n\tThen confirm.",
+    "Price: 500 per month, billed yearly.\n\nNo hidden fees.",
+]
+
+
+def test_finalize_reply_leaves_ordinary_replies_byte_identical():
+    from app.offerings.turn import finalize_reply
+
+    for text in LAYOUTS:
+        assert finalize_reply(None, None, None, text) == (text, [])
+
+
+def test_strip_removes_only_the_token_text():
+    assert tokens.strip("Costs [[price:#1]] today.\n\nThanks") == "Costs  today.\n\nThanks"
+    assert tokens.strip("a\n\nb [[oops]]\nc") == "a\n\nb \nc"
+
+
+def _plain_tenant(db):
+    return make_tenant(db)
+
+
+def test_a_tenant_without_items_gets_the_model_reply_unchanged_on_web(client, db):
+    tid = _plain_tenant(db)
+    for text in LAYOUTS:
+        r = _ask(client, tid, ScriptedPlain(text), text="what do you offer?")
+        assert r.json()["message"]["content"] == text
+
+
+def test_a_tenant_without_items_gets_the_model_reply_unchanged_on_whatsapp(client, db):
+    tid = _plain_tenant(db)
+    marker = message_channel.set("whatsapp")
+    try:
+        for text in LAYOUTS:
+            r = _ask(client, tid, ScriptedPlain(text), text="what do you offer?")
+            assert r.json()["message"]["content"] == text
+    finally:
+        message_channel.reset(marker)
+
+
+def test_a_tenant_without_items_gets_the_model_reply_unchanged_on_voice(client, db):
+    tid = _plain_tenant(db)
+    marker = voice_channel.set(True)
+    try:
+        for text in LAYOUTS:
+            r = _ask(client, tid, ScriptedPlain(text), text="what do you offer?")
+            assert r.json()["message"]["content"] == text
+    finally:
+        voice_channel.reset(marker)
+
+
+def test_a_stray_token_without_a_catalog_loses_only_its_own_text(client, db):
+    tid = _plain_tenant(db)
+    text = "Our plan is\n\n[[price:#1]] a month.\n\nThanks"
+    r = _ask(client, tid, ScriptedPlain(text), text="what do you offer?")
+    assert r.json()["message"]["content"] == "Our plan is\n\n a month.\n\nThanks"
+
+
+# -- token look-alikes never survive (review pass 4) ---------------------------------------------
+
+
+def test_look_alike_tokens_are_markup():
+    for text in (
+        "It is ［［price:#3］］.",
+        "It is [price:#3].",
+        "It is {{price:#3}}.",
+        "It is [[PRICE : #3]]x",
+        "It is [[pri\u200bce:#3]].",
+        "It is (price:#3).",
+        "It is <price: 3>.",
+        "It is price:#3 now.",
+    ):
+        assert tokens.has_markup(text), text
+
+
+def test_ordinary_words_with_price_are_not_markup():
+    for text in ("Price: 500 per month", "The price: ₦5,000", "price list: see below"):
+        assert not tokens.has_markup(text), text
+
+
+def test_fullwidth_and_zero_width_tokens_resolve_on_the_folded_text():
+    live = {3: "₦25,000"}.get
+    assert tokens.resolve("It is ［［price:#3］］.", live) == "It is ₦25,000."
+    assert tokens.resolve("It is [[pri\u200bce:#3]].", live) == "It is ₦25,000."
+    assert tokens.resolve("It is [price:#3].", live) is None
+    assert tokens.resolve("It is {{price:#3}}.", live) is None
+
+
+def test_the_web_reply_never_carries_a_look_alike(client, db):
+    tid = _shop(db)
+    model = ScriptedPlain(
+        "The black sneaker is ［［price:#1］］.", "The black sneaker is [price:#1]."
+    )
+    r = _ask(client, tid, model)
+    content = r.json()["message"]["content"]
+    assert "price:" not in content.lower() and "［" not in content

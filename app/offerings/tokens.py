@@ -7,12 +7,25 @@ token for an item in the block is a violation, and no token ever leaves the back
 """
 
 import re
+import unicodedata
 from collections.abc import Callable, Iterable
 
 from app.offerings.facts import OfferingFacts
 
 TOKEN = re.compile(r"\[\[\s*price\s*:\s*#?(\d{1,9})\s*\]\]", re.IGNORECASE)
 _BRACKETS = re.compile(r"\[\[|\]\]")
+_INVISIBLE = re.compile("[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]")
+# a token-like leftover in any bracket style: `price:#3` anywhere, `price: 3` only inside a bracket
+_LOOSE = re.compile(r"price\s*[:：]\s*#|[\[\{<(【「『]\s*price\s*[:：]\s*\d", re.IGNORECASE)
+_TOKEN_SPAN = re.compile(
+    r"[\[\{<(【「『]{0,3}\s*price\s*[:：]\s*#?\s*\d{0,9}\s*[\]\}>)】」』]{0,3}|\[\[[^\]\n]*\]\]|\[\[|\]\]",
+    re.IGNORECASE,
+)
+
+
+def fold(text: str | None) -> str:
+    """Width/compat forms folded and invisible characters dropped: what the guard reads."""
+    return _INVISIBLE.sub("", unicodedata.normalize("NFKC", text or ""))
 
 
 def token(seq: int) -> str:
@@ -24,8 +37,15 @@ def token_seqs(text: str) -> list[int]:
 
 
 def has_stray_markup(text: str) -> bool:
-    """`[[` or `]]` left after the valid tokens are removed: a malformed or foreign token."""
-    return bool(_BRACKETS.search(TOKEN.sub("", text or "")))
+    """`[[`, `]]` or a `price:#N` look-alike (any bracket style) left once the valid tokens are
+    removed: a malformed or foreign token. Reads the folded text, like the guard."""
+    rest = TOKEN.sub("", fold(text))
+    return bool(_BRACKETS.search(rest) or _LOOSE.search(rest))
+
+
+def has_markup(text: str) -> bool:
+    """Anything token-like at all, valid or not."""
+    return bool(TOKEN.search(fold(text))) or has_stray_markup(text)
 
 
 def mask(text: str, replacement: str = "PRICE") -> str:
@@ -34,9 +54,9 @@ def mask(text: str, replacement: str = "PRICE") -> str:
 
 
 def strip(text: str) -> str:
-    """Remove anything token-like (used when no catalog block was injected)."""
-    cleaned = re.sub(r"\[\[.*?\]\]", "", text or "")
-    return re.sub(r"\s{2,}", " ", _BRACKETS.sub("", cleaned)).strip()
+    """Remove the token text and nothing else: spaces and line breaks around it stay as written
+    (no catalog block was injected, so this must never reshape an ordinary reply)."""
+    return _TOKEN_SPAN.sub("", fold(text))
 
 
 def resolve(text: str, price_text: Callable[[int], str | None]) -> str | None:
@@ -51,7 +71,7 @@ def resolve(text: str, price_text: Callable[[int], str | None]) -> str | None:
             return ""
         return value
 
-    out = TOKEN.sub(sub, text or "")
+    out = TOKEN.sub(sub, fold(text))
     if failed or has_stray_markup(out):
         return None
     return out

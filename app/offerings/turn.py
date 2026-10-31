@@ -235,16 +235,17 @@ def finalize_reply(
     from app.offerings.fallback import fallback_reply
     from app.offerings.grounding import _by_seqs
 
+    if not tokens.has_markup(reply):
+        return reply, []  # byte-identical: an ordinary reply is never touched
     if result is None:
         return tokens.strip(reply), []
-    seqs = tokens.token_seqs(reply)
-    if not seqs and not tokens.has_stray_markup(reply):
-        return reply, []
+    seqs = tokens.token_seqs(tokens.fold(reply))
     live = {
         row.seq: facts_from_row(row).price_text(result.currency)
         for row in _by_seqs(db, tenant_id, seqs)
     }
     resolved = tokens.resolve(reply, live.get)
-    if resolved is None:
-        return fallback_reply(result), seqs
-    return resolved, seqs
+    final = fallback_reply(result) if resolved is None else resolved
+    if tokens.has_markup(final):  # last scan: tenant text or a price note cannot smuggle one out
+        final = tokens.strip(final)
+    return final, seqs
