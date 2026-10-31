@@ -62,10 +62,10 @@ ITEMS = [
 CATALOG_NAMES = ["Silver wristwatch", "Ankara dress"]  # active items that are not in the block
 
 
-def _grounding(items=ITEMS, *, strict=False, currency="NGN", matched=()):
+def _grounding(items=ITEMS, *, strict=False, currency="NGN", matched=(), block=""):
     return GroundingResult(
         mode="unavailable" if strict else "detail",
-        block="",
+        block=block,
         items=[] if strict else list(items),
         matched_seqs=list(matched),
         strict=strict,
@@ -90,6 +90,7 @@ class Case:
     strict: bool = False
     currency: str = "NGN"
     matched: tuple = ()
+    block: str = ""  # the injected block text (item descriptions the model may repeat)
     offer: bool = False  # the customer is bargaining / the model returned an offered_price
 
 
@@ -119,7 +120,11 @@ CASES = [
     C("I've noted your request; the team will confirm.", True),
     C("Which item would you like?", True),
     C("Feel free to ask me anything about the red bag.", True),
-    C("The ankara dress is free size, 100% cotton and water resistant to 50m.", True),
+    C(
+        "The ankara dress is free size, 100% cotton and water resistant to 50m.",
+        True,
+        block="Ankara dress: free size, 100% cotton, water resistant to 50m",
+    ),
     C("Visit us at Plot 1234, Admiralty Way. We have served over 2000 customers.", True),
     C("The red bag comes with a free dust bag.", True),
     C("I can't offer a discount on the black sneaker.", True),
@@ -353,6 +358,25 @@ CASES += [
 
 
 # --- review pass 4: KB amounts, token binding, totals and freebies --------------------------------
+CASES += [
+    # promotions, discounts and terms the tenant never stated (review pass 4, the lead's strings)
+    C(f"The Canvas sneaker black is {T(1)}. Buy two and the second is half off.", False),
+    C(f"The Canvas sneaker black is {T(1)}. A deposit of 50% secures it.", False, "percent_claim"),
+    C(f"The Canvas sneaker black is {T(1)}, promo price this week.", False, "freebie_wording"),
+    C(f"The Canvas sneaker black is on sale at {T(1)}.", False, "freebie_wording"),
+    C(f"The Canvas sneaker black is {T(1)}, minus our loyalty bonus.", False, "freebie_wording"),
+    C(f"The Canvas sneaker black is {T(1)}, and the price includes delivery anywhere.", False),
+    C(f"The Canvas sneaker black is {T(1)}. The Red bag? Same.", False, "same_price_claim"),
+    C(f"The Canvas sneaker black is {T(1)}. The Red bag matches it.", False),
+    C(f"Everything in the shop is {T(1)}.", False, "bundle_price"),
+    C(f"Canvas sneaker black x2 - {T(1)}", False, "bundle_price"),
+    C(f"Buy the Canvas sneaker black at {T(1)} and get the Leather bag too.", False),
+    C(f"The Canvas sneaker black is {T(1)}, and the Leather bag comes with it.", False),
+    C(f"The Red bag is {T(11)}.{T(12)}", False, "token_mismatch"),
+    C("A 7.5% VAT applies to all orders.", True, kb="A 7.5% VAT applies to all orders."),
+    C("A 7.5% VAT applies to all orders.", False, "percent_claim"),
+]
+
 BARE = ("how much is the red bag", "abeg 9000")
 CASES += [
     # an offer written as a bare number still puts the reply under the agreement rules
@@ -446,7 +470,9 @@ CASES += [
 def test_guard_verdict(case: Case):
     verdict = check_reply(
         case.reply,
-        _grounding(strict=case.strict, currency=case.currency, matched=case.matched),
+        _grounding(
+            strict=case.strict, currency=case.currency, matched=case.matched, block=case.block
+        ),
         customer_texts=case.customer,
         kb_text=case.kb,
         tier_amounts=case.tiers,

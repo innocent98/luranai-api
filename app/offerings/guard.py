@@ -75,7 +75,7 @@ _AGREE = re.compile(
 )
 _SAME = re.compile(
     r"\b(?:same\s+(?:price|cost|amount)|costs?\s+(?:the\s+)?same|(?:priced|is|are)\s+the\s+same"
-    r"|also\s+costs?|for\s+the\s+same|at\s+the\s+same)\b",
+    r"|also\s+costs?|for\s+the\s+same|at\s+the\s+same|matches\s+(?:it|that|this))\b",
     re.IGNORECASE,
 )
 _NOT_PRODUCT = (
@@ -95,10 +95,13 @@ _TOTAL = re.compile(
 # words that group items under one price; several distinct tokens in a sentence are separate prices
 _GROUP = re.compile(
     r"\b(?:pair|set|bundle|both|all\s+(?:of\s+)?our|together|package|the\s+two|those\s+two"
-    r"|second|third|every\s+other)\b",
+    r"|second|third|every\s+other|everything|every\s+item|all\s+(?:items|products|prices)|any\s+item"
+    r"|the\s+whole\s+(?:shop|store|range|menu))\b",
     re.IGNORECASE,
 )
-_QTY_RE = re.compile(_QTY, re.IGNORECASE)
+_QTY_RE = re.compile(
+    rf"{_QTY}|(?<![#\w])x\s?[2-9]\b|\b[2-9]\s?x(?![\w])|\bqty\s*[2-9]\b", re.IGNORECASE
+)
 # "serves about 10 people", "has 50 pieces", "up to 500 guests": a count that describes the item
 _DESCRIBES = re.compile(
     r"\b(?:has|have|contains?|includes?|serves?|seats?|fits?|holds?|about|around|approximately"
@@ -128,11 +131,15 @@ _FREE_WORD = re.compile(
     re.IGNORECASE,
 )
 _FREE_PHRASE = re.compile(
-    r"\b(?:at\s+no\s+(?:extra\s+)?(?:cost|charge)|half\s+off|buy\s+(?:one|1)|for\s+the\s+same"
-    r"|as\s+(?:a\s+)?(?:gift|bonus|extra)"
-    r"|at\s+the\s+same|two\s+for|2\s+for|throw(?:n|ing)?\s+in)\b",
+    r"\b(?:at\s+no\s+(?:extra\s+)?(?:cost|charge)|half\s+off|buy\s+(?:one|1|two|2)|as\s+(?:a\s+)?(?:gift|bonus|extra)"
+    r"|two\s+for|2\s+for|throw(?:n|ing)?\s+in|comes?\s+with\s+(?:it|that|this|them)"
+    r"|get\b[^.!?]{0,40}\b(?:too|as\s+well)|price\s+includes|included\s+(?:in|with)\s+the\s+price"
+    r"|loyalty|voucher|coupon|cash[\s-]?back|rebate|promo(?:tion|tional)?|on\s+sale|sale\s+price"
+    r"|special\s+offer|minus)\b",
     re.IGNORECASE,
 )
+_FREE_SAME = re.compile(r"\b(?:for\s+the\s+same|at\s+the\s+same)\b", re.IGNORECASE)
+_SAME_ALONE = re.compile(r"^\W*(?:the\s+same|same|it\s+matches|matches\s+it)\W*$", re.IGNORECASE)
 _PURE_ECHO = re.compile(
     r"^\s*(?:and\s+)?you(?:'ve|\s+have)?\s+(?:offered|said|mentioned|asked\s+for|proposed|"
     r"suggested|quoted|stated)\b",
@@ -211,14 +218,14 @@ def _mentions(
         toks = _name_tokens(it)
         name = it.name.lower()
         for m in re.finditer(re.escape(name), low) if name else []:
-            out.append((m.start(), m.end(), it, max(len(toks), 1)))
+            out.append((m.start(), m.end(), it, 2 * max(len(toks), 1) + 1))
         for m in _REF.finditer(sentence):
             if int(m.group(1)) == it.seq:
                 out.append((m.start(), m.end(), it, 100))
         hit = [(s0, e0, w) for s0, e0, w in words if w in toks]
         got = {w for _, _, w in hit}
         if toks and got and len(got) >= min(2, len(toks)) or (len(toks) == 1 and got):
-            out.append((hit[0][0], max(e0 for _, e0, _ in hit), it, len(got)))
+            out.append((hit[0][0], max(e0 for _, e0, _ in hit), it, 2 * len(got)))
         elif got:  # one word of a longer name: a weak mention
             out.append((hit[0][0], max(e0 for _, e0, _ in hit), it, 0))
     return out
@@ -492,6 +499,14 @@ def check_reply(
         ceiling is not None and any(v < ceiling for v in _values(recent, small_ok))
     )
 
+    # a percentage may be repeated only when a source already holds it (a KB sentence such as VAT,
+    # an item description such as "100% cotton", or the customer's own words)
+    percents = {
+        a.value
+        for src in (kb_text, grounding.block, *customer_texts)
+        for a in extract_amounts(src or "")
+        if a.kind == "percent"
+    }
     violations: list[Violation] = []
     text = normalise(reply)
     if grounding.strict:
@@ -548,10 +563,13 @@ def check_reply(
                 and not _PER.search(plain)
             ):
                 violations.append(Violation(sentence, "bundle_price"))
-            if (anchored or seqs) and (
-                _unnegated(_FREE_PHRASE, sentence) or _free_beside_item(sentence, catalog_names)
+            if _unnegated(_FREE_PHRASE, sentence) or (
+                (anchored or seqs)
+                and (_unnegated(_FREE_SAME, sentence) or _free_beside_item(sentence, catalog_names))
             ):
                 violations.append(Violation(sentence, "freebie_wording"))
+            if _SAME_ALONE.match(sentence):
+                violations.append(Violation(sentence, "same_price_claim"))
             if (seqs or named) and _SAME.search(plain):
                 violations.append(Violation(sentence, "same_price_claim"))
             if len(set(seqs)) == 1 and len(named_seqs) > 1 and re.search(r"\bboth\b", plain, re.I):
@@ -563,8 +581,12 @@ def check_reply(
             if offer and (_unnegated(_AGREE, sentence) or _unnegated(_CUES, sentence)):
                 violations.append(Violation(sentence, "agreement_after_offer"))
         for a in amounts:
+            if a.kind == "percent":
+                if not grounding.strict and a.value not in percents:
+                    violations.append(Violation(sentence, "percent_claim", [a.value]))
+                continue  # a percentage is a business term nobody sanctioned unless it is known
             if a.kind != "money":
-                continue  # percentages are judged by the discount wording above
+                continue
             reason = None
             if grounding.strict:
                 reason = "strict"
