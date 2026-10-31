@@ -1,0 +1,63 @@
+{
+  "status": 200,
+  "body": {
+    "session_id": "b96ba9a4-0b46-40d7-b4d0-e552e25e08aa",
+    "message": {
+      "role": "assistant",
+      "content": "Thanks! For 58 people the Growth plan fits. Your quote is below.\n\nI've sent the quote to a***@example.com. If it doesn't arrive in a few minutes, please check your spam folder.",
+      "id": "0e0582ec-8d3d-41ab-a6da-b993a74a7ef4",
+      "session_id": "b96ba9a4-0b46-40d7-b4d0-e552e25e08aa",
+      "retrieved_chunk_ids": [],
+      "token_count": 50,
+      "attachments": [],
+      "reply_to": null,
+      "meta": {
+        "chunks_used": 0,
+        "avg_similarity": 0.0,
+        "retrieval_hit": false,
+        "escalation_action": "no_escalation",
+        "response_quality": {
+          "is_substantial": true,
+          "has_uncertainty": false,
+          "word_count": 18,
+          "char_count": 90
+        },
+        "token_breakdown": {
+          "prompt_tokens": 176,
+          "completion_tokens": -126,
+          "total_tokens": 50
+        },
+        "lead_captured": {
+          "name": "Alice Obi",
+          "email": "alice@example.com"
+        },
+        "quote": {
+          "currency": "NGN",
+          "line_items": [
+            {
+              "label": "Growth",
+              "detail": "11–50 users",
+              "amount": 45000
+            },
+            {
+              "label": "Extra seats (×8)",
+              "detail": "₦3,500 / seat",
+              "amount": 28000
+            },
+            {
+              "label": "Annual discount",
+              "detail": "−15%",
+              "amount": -10950
+            }
+          ],
+          "total": 62050
+        }
+      },
+      "created_at": "2026-10-31T09:13:52.146154Z"
+    },
+    "user_message_attachments": [],
+    "should_escalate": false,
+    "escalation_reason": null,
+    "ticket_id": null
+  }
+}
