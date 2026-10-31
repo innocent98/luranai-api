@@ -7,6 +7,7 @@ the facts the price guard and `meta.offerings` need. A failure after the gate fa
 """
 
 import logging
+import time
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -322,6 +323,26 @@ def attach_photos(db: Session, tenant_id: UUID, facts: list[OfferingFacts]) -> l
 # -- the turn ---------------------------------------------------------------------------------
 
 
+_SEEN_ITEMS: dict[UUID, float] = {}  # tenant -> when the gate last saw active items
+_SEEN_TTL = 900.0
+_SEEN_MAX = 2000
+
+
+def _remember_items(tenant_id: UUID, has_items: bool) -> None:
+    """Which tenants the gate recently saw with items: only they fail closed if the gate breaks."""
+    if has_items:
+        if len(_SEEN_ITEMS) >= _SEEN_MAX:
+            _SEEN_ITEMS.pop(next(iter(_SEEN_ITEMS)), None)
+        _SEEN_ITEMS[tenant_id] = time.monotonic()
+    else:
+        _SEEN_ITEMS.pop(tenant_id, None)
+
+
+def _known_to_have_items(tenant_id: UUID) -> bool:
+    seen = _SEEN_ITEMS.get(tenant_id)
+    return seen is not None and time.monotonic() - seen < _SEEN_TTL
+
+
 def ground(
     db: Session,
     tenant_id: UUID,
@@ -336,9 +357,11 @@ def ground(
     try:
         # one indexed LIMIT 1 query: this is all a tenant without a catalog ever costs per turn
         has_items = db.execute(select(Offering.id).where(*_active(tenant_id)).limit(1)).first()
-    except Exception:  # noqa: BLE001 - cannot tell whether this tenant has a catalog: fail closed
-        logger.exception("offerings gate query failed; failing closed")
+    except Exception:  # noqa: BLE001 - cannot tell whether this tenant has a catalog
+        logger.exception("offerings gate query failed")
         db.rollback()  # the failed statement must not leave the transaction aborted
+        if not _known_to_have_items(tenant_id):
+            return None  # a tenant never seen with items is not told "the catalog is unavailable"
         block = unavailable_block(now)
         return GroundingResult(
             mode="unavailable",
@@ -348,11 +371,13 @@ def ground(
             token_count=count_tokens(block),
         )
     if has_items is None:
+        _remember_items(tenant_id, False)
         return None
 
     try:
         with db.begin_nested():
             enabled, currency, confirmed_at, stale_days = _settings(db, tenant_id)
+            _remember_items(tenant_id, bool(enabled))  # only a tenant whose catalog is ON is cached
             if not enabled:
                 return None
             total = _count_active(db, tenant_id)

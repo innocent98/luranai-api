@@ -70,7 +70,12 @@ from app.schemas.user import UserResponse
 from app.schemas.visitor import VisitorEnrichmentUpdate
 from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
-from app.offerings.cart import CartResolution, InterestSync, resolve_cart
+from app.offerings.cart import (
+    CartResolution,
+    InterestSync,
+    has_pending_offer,
+    resolve_cart,
+)
 from app.offerings.grounding import GroundingResult
 from app.offerings.guard_flow import guard_reply
 from app.offerings.offer_turn import ASK_TEAM, HANDOVER_LINE, compose_offer_turn, is_offer_turn
@@ -87,12 +92,12 @@ from app.offerings.orchestrate import (
 from app.offerings.turn import (
     customer_figures,
     context_prices,
+    arms_countdown,
     customer_texts,
     finalize_reply,
     ground_turn,
     kb_text_from_prompt,
     lead_source,
-    next_offer_watch,
     offer_watch,
     offered_signal,
     shown_seqs,
@@ -2713,7 +2718,9 @@ async def _send_message_impl(
         _guard_record: dict | None = None
         is_api_error = False  # set by the generation path below
         _offer_turn = False
-        _offer_watch = offer_watch(session.meta)  # replies left under the offer rules
+        _offer_watch = 0  # replies left under the offer rules (catalog tenants only)
+        _pending_offer = False  # an offer on this lead no human has taken up yet
+        _kb_text = ""
         _token_seqs: list[int] = []
 
         if not scope_allowed:
@@ -2781,6 +2788,8 @@ async def _send_message_impl(
                 session_meta=dict(session_model.meta or {}),
             )
             _catalog_grounded = bool(_offerings and _offerings.grounded)
+            if _offerings is not None:  # nothing from the catalog code runs for anyone else
+                _offer_watch = offer_watch(session.meta)
             if scope_allowed:
                 low_confidence_action = str(
                     getattr(tenant_ai_config, "low_confidence_action", "clarify")
@@ -2867,11 +2876,13 @@ async def _send_message_impl(
                 "- Do not use emojis."
             )
             prompt_components.full_prompt = f"{prompt_components.full_prompt}{directive_block}"
-            _kb_text = kb_text_from_prompt(prompt_components.full_prompt)
             if _offerings is not None:
+                _kb_text = kb_text_from_prompt(prompt_components.full_prompt)
                 # nothing a customer, the history, the KB or the tenant wrote can look like a
                 # price token to the model: only the block below holds the real ones
-                prompt_components.full_prompt = strip_token_text(prompt_components.full_prompt)
+                prompt_components.full_prompt = strip_token_text(
+                    prompt_components.full_prompt, brackets=True
+                )
                 prompt_components.full_prompt += f"\n\n{_offerings.block}"
                 if prompt_components.prompt_tokens is not None:
                     prompt_components.prompt_tokens += _offerings.token_count
@@ -2892,6 +2903,12 @@ async def _send_message_impl(
                         Lead.conversation_id == session_id,
                     )
                 ).scalar_one_or_none()
+                if _offerings is not None and _existing_lead is not None:
+                    try:  # an offer no human has taken up yet keeps the agreement rules armed
+                        _pending_offer = has_pending_offer(db, _existing_lead)
+                    except Exception as _po_exc:  # noqa: BLE001
+                        db.rollback()
+                        logger.error(f"pending-offer check failed (non-fatal): {_po_exc}")
                 if _existing_lead is not None:
                     _known_facts = {
                         "name": _existing_lead.name,
@@ -2995,7 +3012,7 @@ async def _send_message_impl(
                     customer_texts=customer_texts(conversation_history, message_data.message),
                     kb_text=_kb_text,
                     tier_amounts=tier_amounts(sales_agent_config if _sales_mode else None),
-                    offer_hint=_offer_watch > 0,
+                    offer_hint=_offer_watch > 0 or _pending_offer,
                 )
                 ai_response_text, token_count, _sales_meta = (
                     _guarded.reply,
@@ -3107,7 +3124,12 @@ async def _send_message_impl(
                         session.tenant_id,
                         conv_id,
                         intent=_sales_meta["intent"],
-                        source=lead_source(turn_channel(), linked_visitor),
+                        # the channel label is part of the catalog feature: other tenants keep today's
+                        source=(
+                            lead_source(turn_channel(), linked_visitor)
+                            if _offerings is not None
+                            else "chat_widget"
+                        ),
                         utm=_utm,
                     )
 
@@ -3438,7 +3460,12 @@ async def _send_message_impl(
             db,
             session_id,
             _offerings_shown,
-            watch=next_offer_watch(_offer_watch, _offer_turn) if _offerings is not None else None,
+            armed=(
+                _offer_turn
+                and arms_countdown(message_data.message, _offerings, offered_signal(_sales_meta))
+                if _offerings is not None
+                else None
+            ),
         )
 
         # Step 10: Return response

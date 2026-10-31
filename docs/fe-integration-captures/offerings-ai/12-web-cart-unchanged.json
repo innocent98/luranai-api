@@ -7,20 +7,20 @@
     "headers": {},
     "body": {
       "message": "yes that is right",
-      "tenant_id": "0c6d57b8-ec60-483b-9e39-69acc17cb182",
+      "tenant_id": "60b080c1-74fa-4f5d-b054-38b4462948c7",
       "user_identifier": "web-8",
-      "session_id": "342a04e5-5d35-4638-9646-000d7956da46"
+      "session_id": "c924f510-8ef8-4234-9586-bdc5b63325bb"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "342a04e5-5d35-4638-9646-000d7956da46",
+      "session_id": "c924f510-8ef8-4234-9586-bdc5b63325bb",
       "message": {
         "role": "assistant",
         "content": "The Canvas sneaker white is ₦13,500, in stock.",
-        "id": "475dfc1b-55ba-4f9d-af4f-4f621ba728f6",
-        "session_id": "342a04e5-5d35-4638-9646-000d7956da46",
+        "id": "4cd122a1-0ee8-4e2d-9d7d-59bb3acd12f5",
+        "session_id": "c924f510-8ef8-4234-9586-bdc5b63325bb",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -46,7 +46,7 @@
             "items": [
               {
                 "ref": "#2",
-                "offering_id": "30efefb0-b55e-4d3e-9208-b42f0a2f03f0",
+                "offering_id": "96cff34c-3484-4ba0-92a5-2084d4a22f55",
                 "name": "Canvas sneaker white",
                 "price_text": "₦13,500",
                 "availability": "in_stock",
@@ -55,7 +55,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T08:11:07.522591+00:00",
+            "shown_at": "2026-10-31T09:49:02.317189+00:00",
             "guard": {
               "checked": true,
               "blocked": false,
@@ -64,7 +64,7 @@
             }
           }
         },
-        "created_at": "2026-10-31T08:11:07.589667Z"
+        "created_at": "2026-10-31T09:49:02.406417Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,

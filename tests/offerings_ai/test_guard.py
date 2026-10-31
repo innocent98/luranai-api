@@ -246,7 +246,7 @@ CASES = [
     C(f"Both the black sneaker and the pro are {T(1)}.", False),
     # --- discount, freebie and percentage wording ---------------------------------------------
     C("Black sneaker is half price today.", False, "discount_wording"),
-    C("You can have the black sneaker for free.", False, "discount_wording"),
+    C("You can have the black sneaker for free.", False, "freebie_wording"),
     C("Buy one black sneaker, get one free.", False, "discount_wording"),
     C(
         "Take the black sneaker and add the leather bag at no extra charge.",
@@ -268,7 +268,7 @@ CASES = [
     C("We won't refuse a discount on the black sneaker.", False, "discount_wording"),
     C("We never say no to discount on the black sneaker.", False, "discount_wording"),
     C("I can't deny you a discount on the black sneaker.", False, "discount_wording"),
-    C("Why not give you the black sneaker for free?", False, "discount_wording"),
+    C("Why not give you the black sneaker for free?", False, "freebie_wording"),
     C("No kidding \u2014 half price on the black sneaker.", False, "discount_wording"),
     # --- automated review of e71cdd6 -------------------------------------------------------------
     C(f"The silver wristwatch is {T(1)}.", False, "token_mismatch"),
@@ -725,3 +725,31 @@ def test_a_catalog_name_outside_the_block_cannot_launder_a_kb_price():
     kb = "Silver wristwatch now costs ₦40,000. Delivery is ₦2,000."
     assert not check_reply("The watch costs ₦40,000.", g, kb_text=kb).ok
     assert check_reply("Delivery is ₦2,000.", g, kb_text=kb).ok
+
+
+def test_a_plain_okay_beside_only_a_valid_token_passes_during_the_countdown():
+    v = check_reply(
+        f"Okay, the Canvas sneaker black is {T(1)}. Shall I prepare your quote?",
+        _grounding(matched=(1,)),
+        customer_texts=("abeg 9000", "ok", "where is your shop?"),
+        offer_watch=True,
+    )
+    assert v.ok, [(x.reason, x.sentence) for x in v.violations]
+    still = check_reply(
+        f"Okay, deal on the Canvas sneaker black at {T(1)}.",
+        _grounding(matched=(1,)),
+        customer_texts=("abeg 9000", "ok", "where is your shop?"),
+        offer_watch=True,
+    )
+    assert not still.ok
+
+
+def test_the_plain_okay_exemption_needs_the_token_to_be_the_only_price_reference():
+    kw = dict(customer_texts=("abeg 9000", "ok", "where is your shop?"), offer_watch=True)
+    g = _grounding(matched=(1,))
+    # another price word or a second item beside the token keeps the sentence judged
+    for reply in (
+        f"Okay, your price is noted and the Canvas sneaker black is {T(1)}.",
+        f"Okay, the Canvas sneaker black is {T(1)} and the Silver wristwatch is on offer too.",
+    ):
+        assert not check_reply(reply, g, **kw).ok, reply

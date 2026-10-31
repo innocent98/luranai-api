@@ -545,3 +545,123 @@ def test_a_figure_only_offer_with_no_item_named_goes_to_a_human_not_the_model(cl
     content = r.json()["message"]["content"]
     assert "we can do that" not in content
     assert "team" in content
+
+
+def test_a_bargaining_question_without_a_figure_does_not_arm_the_countdown():
+    from app.offerings.turn import arms_countdown
+    from tests.offerings_ai.test_guard import _grounding
+
+    g = _grounding(matched=(11,))
+    assert not arms_countdown("is the price negotiable?", g, False)
+    assert arms_countdown("abeg 9000", g, False)
+    assert arms_countdown("ok", g, True)  # the model returned a figure
+
+
+def test_a_tenant_without_a_catalog_keeps_todays_lead_source_on_whatsapp(client, db):
+    from tests.offerings_ai.helpers import make_tenant
+
+    tid = make_tenant(db, sales_enabled=True, quotation_enabled=True)
+    marker = message_channel.set("whatsapp")
+    try:
+        _run(client, db, tid, Model(("Hello! How can I help?", None)), text="hi, what do you do?")
+    finally:
+        message_channel.reset(marker)
+    leads = db.execute(select(Lead).where(Lead.tenant_id == tid)).scalars().all()
+    assert all(lead.source == "chat_widget" for lead in leads)
+
+
+def test_an_offer_stops_blocking_quotes_once_a_human_has_joined_after_it(db):
+    from datetime import UTC, datetime, timedelta
+
+    from app.db.models.conversation import ConversationSession
+    from app.offerings.cart import has_pending_offer
+
+    tid = _shop(db)
+    lead = Lead(tenant_id=tid, conversation_id=None, name="Pat", source="chat_widget")
+    sess = ConversationSession(tenant_id=tid, user_identifier="u-pending")
+    db.add_all([lead, sess])
+    db.flush()
+    lead.conversation_id = sess.id
+    bag = db.execute(
+        select(Offering).where(Offering.tenant_id == tid, Offering.seq == 3)
+    ).scalar_one()
+    db.add(
+        LeadOfferingInterest(
+            tenant_id=tid, lead_id=lead.id, offering_id=bag.id, ref="#3", name_snapshot="Leather bag",
+            price_mode_snapshot="fixed", price_snapshot=45000, qty=1, offered_price=30000,
+        )
+    )  # fmt: skip
+    db.flush()
+    assert has_pending_offer(db, lead) is True
+    sess.agent_joined_at = datetime.now(UTC) + timedelta(minutes=1)  # a human took it up after
+    db.flush()
+    assert has_pending_offer(db, lead) is False
+
+
+def test_the_countdown_is_updated_from_the_value_read_under_the_lock(db):
+    from app.db.models.conversation import ConversationSession
+    from app.offerings.turn import OFFER_WATCH_KEY, offer_watch, remember_shown
+
+    tid = _shop(db)
+    sess = ConversationSession(tenant_id=tid, user_identifier="u-watch")
+    db.add(sess)
+    db.commit()
+    remember_shown(db, sess.id, [], armed=True)
+    db.refresh(sess)
+    assert (sess.meta or {}).get(OFFER_WATCH_KEY) == 5
+    remember_shown(db, sess.id, [], armed=False)  # a concurrent ordinary turn only runs it down
+    db.refresh(sess)
+    assert offer_watch(sess.meta) == 4
+    remember_shown(db, sess.id, [], armed=None)  # a tenant without a catalog: untouched
+    db.refresh(sess)
+    assert offer_watch(sess.meta) == 4
+
+
+def test_a_taken_up_offer_stays_resolved_when_the_customer_names_the_item_again(db):
+    """Offer, a human joins, the customer re-selects the item twice: the quote goes out at list."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.db.models.conversation import ConversationSession
+    from app.offerings.cart import (
+        CartResolution,
+        ResolvedLine,
+        ResolvedOffer,
+        has_pending_offer,
+        sync_interests,
+    )
+    from app.offerings.facts import facts_from_row
+
+    tid = _shop(db)
+    lead = Lead(tenant_id=tid, conversation_id=None, name="Pat", source="chat_widget")
+    sess = ConversationSession(tenant_id=tid, user_identifier="u-resel")
+    db.add_all([lead, sess])
+    db.flush()
+    lead.conversation_id = sess.id
+    bag = db.execute(
+        select(Offering).where(Offering.tenant_id == tid, Offering.seq == 3)
+    ).scalar_one()
+    facts = facts_from_row(bag)
+    sync_interests(
+        db,
+        lead,
+        CartResolution(lines=[ResolvedLine(facts, 1)], offered=ResolvedOffer(facts, 30000)),
+        commit=False,
+    )
+    assert has_pending_offer(db, lead) is True
+    sess.agent_joined_at = datetime.now(UTC) + timedelta(seconds=30)  # a human took it up
+    db.flush()
+    assert has_pending_offer(db, lead) is False
+    for _ in range(2):  # "ok I'll take the leather bag", twice: delete and re-insert, offer carried
+        sync_interests(db, lead, CartResolution(lines=[ResolvedLine(facts, 1)]), commit=False)
+        assert has_pending_offer(db, lead) is False
+    # a NEW or CHANGED figure is a new offer: pending again until the next human reply
+    sync_interests(
+        db,
+        lead,
+        CartResolution(lines=[ResolvedLine(facts, 1)], offered=ResolvedOffer(facts, 28000)),
+        commit=False,
+    )
+    row = db.execute(
+        select(LeadOfferingInterest).where(LeadOfferingInterest.lead_id == lead.id)
+    ).scalar_one()
+    assert row.offered_price == 28000

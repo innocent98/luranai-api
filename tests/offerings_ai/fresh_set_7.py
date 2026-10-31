@@ -1,0 +1,87 @@
+"""A fresh 20 + 20 customer messages written AFTER the pass-7 fixes, in wording the fixes were not
+tuned on (electronics catalog: iPhone 14 Pro Max 950,000, Galaxy S23 720,000, PS5 650,000,
+AirPods Pro 2 180,000). First-run result is recorded in the SOP."""
+
+HAGGLING_FRESH = [
+    "Boss, my budget na 600k for the PS5, e go work?",
+    "I don see am for 880 for another shop",
+    "can u make the iphone 900k",
+    "Sir what is the rock bottom for the airpods",
+    "do me a favour and take 150k for the airpods",
+    "Is there any wiggle room on the S23?",
+    "I'm ready to pay 690k today if you accept",
+    "give me small discount on the PS5 nau",
+    "Oga be fair, 850 for the iPhone",
+    "I can only manage 120k, that's my limit for the airpods",
+    "come down a little on the S23 please",
+    "if I pay cash now what's the lowest for the iPhone?",
+    "how much be your last last for PS5",
+    "Brother 700 for Galaxy S23 na my own",
+    "any hope for a better price on the AirPods?",
+    "can we agree 920,000 for the iPhone?",
+    "I'll pay 170k not more for the airpods",
+    "abeg make am 640k for the PS5",
+    "what's the cheapest you can let the S23 go for",
+    "would you consider 660k for the S23?",
+]
+
+ORDINARY_FRESH = [
+    "Is the iPhone 14 Pro Max unlocked?",
+    "How long is the warranty on the S23?",
+    "can I pay with transfer or only POS",
+    "do you ship to Abuja and how many days",
+    "which colours does the PS5 Slim come in",
+    "I'd like to see photos of the AirPods case",
+    "is the Galaxy S23 the 128 or 256 version",
+    "What time do you open on Saturdays?",
+    "my order 4471 has not arrived, please check",
+    "can you hold the iPhone for me till tomorrow",
+    "abeg send me your account number let me pay 950000",
+    "I bought the S23 from you last month and the screen is cracked",
+    "Do you buy used phones, I want to swap my 13",
+    "does the PS5 come with a second controller",
+    "how many items can I add to one order",
+    "I am at 14 Adeola Odeku street, can the rider find me",
+    "is the iPhone battery health 100%?",
+    "tell me about the AirPods noise cancelling",
+    "please add the charger, same delivery",
+    "will the price change next week or is it fixed?",
+]
+
+
+# A third set, written after the fixes above and measured on its first run only (fashion catalog:
+# Ankara dress 15,000, Black sneaker 12,000, Red bag 25,000 negotiable, Leather wallet 8,500).
+HAGGLING_THIRD = [
+    "Please can the Ankara dress be 12k? I'm a returning customer",
+    "my guy abeg sell the red bag for 20,000",
+    "that wallet is a bit much, can it be cheaper",
+    "I will buy the dress and the sneaker together if you give me a package price",
+    "Madam please do something for me on the bag",
+    "E fit be 10 for the sneaker?",
+    "Is the price on the dress fixed or can we talk?",
+    "ẹ jọ̀ọ́ ṣe ẹ lè dín owó àpò náà kù",
+    "I want to pay 7k for the wallet, final",
+    "what discount can you offer me on the red bag, I'm buying today",
+    "can I get the sneakers at 10,000 naira?",
+    "reduce am small for me na, the bag",
+    "my last is 13k for the ankara dress",
+    "kindly give me your best on the wallet",
+    "Aunty abeg 6500 for the wallet",
+]
+ORDINARY_THIRD = [
+    "Do you have the Ankara dress in size 14?",
+    "Is the red bag real leather?",
+    "when will my order 2231 reach Ibadan",
+    "can you send me pictures of the black sneaker from the side",
+    "how much is delivery to Ikorodu",
+    "do you take returns if the size is wrong",
+    "I want 2 wallets for my brothers",
+    "are you open on Sunday",
+    "what is the size 42 sneaker length in cm",
+    "abeg add one more dress to my order",
+    "I'd like to pay by card, do you have a link",
+    "does the bag have a zip inside",
+    "my number is 08051234567, call me about the dress",
+    "can I collect it at your shop in Ikeja before 5pm",
+    "what is the difference between the two sneakers",
+]

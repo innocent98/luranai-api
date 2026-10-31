@@ -157,18 +157,32 @@ def offer_watch(session_meta: dict | None) -> int:
     return raw if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0 else 0
 
 
+def arms_countdown(message: str, grounding, signal: bool) -> bool:
+    """Only an offer that holds a figure (typed by the customer, or returned by the model) keeps the
+    agreement rules armed afterwards: "is the price negotiable?" is answered but arms nothing."""
+    from app.offerings.amounts import customer_amounts
+    from app.offerings.bargain import cap
+
+    if signal:
+        return True
+    names = grounding.catalog_names or [i.name for i in grounding.items]
+    text = (cap([message]) or [""])[0]
+    return bool(customer_amounts(text, small_ok=True, names=names))
+
+
 def next_offer_watch(current: int, offer_turn: bool) -> int:
     """Re-armed by a bargaining turn, then runs down one reply at a time."""
     return OFFER_WATCH_TURNS if offer_turn else max(current - 1, 0)
 
 
 def remember_shown(
-    db: Session, session_id: UUID, seqs: list[int], *, watch: int | None = None
+    db: Session, session_id: UUID, seqs: list[int], *, armed: bool | None = None
 ) -> None:
     """`session_meta["offerings_shown"]`: the last five refs shown, so "the second one" resolves;
-    `watch` (when given) is the offer-in-play countdown: "so you agree?" two turns after a figure
-    must still meet the agreement rules."""
-    if not seqs and watch is None:
+    `armed` (catalog tenants only; None for everyone else) updates the offer-in-play countdown from
+    the value read under the row lock, so two concurrent messages cannot overwrite each other's
+    count: an offer arms it, any other turn runs it down."""
+    if not seqs and armed is None:
         return
     try:
         from sqlalchemy import select
@@ -188,9 +202,11 @@ def remember_shown(
             merged = [s for s in shown_seqs(meta) if s not in seqs] + seqs
             meta[SHOWN_KEY] = merged[-5:]
             changed = True
-        if watch is not None and watch != offer_watch(meta):
-            meta[OFFER_WATCH_KEY] = watch
-            changed = True
+        if armed is not None:
+            watch = next_offer_watch(offer_watch(meta), armed)
+            if watch != offer_watch(meta):
+                meta[OFFER_WATCH_KEY] = watch
+                changed = True
         if changed:
             row.meta = meta
             db.commit()
@@ -268,12 +284,14 @@ def offered_signal(sales_meta: dict | None) -> bool:
     return bool(((sales_meta or {}).get("signals") or {}).get("offered_price"))
 
 
-def strip_token_text(text: str) -> str:
+def strip_token_text(text: str, *, brackets: bool = False) -> str:
     """Prompt text with exact tokens and bracketed look-alikes removed (catalog tenants only);
-    byte-identical when it has none."""
+    byte-identical when it has none. `brackets=True` also drops any `[[...]]` (KB text placed in a
+    catalog prompt: the model is told to write tokens, so a wiki-style double bracket must not be
+    copied into a reply)."""
     from app.offerings import markup
 
-    return markup.strip_price_markup(text)
+    return markup.strip_brackets(text) if brackets else markup.strip_price_markup(text)
 
 
 def finalize_reply(

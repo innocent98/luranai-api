@@ -81,13 +81,11 @@ ORDINARY = [
     "I'll pay now, send account",
     "can you do gift wrapping?",
     "is the black sneaker too much for a 10 year old?",
-    "is it the best price on the market?",
     "I'm on a budget",
     "how about delivery fee",
     "Can you do pickup?",
     "I'll pay when it arrives",
     "what's 50% of the sale about?",
-    "do you negotiate?",
     "I want 3 for my kids",
     "size 9000? lol",
     "Do you have 2000 in stock?",
@@ -194,3 +192,5 @@ ORDINARY_REAL = [
     "Any cheaper option?",
     "Do you have a reduced-sugar version?",
 ]
+
+# Moved out of ORDINARY on purpose (pass 7): "best price?" and "do you negotiate?" are bargaining.

@@ -137,3 +137,30 @@ def test_markup_scans_stay_linear_on_adversarial_text():
         tokens.has_stray_markup(text)
         tokens.strip(text)
     assert time.perf_counter() - start < 1.0
+
+
+def test_no_catalog_helper_runs_for_a_tenant_without_items_end_to_end(client, db, monkeypatch):
+    """The rule: nothing from the catalog code runs for them (gate aside)."""
+    import app.api.v1.endpoints.chat as chat
+
+    def boom(*a, **k):
+        raise AssertionError("catalog code ran for a tenant without items")
+
+    for name in (
+        "offer_watch",
+        "kb_text_from_prompt",
+        "next_offer_watch",
+        "arms_countdown",
+        "context_prices",
+        "is_offer_turn",
+        "finalize_reply_markup",
+        "strip_token_text",
+        "guard_reply",
+        "lead_source",
+    ):
+        if hasattr(chat, name):
+            monkeypatch.setattr(chat, name, boom)
+    tid = make_tenant(db)
+    for text in PLAIN[:3]:
+        r = _ask(client, tid, ScriptedPlain(text), text="what do you offer?")
+        assert r.json()["message"]["content"] == text

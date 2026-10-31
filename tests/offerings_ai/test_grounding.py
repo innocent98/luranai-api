@@ -337,3 +337,28 @@ def test_a_tenant_without_items_costs_one_query_and_no_savepoint(db):
     assert ground(db, tid, "black sneaker", now=NOW) is None
     assert len([s for s in seen if "offerings" in s]) == 1
     assert not [s for s in seen if "SAVEPOINT" in s.upper()]
+
+
+def test_a_broken_gate_says_nothing_to_a_tenant_never_seen_with_items(db):
+    tid = make_tenant(db)
+    grounding._SEEN_ITEMS.pop(tid, None)
+    with patch.object(db, "execute", side_effect=RuntimeError("db down")):
+        assert ground(db, tid, "black sneaker", now=NOW) is None
+
+
+def test_a_broken_gate_fails_closed_for_a_tenant_recently_seen_with_items(db):
+    tid = _shop(db)
+    assert ground(db, tid, "black sneaker", now=NOW) is not None  # the gate sees the items
+    with patch.object(db, "execute", side_effect=RuntimeError("db down")):
+        res = ground(db, tid, "black sneaker", now=NOW)
+    assert res.mode == "unavailable" and res.strict is True
+
+
+def test_a_tenant_with_the_catalog_switched_off_is_not_remembered_as_having_items(db):
+    tid = _shop(db)
+    set_settings(db, tid, enabled=False, next_seq=6)
+    grounding._SEEN_ITEMS.pop(tid, None)
+    assert ground(db, tid, "black sneaker", now=NOW) is None
+    assert tid not in grounding._SEEN_ITEMS
+    with patch.object(db, "execute", side_effect=RuntimeError("db down")):
+        assert ground(db, tid, "black sneaker", now=NOW) is None  # nothing said to them

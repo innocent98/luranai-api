@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "black sneaker abeg 9000",
-      "tenant_id": "0c6d57b8-ec60-483b-9e39-69acc17cb182",
+      "tenant_id": "60b080c1-74fa-4f5d-b054-38b4462948c7",
       "user_identifier": "web-13"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "ba002ab2-1273-4b6d-bf3a-804483db5900",
+      "session_id": "1aae066f-b4b8-4f75-a962-d178a9d369d7",
       "message": {
         "role": "assistant",
         "content": "The listed price for the Canvas sneaker black is ₦12,000 and it is firm.",
-        "id": "847fe418-6749-4e1e-b349-fe235ab61fae",
-        "session_id": "ba002ab2-1273-4b6d-bf3a-804483db5900",
+        "id": "31489095-6247-4164-a65a-5256dbe222a7",
+        "session_id": "1aae066f-b4b8-4f75-a962-d178a9d369d7",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -45,16 +45,16 @@
             "items": [
               {
                 "ref": "#1",
-                "offering_id": "a35c8ccc-8666-4fd6-bdf3-e956f9fd9d9b",
+                "offering_id": "ddef1317-ea5b-4053-b3fc-00f358e094b6",
                 "name": "Canvas sneaker black",
                 "price_text": "₦12,000",
                 "availability": "in_stock",
-                "cover_image_id": "747e4873-dcd8-4fc4-aedf-aa7b01b71384",
-                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/0c6d57b8-ec60-483b-9e39-69acc17cb182/3c1b5095aa554f11bb276cfe36fd6fe5.jpg",
+                "cover_image_id": "9baae99b-83d5-44d5-a383-8bb17104ed64",
+                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/60b080c1-74fa-4f5d-b054-38b4462948c7/a6af6d65e3c349dc8c58192455cf8ca0.jpg",
                 "photo_count": 2
               }
             ],
-            "shown_at": "2026-10-31T08:11:13.249482+00:00",
+            "shown_at": "2026-10-31T09:49:10.506668+00:00",
             "guard": {
               "checked": false,
               "blocked": false,
@@ -63,7 +63,7 @@
             }
           }
         },
-        "created_at": "2026-10-31T08:11:13.303199Z"
+        "created_at": "2026-10-31T09:49:10.537119Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,

@@ -7,11 +7,23 @@ firm, or the owner is open to offers, or a human takes over. This removes the fr
 agreement could hide, whatever words it used.
 """
 
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from app.offerings.amounts import customer_amounts
-from app.offerings.bargain import BROWSE, PAYMENT_PLAN, cap, has_bargain_wording, is_price_check
+from app.offerings.amounts import customer_amounts, mask_for_offers
+from app.offerings.bargain import (
+    BROWSE,
+    BUNDLE_OFFER,
+    CUE_NUMBER,
+    CUE_NUMBER_ITEM,
+    PAY_NOW,
+    OFFER_CUE,
+    PAYMENT_PLAN,
+    cap,
+    has_bargain_wording,
+    is_price_check,
+)
 from app.offerings.cart import CartResolution
 from app.offerings.facts import OfferingFacts, format_amount
 from app.offerings.grounding import GroundingResult
@@ -37,22 +49,65 @@ def is_offer_turn(
     if grounding.strict or grounding.mode == "unavailable":
         return False
     text = (cap([message]) or [""])[0]
+    names = grounding.catalog_names or [i.name for i in grounding.items]
     if offered_signal or has_bargain_wording(text):
         return True
-    if PAYMENT_PLAN.search(text):
-        return False  # "12,500 now and the balance on delivery": a payment plan, not a price
     prices = [i.price for i in _matched(grounding) if i.price is not None]
     if not prices and context_prices is not None:
         prices = [p for p in context_prices() if p is not None]
-    if not prices:
-        # nothing to compare with: a bare figure from a shop with items is still an offer
-        # candidate unless the message is a question or a budget search
-        # "is it ₦25,000 for each?": the customer asking whether a price is right is not offering
-        return bool(customer_amounts(text, small_ok=False)) and not (
-            BROWSE.search(text) or is_price_check(text)
-        )
-    low = min(prices)
-    return any(a.value < low for a in customer_amounts(text, small_ok=low < 1000))
+    check = is_price_check(text)
+    if BUNDLE_OFFER.search(text) and not check:
+        return True
+    if PAYMENT_PLAN.search(text):
+        return False  # "12,500 now and the balance on delivery": a payment plan, not a price
+    if prices and min(prices) >= 10_000:
+        # "na 850 I get" for a ₦950,000 phone: a bare number after an offer cue is in thousands
+        low_k = min(prices)
+        masked = mask_for_offers(text, names)
+        for m in CUE_NUMBER.finditer(masked):
+            if int(m.group(1)) * 1000 < low_k:
+                return True
+        words = _name_words(names)
+        for m in CUE_NUMBER_ITEM.finditer(masked):
+            if m.group("w").lower() in words and int(m.group(1)) * 1000 < low_k:
+                return True
+    elif not prices and CUE_NUMBER.search(mask_for_offers(text, names)) and not BROWSE.search(text):
+        return True  # nothing to compare with: still an offer candidate for a human
+    if prices:
+        low = min(prices)
+        below = [
+            a.value
+            for a in customer_amounts(text, small_ok=low < 1000, names=names)
+            if a.value < low
+        ]
+        if not below:
+            return False
+        # "is the meat pie 800 or 1000?", "10 pies, 8000 total right?": the customer quotes a
+        # listed price or the total of a quantity; any other figure below the price is an offer
+        everything = [a.value for a in customer_amounts(text, small_ok=True, names=names)]
+        if check and _quotes_the_list(text, everything or below, grounding):
+            return False
+        return True
+    if check:
+        return False
+    # nothing to compare with: a bare figure from a shop with items is still an offer candidate
+    # unless the message is a budget search
+    figures = customer_amounts(text, small_ok=False, names=names)
+    if not figures:
+        return False
+    if PAY_NOW.search(text) and not OFFER_CUE.search(text):
+        return False  # "send your account number, let me pay 950000": paying, not bargaining
+    return bool(OFFER_CUE.search(text)) or not BROWSE.search(text)
+
+
+def _name_words(names) -> set[str]:
+    return {w for n in names for w in re.findall(r"[a-z0-9]{3,}", (n or "").lower())}
+
+
+def _quotes_the_list(text: str, figures: list, grounding: GroundingResult) -> bool:
+    listed = {i.price for i in grounding.items if i.price is not None}
+    counts = {int(n) for n in re.findall(r"\b\d{1,3}\b", text) if int(n) >= 2}
+    return any(f in listed or any(n * p == f for n in counts for p in listed) for f in figures)
 
 
 @dataclass

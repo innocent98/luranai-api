@@ -17,6 +17,7 @@ from uuid import UUID
 from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
+from app.db.models.conversation import ConversationSession
 from app.db.models.lead import Lead
 from app.db.models.offering import (
     LeadOfferingInterest,
@@ -164,15 +165,24 @@ def _scope(lead: Lead):
 
 
 def has_pending_offer(db: Session, lead: Lead) -> bool:
-    """An offer a human is working on: stored on a negotiable (or unpriced) item. An offer on a
-    fixed-price item gets the firm-price answer and never blocks a quote."""
+    """An offer a human is working on: stored on a negotiable (or unpriced) item, until a human has
+    joined the conversation after it was made. An offer on a fixed-price item gets the firm-price
+    answer and never blocks a quote."""
     rows = db.execute(
         select(LeadOfferingInterest.id)
         .join(Offering, Offering.id == LeadOfferingInterest.offering_id)
+        .join(Lead, Lead.id == LeadOfferingInterest.lead_id)
+        .outerjoin(ConversationSession, ConversationSession.id == Lead.conversation_id)
         .where(
             *_scope(lead),
             LeadOfferingInterest.offered_price.is_not(None),
             or_(Offering.negotiable.is_(True), Offering.price.is_(None)),
+            # a human who joined the conversation after the offer was made has taken it up: it is
+            # no longer pending, so the next cart can be quoted again
+            or_(
+                ConversationSession.agent_joined_at.is_(None),
+                ConversationSession.agent_joined_at < LeadOfferingInterest.created_at,
+            ),
         )
         .limit(1)
     ).first()
@@ -199,6 +209,11 @@ def sync_interests(
         return out
 
     prior_offer = {r.offering_id: r.offered_price for r in existing if r.offering_id}
+    # `created_at` doubles as "when this offer was made": it is carried across the delete and
+    # re-insert below and only moves when the offered amount is stored for the first time or
+    # changes, so a human who took the offer up stays later than it however often the customer
+    # names the item again
+    prior_made = {r.offering_id: r.created_at for r in existing if r.offering_id}
     prior_qty = {r.offering_id: r.qty for r in existing if r.offering_id}
     offered_oid = res.offered.facts.id if res.offered else None
 
@@ -217,6 +232,7 @@ def sync_interests(
 
     for oid, (facts, qty) in wanted.items():
         offered = res.offered.amount if oid == offered_oid else prior_offer.get(oid)
+        carried = prior_made.get(oid) if offered == prior_offer.get(oid) else None
         db.add(
             LeadOfferingInterest(
                 tenant_id=lead.tenant_id,
@@ -229,6 +245,7 @@ def sync_interests(
                 price_note_snapshot=facts.price_note,
                 qty=qty,
                 offered_price=offered,
+                **({"created_at": carried} if carried is not None else {}),
             )
         )
     db.commit() if commit else db.flush()
