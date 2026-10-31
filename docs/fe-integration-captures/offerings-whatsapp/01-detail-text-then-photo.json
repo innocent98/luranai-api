@@ -1,0 +1,20 @@
+{
+  "scenario": "detail-text-then-photo",
+  "note": "The reply text first, then the cover photo (the 1,280 px WhatsApp rendition of the stored copy) with a caption built at send time: `#ref name · price · availability`.",
+  "customer_said": "tell me about the black sneaker",
+  "fake_sidecar_received": [
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432111@lid",
+      "text": "The Canvas sneaker black is ₦12,000, in stock."
+    },
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432111@lid",
+      "image": {
+        "url": "https://res.cloudinary.com/demo/image/upload/w_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/15b91c4c-3265-4d17-aa58-6dc4ec86f7d2/87e7ab5bc1ab44a09e9d822833d33030.jpg",
+        "caption": "#1 Canvas sneaker black · ₦12,000 · In stock"
+      }
+    }
+  ]
+}

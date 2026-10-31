@@ -1,0 +1,7 @@
+{
+  "scenario": "database-after",
+  "note": "Catalog photos are never stored as `message_attachments` (the retention job deletes those and would destroy the catalog asset): the tenant has 0 attachment rows while the sidecar received the photos; the catalog rows are intact.",
+  "message_attachments_for_tenant": 0,
+  "offering_images_for_tenant": 6,
+  "photos_the_sidecar_received_in_total": 8
+}

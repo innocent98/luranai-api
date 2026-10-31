@@ -16,7 +16,12 @@ from app.core.encryption import try_decrypt_field
 from app.db.session import SessionLocal
 from app.core.config import settings
 from app.services import whatsapp_capacity, whatsapp_inbound
-from app.services.whatsapp_outbound import RetrySend, send_image, send_text
+from app.services.whatsapp_outbound import (
+    RetrySend,
+    send_image,
+    send_offering_image,
+    send_text,
+)
 
 _CHAT_LOCK_TTL_S = 120
 # A busy chat (the previous message's AI turn is still running) is waited for in-job for up to
@@ -117,6 +122,24 @@ async def send_whatsapp_image(
             UUID(chat_id),
             UUID(attachment_id),
             try_decrypt_field(caption) if caption else None,
+            int(ctx.get("job_try", 1)),
+        )
+    except RetrySend as exc:
+        raise Retry(defer=exc.defer_s) from None
+    finally:
+        db.close()
+
+
+async def send_whatsapp_offering_image(
+    ctx: dict, connection_id: str, chat_id: str, offering_image_id: str
+) -> str:
+    db = SessionLocal()
+    try:
+        return await send_offering_image(
+            db,
+            UUID(connection_id),
+            UUID(chat_id),
+            UUID(offering_image_id),
             int(ctx.get("job_try", 1)),
         )
     except RetrySend as exc:

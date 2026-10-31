@@ -44,6 +44,7 @@ from app.schemas.conversation import ConversationSessionCreate, MessageRequest
 from app.schemas.explore import ConversationSource
 from app.services import whatsapp_enqueue
 from app.services.whatsapp_exclusion import chat_phone_hmac, is_excluded
+from app.services.whatsapp_offering_photos import enqueue_catalog_followups
 from app.services.entitlements import get_entitlements_for_tenant_id
 from app.services.conversation_counting import (
     conversation_limit_reached,
@@ -415,6 +416,7 @@ async def handle_inbound(db: Session, conn: WhatsAppConnection, event: dict) -> 
         content = (response.message.content or "").strip()
         if content:
             await _enqueue_reply(conn, chat, content, f"ai:{response.message.id}")
+        await enqueue_catalog_followups(db, conn, chat, response.message)  # never raises
         return "ai_reply"
     except Exception:
         # Let arq retry: forget the dedupe row so the retry is not skipped as a duplicate.
@@ -667,6 +669,7 @@ async def _handle_image(
         content_out = (response.message.content or "").strip()
         if content_out:
             await _enqueue_reply(conn, chat, content_out, f"ai:{response.message.id}")
+        await enqueue_catalog_followups(db, conn, chat, response.message)  # never raises
         return "ai_reply"
     except Exception:
         _discard_unlinked(db, attachment)

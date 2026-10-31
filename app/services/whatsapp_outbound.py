@@ -33,7 +33,11 @@ from app.db.models.conversation import (
 from app.db.models.review import RatingRequest
 from app.db.models.whatsapp import WhatsAppChat, WhatsAppConnection, WhatsAppStatus
 from app.utils.datetime import ensure_utc_aware, utcnow_aware
+from app.offerings.alerts import tenant_currency
+from app.offerings.facts import facts_from_row
+from app.services.offering_media import whatsapp_url
 from app.services.whatsapp_exclusion import is_excluded
+from app.services.whatsapp_offering_photos import build_caption, live_catalog_photo
 from app.services.whatsapp_inbound import _tenant_may_use
 
 MAX_SEND_TRIES = 5
@@ -210,6 +214,47 @@ async def send_image(
         )
     except (NotConnected, ReplyOnly, MediaRejected) as exc:
         logger.warning("whatsapp image refused by sidecar: {}", exc.code)
+        return f"dropped_{exc.code}"
+    except (RateCapped, SidecarUnavailable) as exc:
+        return _retry_or_give_up(job_try, exc.code)
+    return "sent"
+
+
+async def send_offering_image(
+    db: Session, connection_id: UUID, chat_id: UUID, offering_image_id: UUID, job_try: int
+) -> str:
+    """One catalog photo to the customer, an automatic reply (pause / AI-off are re-checked).
+
+    Everything is re-read here, never trusted from the job: the photo and its item must belong to
+    this connection's tenant, the item must still be active and not sold out, and the stored URL
+    must be https on the media allowlist. The caption is built now from the live row, so a price
+    or availability changed after the reply was queued is the one the customer sees. The photo is
+    the 1,280 px WhatsApp rendition (at most ~1 MB) of the optimised Cloudinary copy. Same retry
+    policy as `send_image`; the sidecar's 400 / 413 / 415 are permanent.
+    """
+    checked = _preflight(db, connection_id, chat_id, guard=True)
+    if isinstance(checked, str):
+        return checked
+    conn, chat = checked
+    live = live_catalog_photo(db, conn.tenant_id, offering_image_id)
+    if live is None:
+        logger.info("whatsapp catalog photo dropped: item or photo is not showable now")
+        return "dropped_offering_unavailable"
+    item, image = live
+    if not media_url_allowed(image.url):
+        logger.warning("whatsapp catalog photo dropped: stored url is not on the allowlist")
+        return "dropped_media_not_allowed"
+    url = whatsapp_url(image.url)
+    if not media_url_allowed(url):  # the rendition must stay on the allowlisted host too
+        return "dropped_media_not_allowed"
+    caption = build_caption(facts_from_row(item), tenant_currency(db, conn.tenant_id))
+    try:
+        await get_adapter(conn.provider).send(
+            conn.session_key,
+            OutboundMessage(chat_ref=chat.contact_ref, image_url=url, image_caption=caption),
+        )
+    except (NotConnected, ReplyOnly, MediaRejected) as exc:
+        logger.warning("whatsapp catalog photo refused by sidecar: {}", exc.code)
         return f"dropped_{exc.code}"
     except (RateCapped, SidecarUnavailable) as exc:
         return _retry_or_give_up(job_try, exc.code)

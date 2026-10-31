@@ -56,3 +56,4 @@ Verdict NO BLOCKERS (nothing crosses tenants, no unmoderated image is stored, th
 - Voice notes (speech-to-text), video, documents, stickers are still `other`.
 - Rating prompt on WhatsApp has no "skip"; a free-text comment is not collected.
 - The upload cleanup on failure is best effort; `cleanup_orphan_attachments` remains the backstop.
+- Catalog (Offerings) photos and the catalog quote text on WhatsApp are a separate path with their own job: see `docs/sop/offerings_whatsapp_photos.md`.

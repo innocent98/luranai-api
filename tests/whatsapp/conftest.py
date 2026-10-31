@@ -62,7 +62,9 @@ class Queue:
         self.events: list[dict] = []
         self.sends: list[dict] = []
         self.images: list[dict] = []
+        self.offering_images: list[dict] = []
         self.fail_events = False
+        self.fail_offering_images = False
 
 
 @pytest.fixture
@@ -81,17 +83,19 @@ def queue(monkeypatch):
         key: str,
         guard: bool = False,
         rating_request_id: UUID | None = None,
+        defer_s: float = 0,
     ) -> None:
-        q.sends.append(
-            {
-                "connection_id": connection_id,
-                "chat_id": chat_id,
-                "text": text,
-                "key": key,
-                "guard": guard,
-                "rating_request_id": rating_request_id,
-            }
-        )
+        entry = {
+            "connection_id": connection_id,
+            "chat_id": chat_id,
+            "text": text,
+            "key": key,
+            "guard": guard,
+            "rating_request_id": rating_request_id,
+        }
+        if defer_s:  # only a deferred send carries the key, so plain sends compare as before
+            entry["defer_s"] = defer_s
+        q.sends.append(entry)
 
     async def enqueue_send_image(
         connection_id: UUID, chat_id: UUID, attachment_id: UUID, caption: str | None, key: str
@@ -106,7 +110,25 @@ def queue(monkeypatch):
             }
         )
 
+    async def enqueue_send_offering_image(
+        connection_id: UUID, chat_id: UUID, offering_image_id: UUID, key: str, defer_s: float = 0
+    ) -> None:
+        if q.fail_offering_images:
+            raise RuntimeError("redis down")
+        q.offering_images.append(
+            {
+                "connection_id": connection_id,
+                "chat_id": chat_id,
+                "offering_image_id": offering_image_id,
+                "key": key,
+                "defer_s": defer_s,
+            }
+        )
+
     monkeypatch.setattr(whatsapp_enqueue, "enqueue_event", enqueue_event)
+    monkeypatch.setattr(
+        whatsapp_enqueue, "enqueue_send_offering_image", enqueue_send_offering_image
+    )
     monkeypatch.setattr(whatsapp_enqueue, "enqueue_send", enqueue_send)
     monkeypatch.setattr(whatsapp_enqueue, "enqueue_send_image", enqueue_send_image)
     return q

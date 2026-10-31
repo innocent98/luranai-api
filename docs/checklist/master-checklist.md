@@ -346,7 +346,12 @@ Idea (owner): businesses keep a live list of what they sell (name, description, 
   - [ ] Not exercised: the real model's behaviour, voice, strict (fail-closed) mode live, real sidecar, SMTP; WhatsApp photos and quote text message are S4b; full local unit suite run once before leaving draft
 - [ ] **S3 Dashboard** `luran-dashboard` `feature/offerings-dashboard`: Today list, add/edit sheet with photos, import wizard, plan meter, Not-found tab, lead "Wanted items"
 - [ ] **S4a** `luran-chat` `feature/offerings-item-cards`: `meta.offerings` mapping + `ItemCard`
-- [ ] **S4b** `feature/offerings-whatsapp-photos`: catalog photo job (cap, caption at send time), quote text message
+- [ ] **S4b WhatsApp photos + quote text** `feature/offerings-whatsapp-photos` (draft PR stacked on #197, not merged; SOP `docs/sop/offerings_whatsapp_photos.md`; captures `docs/fe-integration-captures/offerings-whatsapp/`). Ticks are the plan's T1-T4; the stream box stays open until merged:
+  - [x] T1 job `send_whatsapp_offering_image` + `enqueue_send_offering_image`: row re-read at send time (same tenant, item active and not sold out, https host on the allowlist), 1,280 px rendition, caption from the live row (at most 1,024 chars), sidecar errors mapped as `send_image`; registered in the worker
+  - [x] T2 selection after the text is enqueued: 1-3 shown items, 3 photos per reply, 6 per chat per hour (Redis sliding window, atomic, fail-closed for photos only); text never waits; follow-ups never raise into the inbound pipeline
+  - [x] T3 `render_quote_text` queued as a second plain-text message after the reply (text and image-message paths)
+  - [x] T4 35 tests (red first), live run with the fake sidecar (6 captures), SOP, checklist
+  - [ ] Not exercised: real sidecar (size limit, pacing, send order), real Cloudinary renditions, a real phone; transcript marker line for human agents not built (decision for the lead)
 - [ ] Integration: eval gate on the real model (0 violations), real-phone test, owner dry-run, prod promotion, pilot #1
 - P1 (first pilot week): stale-list nudge, activity counter reads, owner alert email shows items. v1.5: semantic recall (Qdrant, ids only), categories. v2: variants, order-driven stock, Paystack payment links, update by WhatsApp message, photo-to-item match, Flows AI node, agent-app item context
 - Deferred / unknown: availability wording not machine-checked; Cloudinary plan limits unknown; Meta policy on regulated products unresearched; Lite quotes (pricing decision); voice reading of currency untested
