@@ -301,7 +301,8 @@ async def send_visitor_quote_email(ctx, notification_log_id: str) -> None:
         company = header_text(tenant.display_name or tenant.name or "us")
         items = _quote_items(quote)
         total_fmt = format_amount(int(quote.total or 0), quote.currency)
-        greeting = f"Hi {lead.name}," if lead is not None and lead.name else "Hello,"
+        # No visitor-typed name: whoever used the chat chose it, the recipient may be a stranger.
+        greeting = "Hello,"
 
         pdf_bytes = None
         try:
@@ -330,7 +331,7 @@ async def send_visitor_quote_email(ctx, notification_log_id: str) -> None:
                 has_pdf=bool(pdf_bytes),
             ),
             reply_to=reply_to,
-            from_name=company,
+            from_name=f"{company} via Luran",  # the sender is the platform, not the tenant
         )
         if not ok:
             log.status = NotifStatus.FAILED

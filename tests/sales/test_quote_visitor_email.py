@@ -227,6 +227,24 @@ async def test_a_failed_enqueue_marks_the_log_failed_and_makes_no_promise(db_ses
     assert log.status == NotifStatus.FAILED
 
 
+def test_gmail_dots_and_googlemail_do_not_dodge_the_cap():
+    base = svc.recipient_key("victim.name@gmail.com")
+    assert svc.recipient_key("v.i.c.t.i.m.n.a.m.e@gmail.com") == base
+    assert svc.recipient_key("victimname+x@googlemail.com") == base
+    # other providers keep their dots: they are different mailboxes there
+    assert svc.recipient_key("a.b@example.com") != svc.recipient_key("ab@example.com")
+
+
+async def test_the_cap_check_and_insert_run_under_an_advisory_lock(db_session, enqueue, monkeypatch):
+    """Two concurrent requests for one address must not both pass the count (check-then-insert)."""
+    taken = []
+    monkeypatch.setattr(svc, "_lock", lambda db, name: taken.append(name))
+    t = _tenant(db_session)
+    await _go(db_session, _quote(db_session, t, email="Alice+1@example.com"), enqueue)
+    assert f"quote-email-tenant:{t.id}" in taken
+    assert f"quote-email-address:{svc.recipient_key('alice@example.com')}" in taken
+
+
 def test_recipient_key_is_a_hash_that_ignores_case_and_plus_tags():
     assert svc.recipient_key("A.B+x@Example.com") == svc.recipient_key("a.b@example.com")
     assert "example" not in svc.recipient_key("a.b@example.com")

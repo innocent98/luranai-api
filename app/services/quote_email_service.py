@@ -19,7 +19,7 @@ from datetime import UTC, datetime, timedelta
 
 from email_validator import EmailNotValidError, validate_email
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -50,10 +50,25 @@ def _normalise(address: str) -> str:
     return address.strip().lower()
 
 
+_GMAIL = ("gmail.com", "googlemail.com")
+
+
 def recipient_key(address: str) -> str:
     """Stable, address-free key for the per-address cap: case and `+tag` are ignored so
-    `victim+1@x.com`, `victim+2@x.com` and `Victim@x.com` are one inbox."""
-    return hashlib.sha256(_PLUS_TAG.sub("", _normalise(address)).encode()).hexdigest()
+    `victim+1@x.com`, `victim+2@x.com` and `Victim@x.com` are one inbox; Gmail ignores dots and
+    treats googlemail.com as gmail.com, so those are folded too."""
+    local, _, domain = _PLUS_TAG.sub("", _normalise(address)).partition("@")
+    if domain in _GMAIL:
+        local, domain = local.replace(".", ""), "gmail.com"
+    return hashlib.sha256(f"{local}@{domain}".encode()).hexdigest()
+
+
+def _lock(db: Session, name: str) -> None:
+    """Transaction-scoped advisory lock (Postgres): serialises check-then-insert for one tenant
+    or one address, so two concurrent requests cannot both pass a cap's count. Released by the
+    next commit. Other databases (the SQLite test job) have no concurrent writers to guard."""
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:n, 0))"), {"n": name})
 
 
 def _valid_address(address: str | None) -> str | None:
@@ -149,18 +164,22 @@ async def email_quote_to_visitor(
         return None
 
     key = recipient_key(address)
+    _lock(db, f"quote-email-tenant:{quote.tenant_id}")  # fixed order: tenant, then address
+    _lock(db, f"quote-email-address:{key}")
     if (
         _count(db, NotificationLog.tenant_id == quote.tenant_id)
         >= settings.QUOTE_VISITOR_EMAIL_TENANT_DAILY_CAP
         or _count(db, NotificationLog.body == key) >= settings.QUOTE_VISITOR_EMAIL_RECIPIENT_CAP_24H
     ):
         logger.info("visitor quote email capped (tenant or address) for tenant %s", quote.tenant_id)
+        db.commit()  # release the advisory locks
         return SentOutcome.capped()
     session_id = str(lead.conversation_id or quote.lead_id)
     if await _limited(quote_email_session_rate_limiter, session_id) or (
         client_ip and await _limited(quote_email_ip_rate_limiter, client_ip)
     ):
         logger.info("visitor quote email capped (session or ip) for tenant %s", quote.tenant_id)
+        db.commit()  # release the advisory locks
         return SentOutcome.capped()
 
     log_id = NotificationService(db)._try_log(
@@ -173,9 +192,9 @@ async def email_quote_to_visitor(
         title="Quote emailed to visitor",
         body=key,  # address-free handle the per-address cap counts on
     )
+    db.commit()  # releases the locks: the next request counts this row
     if log_id is None:
         return None
-    db.commit()
     try:
         await enqueue([(log_id, JOB_NAME)])
     except Exception:  # noqa: BLE001 - Redis down: no job exists, so promise nothing

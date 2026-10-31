@@ -19,7 +19,7 @@ Real response (`200`, trimmed to the relevant fields; `01_chat_visitor_gives_ema
 
 ```json
 {
-  "session_id": "10248cf2-184f-4c0d-9949-de5b7de70d27",
+  "session_id": "b96ba9a4-0b46-40d7-b4d0-e552e25e08aa",
   "message": {
     "role": "assistant",
     "content": "Thanks! For 58 people the Growth plan fits. Your quote is below.\n\nI've sent the quote to a***@example.com. If it doesn't arrive in a few minutes, please check your spam folder.",
@@ -55,7 +55,7 @@ The reply is the model's text with a **second paragraph (`\n\n`) added by the ba
 ## 5. UX consequences the FE must surface
 - Do **not** add your own "we emailed you" toast or banner; the reply already says it, and it can say "couldn't".
 - If the visitor mistyped their address, the masked address in the reply is their only cue; keep it visible in the transcript.
-- What the visitor receives (captures `01_visitor_email.*`): From the tenant's name via the platform sender, subject `Your quote from <company>`, quote lines + total in the body, the PDF attached, `Reply-To` = the tenant's sales notification address. No links, images or tracking.
+- What the visitor receives (captures `01_visitor_email.*`): From `<tenant name> via Luran <platform sender>`, a generic `Hello,` greeting (the name the visitor typed is never put in the email), subject `Your quote from <company>`, quote lines + total in the body, the PDF attached, `Reply-To` = the tenant's sales notification address. No links, images or tracking.
 - Caps (per address 3/24 h across tenants, per conversation 3/24 h, per IP 10/24 h, per tenant 50/24 h): a visitor who triggers many quotes will see `I couldn't email the quote just now…`; this is normal, not an error.
 
 ## 6. Dashboard / rep side

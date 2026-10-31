@@ -98,13 +98,21 @@ async def test_the_visitor_gets_the_quote_in_the_body_and_as_a_pdf(db_session, m
     assert sent["to_email"] == "alice@example.com"
     assert sent["subject"] == "Your quote from Acme Ltd"
     assert sent["reply_to"] == "rep@example.com"
-    assert sent["from_name"] == "Acme Ltd"
+    assert sent["from_name"] == "Acme Ltd via Luran"  # fixed form: never just the tenant's name
     name, data, mime = sent["attachments"][0]
     assert name.endswith(".pdf") and data.startswith(b"%PDF") and mime == "application/pdf"
     html = sent["html"]
-    for expected in ("Acme Ltd", "Alice", "Growth", "Extra seats (×8)", "₦62,050", "−₦10,950"):
+    for expected in ("Acme Ltd", "Growth", "Extra seats (×8)", "₦62,050", "−₦10,950"):
         assert expected in html
     assert db_session.get(NotificationLog, log_id).status == NotifStatus.SENT
+
+
+async def test_visitor_supplied_text_never_reaches_an_unverified_address(db_session, monkeypatch):
+    """The name was typed by whoever used the chat, not by the recipient: no name in the email."""
+    log_id = _seed(db_session, lead_name="Your account is locked, call 0800-EVIL")
+    sent = await _deliver(db_session, monkeypatch, log_id)
+    assert "locked" not in sent["html"] and "locked" not in sent["text_content"]
+    assert "Hello," in sent["text_content"]
 
 
 async def test_the_email_is_plain_and_carries_nothing_beyond_the_quote(db_session, monkeypatch):
@@ -144,7 +152,7 @@ async def test_names_are_escaped_and_cannot_break_the_subject(db_session, monkey
     log_id = _seed(db_session, display_name="Acme\r\nBcc: evil@example.com", lead_name="<b>Eve</b>")
     sent = await _deliver(db_session, monkeypatch, log_id)
     assert "\n" not in sent["subject"] and "\r" not in sent["subject"]
-    assert "&lt;b&gt;Eve" in sent["html"] and "<b>Eve" not in sent["html"]
+    assert "\n" not in sent["from_name"] and "Eve" not in sent["html"]
 
 
 async def test_an_already_sent_log_is_not_sent_again(db_session, monkeypatch):

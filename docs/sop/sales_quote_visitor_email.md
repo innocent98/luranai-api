@@ -6,7 +6,7 @@ Branch `feature/sales-quote-visitor-email` (PR to `develop`, number in the PR; h
 | | Change |
 |---|---|
 | A | **Rep alert** (email, Slack, in-app) for quote, lead and meeting alerts now carries the visitor's email, phone (when the visitor record has one), name, company, conversation channel, the total with the currency symbol (same formatter as the PDF), the quote lines (for lead/meeting alerts: the lines of the quote the lead asked for) and the dashboard deep link. |
-| B | **Visitor copy of the quote**: when a quote exists for a lead with a valid email, an ARQ job (`send_visitor_quote_email`) emails the visitor the quote lines + total in the body and the PDF attached, from the tenant's display name, with `Reply-To` = the address the rep alerts go to. Logged in `notification_logs` under a new event `quote_emailed_visitor`. The reply says what happened in code-written words with a masked address. |
+| B | **Visitor copy of the quote**: when a quote exists for a lead with a valid email, an ARQ job (`send_visitor_quote_email`) emails the visitor the quote lines + total in the body and the PDF attached, from `<tenant display name> via Luran`, with a generic `Hello,` greeting, with `Reply-To` = the address the rep alerts go to. Logged in `notification_logs` under a new event `quote_emailed_visitor`. The reply says what happened in code-written words with a masked address. |
 | C | **Guard**: the model can no longer promise an email. A rule in the sales prompt, and a code filter on every reply, remove any "I'll email it / should I email it to you?" sentence; only code adds the one true sentence. |
 
 ## Why
@@ -31,11 +31,19 @@ The visitor typed the address into a public chat, so someone can type another pe
 | Valid address (`email_validator`, no DNS) and a reply-to exists | n/a | `quote_email_service._valid_address`, `_reply_to` | | |
 | One visitor email per quote (and per identical quote) | 1 | `email_quote_to_visitor` | `notification_logs` | code |
 | Per tenant per rolling 24 h | 50 | `QUOTE_VISITOR_EMAIL_TENANT_DAILY_CAP` | `notification_logs` (pending+sent) | env, live |
-| Per recipient address per rolling 24 h, **all tenants** | 3 | `QUOTE_VISITOR_EMAIL_RECIPIENT_CAP_24H` | `notification_logs.body` = sha256 of the lowercased address with the `+tag` removed (no plaintext in the key; `victim+1@` and `victim+2@` are one inbox) | env, live |
+| Per recipient address per rolling 24 h, **all tenants** | 3 | `QUOTE_VISITOR_EMAIL_RECIPIENT_CAP_24H` | `notification_logs.body` = sha256 of the lowercased address with the `+tag` removed and, for gmail.com/googlemail.com, dots removed (no plaintext in the key; `victim+1@` and `victim+2@` are one inbox) | env, live |
 | Per conversation per 24 h | 3 | `QUOTE_VISITOR_EMAIL_SESSION_CAP_24H` | Redis limiter `http_quote_email_session` keyed by conversation id | env, restart |
 | Per client IP per 24 h | 10 | `QUOTE_VISITOR_EMAIL_IP_CAP_24H` | Redis limiter `http_quote_email_ip` keyed by IP (public `/chat/message` only; WhatsApp and the customer-token route have no IP and skip this one) | env, restart |
 
-The tenant and per-address caps count database rows, so a Redis flush or outage cannot lift them (the Redis limiters fail open per `RATE_LIMIT_FAIL_OPEN`, so these two are the backstop). Failed sends do not count. Known limits: dots in Gmail local parts and other aliasing are not folded together; concurrent requests can overshoot a cap by a few; there is no cross-tenant suppression list ("never email me"): a victim can be emailed up to 3 times in 24 h by an attacker rotating tenants' chats and IPs. If abuse appears, lower `QUOTE_VISITOR_EMAIL_RECIPIENT_CAP_24H` or set the kill switch.
+The tenant and per-address caps count database rows, so a Redis flush or outage cannot lift them (the Redis limiters fail open per `RATE_LIMIT_FAIL_OPEN`, so these two are the backstop). Failed sends do not count. The tenant and per-address checks plus the insert run under Postgres advisory locks (`pg_advisory_xact_lock`, tenant then address) so two concurrent requests cannot both pass a count; the Redis session/IP limiters are check-then-acquire and may overshoot by a few. Known limits: other providers' aliasing (custom domains, Outlook plus-tricks beyond `+tag`) is not folded; there is no cross-tenant suppression list ("never email me"): a victim can be emailed up to 3 times in 24 h by an attacker rotating tenants' chats and IPs. If abuse appears, lower `QUOTE_VISITOR_EMAIL_RECIPIENT_CAP_24H` or set the kill switch.
+
+## Security review (automated, on the first push) and what changed
+| Finding | Decision |
+|---|---|
+| Cap check and insert not atomic | Fixed: advisory locks around count + insert (above); test asserts both locks are taken. A unique index on `(event, entity_id)` was not added: the existing unique index plus the lock already stop a duplicate. |
+| Per-address key bypass by aliases | Partly fixed: Gmail dots and `googlemail.com` folded. Arbitrary custom-domain aliasing cannot be folded; the per-IP, per-conversation and per-tenant caps bound it. |
+| Visitor-typed name in an email to an unverified address (phishing text) | Fixed: the greeting is a fixed `Hello,`; the name is never used. Quote line labels are tenant-configured, not visitor text. |
+| Tenant-controlled From display name | Mitigated: always `<tenant> via Luran` from the platform address (control characters stripped). A malicious tenant can still choose a misleading display name; requiring a verified/paid tier for visitor emails (the review's other suggestion) is a product decision, listed in follow-ups. Double opt-in was rejected for v1: it would delay the quote the visitor just asked for. |
 
 ## What's involved
 | Path | Change |
@@ -70,7 +78,7 @@ Offerings (S2) quotes: they are ordinary `Quote` rows, so the helper works for t
 ## Follow-ups
 - Offerings (S2) quote path: the two lines above, and the guard on its reply path.
 - Real-model check on staging that the strip filter covers the model's real phrasings (add misses to `tests/sales/test_quote_email_text.py`).
-- A per-tenant opt-out and a cross-tenant "do not email this address" suppression list if abuse or complaints appear.
+- Restrict visitor quote emails to verified/paid tenants if display-name abuse appears; a per-tenant opt-out and a cross-tenant "do not email this address" suppression list if abuse or complaints appear.
 - In-app notification body for quotes still shows total and company only (not the visitor's name or email, which would put PII in `notification_logs.body`).
 - "Wanted items" on lead/meeting alerts come from the lead's quote; catalog (`LeadOfferingInterest`) items will appear once S1/S2 merge.
 - `notification_logs.recipient` stores the visitor's address in plaintext (the same as the existing meeting-confirmation rows, and it is deleted with the tenant); the per-address cap key is a hash. Encrypt or hash the column platform-wide if that is ever required.

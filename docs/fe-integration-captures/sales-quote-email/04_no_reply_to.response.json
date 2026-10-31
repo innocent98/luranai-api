@@ -1,12 +1,12 @@
 {
   "status": 200,
   "body": {
-    "session_id": "d273a75a-a16d-43a4-b84b-f89ed9b75a27",
+    "session_id": "fb142a6b-2fb4-4ab3-8209-f06d917b9045",
     "message": {
       "role": "assistant",
       "content": "Thanks! For 58 people the Growth plan fits. Your quote is below.",
-      "id": "a2f741a3-e778-47b6-ac88-8a0fe07903a6",
-      "session_id": "d273a75a-a16d-43a4-b84b-f89ed9b75a27",
+      "id": "bb98fe1b-68b5-4f83-93c9-aa8b5ff35631",
+      "session_id": "fb142a6b-2fb4-4ab3-8209-f06d917b9045",
       "retrieved_chunk_ids": [],
       "token_count": 50,
       "attachments": [],
@@ -53,7 +53,7 @@
           "total": 62050
         }
       },
-      "created_at": "2026-10-31T09:01:25.539235Z"
+      "created_at": "2026-10-31T09:14:03.480090Z"
     },
     "user_message_attachments": [],
     "should_escalate": false,
