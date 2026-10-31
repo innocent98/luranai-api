@@ -1303,6 +1303,7 @@ class WorkerSettings:
         send_rep_alert,
         send_slack_notification,
         send_visitor_meeting_confirmation,
+        send_visitor_quote_email,
         sync_lead_to_crm,
     )
 
@@ -1332,6 +1333,7 @@ class WorkerSettings:
         send_rep_alert,
         send_slack_notification,
         send_visitor_meeting_confirmation,
+        send_visitor_quote_email,
         sync_lead_to_crm,
         alert_escalation,
         alert_escalation_fallback,
