@@ -430,8 +430,11 @@ def test_slack_text_is_escaped():
 
     body = _slack_escape("Ada <!channel> & <http://x|click> offered")
     assert "<!channel>" not in body and "&lt;!channel&gt;" in body and "&amp;" in body
-    text = _slack_blocks("T", body, "")["blocks"][1]["text"]["text"]
-    assert text == body  # not escaped twice
+    from app.workers.sales_notifications import SlackSafe
+
+    assert _slack_blocks("T", SlackSafe(body), "")["blocks"][1]["text"]["text"] == body  # once
+    raw = "Ada <!channel>"  # a caller that passes plain text still gets it escaped at the sink
+    assert "<!channel>" not in _slack_blocks("T", raw, "")["blocks"][1]["text"]["text"]
 
 
 def test_first_cart_alert_carries_prices_and_the_offer(client, db):

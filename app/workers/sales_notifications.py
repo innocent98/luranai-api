@@ -383,6 +383,10 @@ def _slack_escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+class SlackSafe(str):
+    """Text whose Slack control characters were already escaped once (by `_slack_body`)."""
+
+
 def _slack_body(db, log: NotificationLog) -> str:
     """The Slack message body: the log's one-liner plus who to contact and what they asked for.
 
@@ -404,7 +408,7 @@ def _slack_body(db, log: NotificationLog) -> str:
         lines.append(f"• {_slack_escape(str(it['label']))}: {_slack_escape(it['amount_fmt'])}")
     for line in f.get("wanted") or []:
         lines.append(f"• {_slack_escape(str(line))}")
-    return "\n".join(line for line in lines if line)
+    return SlackSafe("\n".join(line for line in lines if line))
 
 
 def _slack_blocks(title: str | None, body: str | None, dashboard_url: str = "") -> dict:
@@ -421,7 +425,8 @@ def _slack_blocks(title: str | None, body: str | None, dashboard_url: str = "") 
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": (body or "")[:2000] or "—",
+                "text": (body if isinstance(body, SlackSafe) else _slack_escape(body or ""))[:2000]
+                or "—",
             },
         },
     ]
