@@ -444,3 +444,34 @@ def extract_amounts(
     words = _word_amounts(text, taken)
     combined = _merge_word_tails(digit, words, text)
     return sorted((a for a in combined if a.kind != "skip"), key=lambda a: a.start)
+
+
+# -- what a customer wrote: figures, read as anchored once an item is in play ---------------------
+
+_UNITS = (
+    r"pcs?|pieces?|pairs?|units?|items?|orders?|guests?|people|persons?|pax|portions?|servings?"
+    r"|plates?|rooms?|seats?|customers?|kids?|children|adults?|sizes?|km|kg|cm|mm|mins?|minutes?"
+    r"|hrs?|hours?|days?|weeks?|months?|years?|yrs?|gb|mb|litres?|liters?|times|bags?|boxes|packs?"
+    r"|cartons?|dozens?|metres?|meters?|inches|inch|yards?|bedrooms?|floors?|staff|workers|members"
+)
+_NOT_AN_OFFER = re.compile(
+    r"\b(?:size|sizes|no\.|number|order(?:\s+(?:number|no\.?|id))?|ref|invoice|ticket|account"
+    r"|acct|room|flat|house|apt|plot|block|code|pin|otp)\b\s*(?:is\s*)?[:#]?\s*\d[\d\s-]*"
+    rf"|\b\d[\d,.]*\s*(?:{_UNITS})\b(?:\s*old)?"
+    r"|\b(?:x|qty|quantity)\s*\d+|\b\d+\s*x\b"
+    r"|\b\d+\s+(?:in\s+stock|available|left|remaining)\b"
+    r"|\b(?:paid|payment|deposit(?:ed)?|transferred)\b\s*(?:of\s+)?[\w₦#]*\s*\d[\d,.]*k?"
+    r"|\b\d[\d,.]*k?\s+(?:deposit|paid|payment)\b"
+    r"|\b(?:at|by|on|before|after|around)\s+\d{1,2}(?::\d\d)?\s*(?:am|pm)?\b"
+    r"|\b\d+\s+[a-z]+\s+(?:avenue|ave|street|st|road|rd|close|crescent|way|drive|lane|estate|layout)\b",
+    re.IGNORECASE,
+)
+
+
+def customer_amounts(text: str | None, *, small_ok: bool = True) -> list[Amount]:
+    """The money figures in something a customer wrote, once a catalog item is in play: a bare
+    "abeg 9000" is an amount, "size 44", "order 10021", "150 guests" and phone numbers are not."""
+    masked = _NOT_AN_OFFER.sub(lambda m: " " * len(m.group(0)), mask_non_money(text))
+    return [
+        a for a in extract_amounts(masked, small_ok=small_ok, anchored=True) if a.kind == "money"
+    ]

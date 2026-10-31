@@ -467,3 +467,20 @@ def test_an_offer_the_customer_did_not_make_is_ignored_and_a_huge_one_cannot_bre
     )
     assert r2.status_code == 200
     assert "apologize" not in r2.json()["message"]["content"]
+
+
+def test_a_bare_number_offer_is_stored_and_handed_over_not_a_dead_end(client, db):
+    tid = _shop(db)
+    r = _run(
+        client,
+        db,
+        tid,
+        Model((NEG_REPLY, _cart((3, 1)), {"ref": "#3", "amount": 30000})),
+        text="leather bag abeg 30000",
+    )
+    row = db.execute(select(LeadOfferingInterest)).scalar_one()
+    assert (row.ref, row.offered_price) == ("#3", 30000)
+    content = r.json()["message"]["content"]
+    assert "noted your offer" in content and "handing this to the team" in content
+    assert "Tell me the price you have in mind" not in content
+    assert _meta(r)["escalation_action"] == "auto_escalate"

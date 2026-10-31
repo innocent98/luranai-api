@@ -353,6 +353,22 @@ CASES += [
 
 
 # --- review pass 4: KB amounts, token binding, totals and freebies --------------------------------
+BARE = ("how much is the red bag", "abeg 9000")
+CASES += [
+    # an offer written as a bare number still puts the reply under the agreement rules
+    C("Okay, deal! I've noted it.", False, "agreement_after_offer", customer=BARE, matched=(11,)),
+    C("Done! I'll get it ready.", False, "agreement_after_offer", customer=BARE, matched=(11,)),
+    C("Alright, that works. Send your name and email.", False, customer=BARE, matched=(11,)),
+    C(f"The red bag is {T(11)}.", True, customer=BARE, matched=(11,)),
+    C("Okay, deal!", False, customer=("how much is the red bag", "make it 9,000"), matched=(11,)),
+    C(
+        "Sure, no problem.",
+        True,
+        customer=("how much is the red bag", "can you do size 44?"),
+        matched=(11,),
+    ),
+]
+
 KBD = "Delivery outside Lagos is ₦4,000. Minimum order is ₦10,000."
 CASES += [
     # a KB amount is allowed only in a clause about the same thing, never as an item's price

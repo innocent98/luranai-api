@@ -20,7 +20,13 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from app.offerings import tokens
-from app.offerings.amounts import Amount, extract_amounts, mask_non_money, normalise
+from app.offerings.amounts import (
+    Amount,
+    customer_amounts,
+    extract_amounts,
+    mask_non_money,
+    normalise,
+)
 from app.offerings.facts import OfferingFacts
 from app.offerings.grounding import GroundingResult, singular
 
@@ -374,9 +380,8 @@ def _unnegated(pattern: re.Pattern, sentence: str) -> bool:
 
 
 def _values(texts: Iterable[str], small_ok: bool = False) -> set[Decimal]:
-    return {
-        a.value for t in texts for a in extract_amounts(t, small_ok=small_ok) if a.kind == "money"
-    }
+    """The money figures in the customer's messages, read as anchored (a catalog item is in play)."""
+    return {a.value for t in texts for a in customer_amounts(t, small_ok=small_ok)}
 
 
 def _has(values: Iterable, v: Decimal) -> bool:

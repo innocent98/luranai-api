@@ -166,12 +166,12 @@ def lead_source(channel: str | None, visitor) -> str:
 
 def customer_figures(texts: list[str]) -> set[int]:
     """Whole-naira figures the customer wrote (so a recorded offer is provably theirs)."""
-    from app.offerings.amounts import extract_amounts
+    from app.offerings.amounts import customer_amounts
 
     out: set[int] = set()
     for text in texts:
-        for a in extract_amounts(text, small_ok=True):
-            if a.kind == "money" and a.value == a.value.to_integral_value():
+        for a in customer_amounts(text, small_ok=True):
+            if a.value == a.value.to_integral_value():
                 out.add(int(a.value))
     return out
 
