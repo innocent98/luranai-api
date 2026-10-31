@@ -484,3 +484,26 @@ def test_a_bare_number_offer_is_stored_and_handed_over_not_a_dead_end(client, db
     assert "noted your offer" in content and "handing this to the team" in content
     assert "Tell me the price you have in mind" not in content
     assert _meta(r)["escalation_action"] == "auto_escalate"
+
+
+def test_on_voice_the_words_match_the_state_it_asks_it_does_not_claim_a_handover(client, db):
+    from app.services.conversation_service import voice_channel
+
+    tid = _shop(db)
+    marker = voice_channel.set(True)
+    try:
+        r = _run(
+            client,
+            db,
+            tid,
+            Model((NEG_REPLY, _cart((3, 1)), {"ref": "#3", "amount": 30000})),
+            text="leather bag abeg 30000",
+        )
+    finally:
+        voice_channel.reset(marker)
+    content = r.json()["message"]["content"]
+    assert "noted your offer" in content
+    assert "handing this to the team" not in content
+    assert content.rstrip().endswith("Would you like me to connect you with the team?")
+    assert _meta(r)["escalation_action"] == "offer_escalation"
+    assert r.json()["should_escalate"] is False

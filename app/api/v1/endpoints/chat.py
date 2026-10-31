@@ -73,7 +73,7 @@ from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.offerings.cart import CartResolution, InterestSync, resolve_cart
 from app.offerings.grounding import GroundingResult
 from app.offerings.guard_flow import guard_reply
-from app.offerings.offer_turn import compose_offer_turn, is_offer_turn
+from app.offerings.offer_turn import ASK_TEAM, HANDOVER_LINE, compose_offer_turn, is_offer_turn
 from app.offerings.misses import record_miss
 from app.offerings.orchestrate import (
     QuoteOutcome,
@@ -3177,7 +3177,14 @@ async def _send_message_impl(
                 _offer_lines = _ot.lines
                 _handover_now = _handover_now or _ot.handover_now
                 _consent = _ot.consent
+            if _handover_now and turn_channel() == "voice":
+                # voice only offers the team and waits for a yes: the words must say that
+                _offer_lines = [ASK_TEAM if x == HANDOVER_LINE else x for x in _offer_lines]
+                _extra_lines = [ASK_TEAM if x == HANDOVER_LINE else x for x in _extra_lines]
             _reply_lines = list(dict.fromkeys([*_offer_lines, *_extra_lines]))
+            if _handover_now and turn_channel() == "voice" and ASK_TEAM in _reply_lines:
+                _reply_lines.remove(ASK_TEAM)
+                _reply_lines.append(ASK_TEAM)  # the question comes last: that is what is answered
             if _reply_lines:
                 ai_response_text = "\n\n".join(_reply_lines)
             if _handover_now and turn_channel() != "voice":
