@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "my final offer is ₦9,000 for the white sneaker",
-      "tenant_id": "eedf469d-efd8-41ea-9ba5-1fc997870aa0",
+      "tenant_id": "88473ebd-06f0-4486-bee6-d3a8630e8331",
       "user_identifier": "web-6"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "bd79ead0-3e31-4157-a6b6-7d23f44b0bb6",
+      "session_id": "c124e672-dc3b-472f-88b8-5cdef351571a",
       "message": {
         "role": "assistant",
-        "content": "Here is what we have listed:\n#2 Canvas sneaker white - ₦13,500 - in stock\n#1 Canvas sneaker black - ₦12,000 - in stock\nWould you like me to connect you with the team?\n\nI've noted your offer of ₦9,000 for the Canvas sneaker white.",
-        "id": "54430ca6-cdc8-4300-88df-eae94585b8ac",
-        "session_id": "bd79ead0-3e31-4157-a6b6-7d23f44b0bb6",
+        "content": "Here is what we have listed:\n#2 Canvas sneaker white - ₦13,500 - in stock\n#1 Canvas sneaker black - ₦12,000 - in stock\nWould you like me to connect you with the team?\n\nThe listed price for the Canvas sneaker white is ₦13,500 and it is firm.",
+        "id": "3073bf76-9288-44e5-9a96-530e1f5ceec5",
+        "session_id": "c124e672-dc3b-472f-88b8-5cdef351571a",
         "retrieved_chunk_ids": [],
         "token_count": 300,
         "attachments": [],
@@ -45,7 +45,7 @@
             "items": [
               {
                 "ref": "#2",
-                "offering_id": "752e3c7b-403f-436d-a708-61def163af29",
+                "offering_id": "dae1bae2-73b6-4cf0-946a-5c6fe6871972",
                 "name": "Canvas sneaker white",
                 "price_text": "₦13,500",
                 "availability": "in_stock",
@@ -55,16 +55,16 @@
               },
               {
                 "ref": "#1",
-                "offering_id": "4d2a18e7-376f-4d57-a968-f31605592f0b",
+                "offering_id": "44f64f8e-eba1-4725-9e08-da43c9c1a8ea",
                 "name": "Canvas sneaker black",
                 "price_text": "₦12,000",
                 "availability": "in_stock",
-                "cover_image_id": "2f4331bd-1691-4950-95ba-e2f78f6fa38b",
-                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/eedf469d-efd8-41ea-9ba5-1fc997870aa0/7b716b4233fb4d7a9ea39465e068e354.jpg",
+                "cover_image_id": "449c0b61-3063-4868-9570-2d97a4d3f3a7",
+                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/88473ebd-06f0-4486-bee6-d3a8630e8331/25e530b7fc514a20965dba46136dbbb3.jpg",
                 "photo_count": 2
               }
             ],
-            "shown_at": "2026-10-30T23:50:45.285159+00:00",
+            "shown_at": "2026-10-31T00:03:07.411860+00:00",
             "guard": {
               "checked": true,
               "blocked": true,
@@ -73,7 +73,7 @@
             }
           }
         },
-        "created_at": "2026-10-30T23:50:45.327421Z"
+        "created_at": "2026-10-31T00:03:07.462440Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,

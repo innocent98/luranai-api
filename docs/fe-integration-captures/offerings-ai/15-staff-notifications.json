@@ -15,60 +15,60 @@
       "data": {
         "items": [
           {
-            "id": "f4113c6c-1b88-465d-9c23-878be8a75fd7",
+            "id": "aee083a5-de4e-410b-800f-0a312b38b1cf",
             "event": "offering_request",
             "title": "New item request",
             "body": "A customer · 1 × Phone repair",
             "read_at": null,
-            "created_at": "2026-10-30T23:50:45.734872+00:00"
+            "created_at": "2026-10-31T00:03:07.939524+00:00"
           },
           {
-            "id": "1d60c3c1-cd2e-47fb-9d5d-5d5038a4b73b",
+            "id": "35dea04e-b89a-4169-bfcf-2e0d28dbda4a",
             "event": "quote_generated",
             "title": "New quote",
             "body": "₦37,500 · a prospect",
             "read_at": null,
-            "created_at": "2026-10-30T23:50:45.603072+00:00"
+            "created_at": "2026-10-31T00:03:07.764798+00:00"
           },
           {
-            "id": "d9bf40d6-84d8-4247-804f-7ca1a48fc500",
+            "id": "4589794c-c4e5-4363-8d53-3fc223aa17b6",
             "event": "quote_generated",
             "title": "New quote",
             "body": "₦24,000 · a prospect",
             "read_at": null,
-            "created_at": "2026-10-30T23:50:45.508494+00:00"
+            "created_at": "2026-10-31T00:03:07.668390+00:00"
           },
           {
-            "id": "2f6073ac-c8b2-4e65-97e3-80b67b430af1",
+            "id": "8f3690c3-7b5f-4911-92f4-e37a75e9cb2e",
             "event": "offering_request",
             "title": "New item request",
             "body": "A customer · 2 × Canvas sneaker black",
             "read_at": null,
-            "created_at": "2026-10-30T23:50:45.494458+00:00"
+            "created_at": "2026-10-31T00:03:07.653109+00:00"
           },
           {
-            "id": "267abcf3-70b1-498e-aba8-3c54f2fdc817",
+            "id": "70990ec3-726e-4c26-808b-ecd62195e875",
             "event": "offering_request",
             "title": "New item request",
             "body": "A customer · 1 × Leather bag",
             "read_at": null,
-            "created_at": "2026-10-30T23:50:45.394854+00:00"
+            "created_at": "2026-10-31T00:03:07.542845+00:00"
           },
           {
-            "id": "d6fe67d3-eb13-4fa3-b5b0-3ae782650b8c",
+            "id": "5661b731-67d9-474c-8012-369044a3e10a",
             "event": "offering_request",
             "title": "New item request",
             "body": "A customer · 1 × Canvas sneaker white",
             "read_at": null,
-            "created_at": "2026-10-30T23:50:45.312000+00:00"
+            "created_at": "2026-10-31T00:03:07.448744+00:00"
           },
           {
-            "id": "dd4c4513-2625-4b66-b497-ea0cf779e492",
+            "id": "4f5dfc69-46b8-43a7-997d-2d039b1d8668",
             "event": "offering_request",
             "title": "New item request",
             "body": "A customer · 1 × Canvas sneaker black",
             "read_at": null,
-            "created_at": "2026-10-30T23:50:45.235935+00:00"
+            "created_at": "2026-10-31T00:03:07.344011+00:00"
           }
         ],
         "total": 7,
