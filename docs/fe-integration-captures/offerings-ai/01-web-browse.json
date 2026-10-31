@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "What do you have?",
-      "tenant_id": "3ea71d88-0c4f-4502-92cd-00a2ba818eca",
+      "tenant_id": "034e2ec6-1119-4f4e-bdd0-f61f971e648a",
       "user_identifier": "web-1"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "a5603f9d-f596-4b8a-9d79-2eebd98ad68a",
+      "session_id": "4be13aff-ffa5-41b5-82b0-a4cdc976fafa",
       "message": {
         "role": "assistant",
         "content": "Here is what we have:\n#1 Canvas sneaker black - ₦12,000\n#2 Canvas sneaker white - ₦13,500\n#3 Leather bag - ₦45,000\n#4 Phone repair - from ₦5,000 per phone\n#5 Beach sandals - ₦8,000",
-        "id": "752fd88c-8359-4097-b84c-0c324aff4495",
-        "session_id": "a5603f9d-f596-4b8a-9d79-2eebd98ad68a",
+        "id": "66697664-a87b-4dc5-9635-7f6d2df04286",
+        "session_id": "4be13aff-ffa5-41b5-82b0-a4cdc976fafa",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -32,12 +32,12 @@
           "response_quality": {
             "is_substantial": true,
             "has_uncertainty": false,
-            "word_count": 35,
-            "char_count": 180
+            "word_count": 32,
+            "char_count": 192
           },
           "token_breakdown": {
-            "prompt_tokens": 573,
-            "completion_tokens": -423,
+            "prompt_tokens": 626,
+            "completion_tokens": -476,
             "total_tokens": 150
           },
           "offerings": {
@@ -45,17 +45,17 @@
             "items": [
               {
                 "ref": "#1",
-                "offering_id": "091fff84-9e60-48aa-9372-514f62f9b8eb",
+                "offering_id": "66a2a0db-abc6-403e-8215-c31eab75dc4c",
                 "name": "Canvas sneaker black",
                 "price_text": "₦12,000",
                 "availability": "in_stock",
-                "cover_image_id": "98e477cd-c428-43de-828b-0ab70d098feb",
-                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/3ea71d88-0c4f-4502-92cd-00a2ba818eca/4a4d6cadda58434a9aecde2615e2316e.jpg",
+                "cover_image_id": "f806fcce-12c6-47f3-bb6a-a4111fcc92f0",
+                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/034e2ec6-1119-4f4e-bdd0-f61f971e648a/d739b95746584b4086adfcab53601938.jpg",
                 "photo_count": 2
               },
               {
                 "ref": "#2",
-                "offering_id": "3056fcaa-ecc4-4ff9-853a-a666d0d0eb9f",
+                "offering_id": "6bae8794-8c2a-41e2-97ff-144247a69979",
                 "name": "Canvas sneaker white",
                 "price_text": "₦13,500",
                 "availability": "in_stock",
@@ -65,7 +65,7 @@
               },
               {
                 "ref": "#3",
-                "offering_id": "1730df2f-2ac6-4e46-83bd-72aea856d96e",
+                "offering_id": "ea0dc81b-d3c9-4e8c-abdb-0681a344502c",
                 "name": "Leather bag",
                 "price_text": "₦45,000",
                 "availability": "in_stock",
@@ -75,7 +75,7 @@
               },
               {
                 "ref": "#4",
-                "offering_id": "b3ef93c6-2eae-42c1-a642-426d4f7da0cd",
+                "offering_id": "5c376554-75cb-497d-9c73-5fcc228aebdb",
                 "name": "Phone repair",
                 "price_text": "from ₦5,000 per phone",
                 "availability": "in_stock",
@@ -85,7 +85,7 @@
               },
               {
                 "ref": "#5",
-                "offering_id": "53ac4613-bdd8-4168-bdb9-04fa1337b978",
+                "offering_id": "092138b1-20f2-4a5c-bc5f-ec92be12d9d3",
                 "name": "Beach sandals",
                 "price_text": "₦8,000",
                 "availability": "out_of_stock",
@@ -94,7 +94,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T00:25:02.359284+00:00",
+            "shown_at": "2026-10-31T01:10:15.845989+00:00",
             "guard": {
               "checked": true,
               "blocked": false,
@@ -103,7 +103,7 @@
             }
           }
         },
-        "created_at": "2026-10-31T00:25:02.605856Z"
+        "created_at": "2026-10-31T01:10:16.093219Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,

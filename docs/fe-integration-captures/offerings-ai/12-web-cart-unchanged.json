@@ -7,20 +7,20 @@
     "headers": {},
     "body": {
       "message": "yes that is right",
-      "tenant_id": "3ea71d88-0c4f-4502-92cd-00a2ba818eca",
+      "tenant_id": "034e2ec6-1119-4f4e-bdd0-f61f971e648a",
       "user_identifier": "web-8",
-      "session_id": "c60b9f20-d598-44bb-b1fb-9553015531c3"
+      "session_id": "03f29a56-673f-4794-8219-3d5fe0f36303"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "c60b9f20-d598-44bb-b1fb-9553015531c3",
+      "session_id": "03f29a56-673f-4794-8219-3d5fe0f36303",
       "message": {
         "role": "assistant",
         "content": "The Canvas sneaker white is ₦13,500, in stock.",
-        "id": "0fc407a3-556b-4f05-8e11-c19b424983ea",
-        "session_id": "c60b9f20-d598-44bb-b1fb-9553015531c3",
+        "id": "79fe1cf2-22e8-410e-8d55-4d6a2ed09d6f",
+        "session_id": "03f29a56-673f-4794-8219-3d5fe0f36303",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -34,11 +34,11 @@
             "is_substantial": true,
             "has_uncertainty": false,
             "word_count": 8,
-            "char_count": 46
+            "char_count": 51
           },
           "token_breakdown": {
-            "prompt_tokens": 673,
-            "completion_tokens": -523,
+            "prompt_tokens": 726,
+            "completion_tokens": -576,
             "total_tokens": 150
           },
           "offerings": {
@@ -46,7 +46,7 @@
             "items": [
               {
                 "ref": "#2",
-                "offering_id": "3056fcaa-ecc4-4ff9-853a-a666d0d0eb9f",
+                "offering_id": "6bae8794-8c2a-41e2-97ff-144247a69979",
                 "name": "Canvas sneaker white",
                 "price_text": "₦13,500",
                 "availability": "in_stock",
@@ -55,7 +55,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T00:25:03.391325+00:00",
+            "shown_at": "2026-10-31T01:10:16.947597+00:00",
             "guard": {
               "checked": true,
               "blocked": false,
@@ -64,7 +64,7 @@
             }
           }
         },
-        "created_at": "2026-10-31T00:25:03.441840Z"
+        "created_at": "2026-10-31T01:10:16.985020Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,

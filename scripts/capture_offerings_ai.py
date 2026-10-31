@@ -514,6 +514,23 @@ def main():
         note="Newest first: the `Price offer` alert for the offer made after the cart.",
     )
     assert after["should_escalate"] is True
+    # --- the model typing a price instead of its token (the guard and its fallback) -------------
+    chat(
+        "web-model-typed-a-price",
+        tenant_id,
+        "what is the exact price of the white sneaker?",
+        user="web-11",
+        note="The stand-in typed a literal price first. The guard rejected it, the regenerated "
+        "reply used the token, and the customer sees only the live price.",
+    )
+    chat(
+        "web-guard-fallback",
+        tenant_id,
+        "what is the final exact price of the black sneaker?",
+        user="web-12",
+        note="Both attempts typed a price: the reply is built from the rows, `fell_back` is true "
+        "and the team is offered (`escalation_action` `offer_escalation`).",
+    )
     print("done:", _n["i"], "captures in", OUT)
 
 

@@ -637,7 +637,9 @@ class StandIn:
         if self.case is None:  # live run: misbehave the way a haggled model would
             low = _user_message(prompt).lower()
             if "Correction: use only the prices" in prompt:
-                return bool(re.search(r"final offer|last price", low))
+                return "literal" if "final exact" in low else False
+            if re.search(r"exact price", low):  # a model that types the price instead of its token
+                return "literal"
             return bool(re.search(r"₦|\d+k\b|\d{4,}|%|discount", low))
         fake = self.case.fake
         if fake == "good":

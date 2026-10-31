@@ -3,7 +3,7 @@
   "note": "The customer's figure is stored next to the listed price; the AI never agreed to it.",
   "request": {
     "method": "GET",
-    "path": "/api/v1/leads/e18cc601-c523-490b-bec7-a3b4fc8dd1b5",
+    "path": "/api/v1/leads/e4d3e0c3-2a5a-4c42-bee6-480e0c251595",
     "headers": {
       "Authorization": "Bearer <jwt-placeholder>"
     }
@@ -13,7 +13,7 @@
     "body": {
       "success": true,
       "data": {
-        "id": "e18cc601-c523-490b-bec7-a3b4fc8dd1b5",
+        "id": "e4d3e0c3-2a5a-4c42-bee6-480e0c251595",
         "name": null,
         "company": null,
         "intent": "PURCHASE_INTENT",
@@ -21,11 +21,11 @@
         "tier": "cold",
         "status": "new",
         "source_label": "chat_widget",
-        "created_at": "2026-10-31T00:25:03.033759+00:00",
+        "created_at": "2026-10-31T01:10:16.562975+00:00",
         "email": null,
         "team_size": null,
         "industry": null,
-        "conversation_id": "e366aa08-ca12-4475-be8c-e6d46efc2ae0",
+        "conversation_id": "34a53ed2-97dc-420f-98a9-6ca626b47eb7",
         "score_breakdown": [
           {
             "key": "provided_email",
@@ -98,7 +98,7 @@
           "landing_page": "chat_widget",
           "utm": null,
           "channel": null,
-          "first_seen": "2026-10-31T00:25:03.033759+00:00"
+          "first_seen": "2026-10-31T01:10:16.562975+00:00"
         },
         "meeting": null,
         "quote": null,

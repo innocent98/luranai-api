@@ -7,73 +7,63 @@
     "headers": {},
     "body": {
       "message": "my final offer is ₦9,000 for the white sneaker",
-      "tenant_id": "3ea71d88-0c4f-4502-92cd-00a2ba818eca",
+      "tenant_id": "034e2ec6-1119-4f4e-bdd0-f61f971e648a",
       "user_identifier": "web-6"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "8e9eabd2-228d-424d-a107-9c55f4b15fde",
+      "session_id": "250e0023-920c-4410-885e-a9219424f803",
       "message": {
         "role": "assistant",
-        "content": "Here is what we have listed:\n#2 Canvas sneaker white - ₦13,500 - in stock\n#1 Canvas sneaker black - ₦12,000 - in stock\nWould you like me to connect you with the team?\n\nThe listed price for the Canvas sneaker white is ₦13,500 and it is firm.",
-        "id": "529139b8-6400-4f74-a720-9a6c9351b6b8",
-        "session_id": "8e9eabd2-228d-424d-a107-9c55f4b15fde",
+        "content": "The listed price for the Canvas sneaker white is ₦13,500 and it is firm.",
+        "id": "46a3be5b-b18b-4ebf-ad7c-45618f7da209",
+        "session_id": "250e0023-920c-4410-885e-a9219424f803",
         "retrieved_chunk_ids": [],
-        "token_count": 300,
+        "token_count": 150,
         "attachments": [],
         "reply_to": null,
         "meta": {
           "chunks_used": 0,
           "avg_similarity": 0.0,
           "retrieval_hit": false,
-          "escalation_action": "offer_escalation",
+          "escalation_action": "no_escalation",
           "response_quality": {
             "is_substantial": true,
             "has_uncertainty": false,
-            "word_count": 34,
-            "char_count": 166
+            "word_count": 0,
+            "char_count": 0
           },
           "token_breakdown": {
-            "prompt_tokens": 633,
-            "completion_tokens": -333,
-            "total_tokens": 300
+            "prompt_tokens": 686,
+            "completion_tokens": -536,
+            "total_tokens": 150
           },
           "offerings": {
             "mode": "detail",
             "items": [
               {
                 "ref": "#2",
-                "offering_id": "3056fcaa-ecc4-4ff9-853a-a666d0d0eb9f",
+                "offering_id": "6bae8794-8c2a-41e2-97ff-144247a69979",
                 "name": "Canvas sneaker white",
                 "price_text": "₦13,500",
                 "availability": "in_stock",
                 "cover_image_id": null,
                 "cover_url": null,
                 "photo_count": 0
-              },
-              {
-                "ref": "#1",
-                "offering_id": "091fff84-9e60-48aa-9372-514f62f9b8eb",
-                "name": "Canvas sneaker black",
-                "price_text": "₦12,000",
-                "availability": "in_stock",
-                "cover_image_id": "98e477cd-c428-43de-828b-0ab70d098feb",
-                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/3ea71d88-0c4f-4502-92cd-00a2ba818eca/4a4d6cadda58434a9aecde2615e2316e.jpg",
-                "photo_count": 2
               }
             ],
-            "shown_at": "2026-10-31T00:25:02.953752+00:00",
+            "shown_at": "2026-10-31T01:10:16.463919+00:00",
             "guard": {
-              "checked": true,
-              "blocked": true,
-              "regenerated": true,
-              "fell_back": true
+              "checked": false,
+              "blocked": false,
+              "regenerated": false,
+              "fell_back": false
             }
           }
         },
-        "created_at": "2026-10-31T00:25:03.001544Z"
+        "created_at": "2026-10-31T01:10:16.524375Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,
