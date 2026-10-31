@@ -7,11 +7,11 @@ firm, or the owner is open to offers, or a human takes over. This removes the fr
 agreement could hide, whatever words it used.
 """
 
-import re
-import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from app.offerings.amounts import customer_amounts, normalise
+from app.offerings.amounts import customer_amounts
+from app.offerings.bargain import BROWSE, PAYMENT_PLAN, cap, has_bargain_wording
 from app.offerings.cart import CartResolution
 from app.offerings.facts import OfferingFacts, format_amount
 from app.offerings.grounding import GroundingResult
@@ -19,49 +19,37 @@ from app.offerings.grounding import GroundingResult
 ASK_TEAM = "Would you like me to connect you with the team?"
 HANDOVER_LINE = "I'm handing this to the team now; they'll take it from here."
 
-# STRONG bargaining wording: it asks for a lower price whether or not a figure is named. Wording that
-# is only a bargain beside a figure ("can you do", "make it", "will you take", "how about", "I'll
-# pay", "abeg") is not here: the figure itself (`customer_amounts`) makes those offers, so "can you
-# do delivery to Lekki?" and "how about the red one?" stay ordinary questions.
-_BARGAIN = re.compile(
-    r"\b(?:last\s+price|final\s+price|lowest\s+price|better\s+price|special\s+price"
-    r"|(?:your|ur)\s+best\s+price|what(?:'s|\s+is)\s+the\s+best\s+price|give\s+me\s+(?:a\s+)?best\s+price"
-    r"|reduc(?:e|ed|tion|tions)(?:\s+am|\s+it|\s+the|\s+your)?|discount(?:s|ed)?|(?:make|do|give)\s+(?:it|me)\s+(?:a\s+bit\s+|little\s+)?cheaper|cheaper\s+price|half[\s-]?price"
-    r"|bargain(?:ing)?|knock(?:\s+\w+)?\s+off|lower\s+(?:the\s+)?price|price\s+(?:drop|down|cut)"
-    r"|drop\s+(?:the\s+)?price|(?:the\s+)?price\s+(?:is\s+)?(?:too\s+)?(?:high|much|steep)"
-    r"|too\s+(?:high|expensive|costly|steep|cost)|too\s+much\s+(?:for\s+me|money)|e\s+too\s+much"
-    r"|e\s+(?:don\s+|dey\s+)?too\s+cost|abeg\s+(?:last|small|do\s+something|make)|dash\s+me|last\s+last"
-    r"|any\s+(?:small\s+)?offers?|pay\s+half|haggl\w*|"
-    r"din\s+owo|won\s+ju|owo\s+re\s+ga\s+ju|rage(?:\s+\w+)?\s+(?:kudi|farashi\w*|mani)|rage\s+\w+"
-    r"|ya\s+yi\s+tsada|tsada|belata)\b"
-    r"|\b\d[\d.]*\s*(?:%|percent|per\s+cent)\s*(?:off|discount|less|reduction|cheaper)"
-    r"|\b(?:give|take|knock)\s+(?:me\s+)?\d[\d.]*\s*(?:%|percent|per\s+cent)",
-    re.IGNORECASE,
-)
-
-
-def _fold(text: str) -> str:
-    """Accents folded away ("ẹ jọ ẹ din owo rẹ" reads "e jo e din owo re"), width folded too."""
-    decomposed = unicodedata.normalize("NFKD", normalise(text))
-    return "".join(c for c in decomposed if not unicodedata.combining(c)).replace("ọ", "o")
-
 
 def _matched(grounding: GroundingResult) -> list[OfferingFacts]:
     return [i for i in grounding.items if i.seq in grounding.matched_seqs]
 
 
-def is_offer_turn(message: str, grounding: GroundingResult, offered_signal: bool) -> bool:
-    """Strong signals only: bargaining wording, or a money figure below the price in play. An
-    ordinary question that merely contains a number or a bargaining-looking verb is not one."""
+def is_offer_turn(
+    message: str,
+    grounding: GroundingResult,
+    offered_signal: bool,
+    context_prices: Callable[[], list[int]] | None = None,
+) -> bool:
+    """Strong signals only: bargaining wording, or a money figure below the price in play (the item
+    this turn matched, else one shown or wanted earlier in the conversation). With no item known
+    at all, a figure-only message from a tenant that has items is an offer candidate: a human
+    prices it. An ordinary question that merely contains a number is not one."""
     if grounding.strict or grounding.mode == "unavailable":
         return False
-    if offered_signal or _BARGAIN.search(_fold(message)):
+    text = (cap([message]) or [""])[0]
+    if offered_signal or has_bargain_wording(text):
         return True
+    if PAYMENT_PLAN.search(text):
+        return False  # "12,500 now and the balance on delivery": a payment plan, not a price
     prices = [i.price for i in _matched(grounding) if i.price is not None]
+    if not prices and context_prices is not None:
+        prices = [p for p in context_prices() if p is not None]
     if not prices:
-        return False
+        # nothing to compare with: a bare figure from a shop with items is still an offer
+        # candidate unless the message is a question or a budget search
+        return bool(customer_amounts(text, small_ok=False)) and not BROWSE.search(text)
     low = min(prices)
-    return any(a.value < low for a in customer_amounts(message, small_ok=low < 1000))
+    return any(a.value < low for a in customer_amounts(text, small_ok=low < 1000))
 
 
 @dataclass

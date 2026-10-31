@@ -50,7 +50,7 @@ async def guard_reply(
     tier_amounts = list(tier_amounts)
 
     def verdict(text: str, meta: dict | None):
-        offer = offer_hint or bool(((meta or {}).get("signals") or {}).get("offered_price"))
+        offer = bool(((meta or {}).get("signals") or {}).get("offered_price"))
         try:
             return check_reply(
                 text,
@@ -59,6 +59,7 @@ async def guard_reply(
                 kb_text=kb_text,
                 tier_amounts=tier_amounts,
                 offer_in_play=offer,
+                offer_watch=offer_hint,
             )
         except Exception:  # noqa: BLE001 - a guard bug must end in the safe reply, not an apology
             logger.exception("offerings guard: check failed; treating the reply as rejected")

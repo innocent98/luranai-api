@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 
 from app.offerings import tokens
+from app.offerings.bargain import cap, has_bargain_wording
 from app.offerings.amounts import (
     Amount,
     customer_amounts,
@@ -52,7 +53,11 @@ _DISCOUNT_WORDS = re.compile(
     r"|\d[\d,.]*\s*(?:%|percent|per cent)\s*(?:off|discount|reduction)"
     r"|\d[\d,.]*\s*(?:k|naira)?\s+off\b|\b(?:take|knock|knocked|get|extra|some)\s+(?:\w+\s+){0,2}off\b"
     r"|price (?:drop|cut|off)|\boff (?:the )?price\b|markdown|bargain|lower (?:the )?price"
-    r"|cut (?:the )?price|get one free|buy one|no (?:extra )?(?:cost|charge)|\bon us\b",
+    r"|cut (?:the )?price|get one free|buy one|no (?:extra )?(?:cost|charge)|\bon us\b"
+    r"|(?:go|come|can|could)\s+(?:a\s+(?:bit|little)\s+)?(?:lower|down)\b|for\s+less\b"
+    r"|below\s+(?:the\s+)?(?:listed|list|price)|(?:a\s+(?:little|bit)|slightly)\s+(?:off|below|less|lower)"
+    r"|better\s+deal|good\s+price|the\s+least\s+we\s+can\s+do|let\s+it\s+go\s+for|something\s+small"
+    r"|manage\s+something|special\s+rate",
     re.IGNORECASE,
 )
 _NEGATION = re.compile(
@@ -65,12 +70,22 @@ _FILLER = {
     "a", "an", "any", "the", "give", "offer", "do", "get", "you", "ever", "further", "extra",
     "more", "this", "that", "such", "special", "provide", "make", "allow", "apply", "grant",
 }  # fmt: skip
-_AGREE = re.compile(
-    r"\b(?:yes|yeah|yep|okay|ok|sure|deal|agreed?|accept(?:ed)?|alright|perfect|good news|great news"
-    r"|granted|approved|confirmed|fine|works?|no problem|of course|certainly|absolutely|done"
-    r"|wahala|oya|e don do|it'?s yours|go with that|we can do that|that'?s fair|let'?s go"
-    r"|fair enough|you got it|we accept|can do|doable|honou?r|settled|proceed|possible"
-    r"|put\s+(?:it|that)\s+through|at\s+(?:that|your)\s+price|we\s+fit|fit\s+do\s+am)\b",
+_AGREE_STRONG = re.compile(
+    r"\b(?:deal|agreed?|accept(?:ed)?|granted|approved|we\s+accept|we\s+can\s+do\s+that|can\s+do\s+that"
+    r"|it'?s\s+yours|you\s+got\s+it|settled|put\s+(?:it|that)\s+through|at\s+(?:that|your)\s+price"
+    r"|go\s+with\s+that|let'?s\s+go|fair\s+enough|that'?s\s+fair|honou?r|proceed|e\s+don\s+do|we\s+fit"
+    r"|fit\s+do\s+am|wahala|oya|doable|good\s+news|great\s+news|we\s+agree|i\s+agree)\b",
+    re.IGNORECASE,
+)
+# ordinary yes/sure/okay: an agreement only when the sentence is about an item, a price or an offer
+_AGREE_WEAK = re.compile(
+    r"\b(?:yes|yeah|yep|okay|ok|sure|alright|perfect|confirmed|fine|works?|no\s+problem|of\s+course"
+    r"|certainly|absolutely|done|possible)\b",
+    re.IGNORECASE,
+)
+_PRICE_TALK = re.compile(
+    r"\b(?:price|prices|priced|offer|offered|amount|figure|budget|bid|proposal|cost|costs|pay|payment"
+    r"|naira|total|discount|that|your\s+(?:number|request))\b",
     re.IGNORECASE,
 )
 _SAME = re.compile(
@@ -222,13 +237,26 @@ def _mentions(
         for m in _REF.finditer(sentence):
             if int(m.group(1)) == it.seq:
                 out.append((m.start(), m.end(), it, 100))
-        hit = [(s0, e0, w) for s0, e0, w in words if w in toks]
-        got = {w for _, _, w in hit}
-        if toks and got and len(got) >= min(2, len(toks)) or (len(toks) == 1 and got):
-            out.append((hit[0][0], max(e0 for _, e0, _ in hit), it, 2 * len(got)))
-        elif got:  # one word of a longer name: a weak mention
-            out.append((hit[0][0], max(e0 for _, e0, _ in hit), it, 0))
+        hits = [(s0, e0, w) for s0, e0, w in words if w in toks]
+        for cluster in _clusters(hits):  # one mention = name words written close together
+            got = {w for _, _, w in cluster}
+            span = (cluster[0][0], cluster[-1][1])
+            if len(got) >= min(2, len(toks)) or (len(toks) == 1 and got):
+                out.append((*span, it, 2 * len(got)))
+            else:  # one word of a longer name: a weak mention
+                out.append((*span, it, 0))
     return out
+
+
+def _clusters(hits: list, gap: int = 20) -> list[list]:
+    """Name-word hits grouped by proximity: "Red Bag" twice in a sentence is two mentions."""
+    groups: list[list] = []
+    for h in hits:
+        if groups and h[0] - groups[-1][-1][1] <= gap:
+            groups[-1].append(h)
+        else:
+            groups.append([h])
+    return groups
 
 
 _PRICE_FOR = re.compile(r"^\s*(?:for|per|on|of)\s+(?:the\s+|a\s+|an\s+|our\s+)?", re.IGNORECASE)
@@ -417,9 +445,10 @@ def _unnegated(pattern: re.Pattern, sentence: str) -> bool:
     return any(not _negated(sentence, m) for m in pattern.finditer(sentence))
 
 
-def _values(texts: Iterable[str], small_ok: bool = False) -> set[Decimal]:
-    """The money figures in the customer's messages, read as anchored (a catalog item is in play)."""
-    return {a.value for t in texts for a in customer_amounts(t, small_ok=small_ok, strict=True)}
+def _values(texts: Iterable[str], small_ok: bool = False, strict: bool = False) -> set[Decimal]:
+    """The money figures in the customer's messages, read as anchored (a catalog item is in play);
+    `strict` keeps figures beside units and identifiers too."""
+    return {a.value for t in texts for a in customer_amounts(t, small_ok=small_ok, strict=strict)}
 
 
 def _has(values: Iterable, v: Decimal) -> bool:
@@ -480,24 +509,44 @@ def check_reply(
     kb_text: str = "",
     tier_amounts: Iterable[int] = (),
     offer_in_play: bool = False,
+    offer_watch: bool = False,
 ) -> GuardVerdict:
-    customer_texts = list(customer_texts)
+    customer_texts = cap(customer_texts)
     items = grounding.items
     injected = {i.seq for i in items}
     all_prices = {Decimal(i.price) for i in items if i.price is not None}
     small_ok = any(p < 1000 for p in all_prices)
     catalog_names = list({*grounding.catalog_names, *(i.name for i in items)})
-    customer_money = _values(customer_texts, small_ok)
+    customer_money = _values(customer_texts, small_ok, strict=True)  # echo and laundering checks
     kb_money = _kb_values(kb_text, catalog_names, small_ok)
     tiers = {Decimal(t) for t in tier_amounts}
     currency = (grounding.currency or "NGN").upper()
     matched_seqs = set(grounding.matched_seqs)
     matched = {Decimal(i.price) for i in items if i.seq in matched_seqs and i.price}
     ceiling = max(matched or all_prices, default=None)
-    recent = customer_texts[-3:]  # a figure named a turn or two ago still frames this reply
-    offer = offer_in_play or (
-        ceiling is not None and any(v < ceiling for v in _values(recent, small_ok))
+
+    def _bargaining(texts) -> bool:
+        figures = _values(texts, small_ok)  # identifiers, deposits and units are not offers
+        return (
+            any(has_bargain_wording(t) for t in texts)
+            or (ceiling is not None and any(v < ceiling for v in figures))
+            # nothing priced in the block to compare with: any figure from a shop with items counts
+            or (ceiling is None and bool(catalog_names) and bool(figures))
+        )
+
+    # an offer on THIS turn (the customer's latest words or the model's own signal) makes any plain
+    # yes/okay an agreement; one from a turn or two ago (or the countdown) only does so in a
+    # sentence about an item, a price or an offer
+    short_reply = (
+        bool(customer_texts) and len(customer_texts[-1].split()) <= 4
+    )  # "ok", "yes please"
+    offer_now = (
+        offer_in_play
+        or _bargaining(customer_texts[-1:])
+        or (short_reply and _bargaining(customer_texts[-2:-1]))
     )
+    offer_later = offer_watch or _bargaining(customer_texts[-3:-1])
+    offer = offer_now or offer_later
 
     # a percentage may be repeated only when a source already holds it (a KB sentence such as VAT,
     # an item description such as "100% cotton", or the customer's own words)
@@ -581,7 +630,16 @@ def check_reply(
                 _DISCOUNT_WORDS, sentence
             ):
                 violations.append(Violation(sentence, "discount_wording"))
-            if offer and (_unnegated(_AGREE, sentence) or _unnegated(_CUES, sentence)):
+            talks_price = offer_now or bool(
+                anchored or amounts or seqs or _PRICE_TALK.search(sentence)
+            )
+            if offer and (
+                _unnegated(_AGREE_STRONG, sentence)
+                or (
+                    talks_price
+                    and (_unnegated(_AGREE_WEAK, sentence) or _unnegated(_CUES, sentence))
+                )
+            ):
                 violations.append(Violation(sentence, "agreement_after_offer"))
         for a in amounts:
             if a.kind == "percent":

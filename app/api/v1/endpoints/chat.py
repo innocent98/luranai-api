@@ -86,6 +86,7 @@ from app.offerings.orchestrate import (
 )
 from app.offerings.turn import (
     customer_figures,
+    context_prices,
     customer_texts,
     finalize_reply,
     ground_turn,
@@ -2938,11 +2939,23 @@ async def _send_message_impl(
 
             # Bargaining is answered by code, not by the model (D1): its text is dropped here and
             # the reply is composed from the rows after the cart step below.
-            _offer_turn = bool(
-                _offerings is not None
-                and not is_api_error
-                and is_offer_turn(message_data.message, _offerings, offered_signal(_sales_meta))
-            )
+            try:
+                _offer_turn = bool(
+                    _offerings is not None
+                    and not is_api_error
+                    and is_offer_turn(
+                        message_data.message,
+                        _offerings,
+                        offered_signal(_sales_meta),
+                        context_prices=lambda: context_prices(
+                            db, session.tenant_id, session.meta, session_id
+                        ),
+                    )
+                )
+            except Exception as _ot_exc:  # noqa: BLE001 - detection must never break the turn
+                db.rollback()
+                logger.error(f"offer-turn detection failed (non-fatal): {_ot_exc}")
+                _offer_turn = False
             if _offer_turn:
                 ai_response_text = ""
                 escalation_decision.skip_quality_check = True
