@@ -188,13 +188,25 @@ def _bundle_hit(plain: str, distinct_tokens: int, sold: set[str] = frozenset()) 
     )
 
 
+def _sold_words(names: list[str]) -> set[str]:
+    """Words of the shop's item names, plus the adjacent "word number" pairs ("iphone 14")."""
+    out: set[str] = set()
+    for n in names:
+        toks = re.findall(r"[a-z0-9]+", n.lower())
+        for w in toks:
+            if len(w) >= 3 or w.isdigit():
+                out.add(singular(w))
+        out.update(
+            f"{singular(a)} {b}" for a, b in zip(toks, toks[1:], strict=False) if b.isdigit()
+        )
+    return out
+
+
 def _model_number(plain: str, m: re.Match, sold: set[str]) -> bool:
-    """ "iPhone 14": a number right after a word of an item's name (or equal to a number in one) is
-    part of the name, not a quantity."""
-    if m.group(0) in sold:
-        return True
+    """ "iPhone 14": the word before the number and the number together form a pair that occurs in
+    a catalog name ("iphone 14"), so it is part of the name, not a quantity."""
     prev = re.search(r"([a-z]+)\s{0,2}$", plain[: m.start()].lower())
-    return bool(prev) and singular(prev.group(1)) in sold
+    return bool(prev) and f"{singular(prev.group(1))} {m.group(0)}" in sold
 
 
 _AVAILABLE = re.compile(
@@ -459,10 +471,19 @@ _BREAK = re.compile(r"[.!?;,:\n]")
 _PAIR_FOR = re.compile(r"\b(?:two|2)\s+for\b", re.IGNORECASE)
 
 
+_TOKEN_EACH = re.compile(
+    r"\bPRICE\s{0,2}(?:each|apiece|per\s+\w+)|\b(?:each|apiece)\s+(?:is|costs?|at|for)\s+PRICE",
+    re.IGNORECASE,
+)
+_PRICE_OF_ONE = re.compile(
+    r"\bprice\s+of\s+(?:one|a|1)\b|\bfor\s+the\s+price\s+of\b", re.IGNORECASE
+)
+
+
 def _without_per_pair(sentence: str, plain: str, seqs: list[int]) -> str:
     """ "You can get 2 for your staff; each is [[price]]": 'each' beside a valid token means the
     token is the unit price, so the "2 for" wording is a quantity, not a bundle offer."""
-    if seqs and _PER.search(plain):
+    if seqs and _TOKEN_EACH.search(plain) and not _PRICE_OF_ONE.search(plain):
         return _PAIR_FOR.sub(" ", sentence)
     return sentence
 
@@ -677,12 +698,7 @@ def check_reply(
     catalog_names = list({*grounding.catalog_names, *(i.name for i in items)})
     by_seq = {i.seq: i for i in items}
     outside_names = [n for n in catalog_names if n.lower() not in {i.name.lower() for i in items}]
-    sold_words = {
-        singular(w)
-        for n in catalog_names
-        for w in re.findall(r"[a-z0-9]+", n.lower())
-        if len(w) >= 3 or w.isdigit()
-    }
+    sold_words = _sold_words(catalog_names)
     customer_money = _values(
         customer_texts, small_ok, strict=True, names=catalog_names
     )  # echo and laundering checks

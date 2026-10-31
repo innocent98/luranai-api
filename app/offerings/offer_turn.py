@@ -11,10 +11,13 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from app.offerings.amounts import customer_amounts
+from app.offerings.amounts import customer_amounts, mask_for_offers
 from app.offerings.bargain import (
     BROWSE,
     BUNDLE_OFFER,
+    CUE_NUMBER,
+    CUE_NUMBER_ITEM,
+    PAY_NOW,
     OFFER_CUE,
     PAYMENT_PLAN,
     cap,
@@ -57,6 +60,19 @@ def is_offer_turn(
         return True
     if PAYMENT_PLAN.search(text):
         return False  # "12,500 now and the balance on delivery": a payment plan, not a price
+    if prices and min(prices) >= 10_000:
+        # "na 850 I get" for a ₦950,000 phone: a bare number after an offer cue is in thousands
+        low_k = min(prices)
+        masked = mask_for_offers(text, names)
+        for m in CUE_NUMBER.finditer(masked):
+            if int(m.group(1)) * 1000 < low_k:
+                return True
+        words = _name_words(names)
+        for m in CUE_NUMBER_ITEM.finditer(masked):
+            if m.group("w").lower() in words and int(m.group(1)) * 1000 < low_k:
+                return True
+    elif not prices and CUE_NUMBER.search(mask_for_offers(text, names)) and not BROWSE.search(text):
+        return True  # nothing to compare with: still an offer candidate for a human
     if prices:
         low = min(prices)
         below = [
@@ -77,7 +93,15 @@ def is_offer_turn(
     # nothing to compare with: a bare figure from a shop with items is still an offer candidate
     # unless the message is a budget search
     figures = customer_amounts(text, small_ok=False, names=names)
-    return bool(figures) and (bool(OFFER_CUE.search(text)) or not BROWSE.search(text))
+    if not figures:
+        return False
+    if PAY_NOW.search(text) and not OFFER_CUE.search(text):
+        return False  # "send your account number, let me pay 950000": paying, not bargaining
+    return bool(OFFER_CUE.search(text)) or not BROWSE.search(text)
+
+
+def _name_words(names) -> set[str]:
+    return {w for n in names for w in re.findall(r"[a-z0-9]{3,}", (n or "").lower())}
 
 
 def _quotes_the_list(text: str, figures: list, grounding: GroundingResult) -> bool:

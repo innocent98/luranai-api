@@ -224,3 +224,36 @@ def test_a_variant_word_picks_the_right_item_for_the_sold_out_claim():
     assert ok.ok, [(v.reason, v.sentence) for v in ok.violations]
     bad = check_reply("The Black sneaker is available in size 45.", g, customer_texts=["size 45?"])
     assert not bad.ok
+
+
+FASHION = [
+    item(1, "Ankara dress", 15000), item(2, "Black sneaker", 12000),
+    item(3, "Red bag", 25000, neg=True), item(4, "Leather wallet", 8500),
+]  # fmt: skip
+
+ELEC_FOR_SETS = [
+    item(1, "iPhone 14 Pro Max 256GB", 950000), item(2, "Samsung Galaxy S23", 720000),
+    item(3, "PS5 Slim", 650000, neg=True), item(4, "AirPods Pro 2", 180000),
+]  # fmt: skip
+
+
+def _sets():
+    from tests.offerings_ai import fresh_set_7 as F
+    from tests.offerings_ai import lead8_sets as L8
+
+    return [
+        ("lead8", ELEC_FOR_SETS, 1, L8.HAGGLE_8, L8.ORDINARY_C1 + L8.ORDINARY_C3),
+        ("fresh7", ELEC_FOR_SETS, 1, F.HAGGLING_FRESH, F.ORDINARY_FRESH),
+        ("third", FASHION, 3, F.HAGGLING_THIRD, F.ORDINARY_THIRD),
+    ]
+
+
+@pytest.mark.parametrize("name", ["lead8", "fresh7", "third"])
+@pytest.mark.parametrize("matched", [True, False], ids=["matched", "unmatched"])
+def test_detection_on_the_pass_seven_sets(name, matched):
+    label, items, seq, haggle, ordinary = next(s for s in _sets() if s[0] == name)
+    g = grounding(items, [seq] if matched else [], "detail" if matched else "none")
+    missed = [m for m in haggle if not is_offer_turn(m, g, False)]
+    wrong = [m for m in ordinary if is_offer_turn(m, g, False)]
+    assert 1 - len(missed) / len(haggle) >= 0.90, missed
+    assert len(wrong) / len(ordinary) <= 0.03, wrong

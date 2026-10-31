@@ -268,7 +268,15 @@ def _digit_amounts(text: str, small_ok: bool, ref_seqs: frozenset, anchored: boo
         tail = (m.group("tail") or "").strip().lower().replace(" ", "")
         cur = (m.group("cur") or "").strip().lower()
         before = text[max(0, m.start() - 80) : m.start()]  # a window: never rescan the prefix
-        if not pre and m.start() > 0 and text[m.start() - 1].isalpha():
+        grouped = bool(re.search(r"[,   ]", raw_num))
+        if (
+            not pre
+            and not tail
+            and not cur
+            and not grouped
+            and m.start() > 0
+            and text[m.start() - 1].isalpha()
+        ):
             found.append((Amount(Decimal(0), "skip", None, m.start(), m.end()), False))
             continue  # "A2894", "S23": a model number or code, not an amount
         if len(digits) > 15:  # not an amount of money, and too long to be worth parsing
@@ -571,7 +579,7 @@ _NOT_AN_OFFER = re.compile(
     r"|\b(?:paid|deposited|transferred|sent|payment\s{1,3}of)\b\s{0,3}(?:of\s{1,3})?[\w₦#]{0,10}\s{0,3}\d[\d,.]{0,12}k?"
     r"|\bthe\s{1,3}[₦#N]?\s{0,2}\d[\d,.]{0,12}k?\s{0,2}(?:one|ones|model|version|pair|option|size)\b"
     r"|\b(?:at|by|around|before|after)\s{1,3}\d{1,2}(?:(?::\d\d)\s{0,3}(?:am|pm)?|\s{0,3}(?:am|pm|o'clock|hours))\b"
-    r"|\b\d{1,15}\s{1,3}[a-z]{1,20}\s{1,3}(?:avenue|ave|street|st|road|rd|close|crescent|way|drive|lane|estate|layout)\b",
+    r"|\b\d{1,15}\s{1,3}(?:[a-z]{1,20}\s{1,3}){1,3}(?:avenue|ave|street|st|road|rd|close|crescent|way|drive|lane|estate|layout)\b",
     re.IGNORECASE,
 )
 
@@ -641,6 +649,13 @@ _NAME_NUMBER = re.compile(r"(?<![\d,.₦#$£€])\b\d+\b(?![\d,]|\s{0,2}k\b)")
 @lru_cache(maxsize=8192)
 def _numbers_of(name: str) -> frozenset[str]:
     return frozenset(re.findall(r"\d+", name))
+
+
+def mask_for_offers(text: str | None, names: Iterable[str] = ()) -> str:
+    """The customer's text with phones, dates, item names, years, units and identifiers blanked."""
+    names = list(names)
+    base = _mask_years(mask_non_money(text, names))
+    return _NOT_AN_OFFER.sub(lambda m: " " * len(m.group(0)), _mask_quantities(base, names))
 
 
 def customer_amounts(
