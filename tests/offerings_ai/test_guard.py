@@ -410,6 +410,13 @@ CASES += [
         "freebie_wording",
     ),
     C(f"Get the Leather bag as a gift with the Canvas sneaker black at {T(1)}.", False),
+    C(
+        f"The Canvas sneaker black is cheaper than the Silver wristwatch at {T(1)}.",
+        False,
+        "token_mismatch",
+    ),
+    C("Canvas sneaker black - ₦4,000", False, "literal_amount", kb=KBD),
+    C(f"{T(1)} for something called the Red bag", False, "token_mismatch"),
     C(f"The Canvas sneaker black is {T(1)} each.", True),
     C(f"The Canvas sneaker black comes in 2 colours at {T(1)}.", True),
     C(f"The Canvas sneaker black is {T(1)} and comes with free delivery.", True),

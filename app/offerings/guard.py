@@ -197,21 +197,53 @@ def _mentions(
 _PRICE_FOR = re.compile(r"^\s*(?:for|per|on|of)\s+(?:the\s+|a\s+|an\s+|our\s+)?", re.IGNORECASE)
 
 
-def bound_items(sentence: str, items: list[OfferingFacts]) -> list[tuple[int, set[int] | None]]:
+class _Foreign:
+    """An active catalog item that is not in this turn's block: a price token can never be its."""
+
+    seq = -1
+
+
+def _foreign_mentions(sentence: str, names: list[str], known: set[str]) -> list:
+    low = sentence.lower()
+    words = [(m.start(), m.end(), singular(m.group())) for m in re.finditer(r"[a-z0-9]+", low)]
+    out = []
+    for name in names:
+        key = name.lower()
+        if not key or key in known:
+            continue
+        for m in re.finditer(re.escape(key), low):
+            out.append((m.start(), m.end(), _Foreign(), 100))
+        toks = {
+            singular(t)
+            for t in re.findall(r"[a-z0-9]+", key)
+            if len(t) >= 3 and t not in _NAME_STOP
+        }
+        hit = [(s0, e0) for s0, e0, w in words if w in toks]
+        if toks and len({w for _, _, w in words if w in toks}) >= min(2, len(toks)):
+            out.append((hit[0][0], max(e0 for _, e0 in hit), _Foreign(), 1))
+    return out
+
+
+def bound_items(
+    sentence: str, items: list[OfferingFacts], foreign_names: list[str] | None = None
+) -> list[tuple[int, set[int] | None]]:
     """For each valid token in the sentence: the items its position refers to (the nearest item
     named before it, or after it when the token is written as "[[price]] for the X"), or None
     when the sentence names no item."""
     hidden = tokens.TOKEN.sub(lambda m: "\x00" * len(m.group(0)), sentence)
     mentions = _mentions(hidden, items)
+    if foreign_names:
+        mentions += _foreign_mentions(hidden, foreign_names, {i.name.lower() for i in items})
     result: list[tuple[int, set[int] | None]] = []
     for m in tokens.TOKEN.finditer(sentence):
         seq = int(m.group(1))
         before = [x for x in mentions if x[1] <= m.start()]
         after = [x for x in mentions if x[0] >= m.end()]
         pool = None
-        if after and _PRICE_FOR.match(sentence[m.end() :]):
-            nearest = min(x[0] for x in after)
-            pool = [x for x in after if x[0] == nearest]
+        forward = _PRICE_FOR.match(sentence[m.end() :]) if after else None
+        right_after = [x for x in after if forward and x[0] == m.end() + forward.end()]
+        if right_after:
+            pool = right_after
         elif before:
             nearest = max(x[1] for x in before)
             pool = [x for x in before if x[1] == nearest]
@@ -285,7 +317,7 @@ def _free_beside_item(sentence: str, names: list[str]) -> bool:
 
 
 _CLAUSE = re.compile(
-    r"(?<!\d),(?!\d)|[;:]|\s[-\u2013\u2014]\s|\b(?:and|while|but|plus|whereas|also)\b",
+    r"(?<!\d),(?!\d)|;|\b(?:and|while|but|plus|whereas|also)\b",
     re.IGNORECASE,
 )
 
@@ -448,7 +480,7 @@ def check_reply(
         amounts = extract_amounts(masked, small_ok=small_ok, anchored=anchored)
         named_seqs = {i.seq for i in named}
         if not grounding.strict:
-            bound = {seq: pool for seq, pool in bound_items(sentence, items)}
+            bound = {seq: pool for seq, pool in bound_items(sentence, items, catalog_names)}
             for seq in seqs:
                 pool = bound.get(seq)
                 if seq not in injected:
