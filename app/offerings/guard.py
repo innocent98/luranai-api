@@ -57,7 +57,7 @@ _DISCOUNT_WORDS = re.compile(
     r"|(?:go|come|can|could)\s+(?:a\s+(?:bit|little)\s+)?(?:lower|down)\b|for\s+less\b"
     r"|below\s+(?:the\s+)?(?:listed|list|price)|(?:a\s+(?:little|bit)|slightly)\s+(?:off|below|less|lower)"
     r"|better\s+deal|good\s+price|the\s+least\s+we\s+can\s+do|let\s+it\s+go\s+for|something\s+small"
-    r"|manage\s+something|special\s+rate",
+    r"|manage\s+something|special\s+rate|sort\s+you\s+out|something\s+nice|take\s+care\s+of\s+you",
     re.IGNORECASE,
 )
 _NEGATION = re.compile(
@@ -76,18 +76,18 @@ _AGREE_STRONG = re.compile(
     r"|crypto|ussd|naira|dollars?|orders?|returns?|exchanges?))"
     r"|it'?s\s+yours|you\s+got\s+it|settled|put\s+(?:it|that)\s+through|at\s+(?:that|your)\s+price"
     r"|go\s+with\s+that|let'?s\s+go|fair\s+enough|that'?s\s+fair|e\s+don\s+do|we\s+fit"
-    r"|fit\s+do\s+am|wahala|oya|doable|good\s+news|great\s+news|we\s+agree|i\s+agree)\b",
+    r"|fit\s+do\s+am|wahala|oya|doable|we\s+agree|i\s+agree)\b",
     re.IGNORECASE,
 )
 # ordinary yes/sure/okay: an agreement only when the sentence is about an item, a price or an offer
 _AGREE_WEAK = re.compile(
     r"\b(?:yes|yeah|yep|okay|ok|sure|alright|perfect|confirmed|fine|works?|no\s+problem|of\s+course"
-    r"|certainly|absolutely|done|possible|proceed)\b",
+    r"|certainly|absolutely|done|possible|proceed|good\s+news|great\s+news)\b",
     re.IGNORECASE,
 )
 _PRICE_TALK = re.compile(
     r"\b(?:price|prices|priced|offer|offered|amount|figure|budget|bid|proposal|cost|costs|pay|payment"
-    r"|naira|total|discount|that|your\s+(?:number|request))\b",
+    r"|naira|total|discount|your\s+(?:number|request))\b",
     re.IGNORECASE,
 )
 _SAME = re.compile(
@@ -688,7 +688,11 @@ def check_reply(
             ):
                 violations.append(Violation(sentence, "discount_wording"))
             talks_price = offer_now or bool(
-                anchored or amounts or seqs or _PRICE_TALK.search(sentence)
+                seqs
+                or amounts
+                or names_catalog
+                or _names_strongly(plain, items)
+                or _PRICE_TALK.search(sentence)
             )
             if offer and (
                 _unnegated(_AGREE_STRONG, sentence)

@@ -27,7 +27,11 @@ def has_stray_markup(text: str) -> bool:
     (`[price:#3]`, `{{price:#3}}`, fullwidth, zero-width) or a stray `[[` / `]]` (catalog replies
     only). Bare prose such as `price: #5,000` is not markup."""
     rest = TOKEN.sub("", text or "")
-    return bool(markup.has_price_markup(rest) or markup.has_generic_brackets(fold(rest)))
+    return bool(
+        markup.has_price_markup(rest)
+        or markup.has_generic_brackets(fold(rest))
+        or markup.has_generic_brackets(fold(markup._unescaped(rest)))
+    )
 
 
 def has_markup(text: str) -> bool:

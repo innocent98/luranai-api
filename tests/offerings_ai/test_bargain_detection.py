@@ -119,3 +119,20 @@ def test_adversarial_numbers_are_bounded_and_never_raise(grounding):
     for text in ("1 " * 5000, "#" + "1" * 4400, "1," * 5000, "1k " * 3000, "₦1 " * 3000):
         is_offer_turn(text, grounding, False)
     assert time.perf_counter() - start < 1.0
+
+
+def test_another_items_price_is_still_an_offer_when_nothing_was_matched():
+    g = _browse_grounding()
+    assert is_offer_turn(
+        "I'll pay 12,000", g, False
+    )  # 12,000 is the sneaker's price, not this one's
+    assert not is_offer_turn("is it ₦25,000 for each?", g, False)
+    assert not is_offer_turn("does that cost 25k?", g, False)
+
+
+def test_html_entity_tokens_are_caught_and_removed():
+    from app.offerings import markup
+
+    text = "The Black Sneaker is &#91;&#91;price:#1&#93;&#93;."
+    assert markup.has_price_markup(text)
+    assert not markup.has_price_markup(markup.strip_price_markup(text))

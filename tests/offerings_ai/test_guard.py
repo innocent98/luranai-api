@@ -90,6 +90,7 @@ class Case:
     strict: bool = False
     currency: str = "NGN"
     matched: tuple = ()
+    watch: bool = False  # the offer countdown is running (an offer on an earlier turn)
     block: str = ""  # the injected block text (item descriptions the model may repeat)
     offer: bool = False  # the customer is bargaining / the model returned an offered_price
 
@@ -440,6 +441,141 @@ CASES += [
 ]
 
 
+CASES += [
+    C(
+        "Sure! The Red bag comes in red and wine.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Yes, we deliver to Lekki within 2 days.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Of course, you can pick it up at our Ikeja shop.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Okay, the team will reach you shortly.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Fine, I've noted your address.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Yes, it's original leather.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "No problem, I'll let the team know.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Delivery is possible on Saturday.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Done! Your details are saved.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Absolutely, we accept bank transfer.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "We can do delivery to Ajah on Friday.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Great news, it's in stock.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Alright, anything else I can help with?",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Perfect, thanks for your patience.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "That works, the team will call you.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    # during the countdown a sentence about an item, a price or an offer is still judged
+    C(
+        "Okay, deal on the Red bag.",
+        False,
+        "agreement_after_offer",
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Yes, we agree to your price.",
+        False,
+        "agreement_after_offer",
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Yes, we accept your offer.",
+        False,
+        "agreement_after_offer",
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    # an asking turn after the countdown ended is itself bargaining wording
+    C(
+        "Yes, we agree.",
+        False,
+        "agreement_after_offer",
+        customer=(
+            "how much is the red bag",
+            "abeg 18k",
+            "ok",
+            "when can you deliver",
+            "so you agree to my price?",
+        ),
+        matched=(11,),
+    ),
+    C(
+        "Since you're a returning customer, the team will sort you out with something nice on the Red bag.",
+        False,
+        "discount_wording",
+    ),
+]
+
+
 BARE = ("how much is the red bag", "abeg 9000")
 CASES += [
     # an offer written as a bare number still puts the reply under the agreement rules
@@ -540,6 +676,7 @@ def test_guard_verdict(case: Case):
         kb_text=case.kb,
         tier_amounts=case.tiers,
         offer_in_play=case.offer,
+        offer_watch=case.watch,
     )
     assert verdict.ok is case.ok, [(v.reason, v.sentence) for v in verdict.violations]
     if not case.ok and case.reason is not None:

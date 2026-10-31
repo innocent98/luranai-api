@@ -11,7 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from app.offerings.amounts import customer_amounts
-from app.offerings.bargain import BROWSE, PAYMENT_PLAN, cap, has_bargain_wording
+from app.offerings.bargain import BROWSE, PAYMENT_PLAN, QUOTING, cap, has_bargain_wording
 from app.offerings.cart import CartResolution
 from app.offerings.facts import OfferingFacts, format_amount
 from app.offerings.grounding import GroundingResult
@@ -47,10 +47,10 @@ def is_offer_turn(
     if not prices:
         # nothing to compare with: a bare figure from a shop with items is still an offer
         # candidate unless the message is a question or a budget search
-        listed = {i.price for i in grounding.items if i.price is not None}
-        figures = [a.value for a in customer_amounts(text, small_ok=False)]
-        # a figure that is some listed price is the customer quoting the list, not an offer
-        return any(v not in listed for v in figures) and not BROWSE.search(text)
+        # "is it ₦25,000 for each?": the customer asking whether a price is right is not offering
+        return bool(customer_amounts(text, small_ok=False)) and not (
+            BROWSE.search(text) or QUOTING.search(text)
+        )
     low = min(prices)
     return any(a.value < low for a in customer_amounts(text, small_ok=low < 1000))
 

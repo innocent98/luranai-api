@@ -37,6 +37,8 @@ BARGAIN = re.compile(
     r"|\b(?:it|am|dis|this|that)\s{0,3}(?:is\s{1,3}|'s\s{0,3}|e\s{1,3})?too\s+(?:high|much|expensive|costly|steep)\b"
     r"|too\s+(?:expensive|costly|steep|cost)|e\s+too\s+(?:much|cost)|e\s+(?:don\s+|dey\s+)?too\s+cost"
     r"|abeg\s+(?:last|small|do\s+something|make|come|consider|help)|consider\s+me|dash\s+me|last\s+last"
+    r"|(?:you\s+)?agree(?:d)?\s+(?:to|with|on)\s+(?:my|the|this|that)\s+(?:price|offer|figure|amount)"
+    r"|so\s+you\s+agree|do\s+you\s+agree|accept\s+my|take\s+my\s+(?:offer|price)|my\s+(?:offer|price)\s+is"
     r"|any\s+(?:small\s+)?offers?|remove\s+(?:something|small|some)|(?:the\s+)?least\s+you(?:'ll|\s+will|\s+can)?"
     r"|din\s+owo|won\s+ju|owo\s+re\s+ga\s+ju|rage(?:\s+\w+)?\s+(?:kudi|farashi\w*|mani)|rage\s+\w+"
     r"|ya\s+yi\s+tsada|tsada|belata)\b"
@@ -55,6 +57,14 @@ PAYMENT_PLAN = re.compile(
 BROWSE = re.compile(
     r"\b(?:what|which|any|anything|something|show|list|options|under|within|budget|below|up\s+to"
     r"|recommend|suggest)\b",
+    re.IGNORECASE,
+)
+
+
+# "is it ₦25,000 for each?", "does that cost 25k?": checking a price, not offering one
+QUOTING = re.compile(
+    r"\b(?:is|are|does|do|did)\s{1,3}(?:it|that|this|these|they|the\s+\w+(?:\s+\w+)?)\b[^?\n]{0,20}"
+    r"(?:cost|price|₦|\bN\s?\d|\#\s?\d|\d)",
     re.IGNORECASE,
 )
 
