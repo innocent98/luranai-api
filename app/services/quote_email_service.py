@@ -15,6 +15,7 @@ import logging
 import re
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from email_validator import EmailNotValidError, validate_email
@@ -27,7 +28,13 @@ from app.db.models.lead import Lead
 from app.db.models.notification_log import NotificationLog, NotifChannel, NotifEvent, NotifStatus
 from app.db.models.quote import Quote
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
-from app.sales.quote_email import SentOutcome, finalize_reply, mask_email
+from app.sales.quote_email import (
+    SentOutcome,
+    asks_for_email,
+    finalize_reply,
+    mask_email,
+    quote_card_fields,
+)
 from app.services import notification_enqueue
 from app.services.notification_service import NotificationService
 from app.utils.http_rate_limiter import (
@@ -93,11 +100,12 @@ def can_email_quote(db: Session, tenant_id: uuid.UUID) -> bool:
     return bool(settings.QUOTE_VISITOR_EMAIL_ENABLED and _reply_to(db, tenant_id))
 
 
-def _same_quote_already_sent(db: Session, quote: Quote) -> bool:
+def _identical_quote_sent_to(db: Session, quote: Quote) -> str | None:
     """The model may offer the same quote on several turns; the visitor gets it once. A quote
-    that differs (other plan, team size, items) is new and is sent."""
-    earlier = db.execute(
-        select(Quote)
+    that differs (other plan, team size, items) is new and is sent. Returns the address an
+    identical quote of this lead was already emailed to, if any."""
+    rows = db.execute(
+        select(Quote, NotificationLog.recipient)
         .join(NotificationLog, NotificationLog.entity_id == Quote.id)
         .where(
             Quote.lead_id == quote.lead_id,
@@ -105,11 +113,27 @@ def _same_quote_already_sent(db: Session, quote: Quote) -> bool:
             NotificationLog.event == NotifEvent.QUOTE_EMAILED_VISITOR,
             NotificationLog.status.in_(_COUNTED),
         )
-    ).scalars()
-    return any(
-        e.total == quote.total and e.currency == quote.currency and e.line_items == quote.line_items
-        for e in earlier
-    )
+    ).all()
+    for earlier, recipient in rows:
+        if (
+            earlier.total == quote.total
+            and earlier.currency == quote.currency
+            and earlier.line_items == quote.line_items
+        ):
+            return recipient
+    return None
+
+
+def _already_emailed_to(db: Session, quote: Quote) -> str | None:
+    """Where this quote (or an identical one) was already sent, if it really went out."""
+    row = db.execute(
+        select(NotificationLog.recipient).where(
+            NotificationLog.event == NotifEvent.QUOTE_EMAILED_VISITOR,
+            NotificationLog.entity_id == quote.id,
+            NotificationLog.status.in_(_COUNTED),
+        )
+    ).first()
+    return row[0] if row else _identical_quote_sent_to(db, quote)
 
 
 def _count(db: Session, *conditions) -> int:
@@ -160,7 +184,7 @@ async def email_quote_to_visitor(
             NotificationLog.entity_id == quote.id,
         )
     ).first()
-    if already is not None or _same_quote_already_sent(db, quote):
+    if already is not None or _identical_quote_sent_to(db, quote) is not None:
         return None
 
     key = recipient_key(address)
@@ -216,26 +240,92 @@ async def outcome_for_turn(
     email_just_captured: bool,
     client_ip: str | None = None,
     channel: str | None = None,
+    visitor_message: str | None = None,
 ) -> SentOutcome | None:
     """What the visitor should be told about emailing the quote after this chat turn.
 
-    A quote is emailed when it is generated for a lead that already has an address, or when the
-    address first arrives after a quote was shown. When the visitor has no address yet, a quote
-    generated this turn adds a one-line invitation, but only where a send could really happen
-    (switch on, a reply-to exists) and not on WhatsApp, where an email is rarely captured.
+    A quote is emailed when it is generated for a lead that already has an address, when the
+    address first arrives after a quote was shown, or when the visitor asks for it by email. A
+    quote that already went out is never sent twice: asking again gets a code-written "already
+    sent" (masked address), and a repeat of the same quote only marks its card. When the visitor
+    has no address yet, a quote generated this turn adds a one-line invitation, but only where a
+    send could really happen (switch on, a reply-to exists) and not on WhatsApp, where an email
+    is rarely captured.
     """
     if lead is None or channel == "whatsapp":
         return None  # WhatsApp: no visitor email and no invitation (lead's decision, 2026-10-31)
+    asked = asks_for_email(visitor_message)
     quote = new_quote
-    if quote is None and email_just_captured and lead.quote_id:
+    if quote is None and (email_just_captured or asked) and lead.quote_id:
         quote = db.get(Quote, lead.quote_id)
     if quote is None:
         return None
     if _valid_address(lead.email):
-        return await email_quote_to_visitor(db, quote, client_ip=client_ip, enqueue=None)
+        sent = await email_quote_to_visitor(db, quote, client_ip=client_ip, enqueue=None)
+        if sent is not None:
+            return sent
+        earlier = _already_emailed_to(db, quote)
+        if earlier is not None:
+            return SentOutcome.already(mask_email(earlier), announce=new_quote is None)
+        return None
     if new_quote is not None and can_email_quote(db, lead.tenant_id):
         return SentOutcome.invite()
     return None
+
+
+@dataclass(frozen=True)
+class TurnReply:
+    """The reply the visitor sees and what happened to the quote email behind it."""
+
+    text: str
+    outcome: SentOutcome | None
+
+    @property
+    def card_fields(self) -> dict:
+        return quote_card_fields(self.outcome)
+
+
+def _earlier_cards(db: Session, session_id: uuid.UUID):
+    """The conversation's saved assistant messages that carry a quote card, newest first."""
+    from app.db.models.conversation import Message, MessageRole
+
+    recent = (
+        db.execute(
+            select(Message)
+            .where(Message.session_id == session_id, Message.role == MessageRole.ASSISTANT)
+            .order_by(Message.created_at.desc(), Message.id.desc())
+            .limit(20)
+        )
+        .scalars()
+        .all()
+    )
+    return [m for m in recent if isinstance((m.meta or {}).get("quote"), dict)]
+
+
+def _patch_card(message, **fields) -> None:
+    message.meta = {**message.meta, "quote": {**message.meta["quote"], **fields}}
+
+
+def mark_cards_emailed(db: Session, session_id: uuid.UUID, masked: str) -> bool:
+    """The visitor's quote card was shown earlier and the email went out later: flip that card
+    (the latest one) so a reload no longer offers an email."""
+    cards = _earlier_cards(db, session_id)
+    if not cards:
+        return False
+    _patch_card(cards[0], emailed=True, emailed_to=masked, email_offer=False)
+    db.commit()
+    return True
+
+
+def close_earlier_offers(db: Session, session_id: uuid.UUID) -> None:
+    """A newer quote card now carries the email state: only the latest card may offer an email."""
+    changed = False
+    for message in _earlier_cards(db, session_id):
+        if message.meta["quote"].get("email_offer") is True:
+            _patch_card(message, email_offer=False)
+            changed = True
+    if changed:
+        db.commit()
 
 
 async def finalize_turn_reply(
@@ -245,10 +335,13 @@ async def finalize_turn_reply(
     lead: Lead | None,
     new_quote: Quote | None,
     email_just_captured: bool,
-) -> str:
+    session_id: uuid.UUID | None = None,
+    visitor_message: str | None = None,
+) -> TurnReply:
     """The chat handler's one call: email the quote when due and return the reply the visitor
-    sees (model-made email promises removed, the true sentence added). Never raises: a failure
-    here must cost the visitor the note, not the answer."""
+    sees (model-made email promises removed, the visitor's address only ever masked, the true
+    sentence added) with the outcome for the quote card. Never raises: a failure here must cost
+    the visitor the note, not the answer."""
     from app.services.conversation_service import message_channel
     from app.utils.http_rate_limiter import request_client_ip
 
@@ -261,7 +354,14 @@ async def finalize_turn_reply(
             email_just_captured=email_just_captured,
             client_ip=request_client_ip.get(),
             channel=message_channel.get(),
+            visitor_message=visitor_message,
         )
+        if session_id and new_quote is not None:
+            close_earlier_offers(db, session_id)
+        elif session_id and outcome is not None and outcome.masked:
+            mark_cards_emailed(db, session_id, outcome.masked)
     except Exception:  # noqa: BLE001
         logger.exception("quote email step failed (non-fatal)")
-    return finalize_reply(reply, outcome)
+    own = {lead.email} if lead is not None and lead.email else set()
+    own |= set(re.findall(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+", visitor_message or ""))
+    return TurnReply(finalize_reply(reply, outcome, addresses=own), outcome)

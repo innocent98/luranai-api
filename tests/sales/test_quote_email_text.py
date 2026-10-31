@@ -104,3 +104,82 @@ def test_finalize_without_an_outcome_only_cleans_the_reply():
 def test_invite_is_offered_only_when_asked_for():
     out = finalize_reply("Here is your quote.", SentOutcome.invite())
     assert "share your email address" in out
+
+
+# --- the visitor's full address is never echoed back (masked-only wording) --------------------
+
+from app.sales.quote_email import quote_card_fields, scrub_addresses  # noqa: E402
+
+
+def test_scrub_masks_the_full_address_wherever_the_model_wrote_it():
+    text = "Sent to Alice@Example.com. Also alice@example.com, and ALICE@EXAMPLE.COM."
+    out = scrub_addresses(text, ["alice@example.com"])
+    assert "lice@" not in out.lower()
+    assert out.count("a***@example.com") == 3
+
+
+def test_scrub_leaves_other_addresses_alone():
+    text = "Write to support@acme.com or alice@example.com."
+    out = scrub_addresses(text, ["alice@example.com"])
+    assert "support@acme.com" in out and "a***@example.com" in out
+
+
+def test_scrub_with_no_addresses_is_a_no_op():
+    assert scrub_addresses("Hi support@acme.com", []) == "Hi support@acme.com"
+    assert scrub_addresses("Hi", [None, ""]) == "Hi"
+
+
+def test_finalize_reply_scrubs_even_when_no_email_was_sent():
+    out = finalize_reply(
+        "We have you down as alice@example.com.", None, addresses=["alice@example.com"]
+    )
+    assert out == "We have you down as a***@example.com."
+
+
+def test_already_sent_note_is_masked_and_offers_a_safe_next_step():
+    note = SentOutcome.already("a***@example.com").note
+    assert "a***@example.com" in note and "spam" in note
+    assert "ask the team to resend" in note
+    assert "different address" not in note  # re-sending elsewhere is not offered
+
+
+def test_already_sent_replaces_the_models_improvised_email_talk():
+    model = (
+        "Your Starter quote for ₦5,000 was previously marked as sent to alice@example.com. "
+        "Please check your inbox and spam folder. I can't send another email from here. "
+        "The Starter plan covers up to 10 users."
+    )
+    out = finalize_reply(
+        model, SentOutcome.already("a***@example.com"), addresses=["alice@example.com"]
+    )
+    assert "alice@example.com" not in out
+    assert "can't send another" not in out
+    assert "The Starter plan covers up to 10 users." in out
+    assert out.endswith(SentOutcome.already("a***@example.com").note)
+
+
+def test_a_silent_already_changes_nothing_in_the_reply():
+    out = finalize_reply(
+        "Here is your quote.", SentOutcome.already("a***@example.com", announce=False)
+    )
+    assert out == "Here is your quote."
+
+
+@pytest.mark.parametrize(
+    "outcome,fields",
+    [
+        (
+            SentOutcome.queued("a***@example.com"),
+            {"emailed": True, "emailed_to": "a***@example.com", "email_offer": False},
+        ),
+        (
+            SentOutcome.already("a***@example.com", announce=False),
+            {"emailed": True, "emailed_to": "a***@example.com", "email_offer": False},
+        ),
+        (SentOutcome.invite(), {"emailed": False, "email_offer": True}),
+        (SentOutcome.capped(), {"emailed": False, "email_offer": False}),
+        (None, {"emailed": False, "email_offer": False}),
+    ],
+)
+def test_quote_card_fields_say_whether_the_card_may_offer_an_email(outcome, fields):
+    assert quote_card_fields(outcome) == fields

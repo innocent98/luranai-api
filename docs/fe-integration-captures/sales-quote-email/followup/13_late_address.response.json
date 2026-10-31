@@ -1,0 +1,43 @@
+{
+  "status": 200,
+  "body": {
+    "session_id": "c26a863b-0a7b-4e7b-bfa9-3269299c1cf0",
+    "message": {
+      "role": "assistant",
+      "content": "Thanks! For 58 people the Growth plan fits. Your quote is below.\n\nI've sent the quote to b***@example.com. If it doesn't arrive in a few minutes, please check your spam folder.",
+      "id": "362cffe5-7749-467b-aa19-2a59b3622e3f",
+      "session_id": "c26a863b-0a7b-4e7b-bfa9-3269299c1cf0",
+      "retrieved_chunk_ids": [],
+      "token_count": 50,
+      "attachments": [],
+      "reply_to": null,
+      "meta": {
+        "chunks_used": 0,
+        "avg_similarity": 0.0,
+        "retrieval_hit": false,
+        "escalation_action": "no_escalation",
+        "response_quality": {
+          "is_substantial": true,
+          "has_uncertainty": false,
+          "word_count": 18,
+          "char_count": 90
+        },
+        "token_breakdown": {
+          "prompt_tokens": 197,
+          "completion_tokens": -147,
+          "total_tokens": 50
+        },
+        "lead_captured": {
+          "name": "Alice Obi",
+          "email": "bob@example.com"
+        },
+        "quote_emailed_to": "b***@example.com"
+      },
+      "created_at": "2026-10-31T11:03:32.079748Z"
+    },
+    "user_message_attachments": [],
+    "should_escalate": false,
+    "escalation_reason": null,
+    "ticket_id": null
+  }
+}

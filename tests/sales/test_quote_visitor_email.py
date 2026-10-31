@@ -93,7 +93,11 @@ async def test_a_second_quote_for_the_same_lead_gets_its_own_email(db_session, e
     t = _tenant(db_session)
     q1 = _quote(db_session, t)
     q2 = Quote(
-        tenant_id=t.id, lead_id=q1.lead_id, currency="NGN", total=9, line_items=LINES,
+        tenant_id=t.id,
+        lead_id=q1.lead_id,
+        currency="NGN",
+        total=9,
+        line_items=LINES,
         status=QuoteStatus.DRAFT,
     )
     db_session.add(q2)
@@ -102,13 +106,19 @@ async def test_a_second_quote_for_the_same_lead_gets_its_own_email(db_session, e
     assert (await _go(db_session, q2, enqueue)).kind == "queued"
 
 
-async def test_an_identical_quote_the_visitor_already_received_is_not_sent_again(db_session, enqueue):
+async def test_an_identical_quote_the_visitor_already_received_is_not_sent_again(
+    db_session, enqueue
+):
     """The model may offer the same quote on several turns: one email, not one per turn."""
     t = _tenant(db_session)
     q1 = _quote(db_session, t)
     q2 = Quote(
-        tenant_id=t.id, lead_id=q1.lead_id, currency=q1.currency, total=q1.total,
-        line_items=list(q1.line_items), status=QuoteStatus.DRAFT,
+        tenant_id=t.id,
+        lead_id=q1.lead_id,
+        currency=q1.currency,
+        total=q1.total,
+        line_items=list(q1.line_items),
+        status=QuoteStatus.DRAFT,
     )
     db_session.add(q2)
     db_session.commit()
@@ -146,15 +156,22 @@ async def test_the_per_tenant_daily_cap(db_session, enqueue, monkeypatch):
     t = _tenant(db_session)
     results = []
     for i in range(3):
-        results.append(await _go(db_session, _quote(db_session, t, email=f"v{i}@example.com"), enqueue))
+        results.append(
+            await _go(db_session, _quote(db_session, t, email=f"v{i}@example.com"), enqueue)
+        )
     assert [r.kind for r in results] == ["queued", "queued", "capped"]
     assert enqueue.await_count == 2
 
 
 def _old_log(db, tenant, recipient, *, hours_ago, status=NotifStatus.SENT):
     log = NotificationLog(
-        tenant_id=tenant.id, event=NotifEvent.QUOTE_EMAILED_VISITOR, channel=NotifChannel.EMAIL,
-        entity_type="quote", entity_id=uuid4(), recipient=recipient, status=status,
+        tenant_id=tenant.id,
+        event=NotifEvent.QUOTE_EMAILED_VISITOR,
+        channel=NotifChannel.EMAIL,
+        entity_type="quote",
+        entity_id=uuid4(),
+        recipient=recipient,
+        status=status,
         body=svc.recipient_key(recipient),
     )
     db.add(log)
@@ -209,7 +226,9 @@ async def test_session_and_ip_are_both_limited_but_a_missing_ip_is_skipped(
     open_limiters.reset_mock()
     q2 = _quote(db_session, _tenant(db_session))
     await _go(db_session, q2, enqueue, ip=None)
-    assert {c.args[0].key_prefix for c in open_limiters.await_args_list} == {"http_quote_email_session"}
+    assert {c.args[0].key_prefix for c in open_limiters.await_args_list} == {
+        "http_quote_email_session"
+    }
 
 
 async def test_identifiers_sent_to_the_limiter_hold_no_address(db_session, enqueue, open_limiters):
@@ -235,7 +254,9 @@ def test_gmail_dots_and_googlemail_do_not_dodge_the_cap():
     assert svc.recipient_key("a.b@example.com") != svc.recipient_key("ab@example.com")
 
 
-async def test_the_cap_check_and_insert_run_under_an_advisory_lock(db_session, enqueue, monkeypatch):
+async def test_the_cap_check_and_insert_run_under_an_advisory_lock(
+    db_session, enqueue, monkeypatch
+):
     """Two concurrent requests for one address must not both pass the count (check-then-insert)."""
     taken = []
     monkeypatch.setattr(svc, "_lock", lambda db, name: taken.append(name))
@@ -267,11 +288,99 @@ async def test_whatsapp_conversations_never_get_the_visitor_email_or_an_invitati
 
     no_email = _quote(db_session, t, email=None)
     lead2 = db_session.get(Lead, no_email.lead_id)
-    assert await svc.outcome_for_turn(
-        db_session, lead=lead2, new_quote=no_email, email_just_captured=False, channel="whatsapp"
-    ) is None
+    assert (
+        await svc.outcome_for_turn(
+            db_session,
+            lead=lead2,
+            new_quote=no_email,
+            email_just_captured=False,
+            channel="whatsapp",
+        )
+        is None
+    )
 
     web = await svc.outcome_for_turn(
         db_session, lead=lead, new_quote=with_email, email_just_captured=True, channel=None
     )
     assert web.kind == "queued"
+
+
+# --- a second "email me" for a quote that was already emailed ---------------------------------
+
+
+async def test_asking_again_after_the_quote_was_emailed_gets_the_already_sent_outcome(
+    db_session, enqueue
+):
+    q = _quote(db_session, _tenant(db_session))
+    assert (await _go(db_session, q, enqueue)).kind == "queued"
+    lead = db_session.get(Lead, q.lead_id)
+    lead.quote_id = q.id
+    db_session.commit()
+    out = await svc.outcome_for_turn(
+        db_session,
+        lead=lead,
+        new_quote=None,
+        email_just_captured=False,
+        visitor_message="Yes, email me",
+    )
+    assert out.kind == "already" and out.masked == "a***@example.com" and out.announce
+    assert enqueue.await_count == 1  # nothing was queued a second time
+
+
+async def test_a_message_that_does_not_ask_for_an_email_is_left_alone(db_session, enqueue):
+    q = _quote(db_session, _tenant(db_session))
+    await _go(db_session, q, enqueue)
+    lead = db_session.get(Lead, q.lead_id)
+    lead.quote_id = q.id
+    db_session.commit()
+    out = await svc.outcome_for_turn(
+        db_session,
+        lead=lead,
+        new_quote=None,
+        email_just_captured=False,
+        visitor_message="What does the Growth plan include?",
+    )
+    assert out is None
+
+
+async def test_the_same_quote_shown_again_marks_the_card_without_announcing(db_session, enqueue):
+    tenant = _tenant(db_session)
+    first = _quote(db_session, tenant)
+    await _go(db_session, first, enqueue)
+    lead = db_session.get(Lead, first.lead_id)
+    again = Quote(
+        tenant_id=tenant.id,
+        lead_id=lead.id,
+        currency="NGN",
+        total=45000,
+        line_items=LINES,
+        status=QuoteStatus.DRAFT,
+    )
+    db_session.add(again)
+    db_session.commit()
+    out = await svc.outcome_for_turn(
+        db_session, lead=lead, new_quote=again, email_just_captured=False, visitor_message="ok"
+    )
+    assert out.kind == "already" and not out.announce
+    assert enqueue.await_count == 1
+
+
+async def test_a_request_for_an_email_retries_a_quote_that_never_went_out(
+    db_session, enqueue, monkeypatch
+):
+    monkeypatch.setattr(svc.notification_enqueue, "enqueue_jobs_async", enqueue)
+    monkeypatch.setattr(settings, "QUOTE_VISITOR_EMAIL_TENANT_DAILY_CAP", 0)
+    q = _quote(db_session, _tenant(db_session))
+    assert (await _go(db_session, q, enqueue)).kind == "capped"
+    monkeypatch.setattr(settings, "QUOTE_VISITOR_EMAIL_TENANT_DAILY_CAP", 50)
+    lead = db_session.get(Lead, q.lead_id)
+    lead.quote_id = q.id
+    db_session.commit()
+    out = await svc.outcome_for_turn(
+        db_session,
+        lead=lead,
+        new_quote=None,
+        email_just_captured=False,
+        visitor_message="please email me the quote",
+    )
+    assert out.kind == "queued"

@@ -1,0 +1,24 @@
+{
+  "currency": "NGN",
+  "line_items": [
+    {
+      "label": "Growth",
+      "detail": "11–50 users",
+      "amount": 45000
+    },
+    {
+      "label": "Extra seats (×8)",
+      "detail": "₦3,500 / seat",
+      "amount": 28000
+    },
+    {
+      "label": "Annual discount",
+      "detail": "−15%",
+      "amount": -10950
+    }
+  ],
+  "total": 62050,
+  "emailed": true,
+  "email_offer": false,
+  "emailed_to": "b***@example.com"
+}
