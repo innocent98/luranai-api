@@ -268,6 +268,9 @@ def _digit_amounts(text: str, small_ok: bool, ref_seqs: frozenset, anchored: boo
         tail = (m.group("tail") or "").strip().lower().replace(" ", "")
         cur = (m.group("cur") or "").strip().lower()
         before = text[max(0, m.start() - 80) : m.start()]  # a window: never rescan the prefix
+        if not pre and m.start() > 0 and text[m.start() - 1].isalpha():
+            found.append((Amount(Decimal(0), "skip", None, m.start(), m.end()), False))
+            continue  # "A2894", "S23": a model number or code, not an amount
         if len(digits) > 15:  # not an amount of money, and too long to be worth parsing
             found.append((Amount(Decimal(0), "skip", None, m.start(), m.end()), False))
             continue
