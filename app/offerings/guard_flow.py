@@ -1,5 +1,6 @@
 """Run the guard on a reply: one regeneration of the same call type, then the code fallback."""
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from collections.abc import Awaitable, Callable, Iterable
@@ -49,10 +50,12 @@ async def guard_reply(
     customer_texts = list(customer_texts)
     tier_amounts = list(tier_amounts)
 
-    def verdict(text: str, meta: dict | None):
+    async def verdict(text: str, meta: dict | None):
         offer = bool(((meta or {}).get("signals") or {}).get("offered_price"))
         try:
-            return check_reply(
+            # pure CPU on plain data: off the event loop, so a long history cannot stall other chats
+            return await asyncio.to_thread(
+                check_reply,
                 text,
                 grounding,
                 customer_texts=customer_texts,
@@ -66,7 +69,7 @@ async def guard_reply(
             return GuardVerdict(ok=False)
 
     record = {"checked": True, "blocked": False, "regenerated": False, "fell_back": False}
-    if verdict(reply, sales_meta).ok:
+    if (await verdict(reply, sales_meta)).ok:
         return GuardOutcome(reply, tokens, sales_meta, record)
 
     record["blocked"] = True
@@ -81,7 +84,7 @@ async def guard_reply(
         total = (total or 0) + new_tokens
     if not api_error:
         sales_meta = new_meta if new_meta is not None else sales_meta
-        if verdict(text, sales_meta).ok:
+        if (await verdict(text, sales_meta)).ok:
             return GuardOutcome(text, total, sales_meta, record)
 
     record["fell_back"] = True

@@ -237,3 +237,33 @@ async def test_the_offer_hint_keeps_agreement_words_blocked_on_a_later_reply():
     assert out.reply == GOOD and out.record["blocked"] is True
     out = await _run(agree, _regen(), offer_hint=False)
     assert out.reply == agree and out.record["blocked"] is False
+
+
+@pytest.mark.asyncio
+async def test_the_guard_runs_off_the_event_loop(monkeypatch):
+    import threading
+
+    import app.offerings.guard_flow as flow
+
+    seen = []
+    real = flow.check_reply
+
+    def spy(*a, **k):
+        seen.append(threading.current_thread() is threading.main_thread())
+        return real(*a, **k)
+
+    monkeypatch.setattr(flow, "check_reply", spy)
+    await _run(GOOD, _regen())
+    assert seen == [False]
+
+
+def test_a_wall_of_customer_numbers_costs_a_bounded_amount_of_work():
+    import time
+
+    from app.offerings.guard import check_reply
+
+    wall = ["1 " * 5000, "#" + "1" * 4400, "1," * 5000, "₦1 " * 3000, "x" * 20000, "1k " * 3000]
+    start = time.perf_counter()
+    for _ in range(3):
+        check_reply(GOOD, _grounding(matched=(1,)), customer_texts=wall)
+    assert time.perf_counter() - start < 3.0
