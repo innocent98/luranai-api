@@ -35,9 +35,15 @@ from app.db.models.whatsapp import WhatsAppChat, WhatsAppConnection, WhatsAppSta
 from app.utils.datetime import ensure_utc_aware, utcnow_aware
 from app.offerings.alerts import tenant_currency
 from app.offerings.facts import facts_from_row
-from app.services.offering_media import whatsapp_url
 from app.services.whatsapp_exclusion import is_excluded
-from app.services.whatsapp_offering_photos import build_caption, live_catalog_photo
+from app.services.whatsapp_offering_photos import (
+    build_caption,
+    claim_photo_send,
+    live_catalog_photo,
+    offerings_allowed,
+    take_photo_budget,
+    whatsapp_rendition,
+)
 from app.services.whatsapp_inbound import _tenant_may_use
 
 MAX_SEND_TRIES = 5
@@ -221,16 +227,21 @@ async def send_image(
 
 
 async def send_offering_image(
-    db: Session, connection_id: UUID, chat_id: UUID, offering_image_id: UUID, job_try: int
+    db: Session, connection_id: UUID, chat_id: UUID, offering_image_id: UUID, claim_key: str
 ) -> str:
     """One catalog photo to the customer, an automatic reply (pause / AI-off are re-checked).
 
     Everything is re-read here, never trusted from the job: the photo and its item must belong to
-    this connection's tenant, the item must still be active and not sold out, and the stored URL
-    must be https on the media allowlist. The caption is built now from the live row, so a price
-    or availability changed after the reply was queued is the one the customer sees. The photo is
-    the 1,280 px WhatsApp rendition (at most ~1 MB) of the optimised Cloudinary copy. Same retry
-    policy as `send_image`; the sidecar's 400 / 413 / 415 are permanent.
+    this connection's tenant, the item must still be active and not sold out, the catalog must
+    still be on for the tenant (owner switch and plan), and the stored URL must be https on the
+    media allowlist. The caption is built now from the live row, so a price or availability changed
+    after the reply was queued is the one the customer sees. The photo is the WhatsApp rendition
+    (at most 1,280 px, JPEG, about 1 MB).
+
+    Never retried: the sidecar shares one send budget per number with every chat's text, so a photo
+    that is rate-capped, times out or fails is dropped (a lost photo is cheap; a repeat is a ban
+    risk and a second spend of the daily cap). `claim_key` (the arq job id) makes a redelivered job
+    a no-op, and the per-chat and per-connection photo budgets are spent here, only on a real send.
     """
     checked = _preflight(db, connection_id, chat_id, guard=True)
     if isinstance(checked, str):
@@ -240,13 +251,21 @@ async def send_offering_image(
     if live is None:
         logger.info("whatsapp catalog photo dropped: item or photo is not showable now")
         return "dropped_offering_unavailable"
+    if not offerings_allowed(db, conn.tenant_id):
+        return "dropped_offerings_off"
     item, image = live
-    if not media_url_allowed(image.url):
+    url = whatsapp_rendition(image.url)
+    if not media_url_allowed(image.url) or not media_url_allowed(url):
         logger.warning("whatsapp catalog photo dropped: stored url is not on the allowlist")
         return "dropped_media_not_allowed"
-    url = whatsapp_url(image.url)
-    if not media_url_allowed(url):  # the rendition must stay on the allowlisted host too
-        return "dropped_media_not_allowed"
+    claimed = await claim_photo_send(claim_key)
+    if claimed is None:
+        return "dropped_limiter_unavailable"
+    if not claimed:
+        return "dropped_duplicate"
+    if await take_photo_budget(chat.id, conn.id, 1) < 1:
+        logger.info("whatsapp catalog photo dropped: photo budget used up")
+        return "dropped_photo_budget"
     caption = build_caption(facts_from_row(item), tenant_currency(db, conn.tenant_id))
     try:
         await get_adapter(conn.provider).send(
@@ -256,8 +275,10 @@ async def send_offering_image(
     except (NotConnected, ReplyOnly, MediaRejected) as exc:
         logger.warning("whatsapp catalog photo refused by sidecar: {}", exc.code)
         return f"dropped_{exc.code}"
-    except (RateCapped, SidecarUnavailable) as exc:
-        return _retry_or_give_up(job_try, exc.code)
+    except RateCapped:
+        return "dropped_rate_capped"
+    except SidecarUnavailable:
+        return "dropped_sidecar_unavailable"
     return "sent"
 
 

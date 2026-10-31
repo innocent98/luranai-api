@@ -1,0 +1,5 @@
+{
+  "scenario": "connection-budget-in-redis",
+  "note": "Per-connection sliding window read from Redis: 2 photos a minute for the number.",
+  "catalog_photos_sent_by_this_number_in_the_last_minute": 2
+}

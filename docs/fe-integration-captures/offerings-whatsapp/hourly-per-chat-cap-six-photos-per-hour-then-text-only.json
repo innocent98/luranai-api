@@ -1,6 +1,6 @@
 {
-  "scenario": "hourly-cap-six-photos-then-text-only",
-  "note": "Seven replies about items that all have photos: six photos go (the cap is 6 per chat per hour), the seventh reply keeps its text and loses its photo. `limiter_entries_in_redis` is the sliding-window size read from Redis.",
+  "scenario": "per-chat-cap-six-photos-per-hour-then-text-only",
+  "note": "Connection budgets raised out of the way for this run. Seven replies about items that all have photos: six photos go (6 per chat per hour), the seventh keeps its text and loses its photo.",
   "rounds": [
     {
       "customer_said": "tell me about the black sneaker",
@@ -18,7 +18,7 @@
           "key": "<session-key-placeholder>",
           "to_ref": "198765432222@lid",
           "image": {
-            "url": "https://res.cloudinary.com/demo/image/upload/w_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/15b91c4c-3265-4d17-aa58-6dc4ec86f7d2/87e7ab5bc1ab44a09e9d822833d33030.jpg",
+            "url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1280,h_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/10b8d435-fbe9-4789-93f8-8159415bcf03/ee81148c1ba7447eb5fefe50c9f34ca8.jpg",
             "caption": "#1 Canvas sneaker black · ₦12,000 · In stock"
           }
         }
@@ -40,7 +40,7 @@
           "key": "<session-key-placeholder>",
           "to_ref": "198765432222@lid",
           "image": {
-            "url": "https://res.cloudinary.com/demo/image/upload/w_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/15b91c4c-3265-4d17-aa58-6dc4ec86f7d2/25147a6b18b840619b2c8af4c8a68971.jpg",
+            "url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1280,h_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/10b8d435-fbe9-4789-93f8-8159415bcf03/394c2a6228dd481d9b83acfd4194f530.jpg",
             "caption": "#2 Canvas sneaker white · ₦13,500 · In stock"
           }
         }
@@ -62,7 +62,7 @@
           "key": "<session-key-placeholder>",
           "to_ref": "198765432222@lid",
           "image": {
-            "url": "https://res.cloudinary.com/demo/image/upload/w_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/15b91c4c-3265-4d17-aa58-6dc4ec86f7d2/eb32871227f04a24a35630752c760e56.jpg",
+            "url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1280,h_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/10b8d435-fbe9-4789-93f8-8159415bcf03/7e5a8bcd117c4d969015e1eb0ebc1c56.jpg",
             "caption": "#4 Silk scarf · ₦6,500 · In stock"
           }
         }
@@ -84,7 +84,7 @@
           "key": "<session-key-placeholder>",
           "to_ref": "198765432222@lid",
           "image": {
-            "url": "https://res.cloudinary.com/demo/image/upload/w_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/15b91c4c-3265-4d17-aa58-6dc4ec86f7d2/8d676ab21e394e1b97772cb51ce429b7.jpg",
+            "url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1280,h_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/10b8d435-fbe9-4789-93f8-8159415bcf03/035f260d56284cdda846ee8f47dab8e3.jpg",
             "caption": "#5 Wool cap · ₦4,000 · In stock"
           }
         }
@@ -106,7 +106,7 @@
           "key": "<session-key-placeholder>",
           "to_ref": "198765432222@lid",
           "image": {
-            "url": "https://res.cloudinary.com/demo/image/upload/w_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/15b91c4c-3265-4d17-aa58-6dc4ec86f7d2/87e7ab5bc1ab44a09e9d822833d33030.jpg",
+            "url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1280,h_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/10b8d435-fbe9-4789-93f8-8159415bcf03/ee81148c1ba7447eb5fefe50c9f34ca8.jpg",
             "caption": "#1 Canvas sneaker black · ₦12,000 · In stock"
           }
         }
@@ -128,7 +128,7 @@
           "key": "<session-key-placeholder>",
           "to_ref": "198765432222@lid",
           "image": {
-            "url": "https://res.cloudinary.com/demo/image/upload/w_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/15b91c4c-3265-4d17-aa58-6dc4ec86f7d2/25147a6b18b840619b2c8af4c8a68971.jpg",
+            "url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1280,h_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/10b8d435-fbe9-4789-93f8-8159415bcf03/394c2a6228dd481d9b83acfd4194f530.jpg",
             "caption": "#2 Canvas sneaker white · ₦13,500 · In stock"
           }
         }

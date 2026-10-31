@@ -14,7 +14,12 @@ stubs, and no image URL is ever fetched):
     python -m tests.fakes.live_stub_offerings api --port 8592
     python -m tests.fakes.live_stub_offerings worker
     CAPTURE_API=http://127.0.0.1:8592 CAPTURE_FAKE=http://127.0.0.1:8599 \
-        python scripts/capture_offerings_whatsapp_photos.py
+        python scripts/capture_offerings_whatsapp_photos.py            # CAPTURE_MODE=connection
+
+Two modes, because the connection budget (2 catalog photos a minute per number, 15% of the daily
+send cap) hides the per-chat hourly cap behind it. `CAPTURE_MODE=hourly` needs the API and worker
+started with `WHATSAPP_CATALOG_PHOTOS_PER_MIN=1000 WHATSAPP_CATALOG_PHOTO_DAILY_PCT=100` and adds
+the `hourly-*` captures without clearing the others.
 
 All business data is fake (invented items, `example.com`, invented phone numbers). Throwaway
 passwords are never written.
@@ -39,18 +44,20 @@ FAKE = os.environ.get("CAPTURE_FAKE", "http://127.0.0.1:8599")
 PASSWORD = "Throwaway-Passw0rd!-local"  # local DB only; never written to a capture
 SETTLE_S = 4.0  # photos and the quote text are deferred 1-4 s; wait this long for stragglers
 
+MODE = os.environ.get("CAPTURE_MODE", "connection")
 OUT.mkdir(parents=True, exist_ok=True)
-for old in OUT.glob("*.json"):
-    old.unlink()
+if MODE == "connection":
+    for old in OUT.glob("*.json"):
+        old.unlink()
 http = httpx.Client(timeout=60)
 _n = {"i": 0}
 
 
 def save(name, payload, note=""):
     _n["i"] += 1
-    (OUT / f"{_n['i']:02d}-{name}.json").write_text(
-        json.dumps({"scenario": name, "note": note, **payload}, indent=2, ensure_ascii=False)
-        + "\n"
+    prefix = f"{_n['i']:02d}" if MODE == "connection" else "hourly"
+    (OUT / f"{prefix}-{name}.json").write_text(
+        json.dumps({"scenario": name, "note": note, **payload}, indent=2, ensure_ascii=False) + "\n"
     )
     print(f"{_n['i']:02d} {name}")
 
@@ -256,13 +263,55 @@ def main():
     def shape(received):
         return [("image" if "image" in m else "text") for m in received]
 
+    def redis_count(kind, ident):
+        from redis import Redis
+
+        r = Redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
+        return r.zcard(f"wa:catphotos:{kind}:{ident}")
+
     chat_a = "198765432111@lid"
+    chat_b = "198765432222@lid"
+
+    if MODE == "hourly":
+        rounds = []
+        for text in [
+            "tell me about the black sneaker",
+            "tell me about the white sneaker",
+            "tell me about the silk scarf",
+            "tell me about the wool cap",
+            "tell me about the black sneaker",
+            "tell me about the white sneaker",
+            "tell me about the silk scarf",
+        ]:
+            got = say(chat_b, text, expect_at_least=1)
+            rounds.append({"customer_said": text, "received": shape(got), "messages": got})
+        photos_b = sum(r["received"].count("image") for r in rounds)
+        chat_b_id = db_value(
+            "SELECT id FROM whatsapp_chats WHERE connection_id = :c LIMIT 1", c=cid
+        )
+        window = redis_count("chat", chat_b_id)
+        save(
+            "per-chat-cap-six-photos-per-hour-then-text-only",
+            {
+                "rounds": rounds,
+                "photos_sent_to_this_chat": photos_b,
+                "limiter_entries_in_redis": window,
+            },
+            note="Connection budgets raised out of the way for this run. Seven replies about items "
+            "that all have photos: six photos go (6 per chat per hour), the seventh keeps its "
+            "text and loses its photo.",
+        )
+        assert photos_b == 6 and window == 6, (photos_b, window)
+        print("done (hourly):", _n["i"])
+        return
+
     detail = say(chat_a, "tell me about the black sneaker", expect_at_least=2)
     save(
         "detail-text-then-photo",
         {"customer_said": "tell me about the black sneaker", "fake_sidecar_received": detail},
-        note="The reply text first, then the cover photo (the 1,280 px WhatsApp rendition of the "
-        "stored copy) with a caption built at send time: `#ref name · price · availability`.",
+        note="The reply text first, then the cover photo (the WhatsApp rendition: `c_limit,w_1280,"
+        "h_1280`) with a caption built at send time: `#ref name · price · availability`. The photo "
+        "is queued only after the reply was sent.",
     )
     assert shape(detail) == ["text", "image"], shape(detail)
 
@@ -284,56 +333,40 @@ def main():
 
     quote = say(chat_a, "I want 2 black sneakers", expect_at_least=2)
     save(
-        "cart-reply-then-quote-text",
+        "cart-reply-then-quote-text-then-photo",
         {"customer_said": "I want 2 black sneakers", "fake_sidecar_received": quote},
-        note="The quote goes as a second plain-text message after the reply (rendered by code "
-        "from the stored quote row), then the item photo.",
+        note="Reply, then the quote as a plain-text message (rendered by code from the stored "
+        "catalog quote), then the item photo: each is queued only after the one before it was "
+        "sent. This was the connection's second catalog photo within the minute.",
     )
-    assert shape(quote)[0] == "text" and "Total:" in quote[1].get("text", ""), quote
+    assert shape(quote)[:2] == ["text", "text"] and "Total:" in quote[1].get("text", ""), quote
 
-    chat_a_id = db_value(
-        "SELECT id FROM whatsapp_chats WHERE connection_id = :c ORDER BY created_at LIMIT 1", c=cid
-    )
-
-    # --- per-chat hourly cap: a second chat asks for items with photos over and over ----------
-    chat_b = "198765432222@lid"
-    rounds = []
-    for text in [
-        "tell me about the black sneaker",
-        "tell me about the white sneaker",
-        "tell me about the silk scarf",
-        "tell me about the wool cap",
-        "tell me about the black sneaker",
-        "tell me about the white sneaker",
-        "tell me about the silk scarf",
-    ]:
-        got = say(chat_b, text, expect_at_least=1)
-        rounds.append({"customer_said": text, "received": shape(got), "messages": got})
-    photos_b = sum(r["received"].count("image") for r in rounds)
-    chat_b_id = db_value(
-        "SELECT id FROM whatsapp_chats WHERE connection_id = :c AND id <> :a LIMIT 1",
-        c=cid,
-        a=chat_a_id,
-    )
-    from redis import Redis
-
-    redis = Redis.from_url(os.environ["REDIS_URL"], decode_responses=True)
-    window = redis.zcard(f"wa:catphotos:{chat_b_id}")
+    conn_min = redis_count("min", cid)
     save(
-        "hourly-cap-six-photos-then-text-only",
-        {
-            "rounds": rounds,
-            "photos_sent_to_this_chat": photos_b,
-            "limiter_entries_in_redis": window,
-        },
-        note="Seven replies about items that all have photos: six photos go (the cap is 6 per chat "
-        "per hour), the seventh reply keeps its text and loses its photo. `limiter_entries_in_redis` "
-        "is the sliding-window size read from Redis.",
+        "connection-budget-in-redis",
+        {"catalog_photos_sent_by_this_number_in_the_last_minute": conn_min},
+        note="Per-connection sliding window read from Redis: 2 photos a minute for the number.",
     )
-    assert photos_b == 6 and window == 6, (photos_b, window)
-    assert all(r["received"][0] == "text" for r in rounds)
 
-    # --- the retention job cannot see a catalog photo ------------------------------------------
+    second = say(chat_b, "tell me about the white sneaker", expect_at_least=1)
+    save(
+        "second-customer-same-minute-text-kept-photo-skipped",
+        {"customer_said": "tell me about the white sneaker", "fake_sidecar_received": second},
+        note="Another customer writes in the same minute: the number's photo budget is used up, so "
+        "this customer's text reply goes out normally and the photo is skipped (dropped, never "
+        "retried, never queued behind).",
+    )
+    assert shape(second) == ["text"], shape(second)
+
+    time.sleep(65)  # the minute window slides
+    later = say(chat_b, "tell me about the white sneaker", expect_at_least=2)
+    save(
+        "second-customer-a-minute-later-photo-goes",
+        {"customer_said": "tell me about the white sneaker", "fake_sidecar_received": later},
+        note="A minute later the budget has room again: text, then the photo.",
+    )
+    assert shape(later) == ["text", "image"], shape(later)
+
     save(
         "database-after",
         {
@@ -344,6 +377,7 @@ def main():
                 "SELECT count(*) FROM offering_images WHERE tenant_id = :t", t=tenant_id
             ),
             "photos_the_sidecar_received_in_total": sum("image" in m for m in sent()),
+            "connection_day_window_entries": redis_count("day", cid),
         },
         note="Catalog photos are never stored as `message_attachments` (the retention job deletes "
         "those and would destroy the catalog asset): the tenant has 0 attachment rows while the "

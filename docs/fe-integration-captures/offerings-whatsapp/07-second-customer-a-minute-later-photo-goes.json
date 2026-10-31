@@ -1,0 +1,20 @@
+{
+  "scenario": "second-customer-a-minute-later-photo-goes",
+  "note": "A minute later the budget has room again: text, then the photo.",
+  "customer_said": "tell me about the white sneaker",
+  "fake_sidecar_received": [
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432222@lid",
+      "text": "The Canvas sneaker white is ₦13,500, in stock."
+    },
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432222@lid",
+      "image": {
+        "url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1280,h_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/e9ccb438-3149-4b65-9493-76d3f845669d/8c13c37086674b60a827d98a373edab3.jpg",
+        "caption": "#2 Canvas sneaker white · ₦13,500 · In stock"
+      }
+    }
+  ]
+}

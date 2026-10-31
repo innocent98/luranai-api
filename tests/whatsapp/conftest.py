@@ -84,6 +84,7 @@ def queue(monkeypatch):
         guard: bool = False,
         rating_request_id: UUID | None = None,
         defer_s: float = 0,
+        followups: list[dict] | None = None,
     ) -> None:
         entry = {
             "connection_id": connection_id,
@@ -95,6 +96,8 @@ def queue(monkeypatch):
         }
         if defer_s:  # only a deferred send carries the key, so plain sends compare as before
             entry["defer_s"] = defer_s
+        if followups:
+            entry["followups"] = followups
         q.sends.append(entry)
 
     async def enqueue_send_image(
