@@ -1,0 +1,27 @@
+{
+  "description": "Bank list while Paystack is down and nothing is cached.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/platform/referrals/banks",
+    "query": {},
+    "headers": {
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": null
+  },
+  "response": {
+    "status": 503,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "detail": {
+        "code": "bank_provider_unavailable",
+        "message": "We could not load the bank list from Paystack. Try again, or enter the bank code manually."
+      }
+    }
+  },
+  "note": "The fake Paystack was switched to mode 'down' (HTTP 503 on /bank); the app's bank cache was empty."
+}

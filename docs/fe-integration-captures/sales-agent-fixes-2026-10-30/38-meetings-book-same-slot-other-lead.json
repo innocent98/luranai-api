@@ -1,0 +1,23 @@
+{
+  "scenario": "meetings-book-same-slot-other-lead",
+  "note": "A different visitor asks for the booked slot",
+  "request": {
+    "method": "POST",
+    "path": "/chat/meetings",
+    "headers": {},
+    "body": {
+      "conversation_id": "62541fc7-76b1-4a0b-b9d0-13dd2a8c7f41",
+      "scheduled_at": "2026-10-31T08:00:00+00:00"
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "success": false,
+      "error": {
+        "code": "SLOT_UNAVAILABLE",
+        "message": "Not an available slot"
+      }
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "scenario": "mail-inbox-after-quote",
+  "note": "Mailpit message list (email stub)",
+  "data": [
+    {
+      "To": [
+        "sales-rep@example.com"
+      ],
+      "Subject": "New quote generated",
+      "Attachments": 1
+    },
+    {
+      "To": [
+        "sales-rep@example.com"
+      ],
+      "Subject": "New sales-ready lead",
+      "Attachments": 0
+    },
+    {
+      "To": [
+        "smoke-lite-7c979a@example.com"
+      ],
+      "Subject": "Verify your email address",
+      "Attachments": 0
+    },
+    {
+      "To": [
+        "smoke-pro-ae295b@example.com"
+      ],
+      "Subject": "Verify your email address",
+      "Attachments": 0
+    }
+  ]
+}

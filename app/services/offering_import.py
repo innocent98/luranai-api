@@ -15,6 +15,10 @@ Decisions (the spec left them to the builder):
   anything is written (`offering_limit`, with how many fit).
 * Row numbers are 1-based positions among the non-blank data rows (the header and blank lines do
   not count). A name may not start with `= + - @` (spreadsheet formula injection).
+* Text is cleaned (`clean_text`: invisible, bidi and control characters out) BEFORE a row's ref,
+  name and formula start are compared, so what is compared is what is stored.
+* Parsing must stay linear in the input: the `lines` format collapses whitespace first and refuses
+  a line over `MAX_LINE_CHARS`, so no regex ever sees a long run of separators.
 """
 
 from __future__ import annotations
@@ -29,6 +33,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models.offering import (
@@ -41,12 +46,14 @@ from app.db.models.offering import (
 from app.services.offering_service import (
     OfferingError,
     OfferingService,
+    clean_text,
     validate_candidate,
 )
 
 MAX_ROWS = 500
 MAX_BYTES = 256 * 1024
-FORMULA_STARTS = ("=", "+", "-", "@")
+MAX_LINE_CHARS = 1_000  # a pasted list line: a name, a price, a status; longer is not a list
+MAX_AMOUNT_CHARS = 30
 
 # What the preview shows for each row, in this order.
 PARSED_FIELDS = (
@@ -139,12 +146,20 @@ _NUMBER = re.compile(r"^(-?)((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)([km]?)$")
 class ImportUnreadable(Exception):
     """The content cannot be turned into rows at all."""
 
+    code = "import_unreadable"
+
+
+class ImportLineTooLong(ImportUnreadable):
+    code = "line_too_long"
+
 
 def parse_amount(text: str) -> int:
     """Whole naira from "12,000", "₦12000", "N2,500", "NGN 3,000", "12k", "1.5m", "12,000 naira".
 
     Raises ValueError for anything else, including a fractional result (money is whole units).
     """
+    if len(text) > MAX_AMOUNT_CHARS:
+        raise ValueError("not an amount: too long")
     cleaned = re.sub(r"₦|\bngn\b|naira", "", text.strip().lower()).strip()
     cleaned = re.sub(r"^n\s*(?=[\d.])", "", cleaned)
     match = _NUMBER.match(cleaned)
@@ -201,6 +216,7 @@ def parse_csv(content: str) -> list[tuple[int, dict[str, str]]]:
     return rows
 
 
+_WHITESPACE = re.compile(r"\s+")
 _LINE_SPLIT = re.compile(r"\s+[-–—]\s+|\s*\|\s*")
 
 
@@ -212,7 +228,13 @@ def parse_lines(content: str) -> list[tuple[int, dict[str, str]]]:
     for line in content.splitlines():
         if not line.strip():
             continue
-        parts = [p.strip() for p in _LINE_SPLIT.split(line.strip())]
+        if len(line) > MAX_LINE_CHARS:
+            raise ImportLineTooLong(
+                f"line {len(rows) + 1} is longer than {MAX_LINE_CHARS:,} characters"
+            )
+        # Collapse separators to one space first: `_LINE_SPLIT` backtracks quadratically on a long
+        # run of whitespace, and a name with doubled spaces reads better collapsed anyway.
+        parts = [p.strip() for p in _LINE_SPLIT.split(_WHITESPACE.sub(" ", line.strip()))]
         values = {"name": parts[0]}
         if len(parts) > 1 and parts[1]:
             values["price"] = parts[1]
@@ -239,11 +261,12 @@ def normalize_row(raw: dict[str, str]) -> tuple[dict[str, Any], list[dict[str, s
     def fail(name: str, code: str) -> None:
         errors.append({"field": name, "code": code})
 
+    # Clean first: the ref and the name are compared (duplicates, upsert matches) and checked
+    # (formula start) as they will be stored. A cell that is blank after cleaning is a blank cell.
     for name in ("name", "description", "category", "keywords", "price_note", "external_ref"):
-        if raw.get(name):
-            fields[name] = raw[name]
-    if fields.get("name", "").startswith(FORMULA_STARTS):
-        fail("name", "name_formula")
+        cleaned = clean_text(raw.get(name), multiline=name == "description")
+        if cleaned:
+            fields[name] = cleaned
 
     if raw.get("kind"):
         kind = _KINDS.get(_key(raw["kind"]))
@@ -463,9 +486,7 @@ class OfferingImportService:
         try:
             rows = parse_csv(content) if fmt == "csv" else parse_lines(content)
         except ImportUnreadable as exc:
-            raise OfferingError(
-                422, "import_unreadable", f"The import could not be read: {exc}."
-            ) from exc
+            raise OfferingError(422, exc.code, f"The import could not be read: {exc}.") from exc
         if len(rows) > MAX_ROWS:
             raise OfferingError(
                 422,
@@ -523,6 +544,13 @@ class OfferingImportService:
                 can_add=fits,
             )
 
+        creates = sum(1 for r in plan.rows if r.status == "create")
+        ceiling = self.offerings.row_ceiling(entitlements)
+        total = self.offerings.total_count(tenant_id)
+        if total + creates > ceiling:
+            self.db.commit()
+            raise self.offerings.row_ceiling_error(ceiling, total, can_add=max(0, ceiling - total))
+
         now = datetime.now(UTC)
         created = updated = 0
         for planned in plan.rows:
@@ -574,7 +602,18 @@ class OfferingImportService:
                     item.archived_at = None
                 item.updated_at = now
                 updated += 1
-        self.db.flush()
+        try:
+            self.db.flush()
+        except IntegrityError:
+            # Unreachable while refs are compared after cleaning and the settings lock is held,
+            # but a database refusal must never surface as a 500 with a driver message.
+            self.db.rollback()
+            raise OfferingError(
+                409,
+                "import_conflict",
+                "Some rows clash with items you already have, so nothing was imported. "
+                "Preview the import again.",
+            ) from None
         self.offerings.record_activity(tenant_id)
         self.db.commit()
         return {

@@ -1,0 +1,27 @@
+{
+  "description": "Account resolves: only the holder name comes back.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/platform/referrals/banks/resolve",
+    "query": {},
+    "headers": {
+      "content-type": "application/json",
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": {
+      "bank_code": "058",
+      "account_number": "0000000000"
+    }
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "account_name": "ADA PLACEHOLDER"
+    }
+  }
+}

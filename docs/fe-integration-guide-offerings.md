@@ -554,7 +554,7 @@ Response `404` (capture `36-get-not-found.json`)
 }
 ```
 
-`PATCH` takes any subset of the create fields plus `status`. **An absent field is unchanged; an explicit `null` clears a nullable field.** The one-tap sold-out control is a patch of `availability` (note `availability_changed_at` moving):
+`PATCH` takes any subset of the create fields plus `status`. **An absent field is unchanged; an explicit `null` clears an optional field** (`description`, `category`, `keywords`, `price`, `price_note`, `quantity`; `negotiable: null` means `false`). **`null` on `kind`, `price_mode`, `availability` or `name` is a `422 validation`** with `{field, code: "<field>_required"}` (`name_required` for the name) and nothing is changed. *(Added after the security review; shape taken from the automated test, not a live capture.)* The one-tap sold-out control is a patch of `availability` (note `availability_changed_at` moving):
 
 `PATCH /api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87`
 
@@ -1805,8 +1805,10 @@ Response `400` (capture `76-downgrade-blocked-by-catalog.json`)
 |---|---|---|
 | `price_required`, `price_not_allowed`, `price_out_of_range` | create, patch | live |
 | `name_required` | create, patch | live |
+| `kind_required`, `price_mode_required`, `availability_required` (a `null` sent in a patch) | patch | tests only |
+| `name_formula` (a name that starts with `=`, `+`, `-` or `@` once invisible characters are removed) | create, patch, import rows | tests only (import preview `name_formula`: see the row below) |
 | `stale_after_days_invalid`, `currency_invalid` | settings | live |
-| `name_too_long` (over 120), `description_too_long` (over 2,000), `category_too_long` (60), `keywords_too_long` (200), `price_note_too_long` (60), `quantity_invalid` (below 0) | create, patch | tests only |
+| `name_too_long` (over 120), `description_too_long` (over 2,000), `category_too_long` (60), `keywords_too_long` (200), `price_note_too_long` (60), `quantity_invalid` (below 0 or above 2,147,483,647; also a CSV `quantity` cell) | create, patch, import rows | tests only |
 | `price_invalid`, `name_formula`, `duplicate_in_file`, `external_ref_taken`, `ambiguous_name`, `kind_invalid`, `availability_invalid`, `price_mode_invalid`, `negotiable_invalid` | import rows | `price_invalid` live; the rest tests only |
 
 Top-level module error codes (shape 1):
@@ -1822,6 +1824,10 @@ Top-level module error codes (shape 1):
 | `invalid_cursor` | 422 | | live |
 | `image_invalid`, `image_too_large` (413), `image_blocked`, `image_order_mismatch` | 422 / 413 | | live |
 | `import_unreadable`, `import_too_large`, `import_has_errors` | 422 | `import_has_errors` has `errors[]` and `summary` | live (`import_too_large` row variant only) |
+| `line_too_long` (a pasted `lines` line over 1,000 characters; the message names the line) | 422 | | tests only |
+| `import_conflict` (a database refusal while applying; nothing was imported; preview again) | 409 | | tests only |
+| `offering_archive_full` (active + archived rows reached the per-plan ceiling: 4 x the plan's item cap, at least 200; 20,000 on an unlimited plan) | 409 | `limit`, `used` (import adds `can_add`) | tests only |
+| `offering_archived` (a photo upload to an archived item; restore the item first) | 409 | | tests only |
 | `image_storage_unavailable` | 503 | | **not live** (test only) |
 | `feature_not_in_plan` | 403 | `feature`, `min_tier` | live |
 
@@ -1838,7 +1844,8 @@ Top-level module error codes (shape 1):
 | GIF, text file, HEIC, over 5 MB, moderation block messages | **live (stand-in moderation)** |
 | Real Cloudinary optimisation result (`bytes`, 1,600 px, EXIF stripped, the 800 KB retry), real moderation | **not exercised** (unit tests with a mocked uploader only) |
 | `503 image_storage_unavailable` | **not exercised live** (tests only) |
-| Upload rate limit (`429`) | **not exercised** (limiter is 200 uploads/hour per IP; test of the dependency only) |
+| Upload rate limit (`429`) | **not exercised** (limits are 200 uploads/hour per IP and 300/hour per tenant; the per-tenant key is asserted by a test, the 429 itself never fired) |
+| Review fixes: `null` on required fields, quantity range, formula guard on create/patch, `line_too_long`, `import_conflict`, `offering_archive_full`, `offering_archived` | tests only (bodies asserted by `tests/offerings/test_review_fixes.py`; **not re-captured live**) |
 | CSV and lines preview, atomic apply, skip errors, upsert, unreadable, too many rows | **live** |
 | Import over 256 KB, formula-leading names, tab/semicolon CSV, duplicate refs | tests only |
 | Confirm, settings (get/patch/validation) | **live** |
@@ -1855,4 +1862,5 @@ Top-level module error codes (shape 1):
 
 * The per-item photo limit is not exposed as a number before an upload attempt; a field next to `limit`/`used` on the entitlements entry would let the dashboard show "2 of 4" up front (needs a decision: it is a change to the shared entitlements response).
 * The lapsed-account `403` carries the generic plan-gate text ("Upgrade to Trial to use it"); the dashboard must not show it (section 6). A tailored message is a backend follow-up.
-* Photo `bytes`/dimension behaviour on real photos is unverified until the first run against the real Cloudinary account.
+* Photo `bytes`/dimension behaviour on real photos is unverified until the first run against the real Cloudinary account. EXIF/GPS removal is **not verified** either: the upload asks Cloudinary to strip metadata (`strip_profile`) but nobody has looked at a stored photo; do not promise customers or tenants that location data is removed until the staging check (a GPS-tagged JPEG) has been done.
+* A framework `422` with a `detail` array (not the flat shape) is also returned for an import `content` over 1,048,576 characters. Normal oversize imports (over 256 KB) still get `import_too_large`.

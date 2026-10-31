@@ -12,6 +12,7 @@ from app.api.deps import get_current_platform_admin, get_current_super_admin, ge
 from app.db.models.referral import Marketer, MarketerStatus, PayoutBatch, RewardStatus
 from app.schemas.platform_admin import PlatformAdminResponse
 from app.schemas.referral import (
+    BankListResponse,
     MarketerBankUpdateRequest,
     MarketerCreateRequest,
     MarketerListResponse,
@@ -24,10 +25,13 @@ from app.schemas.referral import (
     ReferralConfigUpdate,
     RewardActionRequest,
     RewardActionResponse,
+    ResolveAccountRequest,
+    ResolveAccountResponse,
     RewardQueueResponse,
 )
 from app.services.enhanced_audit_service import EnhancedAuditService
-from app.services.referral import payout_queries, payouts, review_queue, rewards
+from app.services.paystack_service import PaystackService
+from app.services.referral import banks, payout_queries, payouts, review_queue, rewards
 from app.services.referral.config import (
     CONFIG_KEYS,
     get_config_sources,
@@ -42,7 +46,11 @@ from app.services.referral.marketer_service import (
     MarketerNotFoundError,
     MarketerService,
 )
-from app.utils.http_rate_limiter import platform_admin_rate_limit
+from app.utils.http_rate_limiter import (
+    bank_resolve_rate_limiter,
+    enforce_identifier_limit,
+    platform_admin_rate_limit,
+)
 
 router = APIRouter()
 
@@ -113,6 +121,76 @@ def _raise_audit_failed(action: str) -> NoReturn:
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         detail={"code": _FAILED_CODES[action], "message": "The change was not saved"},
     )
+
+
+# --- bank picker (Paystack-backed) ---------------------------------------------------------------
+# Declared before the "/{marketer_id:uuid}" routes; both are lookups only and never move money.
+
+_BANK_MESSAGES = {
+    "bank_provider_unavailable": "We could not reach Paystack. Try again, or enter the details manually.",
+    "account_not_resolved": "Paystack could not find an account with that number at that bank. "
+    "Check both and try again.",
+}
+
+
+def get_paystack_service(db: Session = Depends(get_db)) -> PaystackService:
+    return PaystackService(db)
+
+
+async def _limited_super_admin(
+    current_admin: PlatformAdminResponse = Depends(get_current_super_admin),
+) -> PlatformAdminResponse:
+    """Super admin, counted against the per-admin account-lookup budget."""
+    await enforce_identifier_limit(bank_resolve_rate_limiter, str(current_admin.id))
+    return current_admin
+
+
+def _raise_bank(exc: banks.BankLookupError, *, list_request: bool = False) -> NoReturn:
+    if isinstance(exc, banks.AccountNotResolved):
+        http_status = status.HTTP_422_UNPROCESSABLE_ENTITY
+    else:
+        http_status = status.HTTP_503_SERVICE_UNAVAILABLE
+    message = _BANK_MESSAGES[exc.code]
+    if list_request and exc.code == "bank_provider_unavailable":
+        message = "We could not load the bank list from Paystack. Try again, or enter the bank code manually."
+    raise HTTPException(status_code=http_status, detail={"code": exc.code, "message": message})
+
+
+@router.get(
+    "/banks",
+    response_model=BankListResponse,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def list_banks(
+    paystack: PaystackService = Depends(get_paystack_service),
+    current_admin: PlatformAdminResponse = Depends(get_current_platform_admin),
+):
+    """Active Nigerian banks from Paystack as ``{name, code}``, sorted by name (cached 24 h)."""
+    try:
+        result = banks.get_banks(paystack)
+    except banks.BankLookupError as exc:
+        _raise_bank(exc, list_request=True)
+    return BankListResponse(banks=result.banks, stale=result.stale, test_mode=result.test_mode)
+
+
+@router.post(
+    "/banks/resolve",
+    response_model=ResolveAccountResponse,
+    dependencies=[Depends(platform_admin_rate_limit)],
+)
+def resolve_bank_account(
+    request: ResolveAccountRequest,
+    paystack: PaystackService = Depends(get_paystack_service),
+    current_admin: PlatformAdminResponse = Depends(_limited_super_admin),
+):
+    """The account holder name Paystack has for a bank code and account number."""
+    try:
+        name = banks.resolve_account(
+            paystack, bank_code=request.bank_code, account_number=request.account_number
+        )
+    except banks.BankLookupError as exc:
+        _raise_bank(exc)
+    return ResolveAccountResponse(account_name=name)
 
 
 @router.post(

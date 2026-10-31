@@ -32,6 +32,13 @@ from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.services.entitlements import Entitlements, require_feature
 from app.services.offering_media import destroy_assets, gallery_url, thumb_url
 
+# Rows kept in total (active + archived) per tenant: archived items do not count toward the plan
+# cap, so without this a tenant could create and archive without end. A multiple of the active cap,
+# with a floor for the smallest plans and a flat ceiling for "unlimited".
+ROW_CEILING_FACTOR = 4
+MIN_ROW_CEILING = 200
+UNLIMITED_ROW_CEILING = 20_000
+
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
 
@@ -47,6 +54,10 @@ _TEXT_LIMITS = {
 # Bidirectional embeddings, overrides and isolates (U+202A-U+202E, U+2066-U+2069), by code point.
 _BIDI = {chr(c) for c in (*range(0x202A, 0x202F), *range(0x2066, 0x206A))}
 _INVISIBLE = {chr(0x200B), chr(0xFEFF)}  # zero-width space, byte-order mark
+
+FORMULA_STARTS = ("=", "+", "-", "@")  # a spreadsheet would run a name that starts with these
+MAX_QUANTITY = 2_147_483_647  # the column is a 32-bit integer
+_REQUIRED_ENUMS = ("kind", "price_mode", "availability")
 
 _CURRENCY_SYMBOLS = {"NGN": "₦", "USD": "$", "GBP": "£", "EUR": "€", "GHS": "GH₵", "KES": "KSh "}
 
@@ -135,9 +146,17 @@ def validate_candidate(raw: dict[str, Any]) -> tuple[dict[str, Any], list[dict[s
             errors.append({"field": field, "code": f"{field}_too_long"})
     if not clean.get("name"):
         errors.append({"field": "name", "code": "name_required"})
+    elif clean["name"].startswith(FORMULA_STARTS):
+        # Checked on the cleaned text: invisible and control characters must not hide the lead.
+        errors.append({"field": "name", "code": "name_formula"})
+
+    missing = {f for f in _REQUIRED_ENUMS if raw.get(f) is None}
+    errors += [{"field": f, "code": f"{f}_required"} for f in _REQUIRED_ENUMS if f in missing]
 
     mode, price = raw.get("price_mode"), raw.get("price")
-    if mode == "on_request":
+    if "price_mode" in missing:
+        pass  # the price rules depend on the mode; the caller fixes that first
+    elif mode == "on_request":
         if price is not None:
             errors.append({"field": "price", "code": "price_not_allowed"})
     elif price is None:
@@ -146,7 +165,7 @@ def validate_candidate(raw: dict[str, Any]) -> tuple[dict[str, Any], list[dict[s
         errors.append({"field": "price", "code": "price_out_of_range"})
 
     quantity = raw.get("quantity")
-    if quantity is not None and quantity < 0:
+    if quantity is not None and not 0 <= quantity <= MAX_QUANTITY:
         errors.append({"field": "quantity", "code": "quantity_invalid"})
     return clean, errors
 
@@ -245,6 +264,40 @@ class OfferingService:
                 .where(Offering.tenant_id == tenant_id, Offering.status == OfferingStatus.ACTIVE)
             ).scalar_one()
         )
+
+    def total_count(self, tenant_id: UUID) -> int:
+        """Every item row, archived ones included."""
+        return int(
+            self.db.execute(
+                select(func.count()).select_from(Offering).where(Offering.tenant_id == tenant_id)
+            ).scalar_one()
+        )
+
+    @staticmethod
+    def row_ceiling(entitlements: Entitlements) -> int:
+        limit = entitlements.limit("offerings")
+        if limit is None:
+            return UNLIMITED_ROW_CEILING
+        return max(MIN_ROW_CEILING, limit * ROW_CEILING_FACTOR)
+
+    def row_ceiling_error(self, ceiling: int, used: int, **extra: Any) -> OfferingError:
+        return OfferingError(
+            409,
+            "offering_archive_full",
+            f"You have {used:,} items including archived ones, and {ceiling:,} is the most "
+            "kept. Delete archived items you no longer need, then try again.",
+            limit=ceiling,
+            used=used,
+            **extra,
+        )
+
+    def _check_row_ceiling(
+        self, tenant_id: UUID, entitlements: Entitlements, extra: int = 1
+    ) -> None:
+        ceiling = self.row_ceiling(entitlements)
+        used = self.total_count(tenant_id)
+        if used + extra > ceiling:
+            raise self.row_ceiling_error(ceiling, used)
 
     def _check_cap(self, tenant_id: UUID, entitlements: Entitlements, extra: int = 1) -> None:
         limit = entitlements.limit("offerings")
@@ -380,6 +433,7 @@ class OfferingService:
             raise validation_error(errors)
         settings = self.lock_settings(tenant_id)
         self._check_cap(tenant_id, entitlements)
+        self._check_row_ceiling(tenant_id, entitlements)
         now = _now()
         item = Offering(
             tenant_id=tenant_id,

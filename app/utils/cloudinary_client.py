@@ -315,7 +315,10 @@ class CloudinaryManager:
         """Upload a catalog photo, optimised on ingest; returns (info, error).
 
         Only the optimised copy is stored: incoming transformation to a 1,600 px long edge,
-        automatic quality, JPEG, EXIF/GPS stripped. The result's `bytes` is read back and a copy
+        automatic quality, JPEG, with `strip_profile` asked for so the transformation drops the
+        embedded metadata (EXIF/GPS). That stripping is Cloudinary's behaviour and has NOT been
+        verified against the real service (`image_metadata=False` below only stops the upload
+        response from echoing metadata back; it removes nothing). The result's `bytes` is read back and a copy
         over 800 KB is re-uploaded once over the same asset at a lower quality. `info` holds
         url, public_id, width, height, bytes.
         """
@@ -328,7 +331,13 @@ class CloudinaryManager:
                 resource_type="image",
                 format="jpg",
                 transformation=[
-                    {"width": 1600, "height": 1600, "crop": "limit", "quality": quality}
+                    {
+                        "width": 1600,
+                        "height": 1600,
+                        "crop": "limit",
+                        "quality": quality,
+                        "flags": "strip_profile",
+                    }
                 ],
                 image_metadata=False,
                 tags=["offering", offering_sweep_tag(), str(tenant_id)],

@@ -1,0 +1,47 @@
+{
+  "description": "Bank list: active banks only, {name, code}, sorted by name, fetched over two Paystack pages.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/platform/referrals/banks",
+    "query": {},
+    "headers": {
+      "cookies_sent": [
+        "access_token"
+      ]
+    },
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": {
+      "banks": [
+        {
+          "name": "Access Bank",
+          "code": "044"
+        },
+        {
+          "name": "First Bank of Nigeria",
+          "code": "011"
+        },
+        {
+          "name": "Guaranty Trust Bank",
+          "code": "058"
+        },
+        {
+          "name": "Kuda Microfinance Bank",
+          "code": "50211"
+        },
+        {
+          "name": "Zenith Bank",
+          "code": "057"
+        }
+      ],
+      "stale": false,
+      "test_mode": true
+    }
+  },
+  "note": "Fake Paystack in mode 'up'. test_mode is true because the app runs with a sk_test_ placeholder key."
+}

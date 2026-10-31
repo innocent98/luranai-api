@@ -1,0 +1,25 @@
+{
+  "scenario": "meetings-book-other-slot-same-lead",
+  "note": "Same lead picks a DIFFERENT slot after booking",
+  "request": {
+    "method": "POST",
+    "path": "/chat/meetings",
+    "headers": {},
+    "body": {
+      "conversation_id": "f992cb12-92b3-488b-8d43-85dc5b7eec14",
+      "scheduled_at": "2026-10-31T10:00:00+00:00"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "meeting": {
+          "scheduled_at": "2026-10-31T08:00:00+00:00",
+          "duration_min": 30
+        }
+      }
+    }
+  }
+}

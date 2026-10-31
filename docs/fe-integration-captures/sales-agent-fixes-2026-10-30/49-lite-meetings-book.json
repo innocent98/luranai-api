@@ -1,0 +1,23 @@
+{
+  "scenario": "lite-meetings-book",
+  "note": "Direct booking attempt on Lite",
+  "request": {
+    "method": "POST",
+    "path": "/chat/meetings",
+    "headers": {},
+    "body": {
+      "conversation_id": "7eceeb2f-482d-4759-a705-70b40ea8b15e",
+      "scheduled_at": "2026-10-31T22:24:59.863745+00:00"
+    }
+  },
+  "response": {
+    "status": 403,
+    "body": {
+      "success": false,
+      "error": {
+        "code": "BOOKING_DISABLED",
+        "message": "Meeting booking is not enabled"
+      }
+    }
+  }
+}
