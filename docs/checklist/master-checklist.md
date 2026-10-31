@@ -338,6 +338,7 @@ Idea (owner): businesses keep a live list of what they sell (name, description, 
   - [x] T6 `POST /offerings/confirm`, settings GET/PATCH, Not-found list/dismiss, 90-day sweep job (`4f8bbef`)
   - [x] T7 lead detail `interests[]` (additive; verified on detail, patch and score) (`55b0d13`)
   - [x] T8 live run (API + arq worker + Postgres + Redis; 76 captures, no 5xx), FE guide part 1 with verification table, SOP, this checklist
+  - [x] Review hardening 2026-10-31 (independent review of #195): linear lines parser + line cap, null/overflow 422s, clean-before-compare import, formula guard on CRUD, archived-upload refusal, row ceiling, per-tenant upload limiter, upload off the event loop, sweep page budget (tests only, not re-captured live; EXIF stripping still unverified on real Cloudinary)
   - [ ] Not exercised: real Cloudinary optimisation/EXIF on real photos, real moderation, upload limiter 429, `image_storage_unavailable` live; Not-found and lead-interest rows were inserted by SQL (writer is S2)
   - [ ] PR #195 CI green, reviewed (single Opus pass at the end of the phase), merged by the lead
 - [ ] **S2 Backend AI path** `feature/offerings-ai-grounding`: grounding block (1,000-token cap), price guard + fallback (Opus review), strict-schema variant, cart -> interests -> catalog quote (Opus review), `OFFERING_REQUEST` alert, lead source by channel, adversarial eval gate, FE guide part 2, SOP

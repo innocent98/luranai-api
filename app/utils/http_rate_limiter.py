@@ -91,6 +91,14 @@ offering_upload_rate_limiter = RedisRateLimiter(
     window_seconds=3600,
 )
 
+# ...and the same budget per tenant (keyed by the endpoint after sign-in), so a tenant cannot
+# multiply it by changing address.
+offering_tenant_upload_rate_limiter = RedisRateLimiter(
+    key_prefix="http_offering_upload_tenant",
+    max_calls=300,
+    window_seconds=3600,
+)
+
 video_sign_rate_limiter = RedisRateLimiter(
     key_prefix="http_video", max_calls=5, window_seconds=3600
 )

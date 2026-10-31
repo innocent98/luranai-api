@@ -220,3 +220,150 @@ def test_an_absurdly_large_import_body_is_refused_by_the_schema(pg_client, shop)
     r = _post(pg_client, headers, PREVIEW, "x" * 1_048_577, fmt="lines")
     assert r.status_code == 422
     assert "detail" in r.json()  # the framework shape, documented in the FE guide
+
+
+# --- plausible findings: bounded storage, limiter key, event loop, sweep cost -----------------
+
+from unittest.mock import patch  # noqa: E402
+
+from app.db.models.offering import OfferingStatus  # noqa: E402
+from app.workers.offering_cleanup import MAX_SWEEP_PAGES, sweep_orphan_offering_images  # noqa: E402
+from tests.offerings.conftest import make_image  # noqa: E402,F401  (fixtures: cloud, moderation)
+
+
+def _upload(client, headers, item_id):
+    return client.post(
+        f"{URL}/{item_id}/images",
+        files={"file": ("a.jpg", make_image(), "image/jpeg")},
+        headers=headers,
+    )
+
+
+@pytest.fixture
+def lite_shop(db_session, cloud, moderation):
+    tenant = make_tenant(db_session, "lite")  # 100 items, 4 photos each
+    _, headers = make_user(db_session, tenant)
+    return tenant, headers
+
+
+def test_an_archived_item_takes_no_new_photos(pg_client, db_session, lite_shop, cloud, moderation):
+    tenant, headers = lite_shop
+    made = pg_client.post(URL, json=body(), headers=headers).json()["data"]
+    assert pg_client.delete(f"{URL}/{made['id']}", headers=headers).status_code == 204
+    r = _upload(pg_client, headers, made["id"])
+    assert r.status_code == 409, r.text
+    assert r.json()["code"] == "offering_archived"
+    assert cloud.uploads == [] and moderation.await_count == 0
+
+
+def test_total_rows_including_archived_have_a_ceiling_per_plan(pg_client, db_session, lite_shop):
+    tenant, headers = lite_shop
+    add_items(db_session, tenant, 400, status=OfferingStatus.ARCHIVED)  # 4 x the active cap
+    r = pg_client.post(URL, json=body(), headers=headers)
+    assert r.status_code == 409, r.text
+    assert r.json()["code"] == "offering_archive_full"
+    assert r.json()["limit"] == 400 and r.json()["used"] == 400
+
+
+def test_the_ceiling_counts_an_import_and_names_how_many_fit(pg_client, db_session, lite_shop):
+    tenant, headers = lite_shop
+    add_items(db_session, tenant, 399, status=OfferingStatus.ARCHIVED)
+    r = _post(pg_client, headers, APPLY, "name,price\nA,100\nB,100\n")
+    assert r.status_code == 409, r.text
+    assert r.json()["code"] == "offering_archive_full" and r.json()["can_add"] == 1
+
+
+def test_deleting_an_archived_item_for_good_frees_a_slot(pg_client, db_session, lite_shop):
+    tenant, headers = lite_shop
+    add_items(db_session, tenant, 400, status=OfferingStatus.ARCHIVED)
+    victim = db_session.query(Offering).filter_by(tenant_id=tenant.id, seq=1).one()
+    assert pg_client.delete(f"{URL}/{victim.id}?hard=true", headers=headers).status_code == 204
+    assert pg_client.post(URL, json=body(), headers=headers).status_code == 201
+
+
+def test_unarchiving_does_not_need_a_free_row_slot(pg_client, db_session, lite_shop):
+    tenant, headers = lite_shop
+    add_items(db_session, tenant, 400, status=OfferingStatus.ARCHIVED)
+    item = db_session.query(Offering).filter_by(tenant_id=tenant.id, seq=7).one()
+    r = pg_client.patch(f"{URL}/{item.id}", json={"status": "active"}, headers=headers)
+    assert r.status_code == 200, r.text
+
+
+def test_the_upload_budget_is_also_kept_per_tenant(pg_client, db_session, lite_shop, monkeypatch):
+    tenant, headers = lite_shop
+    made = pg_client.post(URL, json=body(), headers=headers).json()["data"]
+    seen = []
+
+    async def record(limiter, identifier):
+        seen.append((limiter.key_prefix, identifier))
+
+    monkeypatch.setattr("app.api.v1.endpoints.offerings.enforce_identifier_limit", record)
+    assert _upload(pg_client, headers, made["id"]).status_code == 201
+    assert seen == [("http_offering_upload_tenant", f"tenant:{tenant.id}")]
+
+
+def test_blocking_work_runs_off_the_event_loop_and_no_transaction_spans_moderation(
+    pg_client, db_session, lite_shop, cloud, monkeypatch
+):
+    import threading
+
+    from app.services.offering_service import OfferingService
+
+    tenant, headers = lite_shop
+    made = pg_client.post(URL, json=body(), headers=headers).json()["data"]
+    events: list[tuple[str, int]] = []
+    real_gate = OfferingService.require_write
+    real_commit = db_session.commit
+
+    def gate(self, tenant_id):
+        events.append(("gate", threading.get_ident()))
+        return real_gate(self, tenant_id)
+
+    def commit():
+        events.append(("commit", threading.get_ident()))
+        return real_commit()
+
+    async def moderate(content, content_type):
+        events.append(("moderate", threading.get_ident()))
+        return True, None
+
+    monkeypatch.setattr(OfferingService, "require_write", gate)
+    monkeypatch.setattr(db_session, "commit", commit)
+    monkeypatch.setattr("app.services.offering_images.moderate_image", moderate)
+    events.clear()
+    assert _upload(pg_client, headers, made["id"]).status_code == 201
+    names = [name for name, _ in events]
+    loop_thread = dict(events)["moderate"]
+    assert dict(events)["gate"] != loop_thread  # the database gate is not run on the loop
+    assert names.index("commit") < names.index("moderate")  # connection released before the wait
+
+
+async def test_the_sweep_stops_after_a_page_budget_so_the_admin_api_quota_is_safe(
+    db_session, monkeypatch
+):
+    monkeypatch.setattr("app.workers.offering_cleanup.SessionLocal", lambda: db_session)
+    monkeypatch.setattr(db_session, "close", lambda: None)
+    endless = patch(
+        "app.workers.offering_cleanup.cloudinary_manager.list_tagged_images",
+        side_effect=[([], "more")] * 200 + [([], None)],  # a long listing that does end
+    )
+    with endless as listing:
+        await sweep_orphan_offering_images({})
+    assert listing.call_count == MAX_SWEEP_PAGES
+
+
+def test_an_item_deleted_while_its_photo_uploads_is_404_and_the_asset_is_destroyed(
+    pg_client, db_session, lite_shop, cloud, moderation
+):
+    tenant, headers = lite_shop
+    made = pg_client.post(URL, json=body(), headers=headers).json()["data"]
+
+    async def delete_meanwhile(content, content_type):
+        db_session.query(Offering).filter_by(id=made["id"]).delete()
+        db_session.commit()
+        return True, None
+
+    moderation.side_effect = delete_meanwhile
+    r = _upload(pg_client, headers, made["id"])
+    assert r.status_code == 404 and r.json()["code"] == "offering_not_found"
+    assert len(cloud.uploads) == 1 and len(cloud.destroyed) == 1

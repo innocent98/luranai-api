@@ -486,9 +486,7 @@ class OfferingImportService:
         try:
             rows = parse_csv(content) if fmt == "csv" else parse_lines(content)
         except ImportUnreadable as exc:
-            raise OfferingError(
-                422, exc.code, f"The import could not be read: {exc}."
-            ) from exc
+            raise OfferingError(422, exc.code, f"The import could not be read: {exc}.") from exc
         if len(rows) > MAX_ROWS:
             raise OfferingError(
                 422,
@@ -545,6 +543,13 @@ class OfferingImportService:
                 used=used,
                 can_add=fits,
             )
+
+        creates = sum(1 for r in plan.rows if r.status == "create")
+        ceiling = self.offerings.row_ceiling(entitlements)
+        total = self.offerings.total_count(tenant_id)
+        if total + creates > ceiling:
+            self.db.commit()
+            raise self.offerings.row_ceiling_error(ceiling, total, can_add=max(0, ceiling - total))
 
         now = datetime.now(UTC)
         created = updated = 0

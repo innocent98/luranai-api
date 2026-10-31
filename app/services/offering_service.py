@@ -32,6 +32,13 @@ from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.services.entitlements import Entitlements, require_feature
 from app.services.offering_media import destroy_assets, gallery_url, thumb_url
 
+# Rows kept in total (active + archived) per tenant: archived items do not count toward the plan
+# cap, so without this a tenant could create and archive without end. A multiple of the active cap,
+# with a floor for the smallest plans and a flat ceiling for "unlimited".
+ROW_CEILING_FACTOR = 4
+MIN_ROW_CEILING = 200
+UNLIMITED_ROW_CEILING = 20_000
+
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
 
@@ -258,6 +265,40 @@ class OfferingService:
             ).scalar_one()
         )
 
+    def total_count(self, tenant_id: UUID) -> int:
+        """Every item row, archived ones included."""
+        return int(
+            self.db.execute(
+                select(func.count()).select_from(Offering).where(Offering.tenant_id == tenant_id)
+            ).scalar_one()
+        )
+
+    @staticmethod
+    def row_ceiling(entitlements: Entitlements) -> int:
+        limit = entitlements.limit("offerings")
+        if limit is None:
+            return UNLIMITED_ROW_CEILING
+        return max(MIN_ROW_CEILING, limit * ROW_CEILING_FACTOR)
+
+    def row_ceiling_error(self, ceiling: int, used: int, **extra: Any) -> OfferingError:
+        return OfferingError(
+            409,
+            "offering_archive_full",
+            f"You have {used:,} items including archived ones, and {ceiling:,} is the most "
+            "kept. Delete archived items you no longer need, then try again.",
+            limit=ceiling,
+            used=used,
+            **extra,
+        )
+
+    def _check_row_ceiling(
+        self, tenant_id: UUID, entitlements: Entitlements, extra: int = 1
+    ) -> None:
+        ceiling = self.row_ceiling(entitlements)
+        used = self.total_count(tenant_id)
+        if used + extra > ceiling:
+            raise self.row_ceiling_error(ceiling, used)
+
     def _check_cap(self, tenant_id: UUID, entitlements: Entitlements, extra: int = 1) -> None:
         limit = entitlements.limit("offerings")
         if limit is None:
@@ -392,6 +433,7 @@ class OfferingService:
             raise validation_error(errors)
         settings = self.lock_settings(tenant_id)
         self._check_cap(tenant_id, entitlements)
+        self._check_row_ceiling(tenant_id, entitlements)
         now = _now()
         item = Offering(
             tenant_id=tenant_id,
