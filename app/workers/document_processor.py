@@ -1317,6 +1317,7 @@ class WorkerSettings:
         process_whatsapp_event,
         send_whatsapp_image,
         send_whatsapp_message,
+        send_whatsapp_offering_image,
         whatsapp_capacity_check,
     )
     from arq import func as arq_func  # type: ignore[misc]
@@ -1328,6 +1329,7 @@ class WorkerSettings:
         arq_func(process_whatsapp_event, max_tries=30),
         arq_func(send_whatsapp_message, max_tries=MAX_SEND_TRIES),
         arq_func(send_whatsapp_image, max_tries=MAX_SEND_TRIES),
+        arq_func(send_whatsapp_offering_image, max_tries=MAX_SEND_TRIES),
         whatsapp_capacity_check,
         run_website_audit,
         send_rep_alert,

@@ -52,19 +52,29 @@ class LinkedDeviceAdapter:
         # `transport` lets tests mount the in-process fake sidecar.
         self._transport = transport
 
-    def _client(self) -> httpx.AsyncClient:
+    def _client(self, image: bool = False) -> httpx.AsyncClient:
         if not settings.WHATSAPP_SIDECAR_URL or not settings.WHATSAPP_SIDECAR_TOKEN:
             raise SidecarUnavailable("sidecar url/token is not configured")
         return httpx.AsyncClient(
             base_url=settings.WHATSAPP_SIDECAR_URL.rstrip("/"),
             headers={"Authorization": f"Bearer {settings.WHATSAPP_SIDECAR_TOKEN}"},
-            timeout=httpx.Timeout(settings.WHATSAPP_SIDECAR_TIMEOUT_S, connect=3.0),
+            # An image send queues behind the sidecar's pause, fetch and upload: longer timeout.
+            timeout=httpx.Timeout(
+                (
+                    settings.WHATSAPP_SIDECAR_IMAGE_TIMEOUT_S
+                    if image
+                    else settings.WHATSAPP_SIDECAR_TIMEOUT_S
+                ),
+                connect=3.0,
+            ),
             transport=self._transport,
         )
 
-    async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:  # type: ignore[no-untyped-def]
+    async def _request(  # type: ignore[no-untyped-def]
+        self, method: str, path: str, *, image: bool = False, **kwargs
+    ) -> httpx.Response:
         try:
-            async with self._client() as client:
+            async with self._client(image=image) as client:
                 return await client.request(method, path, **kwargs)
         except httpx.HTTPError as exc:
             # Log only the exception class: the message can embed the URL/headers.
@@ -161,7 +171,12 @@ class LinkedDeviceAdapter:
             payload: dict = {"to_ref": message.chat_ref, "image": image}
         else:
             payload = {"to_ref": message.chat_ref, "text": message.text}
-        resp = await self._request("POST", f"/sessions/{session_key}/send", json=payload)
+        resp = await self._request(
+            "POST",
+            f"/sessions/{session_key}/send",
+            image=bool(message.image_url),
+            json=payload,
+        )
         if resp.status_code == 200:
             return SendResult(message_id=str(resp.json()["message_id"]))
         if resp.status_code == 409:

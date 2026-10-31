@@ -1,0 +1,12 @@
+{
+  "scenario": "second-customer-same-minute-text-kept-photo-skipped",
+  "note": "Another customer writes in the same minute: the number's photo budget is used up, so this customer's text reply goes out normally and the photo is skipped (dropped, never retried, never queued behind).",
+  "customer_said": "tell me about the white sneaker",
+  "fake_sidecar_received": [
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432222@lid",
+      "text": "The Canvas sneaker white is ₦13,500, in stock."
+    }
+  ]
+}

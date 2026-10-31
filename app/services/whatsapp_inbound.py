@@ -44,6 +44,7 @@ from app.schemas.conversation import ConversationSessionCreate, MessageRequest
 from app.schemas.explore import ConversationSource
 from app.services import whatsapp_enqueue
 from app.services.whatsapp_exclusion import chat_phone_hmac, is_excluded
+from app.services.whatsapp_offering_photos import plan_followups
 from app.services.entitlements import get_entitlements_for_tenant_id
 from app.services.conversation_counting import (
     conversation_limit_reached,
@@ -289,8 +290,15 @@ def _tenant_may_use(db: Session, tenant_id: UUID) -> bool:
     return bool(entitlements and entitlements.value("can_use_whatsapp"))
 
 
-async def _enqueue_reply(conn: WhatsAppConnection, chat: WhatsAppChat, text: str, key: str) -> None:
-    await whatsapp_enqueue.enqueue_send(conn.id, chat.id, text, key, guard=True)
+async def _enqueue_reply(
+    conn: WhatsAppConnection,
+    chat: WhatsAppChat,
+    text: str,
+    key: str,
+    followups: list[dict] | None = None,
+) -> None:
+    extra = {"followups": followups} if followups else {}
+    await whatsapp_enqueue.enqueue_send(conn.id, chat.id, text, key, guard=True, **extra)
 
 
 # --------------------------------------------------------------------------- inbound
@@ -414,7 +422,8 @@ async def handle_inbound(db: Session, conn: WhatsAppConnection, event: dict) -> 
             return "stored_human_owns_session"  # escalated: a human answers, no AI reply
         content = (response.message.content or "").strip()
         if content:
-            await _enqueue_reply(conn, chat, content, f"ai:{response.message.id}")
+            steps = await plan_followups(db, conn, chat, response.message)  # never raises
+            await _enqueue_reply(conn, chat, content, f"ai:{response.message.id}", steps)
         return "ai_reply"
     except Exception:
         # Let arq retry: forget the dedupe row so the retry is not skipped as a duplicate.
@@ -666,7 +675,8 @@ async def _handle_image(
             return "stored_human_owns_session"
         content_out = (response.message.content or "").strip()
         if content_out:
-            await _enqueue_reply(conn, chat, content_out, f"ai:{response.message.id}")
+            steps = await plan_followups(db, conn, chat, response.message)  # never raises
+            await _enqueue_reply(conn, chat, content_out, f"ai:{response.message.id}", steps)
         return "ai_reply"
     except Exception:
         _discard_unlinked(db, attachment)

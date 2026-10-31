@@ -382,6 +382,15 @@ class Settings(BaseSettings):
     # enforces its own MEDIA_URL_ALLOWLIST too) and the inbound byte cap (matches web chat).
     WHATSAPP_MEDIA_URL_HOSTS: str = "res.cloudinary.com"
     WHATSAPP_MEDIA_MAX_BYTES: int = 10 * 1024 * 1024
+    # An image send is serialised behind the sidecar's pause, fetch and upload (up to ~45 s), so
+    # it gets a longer per-call timeout than a text; a timeout is never retried for a catalog photo.
+    WHATSAPP_SIDECAR_IMAGE_TIMEOUT_S: float = 60.0
+    # Catalog (Offerings) photos share the number's sidecar send budget with every chat's text, so
+    # they get their own per-CONNECTION budget: a photo is skipped, never retried, past it.
+    # WHATSAPP_DAILY_SEND_CAP mirrors the sidecar's DAILY_SEND_CAP (200 per session per UTC day).
+    WHATSAPP_DAILY_SEND_CAP: int = 200
+    WHATSAPP_CATALOG_PHOTOS_PER_MIN: int = 2
+    WHATSAPP_CATALOG_PHOTO_DAILY_PCT: int = 15
 
     def get_trial_expiry_reminder_days(self) -> list[int]:
         """Parse and validate reminder windows from env setting."""

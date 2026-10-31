@@ -1,0 +1,12 @@
+{
+  "scenario": "menu-text-only",
+  "note": "More than 3 items shown is a menu: text only, no photos.",
+  "customer_said": "what do you have?",
+  "fake_sidecar_received": [
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432111@lid",
+      "text": "Here is what we have:\n#1 Canvas sneaker black - ₦12,000\n#2 Canvas sneaker white - ₦13,500\n#3 Leather bag - ₦45,000\n#4 Silk scarf - ₦6,500\n#5 Wool cap - ₦4,000\n#6 Beach sandals - ₦8,000"
+    }
+  ]
+}

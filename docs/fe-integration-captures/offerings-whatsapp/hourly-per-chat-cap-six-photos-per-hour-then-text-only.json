@@ -1,0 +1,153 @@
+{
+  "scenario": "per-chat-cap-six-photos-per-hour-then-text-only",
+  "note": "Connection budgets raised out of the way for this run. Seven replies about items that all have photos: six photos go (6 per chat per hour), the seventh keeps its text and loses its photo.",
+  "rounds": [
+    {
+      "customer_said": "tell me about the black sneaker",
+      "received": [
+        "text",
+        "image"
+      ],
+      "messages": [
+        {
+          "key": "<session-key-placeholder>",
+          "to_ref": "198765432222@lid",
+          "text": "The Canvas sneaker black is ₦12,000, in stock."
+        },
+        {
+          "key": "<session-key-placeholder>",
+          "to_ref": "198765432222@lid",
+          "image": {
+            "url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1280,h_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/10b8d435-fbe9-4789-93f8-8159415bcf03/ee81148c1ba7447eb5fefe50c9f34ca8.jpg",
+            "caption": "#1 Canvas sneaker black · ₦12,000 · In stock"
+          }
+        }
+      ]
+    },
+    {
+      "customer_said": "tell me about the white sneaker",
+      "received": [
+        "text",
+        "image"
+      ],
+      "messages": [
+        {
+          "key": "<session-key-placeholder>",
+          "to_ref": "198765432222@lid",
+          "text": "The Canvas sneaker white is ₦13,500, in stock."
+        },
+        {
+          "key": "<session-key-placeholder>",
+          "to_ref": "198765432222@lid",
+          "image": {
+            "url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1280,h_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/10b8d435-fbe9-4789-93f8-8159415bcf03/394c2a6228dd481d9b83acfd4194f530.jpg",
+            "caption": "#2 Canvas sneaker white · ₦13,500 · In stock"
+          }
+        }
+      ]
+    },
+    {
+      "customer_said": "tell me about the silk scarf",
+      "received": [
+        "text",
+        "image"
+      ],
+      "messages": [
+        {
+          "key": "<session-key-placeholder>",
+          "to_ref": "198765432222@lid",
+          "text": "The Silk scarf is ₦6,500, in stock."
+        },
+        {
+          "key": "<session-key-placeholder>",
+          "to_ref": "198765432222@lid",
+          "image": {
+            "url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1280,h_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/10b8d435-fbe9-4789-93f8-8159415bcf03/7e5a8bcd117c4d969015e1eb0ebc1c56.jpg",
+            "caption": "#4 Silk scarf · ₦6,500 · In stock"
+          }
+        }
+      ]
+    },
+    {
+      "customer_said": "tell me about the wool cap",
+      "received": [
+        "text",
+        "image"
+      ],
+      "messages": [
+        {
+          "key": "<session-key-placeholder>",
+          "to_ref": "198765432222@lid",
+          "text": "The Wool cap is ₦4,000, in stock."
+        },
+        {
+          "key": "<session-key-placeholder>",
+          "to_ref": "198765432222@lid",
+          "image": {
+            "url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1280,h_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/10b8d435-fbe9-4789-93f8-8159415bcf03/035f260d56284cdda846ee8f47dab8e3.jpg",
+            "caption": "#5 Wool cap · ₦4,000 · In stock"
+          }
+        }
+      ]
+    },
+    {
+      "customer_said": "tell me about the black sneaker",
+      "received": [
+        "text",
+        "image"
+      ],
+      "messages": [
+        {
+          "key": "<session-key-placeholder>",
+          "to_ref": "198765432222@lid",
+          "text": "The Canvas sneaker black is ₦12,000, in stock."
+        },
+        {
+          "key": "<session-key-placeholder>",
+          "to_ref": "198765432222@lid",
+          "image": {
+            "url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1280,h_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/10b8d435-fbe9-4789-93f8-8159415bcf03/ee81148c1ba7447eb5fefe50c9f34ca8.jpg",
+            "caption": "#1 Canvas sneaker black · ₦12,000 · In stock"
+          }
+        }
+      ]
+    },
+    {
+      "customer_said": "tell me about the white sneaker",
+      "received": [
+        "text",
+        "image"
+      ],
+      "messages": [
+        {
+          "key": "<session-key-placeholder>",
+          "to_ref": "198765432222@lid",
+          "text": "The Canvas sneaker white is ₦13,500, in stock."
+        },
+        {
+          "key": "<session-key-placeholder>",
+          "to_ref": "198765432222@lid",
+          "image": {
+            "url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1280,h_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/10b8d435-fbe9-4789-93f8-8159415bcf03/394c2a6228dd481d9b83acfd4194f530.jpg",
+            "caption": "#2 Canvas sneaker white · ₦13,500 · In stock"
+          }
+        }
+      ]
+    },
+    {
+      "customer_said": "tell me about the silk scarf",
+      "received": [
+        "text"
+      ],
+      "messages": [
+        {
+          "key": "<session-key-placeholder>",
+          "to_ref": "198765432222@lid",
+          "text": "The Silk scarf is ₦6,500, in stock."
+        }
+      ]
+    }
+  ],
+  "photos_sent_to_this_chat": 6,
+  "limiter_entries_in_redis": 6
+}

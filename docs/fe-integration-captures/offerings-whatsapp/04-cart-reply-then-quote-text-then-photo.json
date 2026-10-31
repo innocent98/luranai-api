@@ -1,0 +1,25 @@
+{
+  "scenario": "cart-reply-then-quote-text-then-photo",
+  "note": "Reply, then the quote as a plain-text message (rendered by code from the stored catalog quote), then the item photo: each is queued only after the one before it was sent. This was the connection's second catalog photo within the minute.",
+  "customer_said": "I want 2 black sneakers",
+  "fake_sidecar_received": [
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432111@lid",
+      "text": "Noted: 2 × Canvas sneaker black. What name should I put down?"
+    },
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432111@lid",
+      "text": "2 × Canvas sneaker black — ₦24,000\nTotal: ₦24,000\nThe team will confirm availability and arrange payment."
+    },
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432111@lid",
+      "image": {
+        "url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1280,h_1280,q_auto:good,f_jpg/v1730000000/luran/offerings/9c816b5d-5a60-42cb-a089-1fe58d3a224d/87ba09bde6b34d9cba4f8b4bc6ce7825.jpg",
+        "caption": "#1 Canvas sneaker black · ₦12,000 · In stock"
+      }
+    }
+  ]
+}

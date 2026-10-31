@@ -1,0 +1,12 @@
+{
+  "scenario": "sold-out-text-only",
+  "note": "The sandals have a photo but are sold out: the AI says so, no photo is sent.",
+  "customer_said": "tell me about the beach sandals",
+  "fake_sidecar_received": [
+    {
+      "key": "<session-key-placeholder>",
+      "to_ref": "198765432111@lid",
+      "text": "The Beach sandals is sold out right now. Would you like me to connect you with the team?"
+    }
+  ]
+}

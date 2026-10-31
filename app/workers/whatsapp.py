@@ -15,8 +15,18 @@ from app.channels.base import SidecarUnavailable
 from app.core.encryption import try_decrypt_field
 from app.db.session import SessionLocal
 from app.core.config import settings
-from app.services import whatsapp_capacity, whatsapp_inbound
-from app.services.whatsapp_outbound import RetrySend, send_image, send_text
+from app.services import (
+    whatsapp_capacity,
+    whatsapp_enqueue,
+    whatsapp_inbound,
+    whatsapp_offering_photos,
+)
+from app.services.whatsapp_outbound import (
+    RetrySend,
+    send_image,
+    send_offering_image,
+    send_text,
+)
 
 _CHAT_LOCK_TTL_S = 120
 # A busy chat (the previous message's AI turn is still running) is waited for in-job for up to
@@ -88,10 +98,11 @@ async def send_whatsapp_message(
     text: str,
     guard: bool = False,
     rating_request_id: str | None = None,
+    followups: str | None = None,
 ) -> str:
     db = SessionLocal()
     try:
-        return await send_text(
+        outcome = await send_text(
             db,
             UUID(connection_id),
             UUID(chat_id),
@@ -100,6 +111,13 @@ async def send_whatsapp_message(
             guard,
             UUID(rating_request_id) if rating_request_id else None,
         )
+        if outcome == "sent" and followups:
+            # The catalog quote text and photos are released only now that the reply is out, so
+            # they cannot overtake it. run_followups never raises (the text must not be retried).
+            await whatsapp_offering_photos.run_followups(
+                UUID(connection_id), UUID(chat_id), whatsapp_enqueue.unseal_steps(followups)
+            )
+        return outcome
     except RetrySend as exc:
         raise Retry(defer=exc.defer_s) from None
     finally:
@@ -118,6 +136,24 @@ async def send_whatsapp_image(
             UUID(attachment_id),
             try_decrypt_field(caption) if caption else None,
             int(ctx.get("job_try", 1)),
+        )
+    except RetrySend as exc:
+        raise Retry(defer=exc.defer_s) from None
+    finally:
+        db.close()
+
+
+async def send_whatsapp_offering_image(
+    ctx: dict, connection_id: str, chat_id: str, offering_image_id: str
+) -> str:
+    db = SessionLocal()
+    try:
+        return await send_offering_image(
+            db,
+            UUID(connection_id),
+            UUID(chat_id),
+            UUID(offering_image_id),
+            str(ctx.get("job_id") or f"{chat_id}:{offering_image_id}"),
         )
     except RetrySend as exc:
         raise Retry(defer=exc.defer_s) from None
