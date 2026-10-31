@@ -2,6 +2,7 @@
 
 import time
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 
 from fastapi import HTTPException, Request, status
 
@@ -75,6 +76,20 @@ voice_llm_turn_rate_limiter = RedisRateLimiter(
     key_prefix="http_voice_llm_turn",
     max_calls=30,
     window_seconds=60,
+)
+
+# Quote emailed to a visitor (sales agent): the address was typed into a public chat, so one
+# conversation and one network each get a small daily budget. Keyed by conversation id / client IP
+# (never by the address). The per-address and per-tenant caps live in the notification log.
+quote_email_session_rate_limiter = RedisRateLimiter(
+    key_prefix="http_quote_email_session",
+    max_calls=settings.QUOTE_VISITOR_EMAIL_SESSION_CAP_24H,
+    window_seconds=86400,
+)
+quote_email_ip_rate_limiter = RedisRateLimiter(
+    key_prefix="http_quote_email_ip",
+    max_calls=settings.QUOTE_VISITOR_EMAIL_IP_CAP_24H,
+    window_seconds=86400,
 )
 
 upload_rate_limiter = RedisRateLimiter(
@@ -220,6 +235,15 @@ whatsapp_pairing_rate_limiter = RedisRateLimiter(
 )
 
 _last_rate_limiter_error_log_at = 0.0
+
+# The caller's IP for code deep inside a request that has no `Request` (the chat handler's sales
+# step). Set by `bind_client_ip`; stays None for channels with no IP (WhatsApp).
+request_client_ip: ContextVar[str | None] = ContextVar("request_client_ip", default=None)
+
+
+async def bind_client_ip(request: Request) -> None:
+    """Dependency: remember the caller's IP for this request (same source as the IP limiters)."""
+    request_client_ip.set(request.client.host if request.client else None)
 
 
 async def check_rate_limit(

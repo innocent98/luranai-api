@@ -1,0 +1,32 @@
+{
+  "count": 2,
+  "visitor": {
+    "headers": {
+      "From": "Acme Logistics <noreply@luran.example>",
+      "To": "alice@example.com",
+      "Reply-To": "sales@acme-logistics.example",
+      "Subject": "Your quote from Acme Logistics"
+    },
+    "attachments": [
+      {
+        "filename": "quote-232f6ed3-f55f-4961-9508-b4dcfc77e7d6.pdf",
+        "bytes": 19953,
+        "magic": "%PDF-"
+      }
+    ]
+  },
+  "rep": {
+    "headers": {
+      "From": "Luran <noreply@luran.example>",
+      "To": "sales@acme-logistics.example",
+      "Subject": "New quote generated"
+    },
+    "attachments": [
+      {
+        "filename": "quote-232f6ed3-f55f-4961-9508-b4dcfc77e7d6.pdf",
+        "bytes": 19953,
+        "magic": "%PDF-"
+      }
+    ]
+  }
+}

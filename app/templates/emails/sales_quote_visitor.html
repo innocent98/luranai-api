@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Your quote from {{ company }}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; color: #1f2937; line-height: 1.5; max-width: 560px; margin: 0 auto; padding: 24px;">
+  <h1 style="font-size: 20px; margin: 0 0 16px;">{{ company }}</h1>
+  <p>{{ greeting }}</p>
+  <p>Here is the quote you asked for in your chat with {{ company }}.</p>
+  <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
+    {% for it in items %}
+    <tr>
+      <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb;">{{ it.label }}{% if it.detail %}<br><span style="color: #6b7280; font-size: 13px;">{{ it.detail }}</span>{% endif %}</td>
+      <td style="padding: 8px 0; border-bottom: 1px solid #e5e7eb; text-align: right; white-space: nowrap;{% if it.negative %} color: #16a34a;{% endif %}">{{ it.amount_fmt }}</td>
+    </tr>
+    {% endfor %}
+    <tr>
+      <td style="padding: 12px 0 0; font-weight: bold;">Estimated total</td>
+      <td style="padding: 12px 0 0; text-align: right; font-weight: bold; white-space: nowrap;">{{ total_fmt }}</td>
+    </tr>
+  </table>
+  {% if has_pdf %}<p>The same quote is attached as a PDF.</p>{% endif %}
+  <p>Reply to this email to reach {{ company }}.</p>
+  <p style="color: #6b7280; font-size: 12px; margin-top: 32px;">You received this because this address was entered in a chat with {{ company }}. If that wasn't you, you can ignore this email.</p>
+</body>
+</html>

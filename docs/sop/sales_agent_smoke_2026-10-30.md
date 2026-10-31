@@ -41,4 +41,6 @@ Staging/prod config and data (SMTP creds, `FRONTEND_URL`, plan rows on the VPS);
 Nothing deployed. Stack torn down (processes stopped, containers removed, throwaway env and keys deleted). To re-run: start Postgres/Redis/Qdrant/Mailpit on free ports, migrate, seed plans, start `standins.py`, uvicorn and `run_worker.py` (with `SMOKE_ALLOW_LOOPBACK=1`), then `PYTHONPATH=. poetry run python docs/fe-integration-captures/sales-agent-smoke-2026-10-30/harness/drive.py` with `OPENAI_BASE_URL=http://127.0.0.1:58090/v1`, `SMTP_HOST/PORT` pointed at Mailpit, `ENVIRONMENT=development`.
 
 ## Follow-ups
+UPDATE 2026-10-31: the owner's prod test then found two more gaps that this smoke did not cover: no code path emailed a quote to the visitor (the AI offered to, nothing sent) and the rep alert showed only a name. Both are fixed in `feature/sales-quote-visitor-email` (SOP `docs/sop/sales_quote_visitor_email.md`).
+
 Defects 1-3: done in #194. WhatsApp quote/picker plan (send the quote as text; no picker over WhatsApp) before pilots use WhatsApp for sales; verify with the real model and a real inbox on staging when credentials allow.
