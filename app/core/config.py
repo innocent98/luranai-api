@@ -252,6 +252,15 @@ class Settings(BaseSettings):
     RATE_LIMIT_FAIL_OPEN: bool = True
     RATE_LIMIT_ERROR_LOG_COOLDOWN_SECONDS: int = 60
 
+    # Quote emailed to the visitor who asked for it (see docs/sop/sales_quote_visitor_email.md).
+    # The visitor typed the address into a public chat, so each send is capped. The two Redis
+    # limiters read their numbers at start-up (restart to change); the DB counts read them live.
+    QUOTE_VISITOR_EMAIL_ENABLED: bool = True
+    QUOTE_VISITOR_EMAIL_TENANT_DAILY_CAP: int = 50
+    QUOTE_VISITOR_EMAIL_RECIPIENT_CAP_24H: int = 3
+    QUOTE_VISITOR_EMAIL_SESSION_CAP_24H: int = 3
+    QUOTE_VISITOR_EMAIL_IP_CAP_24H: int = 10
+
     # Subscription/trial reminder scheduling
     # Comma-separated day offsets before expiry. Example: "14,7,3,1,0"
     TRIAL_EXPIRY_REMINDER_DAYS: str = "14,7,3,1,0"

@@ -28,6 +28,24 @@
     <div class="credential-value">{{ company }}</div>
   </div>
   {% endif %}
+  {% if email %}
+  <div style="margin-bottom: 12px;">
+    <div class="credential-label">Email</div>
+    <div class="credential-value">{{ email }}</div>
+  </div>
+  {% endif %}
+  {% if phone %}
+  <div style="margin-bottom: 12px;">
+    <div class="credential-label">Phone</div>
+    <div class="credential-value">{{ phone }}</div>
+  </div>
+  {% endif %}
+  {% if channel %}
+  <div style="margin-bottom: 12px;">
+    <div class="credential-label">Channel</div>
+    <div class="credential-value">{{ channel }}</div>
+  </div>
+  {% endif %}
   {% if kind == "lead" and score is not none %}
   <div style="margin-bottom: 12px;">
     <div class="credential-label">Lead Score</div>
@@ -40,13 +58,19 @@
     <div class="credential-value">{{ scheduled_at }}</div>
   </div>
   {% endif %}
-  {% if kind == "quote" %}
-  {% if total is not none %}
+  {% if kind == "quote" and total is not none %}
   <div style="margin-bottom: 12px;">
     <div class="credential-label">Quote Total</div>
-    <div class="credential-value">{{ currency }} {{ total }}</div>
+    <div class="credential-value">{{ total_fmt or total }}</div>
   </div>
   {% endif %}
+  {% if items %}
+  <div style="margin-bottom: 12px;">
+    <div class="credential-label">{% if kind == "quote" %}Quote lines{% else %}Items they asked about{% endif %}</div>
+    {% for it in items %}
+    <div class="credential-value" style="font-size: 14px;">{{ it.label }}{% if it.detail %} ({{ it.detail }}){% endif %}: {{ it.amount_fmt }}</div>
+    {% endfor %}
+  </div>
   {% endif %}
 </div>
 

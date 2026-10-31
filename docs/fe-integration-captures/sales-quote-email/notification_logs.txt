@@ -1,0 +1,16 @@
+         event         | channel | status |          recipient           | entity_type |   body_key   |          title           | error 
+-----------------------+---------+--------+------------------------------+-------------+--------------+--------------------------+-------
+ quote_generated       | email   | sent   | sales@acme-logistics.example | quote       |              |                          | 
+ quote_emailed_visitor | email   | sent   | alice@example.com            | quote       | ff8d9819fc0e | Quote emailed to visitor | 
+ quote_generated       | email   | sent   | sales@acme-logistics.example | quote       |              |                          | 
+ quote_generated       | email   | sent   | sales@acme-logistics.example | quote       |              |                          | 
+ quote_emailed_visitor | email   | sent   | bob@example.com              | quote       | 5ff860bf1190 | Quote emailed to visitor | 
+ quote_generated       | email   | sent   | sales@acme-logistics.example | quote       |              |                          | 
+ quote_emailed_visitor | email   | sent   | victim@example.com           | quote       | ffbe8cff4f9f | Quote emailed to visitor | 
+ quote_generated       | email   | sent   | sales@acme-logistics.example | quote       |              |                          | 
+ quote_emailed_visitor | email   | sent   | victim@example.com           | quote       | ffbe8cff4f9f | Quote emailed to visitor | 
+ quote_generated       | email   | sent   | sales@acme-logistics.example | quote       |              |                          | 
+ quote_emailed_visitor | email   | sent   | victim@example.com           | quote       | ffbe8cff4f9f | Quote emailed to visitor | 
+ quote_generated       | email   | sent   | sales@acme-logistics.example | quote       |              |                          | 
+(12 rows)
+

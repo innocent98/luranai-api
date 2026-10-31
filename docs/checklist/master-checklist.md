@@ -13,6 +13,8 @@ Snapshot (Referral program): backend Tasks 1-10 built and tested on branch `feat
 
 Snapshot (WhatsApp contact exclusion, T15): backend built on `feature/whatsapp-contact-exclusion` (2026-10-29), PR to `develop` open, NOT merged; migration `wa40contactexclusion`; per-connection list of ignored contacts (webhook + worker + sender checks), live-verified against the running app with the fake sidecar; dashboard UI is a separate PR; gate for the public `WHATSAPP_ENABLED` flip. Production untouched.
 
+Snapshot (Sales quote email to the visitor): built on `feature/sales-quote-visitor-email` (2026-10-31), PR to `develop` open, NOT merged; migration `qv10quotevisitoremail`; rep alert now shows email/phone/channel/total/items; the quote PDF is emailed to the visitor (auto-send, capped per address/tenant/conversation/IP) and the AI can no longer promise an email; live-run against the real app with Mailpit; Offerings (S2) quotes not wired yet. Prod untouched.
+
 Snapshot (Conversation limit numbers): built on `feature/conversation-limit-numbers` (2026-10-29), PR to `develop` open, NOT merged; migration `cl10conversationlimits`; two owner decisions open (Growth prod tenant, the 10,001-24,999 gap); prod untouched.
 
 Snapshot (Conversation counting): built on `feature/conversation-counting-window` (2026-10-29), PR to `develop` open, NOT merged; 6-hour same-conversation window + one shared limit check; no plan numbers changed, no migration; `luran-chat` must adopt a changed `session_id`. Prod untouched.
@@ -192,10 +194,22 @@ Why: plans differed only by volume plus five flags; the sales agent, Slack/CRM, 
 - [x] FE guide with live captures; SOP
 - [ ] Paystack: create the Lite 15,000 monthly/annual plans and point the env at them BEFORE the new price reaches prod (owner action, see SOP)
 - [ ] Chat sales branch and the queued-worker paths verified with a real LLM / real Slack (unit/integration tests only)
-  - 2026-10-30: re-run end to end locally on the real code with a stand-in LLM, local Slack/CRM receivers and a mail stub: 69/69 live checks + 396 tests pass (SOP `docs/sop/sales_agent_smoke_2026-10-30.md`). Still open: real model, real Slack/CRM/inbox, staging/prod. Defects from it: quote PDF naira box, lead score not sticky and rep-email CTA `#` are fixed in PR #194 (pending merge, SOP `docs/sop/sales_quote_pdf_score_link_fixes.md`); still open: WhatsApp does not carry the quote card/picker (catalog plan).
+  - 2026-10-30: re-run end to end locally on the real code with a stand-in LLM, local Slack/CRM receivers and a mail stub: 69/69 live checks + 396 tests pass (SOP `docs/sop/sales_agent_smoke_2026-10-30.md`). Still open: real model, real Slack/CRM/inbox, staging/prod. Defects from it: quote PDF naira box, lead score not sticky and rep-email CTA `#` are fixed in PR #194 (pending merge, SOP `docs/sop/sales_quote_pdf_score_link_fixes.md`); still open: WhatsApp does not carry the quote card/picker (catalog plan). 2026-10-31: the missing visitor email for quotes is built in `feature/sales-quote-visitor-email` (see its section).
 - [ ] Dashboard: lock badges, upgrade prompts, 403 `feature_not_in_plan` handling (separate track)
 - [ ] Docs site and public pricing page copy (after prod promotion)
 - [ ] Prod promotion (migration + seed review) — lead / Adebayo
+
+## Sales quote email to the visitor — IN PROGRESS (built 2026-10-31, PR open to `develop`, not merged; prod untouched)
+Why: owner's prod test: the AI asked "should I email it to you?", the visitor said yes, nothing arrived (no code path emailed a visitor), and the rep alert showed only a name. Docs: SOP `docs/sop/sales_quote_visitor_email.md`; FE guide `docs/fe-integration-guide-sales-quote-email.md`; captures `docs/fe-integration-captures/sales-quote-email/`. Branch `feature/sales-quote-visitor-email`.
+- [x] A. Rep alert (email, Slack, in-app) carries visitor email, phone, name, company, channel, total with currency symbol, quote lines, dashboard link; everything escaped; email still sent when the PDF fails
+- [x] B. `send_visitor_quote_email` ARQ job: body + PDF, tenant name in subject/From, Reply-To the rep address, plain (no links/images/tracking); log event `quote_emailed_visitor`; idempotent (one per quote, ARQ job id, row lock)
+- [x] B. Consent/abuse design: auto-send (not an explicit-yes field), kill switch, per-quote, per-tenant 50/day, per-address 3/24 h across tenants (`+tag` folded), per-conversation 3/24 h, per-IP 10/24 h; masked address in the reply (code-written)
+- [x] C. Guard: prompt rule 12 + code filter removes model "I'll email it" sentences on every reply path; test that no reply path promises an email when none will be sent
+- [x] `EmailService` optional `reply_to` / `from_name` with header-injection guard; migration one head, round trip on scratch Postgres
+- [x] Live run (real API, worker, Postgres, Redis, Mailpit; model stood in) with captures
+- [ ] Real model on staging: confirm the strip filter covers its real phrasings; real inbox/SMTP check
+- [ ] Offerings (S2) quote path: call `email_quote_to_visitor` after `issue_quote` and keep the reply guard (lines in the SOP)
+- [ ] Prod promotion — lead / Adebayo
 
 ## Referral program (marketer recruits) — IN PROGRESS (backend built 2026-10-29, PR not yet opened; dashboard stream and owner actions open; prod untouched)
 Why: Luran wants marketers and influencers to bring businesses, paid a one-time 5,000 naira only after the referred tenant's first successful payment (zero up-front cost; prod has 13 tenants, 0 payments, ~1.6 signups a month). Docs: SOP `docs/sop/referral_program_backend.md`; FE guide `docs/fe-integration-guide-referral.md`; captures `docs/fe-integration-captures/referral/` (78, from `scripts/capture_referral.py`); spec `docs/superpowers/specs/2026-10-28-referral-program-design.md`; plan `docs/superpowers/plans/2026-10-28-referral-program-backend.md`. Branch `feature/referral-backend` (migration `ref10referral`, down_revision `wa20ratingreply`). PR: [innocent98/luranai-api#174](https://github.com/innocent98/luranai-api/pull/174).
