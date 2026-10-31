@@ -7,20 +7,20 @@
     "headers": {},
     "body": {
       "message": "and one white one",
-      "tenant_id": "e8acedc8-2256-45b2-852b-a8b8c47ac710",
+      "tenant_id": "60b080c1-74fa-4f5d-b054-38b4462948c7",
       "user_identifier": "web-8",
-      "session_id": "7b42f4f5-9c7c-431e-a82b-d2a7f8731fa7"
+      "session_id": "c924f510-8ef8-4234-9586-bdc5b63325bb"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "7b42f4f5-9c7c-431e-a82b-d2a7f8731fa7",
+      "session_id": "c924f510-8ef8-4234-9586-bdc5b63325bb",
       "message": {
         "role": "assistant",
         "content": "Noted: 1 × Canvas sneaker white. What name should I put down?",
-        "id": "f9d5fc9e-708e-47ba-92f2-b630b455e80d",
-        "session_id": "7b42f4f5-9c7c-431e-a82b-d2a7f8731fa7",
+        "id": "1a52aa96-c011-4a1c-a33f-195c2152fbf3",
+        "session_id": "c924f510-8ef8-4234-9586-bdc5b63325bb",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -46,7 +46,7 @@
             "items": [
               {
                 "ref": "#2",
-                "offering_id": "579cdaca-b707-47a9-a7f7-37d778660a9f",
+                "offering_id": "96cff34c-3484-4ba0-92a5-2084d4a22f55",
                 "name": "Canvas sneaker white",
                 "price_text": "₦13,500",
                 "availability": "in_stock",
@@ -55,7 +55,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T09:06:38.286955+00:00",
+            "shown_at": "2026-10-31T09:49:02.111454+00:00",
             "guard": {
               "checked": true,
               "blocked": false,
@@ -80,7 +80,7 @@
             "total": 37500
           }
         },
-        "created_at": "2026-10-31T09:06:38.340562Z"
+        "created_at": "2026-10-31T09:49:02.173347Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,

@@ -1,6 +1,6 @@
 # Offerings eval (fake model)
 
-Run: 2026-10-31T08:52:32+00:00 · cases: 63 · failed: 0
+Run: 2026-10-31T09:48:31+00:00 · cases: 63 · failed: 0
 
 Guard interventions across the run (replies the guard had to stop): {'blocked': 8, 'regenerated': 8, 'fell_back': 1}
 
@@ -104,7 +104,7 @@ None.
 
 ### hag-05 (haggling, sales)
 - Customer: What is your lowest for the watch?
-- AI: The Wrist watch is listed at ₦25,000. I've noted your request.
+- AI: The listed price for the Wrist watch is ₦25,000 and it is firm.
 
 ### hag-06 (haggling, sales)
 - Customer: give me 20% discount on the black sneaker

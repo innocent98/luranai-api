@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "I fit pay 18k",
-      "tenant_id": "e8acedc8-2256-45b2-852b-a8b8c47ac710",
+      "tenant_id": "60b080c1-74fa-4f5d-b054-38b4462948c7",
       "user_identifier": "web-15"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "766f7f22-33d5-4c19-b7aa-e31b3b852bcc",
+      "session_id": "89cbceff-5d28-485d-9223-125281c01760",
       "message": {
         "role": "assistant",
         "content": "I can't change prices myself, but the team can discuss it with you.\n\nWould you like me to connect you with the team?",
-        "id": "570baf8c-7a4c-4e36-99a0-fb2f1572b6ae",
-        "session_id": "766f7f22-33d5-4c19-b7aa-e31b3b852bcc",
+        "id": "05bff2f0-2d2c-459a-877a-6185e44acd7c",
+        "session_id": "89cbceff-5d28-485d-9223-125281c01760",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -43,7 +43,7 @@
           "offerings": {
             "mode": "none",
             "items": [],
-            "shown_at": "2026-10-31T09:06:43.513193+00:00",
+            "shown_at": "2026-10-31T09:49:10.696854+00:00",
             "guard": {
               "checked": false,
               "blocked": false,
@@ -52,7 +52,7 @@
             }
           }
         },
-        "created_at": "2026-10-31T09:06:43.541577Z"
+        "created_at": "2026-10-31T09:49:10.724687Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,

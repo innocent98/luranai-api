@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "can you do delivery to Lekki for the black sneaker?",
-      "tenant_id": "e8acedc8-2256-45b2-852b-a8b8c47ac710",
+      "tenant_id": "60b080c1-74fa-4f5d-b054-38b4462948c7",
       "user_identifier": "web-14"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "f338442c-9899-4dcb-a816-fe4599ac0187",
+      "session_id": "8111872b-cd22-4be9-8d8c-5580fbab5b81",
       "message": {
         "role": "assistant",
         "content": "I've noted your request; the team will confirm.",
-        "id": "39605ce5-21de-4f39-9bfb-e04a8d886723",
-        "session_id": "f338442c-9899-4dcb-a816-fe4599ac0187",
+        "id": "6266b4b6-1ed4-42a4-ac55-a39eed42cde4",
+        "session_id": "8111872b-cd22-4be9-8d8c-5580fbab5b81",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -43,7 +43,7 @@
           "offerings": {
             "mode": "detail",
             "items": [],
-            "shown_at": "2026-10-31T09:06:43.449455+00:00",
+            "shown_at": "2026-10-31T09:49:10.615816+00:00",
             "guard": {
               "checked": true,
               "blocked": false,
@@ -52,7 +52,7 @@
             }
           }
         },
-        "created_at": "2026-10-31T09:06:43.473189Z"
+        "created_at": "2026-10-31T09:49:10.648149Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,
