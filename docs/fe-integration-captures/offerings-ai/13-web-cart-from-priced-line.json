@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "I'll take the phone repair",
-      "tenant_id": "60b080c1-74fa-4f5d-b054-38b4462948c7",
+      "tenant_id": "2c69e301-ee2d-4ab0-af75-3694e0c34a8c",
       "user_identifier": "web-9"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "566220b7-1407-4f33-9450-116c12a8f797",
+      "session_id": "d3b2f1aa-a212-47c3-a837-939d6af1f284",
       "message": {
         "role": "assistant",
         "content": "Noted: 1 × Phone repair. What name should I put down?",
-        "id": "9c190714-73d0-4f30-8ac4-1df120477d45",
-        "session_id": "566220b7-1407-4f33-9450-116c12a8f797",
+        "id": "405c018f-8cc2-4c3e-be7b-3310eeb969c8",
+        "session_id": "d3b2f1aa-a212-47c3-a837-939d6af1f284",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -45,7 +45,7 @@
             "items": [
               {
                 "ref": "#4",
-                "offering_id": "51dee26a-ef2a-4050-9940-ebdf0c95bccb",
+                "offering_id": "7b03dba9-d1ff-4a08-8cfc-cd6f1e1051ae",
                 "name": "Phone repair",
                 "price_text": "from ₦5,000 per phone",
                 "availability": "in_stock",
@@ -54,7 +54,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T09:49:02.450087+00:00",
+            "shown_at": "2026-10-31T11:24:22.916827+00:00",
             "guard": {
               "checked": true,
               "blocked": false,
@@ -63,7 +63,7 @@
             }
           }
         },
-        "created_at": "2026-10-31T09:49:02.518608Z"
+        "created_at": "2026-10-31T11:24:22.978661Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,

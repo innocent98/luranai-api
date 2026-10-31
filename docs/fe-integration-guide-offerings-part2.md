@@ -62,17 +62,17 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
     "items": [
       {
         "ref": "#1",
-        "offering_id": "ddef1317-ea5b-4053-b3fc-00f358e094b6",
+        "offering_id": "da917319-c987-4bb1-86f4-51efe9df7981",
         "name": "Canvas sneaker black",
         "price_text": "₦12,000",
         "availability": "in_stock",
-        "cover_image_id": "9baae99b-83d5-44d5-a383-8bb17104ed64",
-        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/60b080c1-74fa-4f5d-b054-38b4462948c7/a6af6d65e3c349dc8c58192455cf8ca0.jpg",
+        "cover_image_id": "b59a94aa-52d0-48a1-a872-1763aa18929f",
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/2c69e301-ee2d-4ab0-af75-3694e0c34a8c/251d6f3e67014f8d91248894cc930743.jpg",
         "photo_count": 2
       },
       {
         "ref": "#2",
-        "offering_id": "96cff34c-3484-4ba0-92a5-2084d4a22f55",
+        "offering_id": "31dcf8e1-49d3-4fd3-a73c-e6a03502ae80",
         "name": "Canvas sneaker white",
         "price_text": "₦13,500",
         "availability": "in_stock",
@@ -82,7 +82,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
       },
       {
         "ref": "#3",
-        "offering_id": "6a12f169-b63a-4d02-8714-8c36bcc4a32b",
+        "offering_id": "f657e106-a129-42ad-b248-ab33a537bc97",
         "name": "Leather bag",
         "price_text": "₦45,000",
         "availability": "in_stock",
@@ -92,7 +92,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
       },
       {
         "ref": "#4",
-        "offering_id": "51dee26a-ef2a-4050-9940-ebdf0c95bccb",
+        "offering_id": "7b03dba9-d1ff-4a08-8cfc-cd6f1e1051ae",
         "name": "Phone repair",
         "price_text": "from ₦5,000 per phone",
         "availability": "in_stock",
@@ -102,7 +102,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
       },
       {
         "ref": "#5",
-        "offering_id": "138e243d-a683-4229-b77a-443645d53dba",
+        "offering_id": "ebad2fac-fb55-4537-b697-fb7f7364532a",
         "name": "Beach sandals",
         "price_text": "₦8,000",
         "availability": "out_of_stock",
@@ -111,7 +111,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
         "photo_count": 0
       }
     ],
-    "shown_at": "2026-10-31T09:49:01.092101+00:00",
+    "shown_at": "2026-10-31T11:24:21.338264+00:00",
     "guard": {
       "checked": true,
       "blocked": false,
@@ -130,16 +130,16 @@ A single item with two photos (capture `02`; the reply text is `"The Canvas snea
   "items": [
     {
       "ref": "#1",
-      "offering_id": "ddef1317-ea5b-4053-b3fc-00f358e094b6",
+      "offering_id": "da917319-c987-4bb1-86f4-51efe9df7981",
       "name": "Canvas sneaker black",
       "price_text": "₦12,000",
       "availability": "in_stock",
-      "cover_image_id": "9baae99b-83d5-44d5-a383-8bb17104ed64",
-      "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/60b080c1-74fa-4f5d-b054-38b4462948c7/a6af6d65e3c349dc8c58192455cf8ca0.jpg",
+      "cover_image_id": "b59a94aa-52d0-48a1-a872-1763aa18929f",
+      "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/2c69e301-ee2d-4ab0-af75-3694e0c34a8c/251d6f3e67014f8d91248894cc930743.jpg",
       "photo_count": 2
     }
   ],
-  "shown_at": "2026-10-31T09:49:01.521079+00:00",
+  "shown_at": "2026-10-31T11:24:21.729972+00:00",
   "guard": {
     "checked": true,
     "blocked": false,
@@ -155,7 +155,7 @@ Not listed (capture `04`; reply `"I don't have that listed. Would you like me to
 {
   "mode": "none",
   "items": [],
-  "shown_at": "2026-10-31T09:49:01.650345+00:00",
+  "shown_at": "2026-10-31T11:24:21.883130+00:00",
   "guard": {
     "checked": true,
     "blocked": false,
@@ -170,7 +170,7 @@ Not listed (capture `04`; reply `"I don't have that listed. Would you like me to
 - **Cards are not the cart.** `items[]` lists what the *reply* is about, not what the customer has chosen. In capture `11` the customer already had two black sneakers and added a white one: the card list holds only the white sneaker while `meta.quote` holds both lines. Never derive the cart from the cards.
 - **`meta.offerings` absent vs present.** A tenant with no active items (or the catalog switched off) has no `offerings` key. A tenant with items has it on **every** assistant reply, including replies with `items: []`.
 - `cover_url` and `cover_image_id` are `null` (present, not absent) when the item has no photo.
-- `meta.quote` in a **chat response** has only `{currency, line_items, total}`: no `id`, no `status`. The same quote read from the lead detail endpoint has `id`, `status` and `created_at`.
+- `meta.quote` in a **chat response** has `{currency, line_items, total}` plus the card fields the quote-email feature (#200/#202) adds on every quote, plan-tier or catalog: `emailed` (bool), `email_offer` (bool) and, once sent, `emailed_to` (the masked address, never the full one); no `id`, no `status`. A catalog quote is emailed to the visitor through the same path, once, with the masked-only wording written by code. See `docs/fe-integration-guide-sales-quote-email*.md` for those fields. The same quote read from the lead detail endpoint has `id`, `status` and `created_at`.
 - The lead detail keeps its own envelope `{ "success": true, "data": ... }`; the chat response is un-enveloped.
 
 ## 4. Prices are written by code, not by the model (what the customer sees)
@@ -215,17 +215,17 @@ and the response carries:
     "items": [
       {
         "ref": "#1",
-        "offering_id": "ddef1317-ea5b-4053-b3fc-00f358e094b6",
+        "offering_id": "da917319-c987-4bb1-86f4-51efe9df7981",
         "name": "Canvas sneaker black",
         "price_text": "₦12,000",
         "availability": "in_stock",
-        "cover_image_id": "9baae99b-83d5-44d5-a383-8bb17104ed64",
-        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/60b080c1-74fa-4f5d-b054-38b4462948c7/a6af6d65e3c349dc8c58192455cf8ca0.jpg",
+        "cover_image_id": "b59a94aa-52d0-48a1-a872-1763aa18929f",
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/2c69e301-ee2d-4ab0-af75-3694e0c34a8c/251d6f3e67014f8d91248894cc930743.jpg",
         "photo_count": 2
       },
       {
         "ref": "#2",
-        "offering_id": "96cff34c-3484-4ba0-92a5-2084d4a22f55",
+        "offering_id": "31dcf8e1-49d3-4fd3-a73c-e6a03502ae80",
         "name": "Canvas sneaker white",
         "price_text": "₦13,500",
         "availability": "in_stock",
@@ -234,7 +234,7 @@ and the response carries:
         "photo_count": 0
       }
     ],
-    "shown_at": "2026-10-31T09:49:10.430788+00:00",
+    "shown_at": "2026-10-31T11:24:28.775469+00:00",
     "guard": {
       "checked": true,
       "blocked": true,
@@ -314,12 +314,12 @@ An offer made **after** the first cart (capture `23`) is recorded, hands over, m
 
 ```json
 {
-  "id": "06867b8a-59ec-49e5-b8cd-32a3bca67624",
+  "id": "18c87408-6513-4485-ab17-a468a85554c1",
   "event": "offering_request",
   "title": "Price offer",
   "body": "A customer offered ₦30,000 for Leather bag (listed ₦45,000). 3 × Leather bag (listed ₦45,000), customer offered ₦30,000",
   "read_at": null,
-  "created_at": "2026-10-31T09:49:10.271396+00:00"
+  "created_at": "2026-10-31T11:24:28.508855+00:00"
 }
 ```
 
@@ -339,7 +339,9 @@ First cart (capture `10`, "I want 2 black sneakers"):
       "amount": 24000
     }
   ],
-  "total": 24000
+  "total": 24000,
+  "emailed": false,
+  "email_offer": true
 }
 ```
 
@@ -360,7 +362,9 @@ The cart changed to include a white sneaker, so a **new** quote is made (capture
       "amount": 13500
     }
   ],
-  "total": 37500
+  "total": 37500,
+  "emailed": false,
+  "email_offer": true
 }
 ```
 
@@ -376,7 +380,7 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
     "items": [
       {
         "ref": "#4",
-        "offering_id": "51dee26a-ef2a-4050-9940-ebdf0c95bccb",
+        "offering_id": "7b03dba9-d1ff-4a08-8cfc-cd6f1e1051ae",
         "name": "Phone repair",
         "price_text": "from ₦5,000 per phone",
         "availability": "in_stock",
@@ -385,7 +389,7 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
         "photo_count": 0
       }
     ],
-    "shown_at": "2026-10-31T09:49:02.450087+00:00",
+    "shown_at": "2026-10-31T11:24:22.916827+00:00",
     "guard": {
       "checked": true,
       "blocked": false,
@@ -447,7 +451,7 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
   "landing_page": "whatsapp",
   "utm": null,
   "channel": null,
-  "first_seen": "2026-10-31T09:49:04.092620+00:00"
+  "first_seen": "2026-10-31T11:24:24.593182+00:00"
 }
 ```
 
@@ -457,23 +461,23 @@ The first committed cart of a conversation raises the new event `offering_reques
 
 ```json
 {
-  "id": "b68b56ad-8a61-4917-a6f7-747a1cc75a86",
+  "id": "801f5fe6-1881-4850-9f96-63f6f215edb5",
   "event": "offering_request",
   "title": "New item request",
   "body": "A customer · 1 × Phone repair (listed ₦5,000)",
   "read_at": null,
-  "created_at": "2026-10-31T09:49:02.502903+00:00"
+  "created_at": "2026-10-31T11:24:22.964262+00:00"
 }
 ```
 
 ```json
 {
-  "id": "f81b724e-6488-4f91-a350-24f654bd2f3d",
+  "id": "cbd23eb1-af3c-47fa-83cf-a8017c97905b",
   "event": "quote_generated",
   "title": "New quote",
   "body": "₦37,500 · a prospect",
   "read_at": null,
-  "created_at": "2026-10-31T09:49:02.149997+00:00"
+  "created_at": "2026-10-31T11:24:22.726000+00:00"
 }
 ```
 
@@ -520,16 +524,16 @@ The conversation as an agent sees it (capture `21`, last assistant message): `me
     "items": [
       {
         "ref": "#1",
-        "offering_id": "ddef1317-ea5b-4053-b3fc-00f358e094b6",
+        "offering_id": "da917319-c987-4bb1-86f4-51efe9df7981",
         "name": "Canvas sneaker black",
         "price_text": "₦12,000",
         "availability": "in_stock",
-        "cover_image_id": "9baae99b-83d5-44d5-a383-8bb17104ed64",
-        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/60b080c1-74fa-4f5d-b054-38b4462948c7/a6af6d65e3c349dc8c58192455cf8ca0.jpg",
+        "cover_image_id": "b59a94aa-52d0-48a1-a872-1763aa18929f",
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/2c69e301-ee2d-4ab0-af75-3694e0c34a8c/251d6f3e67014f8d91248894cc930743.jpg",
         "photo_count": 2
       }
     ],
-    "shown_at": "2026-10-31T09:49:07.589445+00:00",
+    "shown_at": "2026-10-31T11:24:26.027338+00:00",
     "guard": {
       "checked": true,
       "blocked": false,
@@ -546,7 +550,9 @@ The conversation as an agent sees it (capture `21`, last assistant message): `me
         "amount": 24000
       }
     ],
-    "total": 24000
+    "total": 24000,
+    "emailed": false,
+    "email_offer": false
   },
   "channel": "whatsapp"
 }

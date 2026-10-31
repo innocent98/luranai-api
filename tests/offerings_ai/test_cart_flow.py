@@ -116,7 +116,8 @@ def test_cart_creates_lead_interests_quote_and_alerts(client, db):
     r = _run(client, db, tid, Model((GOOD, _cart((1, 2), (2, 1)))))
     assert r.status_code == 200, r.text
     meta = _meta(r)
-    assert meta["quote"] == {
+    card_fields = {"emailed", "emailed_to", "email_offer"}  # #202's additive card fields
+    assert {k: v for k, v in meta["quote"].items() if k not in card_fields} == {
         "currency": "NGN",
         "line_items": [
             {"label": "Canvas sneaker black", "detail": "2 × ₦12,000", "amount": 24000},
@@ -700,6 +701,8 @@ def test_a_catalog_quote_is_emailed_to_the_visitor_once_in_code_words(client, db
     assert "I've sent the quote to a***@example.com" in content
     assert "alice@example.com" not in content and "email you the quote" not in content
     assert _meta(r)["quote"]["total"] == 24000  # the catalog quote card is unchanged
+    card = _meta(r)["quote"]
+    assert card["emailed"] is True and card["emailed_to"] == "a***@example.com"  # #202 card fields
     (log,) = _visitor_logs(db, tid)
     assert log.recipient == "alice@example.com"
     assert [n for _id, n in jobs_seen if n == "send_visitor_quote_email"]
