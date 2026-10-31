@@ -50,7 +50,7 @@ _CUES = re.compile(
 
 
 _DISCOUNT_WORDS = re.compile(
-    r"half[\s-]?price|\bfor free\b|free of charge|on the house|discount|reduc(?:e|ed|tion)"
+    r"half[\s-]?price|discount|reduc(?:e|ed|tion)"
     r"|\d[\d,.]*\s*(?:%|percent|per cent)\s*(?:off|discount|reduction)"
     r"|\d[\d,.]*\s*(?:k|naira)?\s+off\b|\b(?:take|knock|knocked|get|extra|some)\s+(?:\w+\s+){0,2}off\b"
     r"|price (?:drop|cut|off)|\boff (?:the )?price\b|markdown|bargain|lower (?:the )?price"
@@ -435,12 +435,16 @@ def _without_names(text: str, names: list[str]) -> str:
     return text
 
 
-def _free_beside_item(sentence: str, names: list[str]) -> bool:
+def _free_beside_item(
+    sentence: str, names: list[str], items: list[OfferingFacts] | None = None
+) -> bool:
     """A freebie word right beside a catalog item's full name or #ref ("a free Leather Wallet",
     "the Red Bag as a gift"): at most two words between, no clause break, not negated."""
     low = sentence.lower()
     spots = [m.span() for n in names if n for m in re.finditer(re.escape(n.lower()), low)]
     spots += [m.span() for m in _REF.finditer(sentence)]
+    # a partial name ("black sneaker" for "Canvas sneaker black") still points at the item
+    spots += [(a, b) for a, b, _it, strength in _mentions(sentence, items or []) if strength >= 2]
     for m in _FREE_WORD.finditer(sentence):
         if _negated(sentence, m):
             continue
@@ -506,10 +510,18 @@ def _unnegated(pattern: re.Pattern, sentence: str) -> bool:
     return any(not _negated(sentence, m) for m in pattern.finditer(sentence))
 
 
-def _values(texts: Iterable[str], small_ok: bool = False, strict: bool = False) -> set[Decimal]:
+def _values(
+    texts: Iterable[str], small_ok: bool = False, strict: bool = False, names: Iterable[str] = ()
+) -> set[Decimal]:
     """The money figures in the customer's messages, read as anchored (a catalog item is in play);
-    `strict` keeps figures beside units and identifiers too."""
-    return {a.value for t in texts for a in customer_amounts(t, small_ok=small_ok, strict=strict)}
+    `strict` keeps figures beside units and identifiers too. Years and numbers in item names are
+    never figures."""
+    names = list(names)
+    return {
+        a.value
+        for t in texts
+        for a in customer_amounts(t, small_ok=small_ok, strict=strict, names=names)
+    }
 
 
 def _has(values: Iterable, v: Decimal) -> bool:
@@ -582,7 +594,9 @@ def check_reply(
     sold_words = {
         singular(w) for n in catalog_names for w in re.findall(r"[a-z]+", n.lower()) if len(w) >= 3
     }
-    customer_money = _values(customer_texts, small_ok, strict=True)  # echo and laundering checks
+    customer_money = _values(
+        customer_texts, small_ok, strict=True, names=catalog_names
+    )  # echo and laundering checks
     kb_money = _kb_values(kb_text, catalog_names, small_ok)
     tiers = {Decimal(t) for t in tier_amounts}
     currency = (grounding.currency or "NGN").upper()
@@ -591,7 +605,9 @@ def check_reply(
     ceiling = max(matched or all_prices, default=None)
 
     def _bargaining(texts) -> bool:
-        figures = _values(texts, small_ok)  # identifiers, deposits and units are not offers
+        figures = _values(
+            texts, small_ok, names=catalog_names
+        )  # identifiers, deposits and units are not offers
         return (
             any(has_bargain_wording(t) for t in texts)
             or (ceiling is not None and any(v < ceiling for v in figures))
@@ -646,7 +662,8 @@ def check_reply(
         plain = tokens.mask(sentence)  # the "#1" inside a token is not a mention of item #1
         named = named_items(plain, items)
         names_catalog = _names_catalog_strongly(plain, catalog_names)
-        anchored = bool(named or seqs or names_catalog)
+        # a bare name word ("2016" in "Honda Accord 2016") is not a mention of the item
+        anchored = bool(seqs or names_catalog or _names_strongly(plain, items))
         masked = mask_non_money(plain, catalog_names)
         amounts = extract_amounts(masked, small_ok=small_ok, anchored=anchored)
         named_seqs = {i.seq for i in named}
@@ -690,7 +707,10 @@ def check_reply(
                 violations.append(Violation(sentence, "bundle_price"))
             if _unnegated(_FREE_PHRASE, sentence) or (
                 (anchored or seqs)
-                and (_unnegated(_FREE_SAME, sentence) or _free_beside_item(sentence, catalog_names))
+                and (
+                    _unnegated(_FREE_SAME, sentence)
+                    or _free_beside_item(sentence, catalog_names, items)
+                )
             ):
                 violations.append(Violation(sentence, "freebie_wording"))
             if _SAME_ALONE.match(sentence):

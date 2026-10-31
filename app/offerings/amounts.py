@@ -208,7 +208,8 @@ _KEYED = re.compile(r"[:=@\-–—]\s*$")  # "Red Bag: 25000", "Red Bag - 25,000
 _WEAK_CUE = re.compile(r"\b(?:is|are|was|at|for|from|only|about|around|just)\s+$", re.IGNORECASE)
 _MONEY_FOLLOW = {"only", "naira", "ngn", "each", "per", "kobo"}
 _YEAR_CUE = re.compile(
-    r"(?:\b(?:in|since|year|during|copyright|jan|feb|mar|apr|may|"
+    r"(?:\b(?:in|since|year|during|copyright|registered|made|built|build|model|edition|version"
+    r"|released|vintage|manufactured|a|an|jan|feb|mar|apr|may|"
     r"jun|jul|aug|sep|sept|oct|nov|dec|january|february|march|april|june|july|august|september|"
     r"october|november|december)|©)\s*$",
     re.IGNORECASE,
@@ -240,8 +241,16 @@ class Amount:
     mult: int = 1  # magnitude of a digit amount with a word tail ("12 thousand")
 
 
-def _is_year_like(digits: str, before: str) -> bool:
-    return len(digits) == 4 and 1900 <= int(digits) <= 2100 and bool(_YEAR_CUE.search(before))
+_YEAR_AFTER = {"model", "models", "year", "edition", "version", "build", "series", "release", "one"}
+
+
+def _is_year_like(digits: str, before: str, after: str = "") -> bool:
+    """A four-digit number that reads as a year: a year cue before it, or "2016 model" after it."""
+    return (
+        len(digits) == 4
+        and 1900 <= int(digits) <= 2100
+        and (bool(_YEAR_CUE.search(before)) or after in _YEAR_AFTER)
+    )
 
 
 def _next_word(text: str, pos: int) -> str:
@@ -316,7 +325,7 @@ def _digit_amounts(text: str, small_ok: bool, ref_seqs: frozenset, anchored: boo
                 and near
                 and len(digits) < 12
                 and follow not in _UNIT_AFTER
-                and not _is_year_like(digits, before)
+                and not _is_year_like(digits, before, follow)
                 and not before.rstrip().endswith("+")
             ):
                 money = True  # "Plot 1234" and "2000 customers" have no price context: not money
@@ -530,6 +539,8 @@ _NOT_AN_OFFER = re.compile(
     rf"|\b\d[\d,.]{{0,12}}\s{{0,3}}(?:{_UNITS})\b(?:\s{{0,3}}old)?"
     r"|\b(?:x|qty|quantity)\s{0,3}\d{1,15}|\b\d{1,15}\s{0,3}x\b"
     r"|\b\d{1,15}\s{1,3}(?:in\s{1,3}stock|available|left|remaining)\b"
+    r"|\b\d[\d,.]{0,12}k?\s{0,3}(?:total|altogether|in\s{1,3}all)\b"
+    r"|\b(?![Nn]\d)[A-Za-z]{1,3}-?\d{1,5}\b"
     r"|\b(?:paid|deposited|transferred)\b\s{0,3}(?:of\s{1,3})?[\w₦#]{0,10}\s{0,3}\d[\d,.]{0,12}k?"
     r"|\b(?:at|by|around|before|after)\s{1,3}\d{1,2}(?:(?::\d\d)\s{0,3}(?:am|pm)?|\s{0,3}(?:am|pm|o'clock|hours))\b"
     r"|\b\d{1,15}\s{1,3}[a-z]{1,20}\s{1,3}(?:avenue|ave|street|st|road|rd|close|crescent|way|drive|lane|estate|layout)\b",
@@ -537,17 +548,78 @@ _NOT_AN_OFFER = re.compile(
 )
 
 
+_BARE_YEAR = re.compile(
+    r"(?<![\d,.₦#$£€])\b(19[5-9]\d|20[0-3]\d)\b(?![\d,.]|\s{0,2}k\b)", re.IGNORECASE
+)
+_YEAR_BEFORE = re.compile(
+    r"\b(?:the|a|an|or|any|which|that|this|model|year|built|build|registered|made|edition|version"
+    r"|released|vintage)\s{1,3}$",
+    re.IGNORECASE,
+)
+_YEAR_AFTER_RE = re.compile(
+    r"^\s{0,3}(?:model|models|year|edition|version|build|series|release|one|or\b|\?)", re.IGNORECASE
+)
+
+
+def _mask_years(text: str) -> str:
+    """ "a 2016 Camry", "the 2019 one", "2018 or 2017?": bare years are not offers."""
+
+    def blank(m: re.Match) -> str:
+        before, after = text[max(0, m.start() - 12) : m.start()], text[m.end() : m.end() + 12]
+        if _YEAR_BEFORE.search(before) or _YEAR_AFTER_RE.match(after):
+            return " " * len(m.group(0))
+        return m.group(0)
+
+    return _BARE_YEAR.sub(blank, text)
+
+
+def _mask_quantities(text: str, names: Iterable[str]) -> str:
+    """ "50 sausage rolls", "2 chocolate cakes": a bare count written before an item's name is a
+    quantity. A figure written after the name ("black sneaker 9000") stays a price."""
+    words = {
+        w
+        for n in names
+        for w in re.findall(r"[a-z]{4,}", (n or "").lower())
+        if w not in {"with", "pack", "from", "that", "this"}
+    }
+    if not words:
+        return text
+
+    def blank(m: re.Match) -> str:
+        nxt = re.findall(r"[a-z]+", m.group("rest").lower())[:2]
+        return (
+            " " * len(m.group(0))
+            if any(w.rstrip("s") in {x.rstrip("s") for x in words} for w in nxt)
+            else m.group(0)
+        )
+
+    return re.sub(
+        r"(?<![\d,.₦#$£€])\b\d{1,3}(?P<rest>\s{1,3}[A-Za-z]+(?:\s{1,3}[A-Za-z]+)?)", blank, text
+    )
+
+
 def customer_amounts(
-    text: str | None, *, small_ok: bool = True, strict: bool = False
+    text: str | None,
+    *,
+    small_ok: bool = True,
+    strict: bool = False,
+    names: Iterable[str] = (),
 ) -> list[Amount]:
     """The money figures in something a customer wrote, once a catalog item is in play: a bare
-    "abeg 9000" is an amount, "size 44", "order 10021", "150 guests" and phone numbers are not.
+    "abeg 9000" is an amount; "size 44", "order 10021", "150 guests", phone numbers, a year
+    ("a 2016 Camry"), a number inside an item's name and a count before an item noun ("50
+    sausage rolls") are not.
 
-    `strict` keeps the figures next to units and identifiers too (only phones and dates are
-    dropped): the guard reads the customer that way, so a masked figure can never hide an offer
-    from the agreement rules; only the code-only reply decision uses the masked reading."""
-    base = mask_non_money(text)
-    masked = base if strict else _NOT_AN_OFFER.sub(lambda m: " " * len(m.group(0)), base)
-    return [
-        a for a in extract_amounts(masked, small_ok=small_ok, anchored=True) if a.kind == "money"
-    ]
+    `strict` keeps the figures next to units and identifiers too (only phones, dates, item names
+    and years are dropped): the guard reads the customer that way, so a masked figure can never
+    hide an offer from the agreement rules; only the code-only reply decision uses the full mask."""
+    names = list(names)
+    base = _mask_years(mask_non_money(text, names))
+    for number in {n for name in names for n in re.findall(r"\d+", name or "")}:
+        # "camry 2018", "a1500", "840 g5": the number is part of an item's name, not an offer
+        base = re.sub(
+            rf"(?<![\d,.₦#$£€])\b{number}\b(?![\d,]|\s{{0,2}}k\b)", " " * len(number), base
+        )
+    if not strict:
+        base = _NOT_AN_OFFER.sub(lambda m: " " * len(m.group(0)), _mask_quantities(base, names))
+    return [a for a in extract_amounts(base, small_ok=small_ok, anchored=True) if a.kind == "money"]

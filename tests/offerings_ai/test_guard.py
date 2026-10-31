@@ -246,7 +246,7 @@ CASES = [
     C(f"Both the black sneaker and the pro are {T(1)}.", False),
     # --- discount, freebie and percentage wording ---------------------------------------------
     C("Black sneaker is half price today.", False, "discount_wording"),
-    C("You can have the black sneaker for free.", False, "discount_wording"),
+    C("You can have the black sneaker for free.", False, "freebie_wording"),
     C("Buy one black sneaker, get one free.", False, "discount_wording"),
     C(
         "Take the black sneaker and add the leather bag at no extra charge.",
@@ -268,7 +268,7 @@ CASES = [
     C("We won't refuse a discount on the black sneaker.", False, "discount_wording"),
     C("We never say no to discount on the black sneaker.", False, "discount_wording"),
     C("I can't deny you a discount on the black sneaker.", False, "discount_wording"),
-    C("Why not give you the black sneaker for free?", False, "discount_wording"),
+    C("Why not give you the black sneaker for free?", False, "freebie_wording"),
     C("No kidding \u2014 half price on the black sneaker.", False, "discount_wording"),
     # --- automated review of e71cdd6 -------------------------------------------------------------
     C(f"The silver wristwatch is {T(1)}.", False, "token_mismatch"),
