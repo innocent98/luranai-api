@@ -87,6 +87,7 @@ from app.offerings.orchestrate import (
 from app.offerings.turn import (
     customer_figures,
     context_prices,
+    arms_countdown,
     customer_texts,
     finalize_reply,
     ground_turn,
@@ -3438,7 +3439,17 @@ async def _send_message_impl(
             db,
             session_id,
             _offerings_shown,
-            watch=next_offer_watch(_offer_watch, _offer_turn) if _offerings is not None else None,
+            watch=(
+                next_offer_watch(
+                    _offer_watch,
+                    _offer_turn
+                    and arms_countdown(
+                        message_data.message, _offerings, offered_signal(_sales_meta)
+                    ),
+                )
+                if _offerings is not None
+                else None
+            ),
         )
 
         # Step 10: Return response

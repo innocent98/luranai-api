@@ -111,3 +111,49 @@ def test_a_model_year_in_a_reply_is_not_a_literal_amount():
     ):
         v = check_reply(reply, g, customer_texts=["tell me about it"])
         assert v.ok, (reply, [(x.reason) for x in v.violations])
+
+
+SHOP = [
+    item(1, "Black sneaker", 12000), item(2, "White sneaker", 13500),
+    item(3, "Leather bag", 45000, neg=True),
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("matched", [True, False], ids=["matched", "unmatched"])
+def test_the_fresh_haggling_set_is_caught(matched):
+    g = grounding(SHOP, [1] if matched else [], "detail" if matched else "none")
+    missed = [m for m in S.HAGGLING_7 if not is_offer_turn(m, g, False)]
+    assert 1 - len(missed) / len(S.HAGGLING_7) >= 0.90, missed
+
+
+@pytest.mark.parametrize("matched", [True, False], ids=["matched", "unmatched"])
+def test_the_fresh_ordinary_set_is_left_alone(matched):
+    g = grounding(SHOP, [1] if matched else [], "detail" if matched else "none")
+    wrong = [m for m in S.ORDINARY_7 if is_offer_turn(m, g, False)]
+    assert len(wrong) / len(S.ORDINARY_7) <= 0.03, wrong
+
+
+def test_discount_promises_without_a_figure_are_blocked_even_when_unanchored():
+    g = grounding(SHOP, [1])
+    for reply in (
+        "I can give you a discount on it.",
+        "We can give you a discount if you buy today.",
+        "I'll reduce it for you.",
+        "Okay, I can do it for less.",
+        "Okay, done. I've applied your discount.",
+        "Sure, you can have both for that price.",
+    ):
+        v = check_reply(reply, g, customer_texts=["how much is the black sneaker"])
+        assert not v.ok, reply
+
+
+def test_a_discount_the_knowledge_base_states_may_be_repeated():
+    g = grounding(SHOP, [1])
+    kb = "Students get a 10% discount on orders above ₦50,000 with a valid ID."
+    v = check_reply(
+        "Students get a 10% discount on orders above ₦50,000 with a valid ID.",
+        g,
+        customer_texts=["is there student pricing?"],
+        kb_text=kb,
+    )
+    assert v.ok, [(x.reason, x.sentence) for x in v.violations]

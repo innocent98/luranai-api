@@ -539,9 +539,9 @@ _NOT_AN_OFFER = re.compile(
     rf"|\b\d[\d,.]{{0,12}}\s{{0,3}}(?:{_UNITS})\b(?:\s{{0,3}}old)?"
     r"|\b(?:x|qty|quantity)\s{0,3}\d{1,15}|\b\d{1,15}\s{0,3}x\b"
     r"|\b\d{1,15}\s{1,3}(?:in\s{1,3}stock|available|left|remaining)\b"
-    r"|\b\d[\d,.]{0,12}k?\s{0,3}(?:total|altogether|in\s{1,3}all)\b"
-    r"|\b(?![Nn]\d)[A-Za-z]{1,3}-?\d{1,5}\b"
-    r"|\b(?:paid|deposited|transferred)\b\s{0,3}(?:of\s{1,3})?[\w₦#]{0,10}\s{0,3}\d[\d,.]{0,12}k?"
+    r"|\b(?!(?:n|ngn|rs|usd|gbp|eur)-?\d)[A-Za-z]{1,3}-?\d{1,5}\b"
+    r"|\b(?:paid|deposited|transferred|sent|payment\s{1,3}of)\b\s{0,3}(?:of\s{1,3})?[\w₦#]{0,10}\s{0,3}\d[\d,.]{0,12}k?"
+    r"|\bthe\s{1,3}[₦#N]?\s{0,2}\d[\d,.]{0,12}k?\s{0,2}(?:one|ones|model|version|pair|option|size)\b"
     r"|\b(?:at|by|around|before|after)\s{1,3}\d{1,2}(?:(?::\d\d)\s{0,3}(?:am|pm)?|\s{0,3}(?:am|pm|o'clock|hours))\b"
     r"|\b\d{1,15}\s{1,3}[a-z]{1,20}\s{1,3}(?:avenue|ave|street|st|road|rd|close|crescent|way|drive|lane|estate|layout)\b",
     re.IGNORECASE,
@@ -561,11 +561,20 @@ _YEAR_AFTER_RE = re.compile(
 )
 
 
+_PRICE_BEFORE = re.compile(
+    r"\b(?:pay|do|take|final|sell|give|offer|collect|abeg|make|naira|accept)\s{0,2}[₦#N]?\s{0,2}$"
+    r"|[₦#]\s{0,2}$",
+    re.IGNORECASE,
+)
+
+
 def _mask_years(text: str) -> str:
     """ "a 2016 Camry", "the 2019 one", "2018 or 2017?": bare years are not offers."""
 
     def blank(m: re.Match) -> str:
         before, after = text[max(0, m.start() - 12) : m.start()], text[m.end() : m.end() + 12]
+        if _PRICE_BEFORE.search(before):
+            return m.group(0)  # "I can pay 2018 for it": offer wording right before: keep it
         if _YEAR_BEFORE.search(before) or _YEAR_AFTER_RE.match(after):
             return " " * len(m.group(0))
         return m.group(0)
@@ -617,8 +626,15 @@ def customer_amounts(
     base = _mask_years(mask_non_money(text, names))
     for number in {n for name in names for n in re.findall(r"\d+", name or "")}:
         # "camry 2018", "a1500", "840 g5": the number is part of an item's name, not an offer
+        # (unless offer wording sits right before it)
         base = re.sub(
-            rf"(?<![\d,.₦#$£€])\b{number}\b(?![\d,]|\s{{0,2}}k\b)", " " * len(number), base
+            rf"(?<![\d,.₦#$£€])\b{number}\b(?![\d,]|\s{{0,2}}k\b)",
+            lambda m, n=number, b=base: (
+                m.group(0)
+                if _PRICE_BEFORE.search(b[max(0, m.start() - 12) : m.start()])
+                else " " * len(n)
+            ),
+            base,
         )
     if not strict:
         base = _NOT_AN_OFFER.sub(lambda m: " " * len(m.group(0)), _mask_quantities(base, names))

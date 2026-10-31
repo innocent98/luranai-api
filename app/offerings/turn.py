@@ -157,6 +157,19 @@ def offer_watch(session_meta: dict | None) -> int:
     return raw if isinstance(raw, int) and not isinstance(raw, bool) and raw > 0 else 0
 
 
+def arms_countdown(message: str, grounding, signal: bool) -> bool:
+    """Only an offer that holds a figure (typed by the customer, or returned by the model) keeps the
+    agreement rules armed afterwards: "is the price negotiable?" is answered but arms nothing."""
+    from app.offerings.amounts import customer_amounts
+    from app.offerings.bargain import cap
+
+    if signal:
+        return True
+    names = grounding.catalog_names or [i.name for i in grounding.items]
+    text = (cap([message]) or [""])[0]
+    return bool(customer_amounts(text, small_ok=True, names=names))
+
+
 def next_offer_watch(current: int, offer_turn: bool) -> int:
     """Re-armed by a bargaining turn, then runs down one reply at a time."""
     return OFFER_WATCH_TURNS if offer_turn else max(current - 1, 0)

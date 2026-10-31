@@ -58,7 +58,8 @@ _DISCOUNT_WORDS = re.compile(
     r"|(?:go|come|can|could)\s+(?:a\s+(?:bit|little)\s+)?(?:lower|down)\b|for\s+less\b"
     r"|below\s+(?:the\s+)?(?:listed|list|price)|(?:a\s+(?:little|bit)|slightly)\s+(?:off|below|less|lower)"
     r"|better\s+deal|good\s+price|the\s+least\s+we\s+can\s+do|let\s+it\s+go\s+for|something\s+small"
-    r"|manage\s+something|special\s+rate|sort\s+you\s+out|something\s+nice|take\s+care\s+of\s+you",
+    r"|manage\s+something|special\s+rate|sort\s+you\s+out|something\s+nice|take\s+care\s+of\s+you"
+    r"|(?:for|at)\s+that\s+(?:price|amount|figure)|you\s+can\s+have\s+(?:both|them|it|these)\s+for",
     re.IGNORECASE,
 )
 _NEGATION = re.compile(
@@ -203,7 +204,10 @@ _FREE_PHRASE = re.compile(
     r"|special\s+offer|minus)\b",
     re.IGNORECASE,
 )
-_FREE_SAME = re.compile(r"\b(?:for\s+the\s+same|at\s+the\s+same)\b", re.IGNORECASE)
+_FREE_SAME = re.compile(
+    r"\b(?:for\s+the\s+same|at\s+the\s+same|for\s+free|free\s+of\s+charge|on\s+the\s+house)\b",
+    re.IGNORECASE,
+)
 _SAME_ALONE = re.compile(r"^\W*(?:the\s+same|same|it\s+matches|matches\s+it)\W*$", re.IGNORECASE)
 _PURE_ECHO = re.compile(
     r"^\s*(?:and\s+)?you(?:'ve|\s+have)?\s+(?:offered|said|mentioned|asked\s+for|proposed|"
@@ -435,6 +439,38 @@ def _without_names(text: str, names: list[str]) -> str:
     return text
 
 
+def _free_same_hit(sentence: str, plain: str, items, names: list[str]) -> bool:
+    """ "for free" / "for the same" in a clause that is about an item ("we can write a name on it for
+    free" is about the writing, not the cake)."""
+    for m in _FREE_SAME.finditer(sentence):
+        if _negated(sentence, m):
+            continue
+        clause = _clause_at(plain, m.start())
+        if (
+            "PRICE" in clause
+            or named_items(clause, items)
+            or _names_catalog_strongly(clause, names)
+            or _REF.search(clause)
+        ):
+            return True
+    return False
+
+
+def _kb_states(kb_sentences: list[set[str]], sentence: str) -> bool:
+    """The sentence repeats (at least three content words in common) a KB sentence that itself
+    holds a discount word: the tenant stated that offer, the model may relay it."""
+    mine = _content_words(sentence)
+    return any(len(mine & words) >= 3 for words in kb_sentences)
+
+
+def _kb_discount_sentences(kb_text: str) -> list[set[str]]:
+    return [
+        _content_words(sent)
+        for sent in _SENTENCE.split(normalise(kb_text or ""))
+        if _DISCOUNT_WORDS.search(sent)
+    ]
+
+
 def _free_beside_item(
     sentence: str, names: list[str], items: list[OfferingFacts] | None = None
 ) -> bool:
@@ -598,6 +634,7 @@ def check_reply(
         customer_texts, small_ok, strict=True, names=catalog_names
     )  # echo and laundering checks
     kb_money = _kb_values(kb_text, catalog_names, small_ok)
+    kb_discounts = _kb_discount_sentences(kb_text)
     tiers = {Decimal(t) for t in tier_amounts}
     currency = (grounding.currency or "NGN").upper()
     matched_seqs = set(grounding.matched_seqs)
@@ -706,9 +743,9 @@ def check_reply(
             ):
                 violations.append(Violation(sentence, "bundle_price"))
             if _unnegated(_FREE_PHRASE, sentence) or (
-                (anchored or seqs)
+                (anchored or seqs or named)
                 and (
-                    _unnegated(_FREE_SAME, sentence)
+                    _free_same_hit(sentence, plain, items, catalog_names)
                     or _free_beside_item(sentence, catalog_names, items)
                 )
             ):
@@ -719,9 +756,8 @@ def check_reply(
                 violations.append(Violation(sentence, "same_price_claim"))
             if len(set(seqs)) == 1 and len(named_seqs) > 1 and re.search(r"\bboth\b", plain, re.I):
                 violations.append(Violation(sentence, "same_price_claim"))
-            if (anchored or amounts or offer or _names_any(plain, catalog_names)) and _unnegated(
-                _DISCOUNT_WORDS, sentence
-            ):
+            # every catalog reply is judged: "I can give you a discount on it" names no item
+            if _unnegated(_DISCOUNT_WORDS, sentence) and not _kb_states(kb_discounts, sentence):
                 violations.append(Violation(sentence, "discount_wording"))
             talks_price = offer_now or bool(
                 seqs

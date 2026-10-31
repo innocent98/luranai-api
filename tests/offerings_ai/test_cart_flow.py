@@ -545,3 +545,13 @@ def test_a_figure_only_offer_with_no_item_named_goes_to_a_human_not_the_model(cl
     content = r.json()["message"]["content"]
     assert "we can do that" not in content
     assert "team" in content
+
+
+def test_a_bargaining_question_without_a_figure_does_not_arm_the_countdown():
+    from app.offerings.turn import arms_countdown
+    from tests.offerings_ai.test_guard import _grounding
+
+    g = _grounding(matched=(11,))
+    assert not arms_countdown("is the price negotiable?", g, False)
+    assert arms_countdown("abeg 9000", g, False)
+    assert arms_countdown("ok", g, True)  # the model returned a figure

@@ -11,7 +11,15 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from app.offerings.amounts import customer_amounts
-from app.offerings.bargain import BROWSE, PAYMENT_PLAN, cap, has_bargain_wording, is_price_check
+from app.offerings.bargain import (
+    BROWSE,
+    BUNDLE_OFFER,
+    OFFER_CUE,
+    PAYMENT_PLAN,
+    cap,
+    has_bargain_wording,
+    is_price_check,
+)
 from app.offerings.cart import CartResolution
 from app.offerings.facts import OfferingFacts, format_amount
 from app.offerings.grounding import GroundingResult
@@ -40,6 +48,8 @@ def is_offer_turn(
     names = grounding.catalog_names or [i.name for i in grounding.items]
     if offered_signal or has_bargain_wording(text):
         return True
+    if BUNDLE_OFFER.search(text) and not is_price_check(text):
+        return True
     if PAYMENT_PLAN.search(text) or is_price_check(text):
         return False  # a payment plan, or "is the meat pie 800 or 1000?": not a price offered
     prices = [i.price for i in _matched(grounding) if i.price is not None]
@@ -49,9 +59,8 @@ def is_offer_turn(
         # nothing to compare with: a bare figure from a shop with items is still an offer
         # candidate unless the message is a question or a budget search
         # "is it ₦25,000 for each?": the customer asking whether a price is right is not offering
-        return bool(customer_amounts(text, small_ok=False, names=names)) and not (
-            BROWSE.search(text) or is_price_check(text)
-        )
+        figures = customer_amounts(text, small_ok=False, names=names)
+        return bool(figures) and (bool(OFFER_CUE.search(text)) or not BROWSE.search(text))
     low = min(prices)
     return any(a.value < low for a in customer_amounts(text, small_ok=low < 1000, names=names))
 
