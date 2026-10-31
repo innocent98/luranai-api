@@ -2714,7 +2714,8 @@ async def _send_message_impl(
         _guard_record: dict | None = None
         is_api_error = False  # set by the generation path below
         _offer_turn = False
-        _offer_watch = offer_watch(session.meta)  # replies left under the offer rules
+        _offer_watch = 0  # replies left under the offer rules (catalog tenants only)
+        _kb_text = ""
         _token_seqs: list[int] = []
 
         if not scope_allowed:
@@ -2782,6 +2783,8 @@ async def _send_message_impl(
                 session_meta=dict(session_model.meta or {}),
             )
             _catalog_grounded = bool(_offerings and _offerings.grounded)
+            if _offerings is not None:  # nothing from the catalog code runs for anyone else
+                _offer_watch = offer_watch(session.meta)
             if scope_allowed:
                 low_confidence_action = str(
                     getattr(tenant_ai_config, "low_confidence_action", "clarify")
@@ -2868,11 +2871,13 @@ async def _send_message_impl(
                 "- Do not use emojis."
             )
             prompt_components.full_prompt = f"{prompt_components.full_prompt}{directive_block}"
-            _kb_text = kb_text_from_prompt(prompt_components.full_prompt)
             if _offerings is not None:
+                _kb_text = kb_text_from_prompt(prompt_components.full_prompt)
                 # nothing a customer, the history, the KB or the tenant wrote can look like a
                 # price token to the model: only the block below holds the real ones
-                prompt_components.full_prompt = strip_token_text(prompt_components.full_prompt)
+                prompt_components.full_prompt = strip_token_text(
+                    prompt_components.full_prompt, brackets=True
+                )
                 prompt_components.full_prompt += f"\n\n{_offerings.block}"
                 if prompt_components.prompt_tokens is not None:
                     prompt_components.prompt_tokens += _offerings.token_count

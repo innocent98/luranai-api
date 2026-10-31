@@ -281,12 +281,14 @@ def offered_signal(sales_meta: dict | None) -> bool:
     return bool(((sales_meta or {}).get("signals") or {}).get("offered_price"))
 
 
-def strip_token_text(text: str) -> str:
+def strip_token_text(text: str, *, brackets: bool = False) -> str:
     """Prompt text with exact tokens and bracketed look-alikes removed (catalog tenants only);
-    byte-identical when it has none."""
+    byte-identical when it has none. `brackets=True` also drops any `[[...]]` (KB text placed in a
+    catalog prompt: the model is told to write tokens, so a wiki-style double bracket must not be
+    copied into a reply)."""
     from app.offerings import markup
 
-    return markup.strip_price_markup(text)
+    return markup.strip_brackets(text) if brackets else markup.strip_price_markup(text)
 
 
 def finalize_reply(
