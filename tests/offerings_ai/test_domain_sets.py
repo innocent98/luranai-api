@@ -175,3 +175,26 @@ def test_a_price_claim_below_the_list_is_an_offer_even_phrased_as_a_check():
     g = grounding(SHOP, [1])
     assert is_offer_turn("Your Instagram says 9,000, is that correct?", g, False)
     assert not is_offer_turn("Your Instagram says 12,000, is that correct?", g, False)
+
+
+@pytest.mark.parametrize("count,limit", [(500, 1.0), (2000, 3.0)])
+def test_the_guard_stays_fast_with_a_large_catalog(count, limit):
+    import time
+
+    items = [
+        item(i, f"Gadget {chr(97 + i % 26)}{chr(97 + (i // 26) % 26)}x{i} pro", 1000 + i)
+        for i in range(1, count + 1)
+    ]
+    g = grounding(items[:12], [1])
+    g.catalog_names = [i.name for i in items]
+    reply = ("The Gadget aax1 pro is [[price:#1]]. It is in stock and ships today. " * 30)[:600]
+    long_reply = ("The Gadget aax1 pro is [[price:#1]]. It is in stock and ships today. " * 120)[
+        :7500
+    ]
+    start = time.perf_counter()
+    for text in (reply, long_reply):
+        check_reply(
+            text, g, customer_texts=["how much is gadget aax1", "ok"], kb_text="Delivery is ₦2,000."
+        )
+        is_offer_turn("how much is gadget aax1", g, False)
+    assert time.perf_counter() - start < limit

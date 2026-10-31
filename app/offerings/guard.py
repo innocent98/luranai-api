@@ -15,6 +15,7 @@ This module only judges; the regenerate-then-fall-back flow is `guard_flow.py`.
 """
 
 import re
+from functools import lru_cache
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -24,6 +25,8 @@ from app.offerings import tokens
 from app.offerings.bargain import cap, has_bargain_wording
 from app.offerings.amounts import (
     Amount,
+    blank_names,
+    find_all,
     customer_amounts,
     extract_amounts,
     mask_non_money,
@@ -239,7 +242,7 @@ def _name_tokens(item: OfferingFacts) -> set[str]:
 
 
 def _spans(text: str, needle: str) -> list[tuple[int, int]]:
-    return [m.span() for m in re.finditer(re.escape(needle), text)] if needle else []
+    return [(i, i + len(needle)) for i in find_all(text, needle)] if needle else []
 
 
 def named_items(sentence: str, items: list[OfferingFacts]) -> list[OfferingFacts]:
@@ -286,8 +289,8 @@ def _mentions(
     for it in items:
         toks = _name_tokens(it)
         name = it.name.lower()
-        for m in re.finditer(re.escape(name), low) if name else []:
-            out.append((m.start(), m.end(), it, 2 * max(len(toks), 1) + 1))
+        for i in find_all(low, name) if name else []:
+            out.append((i, i + len(name), it, 2 * max(len(toks), 1) + 1))
         for m in _REF.finditer(sentence):
             if int(m.group(1)) == it.seq:
                 out.append((m.start(), m.end(), it, 100))
@@ -341,8 +344,8 @@ def _foreign_mentions(sentence: str, names: list[str], known: set[str]) -> list:
         key = name.lower()
         if not key or key in known:
             continue
-        for m in re.finditer(re.escape(key), low):
-            out.append((m.start(), m.end(), _Foreign(), 100))
+        for i in find_all(low, key):
+            out.append((i, i + len(key), _Foreign(), 100))
         toks = {
             singular(t)
             for t in re.findall(r"[a-z0-9]+", key)
@@ -412,16 +415,21 @@ def _names_strongly(sentence: str, items: list[OfferingFacts]) -> bool:
     return False
 
 
+@lru_cache(maxsize=8192)
+def _tokens_of(name: str) -> frozenset[str]:
+    return frozenset(
+        singular(t)
+        for t in re.findall(r"[a-z0-9]+", name.lower())
+        if len(t) >= 3 and t not in _NAME_STOP
+    )
+
+
 def _names_catalog_strongly(sentence: str, names: list[str]) -> bool:
     """A full item name, or two of its name words, from the tenant's whole active catalog."""
     lowered = sentence.lower()
     words = {singular(w) for w in re.findall(r"[a-z0-9]+", lowered)}
     for name in names:
-        toks = {
-            singular(t)
-            for t in re.findall(r"[a-z0-9]+", name.lower())
-            if len(t) >= 3 and t not in _NAME_STOP
-        }
+        toks = _tokens_of(name)
         if name and name.lower() in lowered:
             return True
         if toks and len(toks & words) >= min(2, len(toks)):
@@ -434,9 +442,7 @@ _BREAK = re.compile(r"[.!?;,:\n]")
 
 def _without_names(text: str, names: list[str]) -> str:
     """Item names blanked out: "Catering Package" and "Party Pair" are not groupings."""
-    for name in sorted({n for n in names if n}, key=len, reverse=True):
-        text = re.sub(re.escape(name), " " * len(name), text, flags=re.IGNORECASE)
-    return text
+    return blank_names(text, names)
 
 
 def _free_same_hit(sentence: str, plain: str, items, names: list[str]) -> bool:
@@ -485,7 +491,7 @@ def _free_beside_item(
     """A freebie word right beside a catalog item's full name or #ref ("a free Leather Wallet",
     "the Red Bag as a gift"): at most two words between, no clause break, not negated."""
     low = sentence.lower()
-    spots = [m.span() for n in names if n for m in re.finditer(re.escape(n.lower()), low)]
+    spots = [(i, i + len(n)) for n in names if n for i in find_all(low, n)]
     spots += [m.span() for m in _REF.finditer(sentence)]
     # a partial name ("black sneaker" for "Canvas sneaker black") still points at the item
     spots += [(a, b) for a, b, _it, strength in _mentions(sentence, items or []) if strength >= 2]
@@ -522,11 +528,7 @@ def _names_any(sentence: str, names: list[str]) -> bool:
     """Does a sentence name a catalog item (any of the tenant's active items, in the block or not)?"""
     words = {singular(w) for w in re.findall(r"[a-z0-9]+", sentence.lower())}
     for name in names:
-        toks = {
-            singular(t)
-            for t in re.findall(r"[a-z0-9]+", name.lower())
-            if len(t) >= 3 and t not in _NAME_STOP
-        }
+        toks = _tokens_of(name)
         if toks and toks & words:
             return True
     return False

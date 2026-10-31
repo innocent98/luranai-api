@@ -7,6 +7,7 @@ hides things that look like amounts but are not (item names such as "Toyota Camr
 """
 
 import re
+from functools import lru_cache
 import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -474,6 +475,31 @@ _DATE = re.compile(r"(?<!\d)\d{1,2}[/-]\d{1,2}[/-]\d{2,4}(?!\d)")
 _REFCODE = re.compile(r"\b(?!(?:ngn|usd|gbp|eur)-)[A-Za-z]{2,5}-\d{2,6}\b", re.IGNORECASE)
 
 
+def find_all(haystack: str, needle: str):
+    """Every start of `needle` in `haystack` (case-insensitive) with `str.find`: no regex is built
+    per name, so a catalog of thousands of items cannot flood Python's regex cache."""
+    if not needle:
+        return
+    low, key = haystack.lower(), needle.lower()
+    if len(low) != len(haystack):  # a character that changes length when lowered: never guess
+        return
+    i = low.find(key)
+    while i != -1:
+        yield i
+        i = low.find(key, i + len(key))
+
+
+def blank_names(text: str, names: Iterable[str]) -> str:
+    """`text` with every occurrence of any name replaced by spaces (same length), in one pass."""
+    spans = [(i, i + len(n)) for n in {n for n in names if n} for i in find_all(text, n)]
+    if not spans:
+        return text
+    chars = list(text)
+    for a, b in spans:
+        chars[a:b] = " " * (b - a)
+    return "".join(chars)
+
+
 def mask_non_money(text: str, names: Iterable[str] = ()) -> str:
     """Blank out spans that carry digits but are not amounts, keeping every offset stable."""
     text = normalise(text)
@@ -481,8 +507,7 @@ def mask_non_money(text: str, names: Iterable[str] = ()) -> str:
     def blank(m: re.Match) -> str:
         return " " * (m.end() - m.start())
 
-    for name in sorted({n for n in names if n}, key=len, reverse=True):
-        text = re.sub(re.escape(name), blank, text, flags=re.IGNORECASE)
+    text = blank_names(text, names)
     for pattern in (_PHONE, _DATE, _REFCODE):
         text = pattern.sub(blank, text)
     return text
@@ -607,6 +632,14 @@ def _mask_quantities(text: str, names: Iterable[str]) -> str:
     )
 
 
+_NAME_NUMBER = re.compile(r"(?<![\d,.₦#$£€])\b\d+\b(?![\d,]|\s{0,2}k\b)")
+
+
+@lru_cache(maxsize=8192)
+def _numbers_of(name: str) -> frozenset[str]:
+    return frozenset(re.findall(r"\d+", name))
+
+
 def customer_amounts(
     text: str | None,
     *,
@@ -624,18 +657,18 @@ def customer_amounts(
     hide an offer from the agreement rules; only the code-only reply decision uses the full mask."""
     names = list(names)
     base = _mask_years(mask_non_money(text, names))
-    for number in {n for name in names for n in re.findall(r"\d+", name or "")}:
+    numbers = {n for name in names for n in _numbers_of(name or "")}
+    if numbers:
         # "camry 2018", "a1500", "840 g5": the number is part of an item's name, not an offer
-        # (unless offer wording sits right before it)
-        base = re.sub(
-            rf"(?<![\d,.₦#$£€])\b{number}\b(?![\d,]|\s{{0,2}}k\b)",
-            lambda m, n=number, b=base: (
-                m.group(0)
-                if _PRICE_BEFORE.search(b[max(0, m.start() - 12) : m.start()])
-                else " " * len(n)
-            ),
-            base,
-        )
+        # (unless offer wording sits right before it); one pass, no regex built per number
+        def blank_number(m: re.Match, b: str = base) -> str:
+            if m.group(0) in numbers and not _PRICE_BEFORE.search(
+                b[max(0, m.start() - 12) : m.start()]
+            ):
+                return " " * len(m.group(0))
+            return m.group(0)
+
+        base = _NAME_NUMBER.sub(blank_number, base)
     if not strict:
         base = _NOT_AN_OFFER.sub(lambda m: " " * len(m.group(0)), _mask_quantities(base, names))
     return [a for a in extract_amounts(base, small_ok=small_ok, anchored=True) if a.kind == "money"]
