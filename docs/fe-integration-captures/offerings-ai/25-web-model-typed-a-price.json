@@ -1,0 +1,74 @@
+{
+  "scenario": "web-model-typed-a-price",
+  "note": "The stand-in typed a literal price first. The guard rejected it, the regenerated reply used the token, and the customer sees only the live price.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "headers": {},
+    "body": {
+      "message": "what is the exact price of the white sneaker?",
+      "tenant_id": "2c69e301-ee2d-4ab0-af75-3694e0c34a8c",
+      "user_identifier": "web-11"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "40909cb1-039c-491e-8cf8-0d0b5f6f7982",
+      "message": {
+        "role": "assistant",
+        "content": "The Canvas sneaker white is ₦13,500, in stock.",
+        "id": "8cce6ee8-fae9-4463-8a34-b766eff8a072",
+        "session_id": "40909cb1-039c-491e-8cf8-0d0b5f6f7982",
+        "retrieved_chunk_ids": [],
+        "token_count": 300,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "chunks_used": 0,
+          "avg_similarity": 0.0,
+          "retrieval_hit": false,
+          "escalation_action": "no_escalation",
+          "response_quality": {
+            "is_substantial": true,
+            "has_uncertainty": false,
+            "word_count": 8,
+            "char_count": 51
+          },
+          "token_breakdown": {
+            "prompt_tokens": 707,
+            "completion_tokens": -407,
+            "total_tokens": 300
+          },
+          "offerings": {
+            "mode": "detail",
+            "items": [
+              {
+                "ref": "#2",
+                "offering_id": "31dcf8e1-49d3-4fd3-a73c-e6a03502ae80",
+                "name": "Canvas sneaker white",
+                "price_text": "₦13,500",
+                "availability": "in_stock",
+                "cover_image_id": null,
+                "cover_url": null,
+                "photo_count": 0
+              }
+            ],
+            "shown_at": "2026-10-31T11:24:28.625855+00:00",
+            "guard": {
+              "checked": true,
+              "blocked": true,
+              "regenerated": true,
+              "fell_back": false
+            }
+          }
+        },
+        "created_at": "2026-10-31T11:24:28.699614Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}

@@ -3,6 +3,7 @@
 {% block title %}
   {% if kind == "meeting" %}New meeting booked
   {% elif kind == "quote" %}New quote generated
+  {% elif kind == "offering_request" %}New item request
   {% else %}New sales-ready lead
   {% endif %}
 {% endblock %}
@@ -11,6 +12,7 @@
 <h1>
   {% if kind == "meeting" %}New meeting booked
   {% elif kind == "quote" %}New quote generated
+  {% elif kind == "offering_request" %}New item request
   {% else %}New sales-ready lead
   {% endif %}
 </h1>
@@ -50,6 +52,12 @@
   <div style="margin-bottom: 12px;">
     <div class="credential-label">Lead Score</div>
     <div class="credential-value">{{ score }}</div>
+  </div>
+  {% endif %}
+  {% if kind == "offering_request" and wanted %}
+  <div style="margin-bottom: 12px;">
+    <div class="credential-label">Wanted items</div>
+    {% for line in wanted %}<div class="credential-value">{{ line }}</div>{% endfor %}
   </div>
   {% endif %}
   {% if kind == "meeting" and scheduled_at %}

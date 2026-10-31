@@ -1,0 +1,75 @@
+{
+  "scenario": "web-cart-unchanged",
+  "note": "Same cart again: no new quote (no `meta.quote`).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "headers": {},
+    "body": {
+      "message": "yes that is right",
+      "tenant_id": "2c69e301-ee2d-4ab0-af75-3694e0c34a8c",
+      "user_identifier": "web-8",
+      "session_id": "cd690db6-78c9-48f2-be22-f656952f518d"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "cd690db6-78c9-48f2-be22-f656952f518d",
+      "message": {
+        "role": "assistant",
+        "content": "The Canvas sneaker white is ₦13,500, in stock.",
+        "id": "7e943896-45b5-4684-bed2-29fa6972d3b8",
+        "session_id": "cd690db6-78c9-48f2-be22-f656952f518d",
+        "retrieved_chunk_ids": [],
+        "token_count": 150,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "chunks_used": 0,
+          "avg_similarity": 0.0,
+          "retrieval_hit": false,
+          "escalation_action": "no_escalation",
+          "response_quality": {
+            "is_substantial": true,
+            "has_uncertainty": false,
+            "word_count": 8,
+            "char_count": 51
+          },
+          "token_breakdown": {
+            "prompt_tokens": 789,
+            "completion_tokens": -639,
+            "total_tokens": 150
+          },
+          "offerings": {
+            "mode": "detail",
+            "items": [
+              {
+                "ref": "#2",
+                "offering_id": "31dcf8e1-49d3-4fd3-a73c-e6a03502ae80",
+                "name": "Canvas sneaker white",
+                "price_text": "₦13,500",
+                "availability": "in_stock",
+                "cover_image_id": null,
+                "cover_url": null,
+                "photo_count": 0
+              }
+            ],
+            "shown_at": "2026-10-31T11:24:22.791499+00:00",
+            "guard": {
+              "checked": true,
+              "blocked": false,
+              "regenerated": false,
+              "fell_back": false
+            }
+          }
+        },
+        "created_at": "2026-10-31T11:24:22.853371Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}

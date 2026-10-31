@@ -1,0 +1,74 @@
+{
+  "scenario": "web-cart-from-priced-line",
+  "note": "A `from` line: wanted items are recorded, but no quote (a human prices it).",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "headers": {},
+    "body": {
+      "message": "I'll take the phone repair",
+      "tenant_id": "2c69e301-ee2d-4ab0-af75-3694e0c34a8c",
+      "user_identifier": "web-9"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "d3b2f1aa-a212-47c3-a837-939d6af1f284",
+      "message": {
+        "role": "assistant",
+        "content": "Noted: 1 × Phone repair. What name should I put down?",
+        "id": "405c018f-8cc2-4c3e-be7b-3310eeb969c8",
+        "session_id": "d3b2f1aa-a212-47c3-a837-939d6af1f284",
+        "retrieved_chunk_ids": [],
+        "token_count": 150,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "chunks_used": 0,
+          "avg_similarity": 0.0,
+          "retrieval_hit": false,
+          "escalation_action": "no_escalation",
+          "response_quality": {
+            "is_substantial": true,
+            "has_uncertainty": false,
+            "word_count": 11,
+            "char_count": 53
+          },
+          "token_breakdown": {
+            "prompt_tokens": 677,
+            "completion_tokens": -527,
+            "total_tokens": 150
+          },
+          "offerings": {
+            "mode": "detail",
+            "items": [
+              {
+                "ref": "#4",
+                "offering_id": "7b03dba9-d1ff-4a08-8cfc-cd6f1e1051ae",
+                "name": "Phone repair",
+                "price_text": "from ₦5,000 per phone",
+                "availability": "in_stock",
+                "cover_image_id": null,
+                "cover_url": null,
+                "photo_count": 0
+              }
+            ],
+            "shown_at": "2026-10-31T11:24:22.916827+00:00",
+            "guard": {
+              "checked": true,
+              "blocked": false,
+              "regenerated": false,
+              "fell_back": false
+            }
+          }
+        },
+        "created_at": "2026-10-31T11:24:22.978661Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}

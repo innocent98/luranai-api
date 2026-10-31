@@ -1,0 +1,63 @@
+{
+  "scenario": "web-figure-only-offer",
+  "note": "A figure with no item named and nothing in play: an offer candidate for a human (consent step, `escalation_action` `offer_escalation`), never agreed by the model.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "headers": {},
+    "body": {
+      "message": "I fit pay 18k",
+      "tenant_id": "2c69e301-ee2d-4ab0-af75-3694e0c34a8c",
+      "user_identifier": "web-15"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "6cf380bc-c221-496a-8efe-58103e62e5a6",
+      "message": {
+        "role": "assistant",
+        "content": "I can't change prices myself, but the team can discuss it with you.\n\nWould you like me to connect you with the team?",
+        "id": "2eee2c5b-15b6-470e-8e63-2d809effc37b",
+        "session_id": "6cf380bc-c221-496a-8efe-58103e62e5a6",
+        "retrieved_chunk_ids": [],
+        "token_count": 150,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "chunks_used": 0,
+          "avg_similarity": 0.0,
+          "retrieval_hit": false,
+          "escalation_action": "offer_escalation",
+          "response_quality": {
+            "is_substantial": true,
+            "has_uncertainty": false,
+            "word_count": 0,
+            "char_count": 0
+          },
+          "token_breakdown": {
+            "prompt_tokens": 698,
+            "completion_tokens": -548,
+            "total_tokens": 150
+          },
+          "offerings": {
+            "mode": "none",
+            "items": [],
+            "shown_at": "2026-10-31T11:24:29.023086+00:00",
+            "guard": {
+              "checked": false,
+              "blocked": false,
+              "regenerated": false,
+              "fell_back": false
+            }
+          }
+        },
+        "created_at": "2026-10-31T11:24:29.046703Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}

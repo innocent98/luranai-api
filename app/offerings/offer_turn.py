@@ -1,0 +1,169 @@
+"""Bargaining turns are answered by code, never by the model (decision D1, review S-B).
+
+A turn is an offer turn when the customer's latest message names a figure below the price of the
+item under discussion, asks for a percentage, a discount or "the last price", or the model returned
+an offered price. The model's text is dropped and the reply is built from the rows: the price is
+firm, or the owner is open to offers, or a human takes over. This removes the free text in which an
+agreement could hide, whatever words it used.
+"""
+
+import re
+from collections.abc import Callable
+from dataclasses import dataclass, field
+
+from app.offerings.amounts import customer_amounts, mask_for_offers
+from app.offerings.bargain import (
+    BROWSE,
+    BUNDLE_OFFER,
+    CUE_NUMBER,
+    CUE_NUMBER_ITEM,
+    PAY_NOW,
+    OFFER_CUE,
+    PAYMENT_PLAN,
+    cap,
+    has_bargain_wording,
+    is_price_check,
+)
+from app.offerings.cart import CartResolution
+from app.offerings.facts import OfferingFacts, format_amount
+from app.offerings.grounding import GroundingResult
+
+ASK_TEAM = "Would you like me to connect you with the team?"
+HANDOVER_LINE = "I'm handing this to the team now; they'll take it from here."
+
+
+def _matched(grounding: GroundingResult) -> list[OfferingFacts]:
+    return [i for i in grounding.items if i.seq in grounding.matched_seqs]
+
+
+def is_offer_turn(
+    message: str,
+    grounding: GroundingResult,
+    offered_signal: bool,
+    context_prices: Callable[[], list[int]] | None = None,
+) -> bool:
+    """Strong signals only: bargaining wording, or a money figure below the price in play (the item
+    this turn matched, else one shown or wanted earlier in the conversation). With no item known
+    at all, a figure-only message from a tenant that has items is an offer candidate: a human
+    prices it. An ordinary question that merely contains a number is not one."""
+    if grounding.strict or grounding.mode == "unavailable":
+        return False
+    text = (cap([message]) or [""])[0]
+    names = grounding.name_index()  # built once per request; the guard reuses it
+    if offered_signal or has_bargain_wording(text):
+        return True
+    prices = [i.price for i in _matched(grounding) if i.price is not None]
+    if not prices and context_prices is not None:
+        prices = [p for p in context_prices() if p is not None]
+    check = is_price_check(text)
+    if BUNDLE_OFFER.search(text) and not check:
+        return True
+    if PAYMENT_PLAN.search(text):
+        return False  # "12,500 now and the balance on delivery": a payment plan, not a price
+    if prices and min(prices) >= 10_000:
+        # "na 850 I get" for a ₦950,000 phone: a bare number after an offer cue is in thousands
+        low_k = min(prices)
+        masked = mask_for_offers(text, names)
+        for m in CUE_NUMBER.finditer(masked):
+            if int(m.group(1)) * 1000 < low_k:
+                return True
+        words = _name_words(names)
+        for m in CUE_NUMBER_ITEM.finditer(masked):
+            if m.group("w").lower() in words and int(m.group(1)) * 1000 < low_k:
+                return True
+    elif not prices and CUE_NUMBER.search(mask_for_offers(text, names)) and not BROWSE.search(text):
+        return True  # nothing to compare with: still an offer candidate for a human
+    if prices:
+        low = min(prices)
+        below = [
+            a.value
+            for a in customer_amounts(text, small_ok=low < 1000, names=names)
+            if a.value < low
+        ]
+        if not below:
+            return False
+        # "is the meat pie 800 or 1000?", "10 pies, 8000 total right?": the customer quotes a
+        # listed price or the total of a quantity; any other figure below the price is an offer
+        everything = [a.value for a in customer_amounts(text, small_ok=True, names=names)]
+        if check and _quotes_the_list(text, everything or below, grounding):
+            return False
+        return True
+    if check:
+        return False
+    # nothing to compare with: a bare figure from a shop with items is still an offer candidate
+    # unless the message is a budget search
+    figures = customer_amounts(text, small_ok=False, names=names)
+    if not figures:
+        return False
+    if PAY_NOW.search(text) and not OFFER_CUE.search(text):
+        return False  # "send your account number, let me pay 950000": paying, not bargaining
+    return bool(OFFER_CUE.search(text)) or not BROWSE.search(text)
+
+
+def _name_words(names) -> set[str]:
+    if hasattr(names, "words"):
+        return set(names.words)
+    return {w for n in names for w in re.findall(r"[a-z0-9]{3,}", (n or "").lower())}
+
+
+def _quotes_the_list(text: str, figures: list, grounding: GroundingResult) -> bool:
+    listed = {i.price for i in grounding.items if i.price is not None}
+    counts = {int(n) for n in re.findall(r"\b\d{1,3}\b", text) if int(n) >= 2}
+    return any(f in listed or any(n * p == f for n in counts for p in listed) for f in figures)
+
+
+@dataclass
+class OfferTurn:
+    lines: list[str] = field(default_factory=list)
+    handover_now: bool = False
+    consent: bool = False  # offer the team and wait for a yes (no cart to record against)
+
+
+def _firm(item: OfferingFacts, currency: str) -> str:
+    return f"The listed price for the {item.name} is {item.price_text(currency)} and it is firm."
+
+
+def compose_offer_turn(
+    grounding: GroundingResult,
+    cart: CartResolution | None,
+    handover: bool,
+    currency: str,
+    *,
+    amount_recorded: bool,
+) -> OfferTurn:
+    """`handover`: the cart step decided a human must take over (negotiable item below list, an
+    insisting customer or an unpriced item). `amount_recorded`: an offer was stored on the lead."""
+    offered = cart.offered if cart is not None else None
+    target = offered.facts if offered else next(iter(_matched(grounding)), None)
+    if target is None:
+        return OfferTurn(
+            lines=["I can't change prices myself, but the team can discuss it with you.", ASK_TEAM],
+            consent=True,
+        )
+    out = OfferTurn()
+    if target.price is None:  # priced by the team on request
+        out.lines.append(f"The price for the {target.name} is quoted by the team.")
+        out.handover_now = cart is not None
+        out.consent = cart is None
+    elif offered is not None and amount_recorded and handover:
+        out.lines.append(
+            f"I've noted your offer of {format_amount(offered.amount, currency)} "
+            f"for the {target.name}."
+        )
+        out.handover_now = True
+    elif target.negotiable:
+        out.lines.append(
+            f"The owner is open to offers on the {target.name}. Tell me the price you have in "
+            "mind and I'll pass it to the team."
+        )
+        if cart is None:  # support mode cannot record an offer: a human has to take it
+            out.lines[-1] = f"The owner is open to offers on the {target.name}."
+            out.lines.append(ASK_TEAM)
+            out.consent = True
+    else:
+        out.lines.append(_firm(target, currency))
+        if handover:
+            out.handover_now = True
+    if out.handover_now:
+        out.lines.append(HANDOVER_LINE)
+    return out

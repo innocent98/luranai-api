@@ -1,0 +1,132 @@
+{
+  "scenario": "wa-staff-lead-detail",
+  "note": "`source` is `whatsapp` (it used to be hard-coded `chat_widget`).",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/leads/d9e1bbc4-2332-43ff-a096-be5c1ee6d10a",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "id": "d9e1bbc4-2332-43ff-a096-be5c1ee6d10a",
+        "name": null,
+        "company": null,
+        "intent": "PURCHASE_INTENT",
+        "lead_score": 15,
+        "tier": "cold",
+        "status": "new",
+        "source_label": "whatsapp",
+        "created_at": "2026-10-31T11:24:24.593182+00:00",
+        "email": null,
+        "team_size": null,
+        "industry": null,
+        "conversation_id": "23affc8d-3790-4b65-8a55-6535a2091c64",
+        "score_breakdown": [
+          {
+            "key": "provided_email",
+            "label": "Provided email",
+            "weight": 20,
+            "fired": false
+          },
+          {
+            "key": "company_name",
+            "label": "Mentioned company name",
+            "weight": 10,
+            "fired": false
+          },
+          {
+            "key": "team_over_50",
+            "label": "Team size > 50",
+            "weight": 15,
+            "fired": false
+          },
+          {
+            "key": "enterprise",
+            "label": "Enterprise / corporate",
+            "weight": 20,
+            "fired": false
+          },
+          {
+            "key": "asked_features",
+            "label": "Asked about specific features",
+            "weight": 10,
+            "fired": false
+          },
+          {
+            "key": "requested_demo",
+            "label": "Requested a demo",
+            "weight": 15,
+            "fired": false
+          },
+          {
+            "key": "mentioned_competitor",
+            "label": "Mentioned a competitor",
+            "weight": 10,
+            "fired": false
+          },
+          {
+            "key": "ready_to_buy",
+            "label": "Said \"ready to buy\"",
+            "weight": 25,
+            "fired": false
+          },
+          {
+            "key": "paid_ad",
+            "label": "Came from a paid ad (UTM)",
+            "weight": 5,
+            "fired": false
+          },
+          {
+            "key": "selected_items",
+            "label": "Chose items from the catalog",
+            "weight": 15,
+            "fired": true
+          }
+        ],
+        "source": {
+          "landing_page": "whatsapp",
+          "utm": null,
+          "channel": null,
+          "first_seen": "2026-10-31T11:24:24.593182+00:00"
+        },
+        "meeting": null,
+        "quote": {
+          "id": "71f02f28-4a72-4df9-bf07-1fc5142033b6",
+          "currency": "NGN",
+          "line_items": [
+            {
+              "label": "Canvas sneaker black",
+              "detail": "2 × ₦12,000",
+              "amount": 24000
+            }
+          ],
+          "total": 24000,
+          "status": "draft",
+          "created_at": "2026-10-31T11:24:26.070024+00:00"
+        },
+        "crm": {
+          "connected": false,
+          "status": null,
+          "synced_at": null,
+          "error": null
+        },
+        "interests": [
+          {
+            "ref": "#1",
+            "name": "Canvas sneaker black",
+            "price_mode": "fixed",
+            "price": 12000,
+            "price_note": null,
+            "qty": 2,
+            "offered_price": null
+          }
+        ]
+      }
+    }
+  }
+}

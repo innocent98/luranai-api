@@ -1,0 +1,93 @@
+{
+  "scenario": "web-cart-changed",
+  "note": "The cart changed, so a new quote is made; no second owner alert.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "headers": {},
+    "body": {
+      "message": "and one white one",
+      "tenant_id": "2c69e301-ee2d-4ab0-af75-3694e0c34a8c",
+      "user_identifier": "web-8",
+      "session_id": "cd690db6-78c9-48f2-be22-f656952f518d"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "cd690db6-78c9-48f2-be22-f656952f518d",
+      "message": {
+        "role": "assistant",
+        "content": "Noted: 1 × Canvas sneaker white. What name should I put down?\n\nIf you'd like a copy by email, share your email address here and I'll send it.",
+        "id": "f01ef46d-9dba-4c23-8775-84add043f32f",
+        "session_id": "cd690db6-78c9-48f2-be22-f656952f518d",
+        "retrieved_chunk_ids": [],
+        "token_count": 150,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "chunks_used": 0,
+          "avg_similarity": 0.0,
+          "retrieval_hit": false,
+          "escalation_action": "no_escalation",
+          "response_quality": {
+            "is_substantial": true,
+            "has_uncertainty": false,
+            "word_count": 12,
+            "char_count": 61
+          },
+          "token_breakdown": {
+            "prompt_tokens": 743,
+            "completion_tokens": -593,
+            "total_tokens": 150
+          },
+          "offerings": {
+            "mode": "detail",
+            "items": [
+              {
+                "ref": "#2",
+                "offering_id": "31dcf8e1-49d3-4fd3-a73c-e6a03502ae80",
+                "name": "Canvas sneaker white",
+                "price_text": "₦13,500",
+                "availability": "in_stock",
+                "cover_image_id": null,
+                "cover_url": null,
+                "photo_count": 0
+              }
+            ],
+            "shown_at": "2026-10-31T11:24:22.663406+00:00",
+            "guard": {
+              "checked": true,
+              "blocked": false,
+              "regenerated": false,
+              "fell_back": false
+            }
+          },
+          "quote": {
+            "currency": "NGN",
+            "line_items": [
+              {
+                "label": "Canvas sneaker black",
+                "detail": "2 × ₦12,000",
+                "amount": 24000
+              },
+              {
+                "label": "Canvas sneaker white",
+                "detail": "1 × ₦13,500",
+                "amount": 13500
+              }
+            ],
+            "total": 37500,
+            "emailed": false,
+            "email_offer": true
+          }
+        },
+        "created_at": "2026-10-31T11:24:22.749517Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}

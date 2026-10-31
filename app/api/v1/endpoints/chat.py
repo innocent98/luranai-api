@@ -70,6 +70,45 @@ from app.schemas.user import UserResponse
 from app.schemas.visitor import VisitorEnrichmentUpdate
 from app.db.models.lead import Lead
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
+from app.offerings.cart import (
+    CartResolution,
+    InterestSync,
+    has_pending_offer,
+    resolve_cart,
+)
+from app.offerings.grounding import GroundingResult
+from app.offerings.guard_flow import guard_reply
+from app.offerings.offer_turn import ASK_TEAM, HANDOVER_LINE, compose_offer_turn, is_offer_turn
+from app.offerings.misses import record_miss
+from app.offerings.orchestrate import (
+    QuoteOutcome,
+    alert_owner,
+    catalog_score_signals,
+    issue_quote,
+    lock_lead,
+    record_cart,
+    reply_notes,
+)
+from app.offerings.turn import (
+    customer_figures,
+    context_prices,
+    arms_countdown,
+    customer_texts,
+    finalize_reply,
+    ground_turn,
+    kb_text_from_prompt,
+    lead_source,
+    offer_watch,
+    offered_signal,
+    shown_seqs,
+    strip_token_text,
+    safe_offerings_turn,
+    remember_shown,
+    tier_amounts,
+    turn_channel,
+    wanted_seqs,
+)
+from app.offerings.turn import sales_kwargs as catalog_sales_kwargs
 from app.sales.config_view import SalesConfigView
 from app.sales.intent import is_trigger_intent
 from app.schemas.agent_app import AcknowledgeLost
@@ -2675,6 +2714,14 @@ async def _send_message_impl(
         policy_action = "answer"
         policy_reason = "normal_generation"
         _sales_meta: dict | None = None  # populated only in sales mode
+        _offerings: GroundingResult | None = None  # set only on the generation path below
+        _guard_record: dict | None = None
+        is_api_error = False  # set by the generation path below
+        _offer_turn = False
+        _offer_watch = 0  # replies left under the offer rules (catalog tenants only)
+        _pending_offer = False  # an offer on this lead no human has taken up yet
+        _kb_text = ""
+        _token_seqs: list[int] = []
 
         if not scope_allowed:
             policy_action = "refuse"
@@ -2731,6 +2778,18 @@ async def _send_message_impl(
 
         else:
             grounding_mode = str(getattr(tenant_ai_config, "grounding_mode", "balanced"))
+            # Offerings: read the catalog live before the grounding policy runs, because a
+            # catalog hit is grounding. None for a tenant with nothing listed (nothing changes).
+            _offerings = ground_turn(
+                db,
+                session.tenant_id,
+                message_data.message,
+                history=conversation_history,
+                session_meta=dict(session_model.meta or {}),
+            )
+            _catalog_grounded = bool(_offerings and _offerings.grounded)
+            if _offerings is not None:  # nothing from the catalog code runs for anyone else
+                _offer_watch = offer_watch(session.meta)
             if scope_allowed:
                 low_confidence_action = str(
                     getattr(tenant_ai_config, "low_confidence_action", "clarify")
@@ -2739,10 +2798,11 @@ async def _send_message_impl(
                     getattr(tenant_ai_config, "no_retrieval_action", "clarify")
                 )
 
-                has_no_retrieval = len(retrieved_chunks) == 0
+                has_no_retrieval = len(retrieved_chunks) == 0 and not _catalog_grounded
                 has_low_confidence = (
                     len(retrieved_chunks) > 0
                     and avg_similarity < rag_service.MIN_RELEVANT_SIMILARITY
+                    and not _catalog_grounded
                 )
                 has_followup_context = _has_usable_followup_context(conversation_history)
 
@@ -2784,6 +2844,11 @@ async def _send_message_impl(
                 f"action={policy_action}, reason={policy_reason}, mode={grounding_mode}"
             )
 
+            if _catalog_grounded:
+                # A short, correct catalog answer ("The black sneaker is ₦12,000.") is not a weak
+                # one; the price guard below is what vets it.
+                escalation_decision.skip_quality_check = True
+
             turn_signal.generation_started()
             logger.info("Generating AI response...")
             prompt_components = rag_service.assemble_prompt(
@@ -2811,6 +2876,16 @@ async def _send_message_impl(
                 "- Do not use emojis."
             )
             prompt_components.full_prompt = f"{prompt_components.full_prompt}{directive_block}"
+            if _offerings is not None:
+                _kb_text = kb_text_from_prompt(prompt_components.full_prompt)
+                # nothing a customer, the history, the KB or the tenant wrote can look like a
+                # price token to the model: only the block below holds the real ones
+                prompt_components.full_prompt = strip_token_text(
+                    prompt_components.full_prompt, brackets=True
+                )
+                prompt_components.full_prompt += f"\n\n{_offerings.block}"
+                if prompt_components.prompt_tokens is not None:
+                    prompt_components.prompt_tokens += _offerings.token_count
 
             # Current turn's linked image URLs (populated when the USER message was
             # persisted); None keeps the text-only path unchanged.
@@ -2828,6 +2903,12 @@ async def _send_message_impl(
                         Lead.conversation_id == session_id,
                     )
                 ).scalar_one_or_none()
+                if _offerings is not None and _existing_lead is not None:
+                    try:  # an offer no human has taken up yet keeps the agreement rules armed
+                        _pending_offer = has_pending_offer(db, _existing_lead)
+                    except Exception as _po_exc:  # noqa: BLE001
+                        db.rollback()
+                        logger.error(f"pending-offer check failed (non-fatal): {_po_exc}")
                 if _existing_lead is not None:
                     _known_facts = {
                         "name": _existing_lead.name,
@@ -2846,18 +2927,20 @@ async def _send_message_impl(
                     .order_by(AuditReport.created_at.desc())
                     .limit(1)
                 ).scalar_one_or_none()
+                _sales_call_config = (
+                    sales_agent_config
+                    if _sales_close_allowed
+                    else SalesConfigView(sales_agent_config, meeting_booking_enabled=False)
+                )
                 ai_response_text, _sales_meta, token_count, is_api_error = (
                     await rag_service.generate_sales_response(
                         prompt=prompt_components,
-                        config=(
-                            sales_agent_config
-                            if _sales_close_allowed
-                            else SalesConfigView(sales_agent_config, meeting_booking_enabled=False)
-                        ),
+                        config=_sales_call_config,
                         model_name=settings.OPENAI_LLM_MODEL,
                         known_facts=_known_facts,
                         company_website=_company_website,
                         image_urls=_turn_image_urls,
+                        **catalog_sales_kwargs(_offerings),
                     )
                 )
             else:
@@ -2870,6 +2953,78 @@ async def _send_message_impl(
                         image_urls=_turn_image_urls,
                     )
                 )
+
+            # Bargaining is answered by code, not by the model (D1): its text is dropped here and
+            # the reply is composed from the rows after the cart step below.
+            try:
+                _offer_turn = bool(
+                    _offerings is not None
+                    and not is_api_error
+                    and is_offer_turn(
+                        message_data.message,
+                        _offerings,
+                        offered_signal(_sales_meta),
+                        context_prices=lambda: context_prices(
+                            db, session.tenant_id, session.meta, session_id
+                        ),
+                    )
+                )
+            except Exception as _ot_exc:  # noqa: BLE001 - detection must never break the turn
+                db.rollback()
+                logger.error(f"offer-turn detection failed (non-fatal): {_ot_exc}")
+                _offer_turn = False
+            if _offer_turn:
+                ai_response_text = ""
+                escalation_decision.skip_quality_check = True
+
+            # Offerings price guard: every reply built on a catalog block is checked in code;
+            # one regeneration, then a reply built from the rows (never an empty reply).
+            if _offerings is not None and not is_api_error and not _offer_turn:
+
+                async def _regenerate(note: str):  # same call type as the first attempt
+                    _retry = prompt_components.model_copy(
+                        update={"full_prompt": f"{prompt_components.full_prompt}\n\n{note}"}
+                    )
+                    if _sales_mode:
+                        return await rag_service.generate_sales_response(
+                            prompt=_retry,
+                            config=_sales_call_config,
+                            model_name=settings.OPENAI_LLM_MODEL,
+                            known_facts=_known_facts,
+                            company_website=_company_website,
+                            image_urls=_turn_image_urls,
+                            **catalog_sales_kwargs(_offerings),
+                        )
+                    _text, _tokens, _err = await rag_service.generate_ai_response(
+                        prompt=_retry,
+                        max_tokens=tenant_ai_config.max_response_tokens,
+                        model_name=settings.OPENAI_LLM_MODEL,
+                        image_urls=_turn_image_urls,
+                    )
+                    return _text, None, _tokens, _err
+
+                _guarded = await guard_reply(
+                    ai_response_text,
+                    _offerings,
+                    regenerate=_regenerate,
+                    tokens=token_count,
+                    sales_meta=_sales_meta,
+                    customer_texts=customer_texts(conversation_history, message_data.message),
+                    kb_text=_kb_text,
+                    tier_amounts=tier_amounts(sales_agent_config if _sales_mode else None),
+                    offer_hint=_offer_watch > 0 or _pending_offer,
+                )
+                ai_response_text, token_count, _sales_meta = (
+                    _guarded.reply,
+                    _guarded.tokens,
+                    _guarded.sales_meta,
+                )
+                _guard_record = _guarded.record
+                if _guarded.offer_escalation:
+                    escalation_decision.skip_quality_check = True
+                    if escalation_decision.action == EscalationAction.NO_ESCALATION:
+                        escalation_decision.action = EscalationAction.OFFER_ESCALATION
+                        escalation_decision.reason = "Offerings guard fell back to a code reply"
 
             if token_count and prompt_components.prompt_tokens:
                 completion_tokens = token_count - prompt_components.prompt_tokens
@@ -2919,8 +3074,22 @@ async def _send_message_impl(
         # Runs after ai_response_text is finalized so it never blocks the reply.
         lead: Lead | None = None  # resolved below; reused by quote orchestration
         _lead_captured_meta: dict | None = None
+        _cart: CartResolution | None = None  # offerings: the customer's chosen items, read live
+        _cart_synced: InterestSync | None = None
+        _quote_outcome = QuoteOutcome()
+        _extra_lines: list[str] = []
+        _handover_now = False
         if _sales_mode and _sales_meta is not None:
             try:
+                if _offerings is not None and _offerings.mode != "unavailable":
+                    _cart = resolve_cart(
+                        db,
+                        session.tenant_id,
+                        _sales_meta.get("signals"),
+                        _offerings,
+                        customer_amounts=customer_figures([message_data.message]),
+                        extra_seqs=shown_seqs(session_model.meta) + wanted_seqs(db, session_id),
+                    )
                 lead_svc = LeadService(db)
                 conv_id = session_id  # conversation_id == session_id in this handler
 
@@ -2932,9 +3101,13 @@ async def _send_message_impl(
                     )
                 ).scalar_one_or_none()
 
-                _should_create = _existing is not None or is_trigger_intent(
-                    _sales_meta["intent"],
-                    sales_agent_config.trigger_intents,
+                _should_create = (
+                    _existing is not None
+                    or is_trigger_intent(
+                        _sales_meta["intent"],
+                        sales_agent_config.trigger_intents,
+                    )
+                    or bool(_cart and _cart.has_content)
                 )
 
                 if _should_create:
@@ -2951,8 +3124,34 @@ async def _send_message_impl(
                         session.tenant_id,
                         conv_id,
                         intent=_sales_meta["intent"],
-                        source="chat_widget",
+                        # the channel label is part of the catalog feature: other tenants keep today's
+                        source=(
+                            lead_source(turn_channel(), linked_visitor)
+                            if _offerings is not None
+                            else "chat_widget"
+                        ),
                         utm=_utm,
+                    )
+
+                    _quote_outcome = QuoteOutcome()
+                    if _cart is not None and (_cart.has_content or _cart.dropped):
+                        lock_lead(db, lead)  # held until the items are committed
+                        _cart_synced = record_cart(db, lead, _cart)
+                        if (
+                            _sales_close_allowed
+                            and getattr(sales_agent_config, "quotation_enabled", False)
+                            and (_cart.lines or _cart.offered or _cart.dropped)
+                        ):
+                            try:
+                                lock_lead(db, lead)  # one quote per cart, even in parallel turns
+                                _quote_outcome = await issue_quote(
+                                    db, lead, _cart, _cart_synced, _offerings.currency
+                                )
+                            except Exception as _cq_exc:  # the wanted items are already saved
+                                db.rollback()
+                                logger.error(f"Catalog quote error (non-fatal): {_cq_exc}")
+                    _catalog_signals = (
+                        catalog_score_signals(db, lead) if _offerings is not None else {}
                     )
 
                     _email_before = lead.email  # capture before enrich
@@ -2962,8 +3161,11 @@ async def _send_message_impl(
                         lead,
                         intent=_sales_meta["intent"],
                         captured=_sales_meta["captured"],
-                        signals=_sales_meta["signals"],
+                        signals={**_sales_meta["signals"], **_catalog_signals},
                     )
+
+                    if _cart_synced is not None:
+                        await alert_owner(db, lead, _cart_synced, _cart, _offerings.currency)
 
                     # Set lead_captured only on the turn the email first appears.
                     if not _email_before and lead.email:
@@ -2987,12 +3189,57 @@ async def _send_message_impl(
                             )
                             await enqueue_jobs_async(_sr_jobs)
                     except Exception as _sr_exc:  # noqa: BLE001
+                        db.rollback()
                         logger.error(
                             f"sales_ready notification dispatch failed (non-fatal): {_sr_exc}"
                         )
 
+                if _cart is not None and _offerings is not None:
+                    _notes = reply_notes(_cart, _quote_outcome)
+                    _extra_lines, _handover_now = [*_notes.lines], _notes.handover_now
+
             except Exception as _lead_exc:
+                db.rollback()  # a failed flush must not poison saving the assistant message
                 logger.error(f"Sales lead orchestration error (non-fatal): {_lead_exc}")
+
+        if _offerings is not None and not is_api_error:
+            _offer_lines: list[str] = [ai_response_text] if ai_response_text else []
+            _consent = False
+            if _offer_turn:
+                _ot = compose_offer_turn(
+                    _offerings,
+                    _cart,
+                    bool(_cart_synced and _cart_synced.handover),
+                    _offerings.currency,
+                    amount_recorded=bool(_cart_synced and _cart_synced.has_offer),
+                )
+                _offer_lines = _ot.lines
+                _handover_now = _handover_now or _ot.handover_now
+                _consent = _ot.consent
+            if _handover_now and turn_channel() == "voice":
+                # voice only offers the team and waits for a yes: the words must say that
+                _offer_lines = [ASK_TEAM if x == HANDOVER_LINE else x for x in _offer_lines]
+                _extra_lines = [ASK_TEAM if x == HANDOVER_LINE else x for x in _extra_lines]
+            _reply_lines = list(dict.fromkeys([*_offer_lines, *_extra_lines]))
+            if _handover_now and turn_channel() == "voice" and ASK_TEAM in _reply_lines:
+                _reply_lines.remove(ASK_TEAM)
+                _reply_lines.append(ASK_TEAM)  # the question comes last: that is what is answered
+            if _reply_lines:
+                ai_response_text = "\n\n".join(_reply_lines)
+            if _handover_now and turn_channel() != "voice":
+                # D1: a price offer is never answered by the AI; a human takes over now
+                escalation_decision.action = EscalationAction.AUTO_ESCALATE
+                escalation_decision.reason = "Customer made a price offer"
+                escalation_decision.skip_quality_check = True
+            elif _handover_now or _consent:
+                # voice speaks the reply and waits for a yes (a tool call would stay silent)
+                if escalation_decision.action == EscalationAction.NO_ESCALATION:
+                    escalation_decision.action = EscalationAction.OFFER_ESCALATION
+                    escalation_decision.reason = "Customer made a price offer"
+                escalation_decision.skip_quality_check = True
+        ai_response_text, _token_seqs = finalize_reply(
+            db, session.tenant_id, _offerings, ai_response_text
+        )
 
         # Step 8: Save assistant message
         # Store as strings to keep JSON serialization safe (JSON column doesn't
@@ -3038,7 +3285,21 @@ async def _send_message_impl(
         }
         if _lead_captured_meta is not None:
             _message_meta["lead_captured"] = _lead_captured_meta
-        _new_quote = None
+        _offerings_shown: list[int] = []
+        if _offerings is not None:
+            _message_meta["offerings"], _offerings_shown = safe_offerings_turn(
+                db,
+                session.tenant_id,
+                _offerings,
+                _guard_record,
+                ai_response_text,
+                _sales_meta,
+                _token_seqs,
+            )
+            if _offerings.mode == "none":
+                record_miss(db, session.tenant_id, message_data.message)
+        # a catalog quote goes through the same visitor-email path as a plan-tier quote
+        _new_quote = _quote_outcome.created if _offerings is not None else None
         if _sales_mode and _sales_meta is not None:
             _signals = _sales_meta.get("signals") or {}
             if (
@@ -3047,8 +3308,16 @@ async def _send_message_impl(
                 and getattr(sales_agent_config, "meeting_booking_enabled", False)
             ):
                 _message_meta["offer_meeting"] = True
+            _catalog_quote = _quote_outcome.quote
+            if _catalog_quote is not None:
+                _message_meta["quote"] = _catalog_quote
             if (
-                _sales_close_allowed
+                _catalog_quote is None
+                and not (
+                    _offerings is not None  # a catalog turn never gets a plan-tier quote
+                    and (_offerings.mode != "none" or _cart is not None or _offer_turn)
+                )
+                and _sales_close_allowed
                 and bool(_signals.get("offer_quote"))
                 and getattr(sales_agent_config, "quotation_enabled", False)
             ):
@@ -3091,10 +3360,12 @@ async def _send_message_impl(
                                 )
                                 await enqueue_jobs_async(_qn_jobs)
                             except Exception as _qn_exc:  # noqa: BLE001
+                                db.rollback()
                                 logger.error(
                                     f"quote notification dispatch failed (non-fatal): {_qn_exc}"
                                 )
                 except Exception as _quote_exc:
+                    db.rollback()
                     logger.error(f"Quote orchestration error (non-fatal): {_quote_exc}")
 
         # Quote email to the visitor (docs/sop/sales_quote_visitor_email.md): code decides, sends
@@ -3207,6 +3478,18 @@ async def _send_message_impl(
                 conversation_history=conversation_history,
                 contact_email=contact_email,
             )
+
+        remember_shown(
+            db,
+            session_id,
+            _offerings_shown,
+            armed=(
+                _offer_turn
+                and arms_countdown(message_data.message, _offerings, offered_signal(_sales_meta))
+                if _offerings is not None
+                else None
+            ),
+        )
 
         # Step 10: Return response
         return ChatResponse(

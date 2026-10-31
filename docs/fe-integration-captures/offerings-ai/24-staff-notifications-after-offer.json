@@ -1,0 +1,112 @@
+{
+  "scenario": "staff-notifications-after-offer",
+  "note": "Newest first: the `Price offer` alert for the offer made after the cart.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/notifications",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "items": [
+          {
+            "id": "18c87408-6513-4485-ab17-a468a85554c1",
+            "event": "offering_request",
+            "title": "Price offer",
+            "body": "A customer offered ₦30,000 for Leather bag (listed ₦45,000). 3 × Leather bag (listed ₦45,000), customer offered ₦30,000",
+            "read_at": null,
+            "created_at": "2026-10-31T11:24:28.508855+00:00"
+          },
+          {
+            "id": "a0d85d21-77b4-4d3b-8e5d-06bfec934654",
+            "event": "offering_request",
+            "title": "New item request",
+            "body": "A customer · 2 × Canvas sneaker black (listed ₦12,000)",
+            "read_at": null,
+            "created_at": "2026-10-31T11:24:26.101007+00:00"
+          },
+          {
+            "id": "8866cf1b-51d7-496a-9eef-5b9e00aed748",
+            "event": "quote_generated",
+            "title": "New quote",
+            "body": "₦24,000 · a prospect",
+            "read_at": null,
+            "created_at": "2026-10-31T11:24:26.083161+00:00"
+          },
+          {
+            "id": "801f5fe6-1881-4850-9f96-63f6f215edb5",
+            "event": "offering_request",
+            "title": "New item request",
+            "body": "A customer · 1 × Phone repair (listed ₦5,000)",
+            "read_at": null,
+            "created_at": "2026-10-31T11:24:22.964262+00:00"
+          },
+          {
+            "id": "cbd23eb1-af3c-47fa-83cf-a8017c97905b",
+            "event": "quote_generated",
+            "title": "New quote",
+            "body": "₦37,500 · a prospect",
+            "read_at": null,
+            "created_at": "2026-10-31T11:24:22.726000+00:00"
+          },
+          {
+            "id": "ab1699f2-8ab7-4d3b-ae97-2a2ff60d16d9",
+            "event": "offering_request",
+            "title": "New item request",
+            "body": "A customer · 2 × Canvas sneaker black (listed ₦12,000)",
+            "read_at": null,
+            "created_at": "2026-10-31T11:24:22.607408+00:00"
+          },
+          {
+            "id": "84445300-9a44-4363-a24b-6a5b7bebbbcb",
+            "event": "quote_generated",
+            "title": "New quote",
+            "body": "₦24,000 · a prospect",
+            "read_at": null,
+            "created_at": "2026-10-31T11:24:22.596615+00:00"
+          },
+          {
+            "id": "cabae318-6e53-4a84-b042-c729a8652059",
+            "event": "offering_request",
+            "title": "Price offer",
+            "body": "A customer offered ₦30,000 for Leather bag (listed ₦45,000). 1 × Leather bag (listed ₦45,000), customer offered ₦30,000",
+            "read_at": null,
+            "created_at": "2026-10-31T11:24:22.439183+00:00"
+          },
+          {
+            "id": "b747b0a5-5d0d-4b58-a4f6-e6258fd16bb3",
+            "event": "offering_request",
+            "title": "New item request",
+            "body": "A customer · 1 × Leather bag (listed ₦45,000), customer offered ₦30,000",
+            "read_at": null,
+            "created_at": "2026-10-31T11:24:22.429834+00:00"
+          },
+          {
+            "id": "d97ab464-a67a-469b-80dc-df2294c1944d",
+            "event": "offering_request",
+            "title": "New item request",
+            "body": "A customer · 1 × Canvas sneaker white (listed ₦13,500), customer offered ₦9,000",
+            "read_at": null,
+            "created_at": "2026-10-31T11:24:22.325187+00:00"
+          },
+          {
+            "id": "1b6d81ee-7737-412b-bfe6-2b3fc036a06f",
+            "event": "offering_request",
+            "title": "New item request",
+            "body": "A customer · 1 × Canvas sneaker black (listed ₦12,000), customer offered ₦10,000",
+            "read_at": null,
+            "created_at": "2026-10-31T11:24:22.135641+00:00"
+          }
+        ],
+        "total": 11,
+        "limit": 20,
+        "offset": 0
+      }
+    }
+  }
+}

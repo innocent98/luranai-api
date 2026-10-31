@@ -36,6 +36,7 @@ _REP_SUBJECT = {
     NotifEvent.SALES_READY_LEAD: "New sales-ready lead",
     NotifEvent.MEETING_BOOKED: "New meeting booked",
     NotifEvent.QUOTE_GENERATED: "New quote generated",
+    NotifEvent.OFFERING_REQUEST: "New item request",
 }
 
 
@@ -105,7 +106,17 @@ def _lead_contact(db, lead: Lead | None) -> dict:
 
 def _entity_fields(db, log: NotificationLog) -> dict:
     quote: Quote | None = None
-    if log.entity_type == "lead":
+    wanted: list[str] | None = None  # an offerings alert lists what the customer wants, as text
+    if log.entity_type == "offering_offer":  # a later offer: the alert text was written at the time
+        lead, wanted = None, [log.body or ""]
+        fields = {"kind": "offering_request", "score": None}
+    elif log.entity_type == "lead" and log.event == NotifEvent.OFFERING_REQUEST:
+        from app.offerings.alerts import interest_lines
+
+        lead = db.get(Lead, log.entity_id)
+        wanted = interest_lines(db, log.tenant_id, log.entity_id)
+        fields = {"kind": "offering_request", "score": lead.lead_score if lead else None}
+    elif log.entity_type == "lead":
         lead = db.get(Lead, log.entity_id)
         fields = {"kind": "lead", "score": lead.lead_score if lead else None}
     elif log.entity_type == "meeting":
@@ -127,6 +138,9 @@ def _entity_fields(db, log: NotificationLog) -> dict:
     if quote is None and lead is not None and lead.quote_id:
         quote = db.get(Quote, lead.quote_id)  # a lead/meeting alert shows what they asked for
     fields["items"] = _quote_items(quote)
+    if wanted is not None:
+        fields["wanted"] = wanted
+        fields["items"] = []  # `items` is the quote's priced lines; wanted items are plain text
     return fields
 
 
@@ -369,6 +383,10 @@ def _slack_escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+class SlackSafe(str):
+    """Text whose Slack control characters were already escaped once (by `_slack_body`)."""
+
+
 def _slack_body(db, log: NotificationLog) -> str:
     """The Slack message body: the log's one-liner plus who to contact and what they asked for.
 
@@ -388,7 +406,9 @@ def _slack_body(db, log: NotificationLog) -> str:
         lines.append(f"Total: {_slack_escape(f['total_fmt'])}")
     for it in f.get("items") or []:
         lines.append(f"• {_slack_escape(str(it['label']))}: {_slack_escape(it['amount_fmt'])}")
-    return "\n".join(line for line in lines if line)
+    for line in f.get("wanted") or []:
+        lines.append(f"• {_slack_escape(str(line))}")
+    return SlackSafe("\n".join(line for line in lines if line))
 
 
 def _slack_blocks(title: str | None, body: str | None, dashboard_url: str = "") -> dict:
@@ -405,7 +425,8 @@ def _slack_blocks(title: str | None, body: str | None, dashboard_url: str = "") 
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": (body or "")[:2000] or "—",
+                "text": (body if isinstance(body, SlackSafe) else _slack_escape(body or ""))[:2000]
+                or "—",
             },
         },
     ]
@@ -537,6 +558,34 @@ def _crm_payload(lead: Lead) -> dict:
     }
 
 
+def _crm_interests(db, lead: Lead) -> list[dict]:
+    """The lead's wanted items (spec 8.5), so the CRM sees what the customer asked for."""
+    from app.db.models.offering import LeadOfferingInterest
+
+    rows = (
+        db.execute(
+            select(LeadOfferingInterest)
+            .where(
+                LeadOfferingInterest.tenant_id == lead.tenant_id,
+                LeadOfferingInterest.lead_id == lead.id,
+            )
+            .order_by(LeadOfferingInterest.created_at, LeadOfferingInterest.ref)
+        )
+        .scalars()
+        .all()
+    )
+    return [
+        {
+            "ref": r.ref,
+            "name": r.name_snapshot,
+            "qty": r.qty,
+            "price": r.price_snapshot,
+            "offered_price": r.offered_price,
+        }
+        for r in rows
+    ]
+
+
 def _extract_crm_id(resp) -> str | None:
     """Best-effort: pull an id-ish value from a 2xx JSON body. Never raises."""
     try:
@@ -594,6 +643,9 @@ async def sync_lead_to_crm(ctx, notification_log_id: str) -> None:
             return
 
         payload = _crm_payload(lead)
+        interests = _crm_interests(db, lead)
+        if interests:
+            payload["interests"] = interests
         try:
             resp = await apinned_request("POST", url, json=payload, timeout=10)
         except UnsafeOutboundURLError:

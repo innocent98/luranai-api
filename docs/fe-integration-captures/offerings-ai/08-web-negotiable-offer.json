@@ -1,0 +1,74 @@
+{
+  "scenario": "web-negotiable-offer",
+  "note": "Negotiable item: the offer is recorded on the lead (`interests[].offered_price`) and a human is offered. No quote while an offer is pending.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "headers": {},
+    "body": {
+      "message": "I'll pay 30k for the leather bag",
+      "tenant_id": "2c69e301-ee2d-4ab0-af75-3694e0c34a8c",
+      "user_identifier": "web-7"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "1aecc7e2-a900-4e31-9fe5-396c0cc207cd",
+      "message": {
+        "role": "assistant",
+        "content": "I've noted your offer of ₦30,000 for the Leather bag.\n\nI'm handing this to the team now; they'll take it from here.",
+        "id": "b1b1eaf3-2778-4278-a37f-4810b2d17744",
+        "session_id": "1aecc7e2-a900-4e31-9fe5-396c0cc207cd",
+        "retrieved_chunk_ids": [],
+        "token_count": 150,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "chunks_used": 0,
+          "avg_similarity": 0.0,
+          "retrieval_hit": false,
+          "escalation_action": "auto_escalate",
+          "response_quality": {
+            "is_substantial": true,
+            "has_uncertainty": false,
+            "word_count": 0,
+            "char_count": 0
+          },
+          "token_breakdown": {
+            "prompt_tokens": 688,
+            "completion_tokens": -538,
+            "total_tokens": 150
+          },
+          "offerings": {
+            "mode": "detail",
+            "items": [
+              {
+                "ref": "#3",
+                "offering_id": "f657e106-a129-42ad-b248-ab33a537bc97",
+                "name": "Leather bag",
+                "price_text": "₦45,000",
+                "availability": "in_stock",
+                "cover_image_id": null,
+                "cover_url": null,
+                "photo_count": 0
+              }
+            ],
+            "shown_at": "2026-10-31T11:24:22.390383+00:00",
+            "guard": {
+              "checked": false,
+              "blocked": false,
+              "regenerated": false,
+              "fell_back": false
+            }
+          }
+        },
+        "created_at": "2026-10-31T11:24:22.454871Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": true,
+      "escalation_reason": "Customer made a price offer",
+      "ticket_id": "9d8c17c3-9152-46a6-9878-ec4356f60680"
+    }
+  }
+}

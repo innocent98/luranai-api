@@ -1,0 +1,74 @@
+{
+  "scenario": "support-mode-detail",
+  "note": "Sales Agent off: grounded answer and cards, but no lead, cart or alert.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/chat/message",
+    "headers": {},
+    "body": {
+      "message": "how much is the black sneaker?",
+      "tenant_id": "6afb9c2a-1896-4c86-b0f6-734b8d055d50",
+      "user_identifier": "web-10"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "841bc56b-cbdb-4d7c-9538-e40bd4610eee",
+      "message": {
+        "role": "assistant",
+        "content": "The Canvas sneaker black is ₦12,000, in stock.",
+        "id": "78134860-1bd1-443a-991a-64655e8d52d9",
+        "session_id": "841bc56b-cbdb-4d7c-9538-e40bd4610eee",
+        "retrieved_chunk_ids": [],
+        "token_count": 120,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "chunks_used": 0,
+          "avg_similarity": 0.0,
+          "retrieval_hit": false,
+          "escalation_action": "no_escalation",
+          "response_quality": {
+            "is_substantial": true,
+            "has_uncertainty": false,
+            "word_count": 8,
+            "char_count": 51
+          },
+          "token_breakdown": {
+            "prompt_tokens": 701,
+            "completion_tokens": -581,
+            "total_tokens": 120
+          },
+          "offerings": {
+            "mode": "detail",
+            "items": [
+              {
+                "ref": "#1",
+                "offering_id": "b553f356-c09c-4cb6-ba4e-1e6fc3621bdf",
+                "name": "Canvas sneaker black",
+                "price_text": "₦12,000",
+                "availability": "in_stock",
+                "cover_image_id": "fc829e18-41c2-4bc0-9ab2-bbf70f981f41",
+                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/6afb9c2a-1896-4c86-b0f6-734b8d055d50/6e0826b958004acebb454a58c101ef75.jpg",
+                "photo_count": 2
+              }
+            ],
+            "shown_at": "2026-10-31T11:24:23.146853+00:00",
+            "guard": {
+              "checked": true,
+              "blocked": false,
+              "regenerated": false,
+              "fell_back": false
+            }
+          }
+        },
+        "created_at": "2026-10-31T11:24:23.183347Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "scenario": "wa-create-connection",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/whatsapp/connections",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "phone_number": "2348008844306",
+      "label": "Shop line",
+      "consent": {
+        "version": "2026-10-30",
+        "accepted": true
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "id": "5dfbbd34-c30b-4b68-8598-ea96d7615adc",
+      "status": "awaiting_pair",
+      "pairing_code": "FAKE9880",
+      "expires_in_s": 180
+    }
+  }
+}

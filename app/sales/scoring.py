@@ -12,6 +12,13 @@ SIGNALS: list[tuple[str, str, int]] = [
     ("paid_ad", "Came from a paid ad (UTM)", 5),
 ]
 
+# Offerings: shown in the breakdown only when fired, so a lead without catalog activity keeps the
+# nine-row breakdown it always had.
+CATALOG_SIGNALS: list[tuple[str, str, int]] = [
+    ("selected_items", "Chose items from the catalog", 15),
+    ("price_offer", "Made a price offer", 5),
+]
+
 TIER_THRESHOLDS = {"warm": 31, "hot": 61, "sales_ready": 86}
 _ENTERPRISE_HINTS = ("bank", "enterprise", "corporate", "corp", "plc", "group")
 _PAID_HINTS = ("cpc", "ppc", "paid", "ad", "ads", "adwords", "google_ads")
@@ -61,5 +68,9 @@ def score_lead(lead, signals: dict | None = None) -> ScoreResult:
         if fired:
             total += weight
         breakdown.append({"key": key, "label": label, "weight": weight, "fired": fired})
+    for key, label, weight in CATALOG_SIGNALS:
+        if signals.get(key):
+            total += weight
+            breakdown.append({"key": key, "label": label, "weight": weight, "fired": True})
     score = min(100, total)
     return {"score": score, "tier": tier_for(score), "breakdown": breakdown}
