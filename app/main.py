@@ -11,6 +11,7 @@ from app.core.logger import log
 from app.core.websocket import connection_manager
 from app.services.customer_presence import presence_tracker
 from app.services.entitlements import FeatureNotInPlan
+from app.services.offering_service import OfferingError
 from app.services.whatsapp_service import WhatsAppError
 from app.utils.knowledge_failures import KnowledgeError
 
@@ -109,6 +110,12 @@ async def whatsapp_error_handler(request: Request, exc: WhatsAppError) -> JSONRe
     return JSONResponse(
         status_code=exc.status_code, content={"code": exc.code, "message": exc.message}
     )
+
+
+@app.exception_handler(OfferingError)
+async def offering_error_handler(request: Request, exc: OfferingError) -> JSONResponse:
+    """Offerings endpoints return the flat `{code, message[, ...]}` error body."""
+    return JSONResponse(status_code=exc.status_code, content=exc.body())
 
 
 @app.exception_handler(FeatureNotInPlan)

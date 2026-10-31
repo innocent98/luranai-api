@@ -195,6 +195,10 @@ class TenantCapabilitiesBase(BaseModel):
     max_whatsapp_numbers: int | None = Field(
         default=0, ge=0, description="WhatsApp numbers the tenant may link; null = unlimited"
     )
+    max_offerings: int | None = Field(
+        default=None, ge=0, description="Offerings catalog items allowed; null = unlimited"
+    )
+    max_offering_images: int = Field(default=4, ge=0, description="Photos per offering item")
 
 
 # Create schemas
@@ -298,6 +302,8 @@ class TenantCapabilitiesUpdate(BaseModel):
     can_export_ratings: bool | None = None
     can_use_whatsapp: bool | None = None
     max_whatsapp_numbers: int | None = Field(None, ge=0)
+    max_offerings: int | None = Field(None, ge=0)
+    max_offering_images: int | None = Field(None, ge=0)
 
 
 # Response schemas

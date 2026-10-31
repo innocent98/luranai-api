@@ -38,6 +38,8 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         can_export_ratings=True,
         can_use_whatsapp=True,
         max_whatsapp_numbers=1,
+        max_offerings=25,
+        max_offering_images=4,
         max_flows=1,
         max_nodes_per_flow=0,
         can_use_webhooks=False,
@@ -63,6 +65,8 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         can_export_ratings=False,
         can_use_whatsapp=True,
         max_whatsapp_numbers=1,
+        max_offerings=100,
+        max_offering_images=4,
         max_flows=3,
         max_nodes_per_flow=20,
         can_use_webhooks=False,
@@ -88,6 +92,8 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         can_export_ratings=True,
         can_use_whatsapp=True,
         max_whatsapp_numbers=2,
+        max_offerings=500,
+        max_offering_images=8,
         max_flows=10,
         max_nodes_per_flow=50,
         can_use_webhooks=True,
@@ -113,6 +119,8 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         can_export_ratings=True,
         can_use_whatsapp=True,
         max_whatsapp_numbers=5,
+        max_offerings=2000,
+        max_offering_images=8,
         max_flows=25,
         max_nodes_per_flow=100,
         can_use_webhooks=True,
@@ -138,6 +146,8 @@ _CAPABILITIES: dict[str, dict[str, Any]] = {
         can_export_ratings=True,
         can_use_whatsapp=True,
         max_whatsapp_numbers=None,
+        max_offerings=None,
+        max_offering_images=8,
         max_flows=None,
         max_nodes_per_flow=None,
         can_use_webhooks=True,
@@ -223,6 +233,11 @@ def build_feature_strings(tier: str, caps: dict[str, Any]) -> list[str]:
         "WhatsApp (beta): unlimited numbers"
         if whatsapp is None
         else f"WhatsApp (beta): {whatsapp} number{'' if whatsapp == 1 else 's'}"
+    )
+    features.append(
+        "Offerings: unlimited items"
+        if caps["max_offerings"] is None
+        else f"Offerings: up to {caps['max_offerings']:,} items"
     )
     features.extend(_EXTRAS[tier]["support"])
     return features

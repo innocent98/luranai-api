@@ -1,0 +1,79 @@
+{
+  "scenario": "photo-reorder",
+  "note": "The first id becomes the cover; the whole item comes back.",
+  "request": {
+    "method": "PUT",
+    "path": "/api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87/images/order",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "image_ids": [
+        "9103bdf1-d58f-41fb-9e30-6ef8ffc2313a",
+        "ff9bae44-547d-42db-ac4d-ccd521915ea9",
+        "84cffc22-372a-4377-a5b0-2cb8eafcbe1c"
+      ]
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": {
+        "id": "215a6240-fc7a-4286-a0d4-11a0a27fbc87",
+        "seq": 1,
+        "ref": "#1",
+        "kind": "product",
+        "name": "Canvas sneaker",
+        "description": "Black, sizes 40-45",
+        "category": "Shoes",
+        "keywords": "trainers, sneakers",
+        "price_mode": "fixed",
+        "price": 12000,
+        "price_note": null,
+        "availability": "in_stock",
+        "quantity": null,
+        "negotiable": true,
+        "status": "active",
+        "external_ref": null,
+        "images": [
+          {
+            "id": "9103bdf1-d58f-41fb-9e30-6ef8ffc2313a",
+            "url": "https://res.cloudinary.com/demo/image/upload/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/5d606477d28c42099fe38c7b4afb7058.jpg",
+            "thumb_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/5d606477d28c42099fe38c7b4afb7058.jpg",
+            "gallery_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1000,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/5d606477d28c42099fe38c7b4afb7058.jpg",
+            "position": 0,
+            "width": 1200,
+            "height": 900,
+            "bytes": 240545
+          },
+          {
+            "id": "ff9bae44-547d-42db-ac4d-ccd521915ea9",
+            "url": "https://res.cloudinary.com/demo/image/upload/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/a37d6ec3772743e99c8de52bea334fb9.jpg",
+            "thumb_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/a37d6ec3772743e99c8de52bea334fb9.jpg",
+            "gallery_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1000,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/a37d6ec3772743e99c8de52bea334fb9.jpg",
+            "position": 1,
+            "width": 1200,
+            "height": 900,
+            "bytes": 240700
+          },
+          {
+            "id": "84cffc22-372a-4377-a5b0-2cb8eafcbe1c",
+            "url": "https://res.cloudinary.com/demo/image/upload/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/b0cc00d0fd4a4317912674ea9edb5762.jpg",
+            "thumb_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/b0cc00d0fd4a4317912674ea9edb5762.jpg",
+            "gallery_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1000,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/b0cc00d0fd4a4317912674ea9edb5762.jpg",
+            "position": 2,
+            "width": 1200,
+            "height": 900,
+            "bytes": 240121
+          }
+        ],
+        "photo_count": 3,
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/5d606477d28c42099fe38c7b4afb7058.jpg",
+        "availability_changed_at": "2026-10-30T23:07:03.897971+00:00",
+        "archived_at": null,
+        "created_at": "2026-10-30T23:07:03.897971+00:00",
+        "updated_at": "2026-10-30T23:07:03.897971+00:00"
+      }
+    }
+  }
+}

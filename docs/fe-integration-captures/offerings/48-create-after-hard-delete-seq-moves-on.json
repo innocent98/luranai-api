@@ -1,0 +1,48 @@
+{
+  "scenario": "create-after-hard-delete-seq-moves-on",
+  "note": "`seq` continues; the deleted number is not reused.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "kind": "product",
+      "name": "After delete",
+      "price_mode": "fixed",
+      "price": 12000,
+      "availability": "in_stock"
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "data": {
+        "id": "6391df20-fd2a-4295-906d-cbb372cc9e1c",
+        "seq": 5,
+        "ref": "#5",
+        "kind": "product",
+        "name": "After delete",
+        "description": null,
+        "category": null,
+        "keywords": null,
+        "price_mode": "fixed",
+        "price": 12000,
+        "price_note": null,
+        "availability": "in_stock",
+        "quantity": null,
+        "negotiable": false,
+        "status": "active",
+        "external_ref": null,
+        "images": [],
+        "photo_count": 0,
+        "cover_url": null,
+        "availability_changed_at": "2026-10-30T23:07:04.719963+00:00",
+        "archived_at": null,
+        "created_at": "2026-10-30T23:07:04.719963+00:00",
+        "updated_at": "2026-10-30T23:07:04.719963+00:00"
+      }
+    }
+  }
+}

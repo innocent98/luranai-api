@@ -1,0 +1,18 @@
+{
+  "scenario": "misses-dismiss-again-not-found",
+  "note": "",
+  "request": {
+    "method": "DELETE",
+    "path": "/api/v1/offerings/misses/86b1066f-d272-4c5c-950b-c04faba0f6aa",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 404,
+    "body": {
+      "code": "offering_miss_not_found",
+      "message": "Not-found term not found"
+    }
+  }
+}

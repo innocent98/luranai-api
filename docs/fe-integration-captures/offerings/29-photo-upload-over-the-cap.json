@@ -1,0 +1,28 @@
+{
+  "scenario": "photo-upload-over-the-cap",
+  "note": "409 offering_image_limit (Trial: 4 per item), refused before any moderation or upload work.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87/images",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>",
+      "Content-Type": "multipart/form-data"
+    },
+    "multipart": {
+      "file": {
+        "filename": "one-more.jpg",
+        "content_type": "image/jpeg",
+        "size_bytes": 948
+      }
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "code": "offering_image_limit",
+      "message": "Your plan allows 4 photos per item. Remove one, or upgrade, to add more.",
+      "limit": 4,
+      "used": 4
+    }
+  }
+}

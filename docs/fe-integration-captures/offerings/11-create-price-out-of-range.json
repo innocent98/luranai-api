@@ -1,0 +1,31 @@
+{
+  "scenario": "create-price-out-of-range",
+  "note": "0 < price <= 10,000,000,000 whole naira.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "kind": "product",
+      "name": "Canvas sneaker",
+      "price_mode": "fixed",
+      "price": 0,
+      "availability": "in_stock"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "code": "validation",
+      "message": "Some fields are not valid.",
+      "errors": [
+        {
+          "field": "price",
+          "code": "price_out_of_range"
+        }
+      ]
+    }
+  }
+}

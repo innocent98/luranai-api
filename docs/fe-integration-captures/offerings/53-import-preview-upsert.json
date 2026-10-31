@@ -1,0 +1,70 @@
+{
+  "scenario": "import-preview-upsert",
+  "note": "`target` names the item an update row will change.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/import/preview",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "format": "csv",
+      "content": "name,price,external_ref\nTote bag (new price),9000,SKU-TOTE\nFresh item,100,SKU-NEW\n",
+      "mode": "upsert"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": {
+        "rows": [
+          {
+            "row": 1,
+            "status": "update",
+            "parsed": {
+              "kind": "product",
+              "name": "Tote bag (new price)",
+              "price_mode": "fixed",
+              "price": 9000,
+              "availability": "in_stock",
+              "category": "Bags",
+              "description": null,
+              "keywords": null,
+              "price_note": null,
+              "quantity": null,
+              "negotiable": false,
+              "external_ref": "SKU-TOTE"
+            },
+            "errors": [],
+            "target": "#6"
+          },
+          {
+            "row": 2,
+            "status": "create",
+            "parsed": {
+              "kind": "product",
+              "name": "Fresh item",
+              "price_mode": "fixed",
+              "price": 100,
+              "availability": "in_stock",
+              "category": null,
+              "description": null,
+              "keywords": null,
+              "price_note": null,
+              "quantity": null,
+              "negotiable": false,
+              "external_ref": "SKU-NEW"
+            },
+            "errors": []
+          }
+        ],
+        "summary": {
+          "create": 1,
+          "update": 1,
+          "error": 0,
+          "over_limit_by": 0
+        }
+      }
+    }
+  }
+}

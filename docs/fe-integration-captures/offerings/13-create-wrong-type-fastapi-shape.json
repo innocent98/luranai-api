@@ -1,0 +1,46 @@
+{
+  "scenario": "create-wrong-type-fastapi-shape",
+  "note": "FE TRAP: a wrong TYPE (not a business rule) is refused by the framework with its own `detail` array, not the flat {code, message, errors} body.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "kind": "gadget",
+      "name": "Canvas sneaker",
+      "price_mode": "fixed",
+      "price": "abc",
+      "availability": "in_stock"
+    }
+  },
+  "response": {
+    "status": 422,
+    "body": {
+      "detail": [
+        {
+          "type": "literal_error",
+          "loc": [
+            "body",
+            "kind"
+          ],
+          "msg": "Input should be 'product' or 'service'",
+          "input": "gadget",
+          "ctx": {
+            "expected": "'product' or 'service'"
+          }
+        },
+        {
+          "type": "int_parsing",
+          "loc": [
+            "body",
+            "price"
+          ],
+          "msg": "Input should be a valid integer, unable to parse string as an integer",
+          "input": "abc"
+        }
+      ]
+    }
+  }
+}

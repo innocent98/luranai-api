@@ -526,6 +526,18 @@ class TenantCapabilities(Base, UUIDMixin, TimestampMixin):
         comment="WhatsApp numbers the tenant may link; plan-driven, null = unlimited "
         "(only usable while can_use_whatsapp is on)",
     )
+    max_offerings: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="Offerings catalog items the tenant may keep active; plan-driven, null = unlimited",
+    )
+    max_offering_images: Mapped[int] = mapped_column(
+        Integer,
+        default=4,
+        nullable=False,
+        server_default="4",
+        comment="Photos per offering item; plan-driven",
+    )
     can_use_sales_close: Mapped[bool] = mapped_column(
         Boolean,
         default=False,

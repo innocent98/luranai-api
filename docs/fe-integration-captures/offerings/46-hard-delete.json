@@ -1,0 +1,15 @@
+{
+  "scenario": "hard-delete",
+  "note": "204. Row and photos are gone; its #seq is never reused.",
+  "request": {
+    "method": "DELETE",
+    "path": "/api/v1/offerings/e7350b65-6520-492b-b373-122f7d55003d?hard=true",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    }
+  },
+  "response": {
+    "status": 204,
+    "body": null
+  }
+}

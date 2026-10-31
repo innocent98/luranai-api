@@ -1,0 +1,34 @@
+{
+  "scenario": "photo-upload-third",
+  "note": "",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87/images",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>",
+      "Content-Type": "multipart/form-data"
+    },
+    "multipart": {
+      "file": {
+        "filename": "back.webp",
+        "content_type": "image/webp",
+        "size_bytes": 116
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "data": {
+        "id": "9103bdf1-d58f-41fb-9e30-6ef8ffc2313a",
+        "url": "https://res.cloudinary.com/demo/image/upload/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/5d606477d28c42099fe38c7b4afb7058.jpg",
+        "thumb_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/5d606477d28c42099fe38c7b4afb7058.jpg",
+        "gallery_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1000,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/5d606477d28c42099fe38c7b4afb7058.jpg",
+        "position": 2,
+        "width": 1200,
+        "height": 900,
+        "bytes": 240545
+      }
+    }
+  }
+}

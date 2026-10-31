@@ -1,0 +1,10 @@
+{
+  "scenario": "worker-sweep-old-misses",
+  "note": "A 100-day-old term inserted by SQL, then `sweep_old_offering_misses` enqueued on the arq queue and run by the real worker process.",
+  "before": [
+    {
+      "term": "ancient term"
+    }
+  ],
+  "after": []
+}

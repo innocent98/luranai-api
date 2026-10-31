@@ -1,0 +1,26 @@
+{
+  "scenario": "photo-too-large",
+  "note": "Just over 5 MB.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87/images",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>",
+      "Content-Type": "multipart/form-data"
+    },
+    "multipart": {
+      "file": {
+        "filename": "big.jpg",
+        "content_type": "image/jpeg",
+        "size_bytes": 5243828
+      }
+    }
+  },
+  "response": {
+    "status": 413,
+    "body": {
+      "code": "image_too_large",
+      "message": "The photo is larger than 5 MB. Choose a smaller one."
+    }
+  }
+}

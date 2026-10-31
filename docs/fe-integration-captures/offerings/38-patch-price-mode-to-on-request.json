@@ -1,0 +1,85 @@
+{
+  "scenario": "patch-price-mode-to-on-request",
+  "note": "The old price is shed (null).",
+  "request": {
+    "method": "PATCH",
+    "path": "/api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "price_mode": "on_request"
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": {
+        "id": "215a6240-fc7a-4286-a0d4-11a0a27fbc87",
+        "seq": 1,
+        "ref": "#1",
+        "kind": "product",
+        "name": "Canvas sneaker",
+        "description": "Black, sizes 40-45",
+        "category": "Shoes",
+        "keywords": "trainers, sneakers",
+        "price_mode": "on_request",
+        "price": null,
+        "price_note": null,
+        "availability": "out_of_stock",
+        "quantity": null,
+        "negotiable": true,
+        "status": "active",
+        "external_ref": null,
+        "images": [
+          {
+            "id": "9103bdf1-d58f-41fb-9e30-6ef8ffc2313a",
+            "url": "https://res.cloudinary.com/demo/image/upload/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/5d606477d28c42099fe38c7b4afb7058.jpg",
+            "thumb_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/5d606477d28c42099fe38c7b4afb7058.jpg",
+            "gallery_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1000,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/5d606477d28c42099fe38c7b4afb7058.jpg",
+            "position": 0,
+            "width": 1200,
+            "height": 900,
+            "bytes": 240545
+          },
+          {
+            "id": "84cffc22-372a-4377-a5b0-2cb8eafcbe1c",
+            "url": "https://res.cloudinary.com/demo/image/upload/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/b0cc00d0fd4a4317912674ea9edb5762.jpg",
+            "thumb_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/b0cc00d0fd4a4317912674ea9edb5762.jpg",
+            "gallery_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1000,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/b0cc00d0fd4a4317912674ea9edb5762.jpg",
+            "position": 1,
+            "width": 1200,
+            "height": 900,
+            "bytes": 240121
+          },
+          {
+            "id": "38efe1b2-19ba-4bd8-baea-e87ddbd91c24",
+            "url": "https://res.cloudinary.com/demo/image/upload/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/bf9f81d470ee4089b4e1fedc9c54430e.jpg",
+            "thumb_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/bf9f81d470ee4089b4e1fedc9c54430e.jpg",
+            "gallery_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1000,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/bf9f81d470ee4089b4e1fedc9c54430e.jpg",
+            "position": 2,
+            "width": 1200,
+            "height": 900,
+            "bytes": 240015
+          },
+          {
+            "id": "fb47e240-7447-4919-b38d-a542037cadee",
+            "url": "https://res.cloudinary.com/demo/image/upload/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/dec1ec0020b145c4bcef2332d6b09e12.jpg",
+            "thumb_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/dec1ec0020b145c4bcef2332d6b09e12.jpg",
+            "gallery_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1000,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/dec1ec0020b145c4bcef2332d6b09e12.jpg",
+            "position": 3,
+            "width": 1200,
+            "height": 900,
+            "bytes": 240218
+          }
+        ],
+        "photo_count": 4,
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/5d606477d28c42099fe38c7b4afb7058.jpg",
+        "availability_changed_at": "2026-10-30T23:07:04.559012+00:00",
+        "archived_at": null,
+        "created_at": "2026-10-30T23:07:03.897971+00:00",
+        "updated_at": "2026-10-30T23:07:04.574957+00:00"
+      }
+    }
+  }
+}

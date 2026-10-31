@@ -17,6 +17,7 @@ class NotifEvent(str, enum.Enum):
     ESCALATION_ALERT = "escalation_alert"
     ESCALATION_FALLBACK = "escalation_fallback"
     ESCALATION_MISSED = "escalation_missed"
+    OFFERING_REQUEST = "offering_request"
     # The quote PDF emailed to the visitor who asked for it (recipient = the visitor's address).
     QUOTE_EMAILED_VISITOR = "quote_emailed_visitor"
 

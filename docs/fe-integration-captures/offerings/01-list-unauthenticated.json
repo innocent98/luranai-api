@@ -1,0 +1,15 @@
+{
+  "scenario": "list-unauthenticated",
+  "note": "No token.",
+  "request": {
+    "method": "GET",
+    "path": "/api/v1/offerings",
+    "headers": {}
+  },
+  "response": {
+    "status": 401,
+    "body": {
+      "detail": "Could not validate credentials"
+    }
+  }
+}

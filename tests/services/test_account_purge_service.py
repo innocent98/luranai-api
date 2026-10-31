@@ -52,6 +52,17 @@ from app.db.models.job import JobType, ProcessingJob
 from app.db.models.knowledge import KnowledgeChunk, KnowledgeSource, SourceType
 from app.db.models.lead import Lead
 from app.db.models.meeting import Meeting
+from app.db.models.offering import (
+    LeadOfferingInterest,
+    Offering,
+    OfferingActivityDay,
+    OfferingAvailability,
+    OfferingImage,
+    OfferingKind,
+    OfferingMiss,
+    OfferingPriceMode,
+    TenantOfferingsSettings,
+)
 from app.db.models.notification_log import NotifChannel, NotificationLog, NotifEvent
 from app.db.models.payment import PaymentTransaction
 from app.db.models.promotional_grant import PromotionalGrant
@@ -873,6 +884,80 @@ def test_purge_tenant_survives_cloudinary_destroy_failure(db_session, failure):
     assert db_session.get(Tenant, tenant.id) is not None
 
 
+def _seed_tenant_with_offerings(db_session, public_ids: list[str]) -> Tenant:
+    tenant = _make_tenant(db_session)
+    _make_user(db_session, tenant, role=UserRole.TENANT_ADMIN)
+    item = Offering(
+        tenant_id=tenant.id,
+        seq=1,
+        kind=OfferingKind.PRODUCT,
+        name="Canvas sneaker",
+        price_mode=OfferingPriceMode.FIXED,
+        price=12_000,
+        availability=OfferingAvailability.IN_STOCK,
+    )
+    db_session.add(item)
+    db_session.flush()
+    for position, public_id in enumerate(public_ids):
+        db_session.add(
+            OfferingImage(
+                offering_id=item.id,
+                tenant_id=tenant.id,
+                url=f"https://res.cloudinary.com/demo/image/upload/v1/{public_id}.jpg",
+                cloudinary_public_id=public_id,
+                position=position,
+            )
+        )
+    db_session.flush()
+    return tenant
+
+
+def _offering_rows(db_session, tenant_id) -> int:
+    return db_session.execute(
+        select(func.count()).select_from(Offering).where(Offering.tenant_id == tenant_id)
+    ).scalar_one()
+
+
+def test_purge_tenant_destroys_offering_photo_assets_and_deletes_the_catalog(db_session):
+    pids = [f"luran/offerings/{uuid4().hex}", f"luran/offerings/{uuid4().hex}"]
+    tenant = _seed_tenant_with_offerings(db_session, pids)
+
+    with patch(
+        "app.services.account_purge_service.cloudinary_manager.destroy",
+        return_value=(True, None),
+    ) as destroy:
+        AccountPurgeService(db_session).purge_tenant(tenant.id)
+
+    assert {c.args[0] for c in destroy.call_args_list} == set(pids)
+    assert all(c.kwargs == {"resource_type": "image"} for c in destroy.call_args_list)
+    assert _offering_rows(db_session, tenant.id) == 0
+    assert db_session.get(Tenant, tenant.id) is not None  # the PII-free shell stays
+
+
+def test_purge_tenant_survives_an_offering_asset_destroy_failure(db_session):
+    pids = [f"luran/offerings/{uuid4().hex}", f"luran/offerings/{uuid4().hex}"]
+    tenant = _seed_tenant_with_offerings(db_session, pids)
+    with patch(
+        "app.services.account_purge_service.cloudinary_manager.destroy",
+        side_effect=[RuntimeError("down"), (True, None)],
+    ) as destroy:
+        AccountPurgeService(db_session).purge_tenant(tenant.id)
+    assert destroy.call_count == 2  # the second asset was still attempted
+    assert _offering_rows(db_session, tenant.id) == 0
+
+
+def test_purge_tenant_leaves_another_tenants_catalog_alone(db_session):
+    mine = _seed_tenant_with_offerings(db_session, [f"luran/offerings/{uuid4().hex}"])
+    other = _seed_tenant_with_offerings(db_session, [f"luran/offerings/{uuid4().hex}"])
+    with patch(
+        "app.services.account_purge_service.cloudinary_manager.destroy",
+        return_value=(True, None),
+    ):
+        AccountPurgeService(db_session).purge_tenant(mine.id)
+    assert _offering_rows(db_session, mine.id) == 0
+    assert _offering_rows(db_session, other.id) == 1
+
+
 def _seed_every_tenant_scoped_table(db_session, tenant: Tenant, agent: User) -> set[str]:
     """Put at least one row for `tenant` in every tenant-scoped table that
     isn't already covered by another test's fixtures, so the completeness
@@ -920,6 +1005,45 @@ def _seed_every_tenant_scoped_table(db_session, tenant: Tenant, agent: User) -> 
         "knowledge_chunks",
     )
     _add(TenantSalesAgentConfig(tenant_id=tenant.id), "tenant_sales_agent_config")
+    offering = Offering(
+        tenant_id=tenant.id,
+        seq=1,
+        kind=OfferingKind.PRODUCT,
+        name="Canvas sneaker",
+        price_mode=OfferingPriceMode.FIXED,
+        price=12_000,
+        availability=OfferingAvailability.IN_STOCK,
+    )
+    _add(offering, "offerings")
+    _add(
+        OfferingImage(
+            offering_id=offering.id,
+            tenant_id=tenant.id,
+            url="https://res.cloudinary.com/demo/image/upload/v1/luran/offerings/x.jpg",
+            cloudinary_public_id=f"luran/offerings/{tenant.id}/x",
+            position=0,
+        ),
+        "offering_images",
+    )
+    _add(
+        LeadOfferingInterest(
+            tenant_id=tenant.id,
+            lead_id=lead.id,
+            offering_id=offering.id,
+            ref="#1",
+            name_snapshot="Canvas sneaker",
+            price_mode_snapshot="fixed",
+            price_snapshot=12_000,
+            qty=1,
+        ),
+        "lead_offering_interests",
+    )
+    _add(TenantOfferingsSettings(tenant_id=tenant.id), "tenant_offerings_settings")
+    _add(OfferingMiss(tenant_id=tenant.id, term="red heels"), "offering_misses")
+    _add(
+        OfferingActivityDay(tenant_id=tenant.id, day=utcnow_aware().date()),
+        "offering_activity_days",
+    )
     _add(
         AgentDevice(
             user_id=agent.id,

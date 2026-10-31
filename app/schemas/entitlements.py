@@ -32,6 +32,7 @@ class EntitlementFeatures(BaseModel):
     ai_actions: FeatureLimit
     whatsapp: WhatsAppFeature
     voice: FeatureFlag
+    offerings: FeatureLimit
 
 
 class EntitlementsResponse(BaseModel):

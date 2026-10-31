@@ -107,6 +107,7 @@ FEATURES: dict[str, FeatureDef] = {
         ),
         FeatureDef("whatsapp", "WhatsApp", flag="can_use_whatsapp", limit="max_whatsapp_numbers"),
         FeatureDef("voice", "voice chat", grant="can_use_voice"),
+        FeatureDef("offerings", "the offerings catalog", limit="max_offerings"),
     )
 }
 
@@ -254,6 +255,19 @@ class Entitlements:
                     select(func.count())
                     .select_from(WhatsAppConnection)
                     .where(WhatsAppConnection.tenant_id == self.tenant_id)
+                ).scalar_one()
+            )
+        if key == "offerings":
+            from app.db.models.offering import Offering, OfferingStatus
+
+            return int(
+                self._db.execute(
+                    select(func.count())
+                    .select_from(Offering)
+                    .where(
+                        Offering.tenant_id == self.tenant_id,
+                        Offering.status == OfferingStatus.ACTIVE,
+                    )
                 ).scalar_one()
             )
         return None

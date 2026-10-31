@@ -185,6 +185,7 @@ class Settings(BaseSettings):
     CLOUDINARY_FOLDER: str = "luran/widget_logos"
     CLOUDINARY_PLATFORM_EMAIL_FOLDER: str = "luran/platform_email_images"
     CLOUDINARY_CHAT_FOLDER: str = "luran/chat_images"
+    CLOUDINARY_OFFERINGS_FOLDER: str = "luran/offerings"
 
     # Chat attachment retention (screen recording spec SR-D5) + video limits (SR-D10)
     ATTACHMENT_RETENTION_DAYS: int = 30

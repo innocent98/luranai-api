@@ -1,0 +1,34 @@
+{
+  "scenario": "photo-upload-up-to-the-cap",
+  "note": "The 4th photo: the Trial limit per item.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/215a6240-fc7a-4286-a0d4-11a0a27fbc87/images",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>",
+      "Content-Type": "multipart/form-data"
+    },
+    "multipart": {
+      "file": {
+        "filename": "detail2.jpg",
+        "content_type": "image/jpeg",
+        "size_bytes": 949
+      }
+    }
+  },
+  "response": {
+    "status": 201,
+    "body": {
+      "data": {
+        "id": "fb47e240-7447-4919-b38d-a542037cadee",
+        "url": "https://res.cloudinary.com/demo/image/upload/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/dec1ec0020b145c4bcef2332d6b09e12.jpg",
+        "thumb_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/dec1ec0020b145c4bcef2332d6b09e12.jpg",
+        "gallery_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_1000,q_auto,f_jpg/v1730000000/luran/offerings/8bbbb8a9-3d4c-4026-bd3c-a3c26a2c0236/dec1ec0020b145c4bcef2332d6b09e12.jpg",
+        "position": 3,
+        "width": 1200,
+        "height": 900,
+        "bytes": 240218
+      }
+    }
+  }
+}

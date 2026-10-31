@@ -1,0 +1,38 @@
+{
+  "scenario": "import-apply-skip-errors",
+  "note": "Valid rows are created; the bad row is reported.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/import",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "format": "csv",
+      "content": "name,kind,price,availability,category,external_ref\nTote bag,product,8500,in stock,Bags,SKU-TOTE\nBraiding,service,from 5k,limited,Services,SKU-BRAID\nBad price,product,abc,in stock,Bags,SKU-BAD\n",
+      "mode": "add",
+      "skip_errors": true
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "data": {
+        "created": 2,
+        "updated": 0,
+        "skipped": 1,
+        "errors": [
+          {
+            "row": 3,
+            "errors": [
+              {
+                "field": "price",
+                "code": "price_invalid"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

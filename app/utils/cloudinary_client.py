@@ -19,6 +19,15 @@ _VIDEO_TRANSFORM = [{"crop": "limit", "quality": "auto", "video_codec": "h264", 
 _POSTER_TRANSFORM = [{"start_offset": "0", "width": 640, "crop": "limit"}]
 
 
+OFFERING_MAX_BYTES_AFTER_UPLOAD = 800 * 1024  # re-upload once at lower quality above this
+OFFERING_RETRY_QUALITY = 60
+
+
+def offering_sweep_tag() -> str:
+    """Environment-scoped tag so the orphan sweep only sees this env's offering photos."""
+    return f"offering_{settings.ENVIRONMENT}"
+
+
 def video_sweep_tag() -> str:
     """Environment-scoped tag so the unregistered-video sweep only sees this env's uploads."""
     return f"screen_recording_{settings.ENVIRONMENT}"
@@ -48,13 +57,21 @@ class CloudinaryManager:
             self.enabled = True
             logger.info(f"Cloudinary initialized: {settings.CLOUDINARY_CLOUD_NAME}")
 
-    def validate_image(self, file_content: bytes, max_size_mb: int = 5) -> tuple[bool, str | None]:
+    def validate_image(
+        self,
+        file_content: bytes,
+        max_size_mb: int = 5,
+        allowed_formats: list[str] | None = None,
+        max_dimension: int = 4000,
+    ) -> tuple[bool, str | None]:
         """
         Validate image file.
 
         Args:
             file_content: Image file bytes
             max_size_mb: Maximum file size in MB
+            allowed_formats: PIL format names to accept (default JPEG, PNG, GIF, WEBP)
+            max_dimension: Largest accepted width or height in pixels
 
         Returns:
             Tuple of (is_valid, error_message)
@@ -73,7 +90,7 @@ class CloudinaryManager:
             image.verify()
 
             # Check format
-            allowed_formats = ["JPEG", "PNG", "GIF", "WEBP"]
+            allowed_formats = allowed_formats or ["JPEG", "PNG", "GIF", "WEBP"]
             if image.format not in allowed_formats:
                 return (
                     False,
@@ -81,7 +98,6 @@ class CloudinaryManager:
                 )
 
             # Check dimensions (optional - prevent extremely large images)
-            max_dimension = 4000
             if image.width > max_dimension or image.height > max_dimension:
                 return (
                     False,
@@ -293,6 +309,67 @@ class CloudinaryManager:
             logger.error(f"Chat image upload failed: {e}")
             return None, None, "Failed to upload image"
 
+    def upload_offering_image(
+        self, file_content: bytes, tenant_id: UUID
+    ) -> tuple[dict | None, str | None]:
+        """Upload a catalog photo, optimised on ingest; returns (info, error).
+
+        Only the optimised copy is stored: incoming transformation to a 1,600 px long edge,
+        automatic quality, JPEG, with `strip_profile` asked for so the transformation drops the
+        embedded metadata (EXIF/GPS). That stripping is Cloudinary's behaviour and has NOT been
+        verified against the real service (`image_metadata=False` below only stops the upload
+        response from echoing metadata back; it removes nothing). The result's `bytes` is read back and a copy
+        over 800 KB is re-uploaded once over the same asset at a lower quality. `info` holds
+        url, public_id, width, height, bytes.
+        """
+        if not self.enabled:
+            return None, "Image upload is not configured"
+
+        def _upload(quality: str | int, **extra) -> dict:
+            return cloudinary.uploader.upload(
+                file_content,
+                resource_type="image",
+                format="jpg",
+                transformation=[
+                    {
+                        "width": 1600,
+                        "height": 1600,
+                        "crop": "limit",
+                        "quality": quality,
+                        "flags": "strip_profile",
+                    }
+                ],
+                image_metadata=False,
+                tags=["offering", offering_sweep_tag(), str(tenant_id)],
+                **extra,
+            )
+
+        try:
+            result = _upload(
+                "auto",
+                folder=f"{settings.CLOUDINARY_OFFERINGS_FOLDER}/{tenant_id}",
+                public_id=uuid4().hex,
+                overwrite=False,
+            )
+            if (result.get("bytes") or 0) > OFFERING_MAX_BYTES_AFTER_UPLOAD:
+                result = _upload(
+                    OFFERING_RETRY_QUALITY,
+                    folder=None,
+                    public_id=result["public_id"],
+                    overwrite=True,
+                    invalidate=True,
+                )
+            return {
+                "url": result.get("secure_url"),
+                "public_id": result.get("public_id"),
+                "width": result.get("width"),
+                "height": result.get("height"),
+                "bytes": result.get("bytes"),
+            }, None
+        except Exception as e:
+            logger.error(f"Offering image upload failed: {type(e).__name__}")
+            return None, "Failed to upload image"
+
     def destroy(self, public_id: str, *, resource_type: str) -> tuple[bool, str | None]:
         """Delete an asset; resource_type ("image"|"video") is required. 'not found' = success."""
         if not self.enabled:
@@ -367,6 +444,15 @@ class CloudinaryManager:
             transformation=_POSTER_TRANSFORM,
         )
         return mp4, poster
+
+    def list_tagged_images(
+        self, tag: str, next_cursor: str | None
+    ) -> tuple[list[dict], str | None]:
+        kwargs: dict = {"resource_type": "image", "max_results": 100}
+        if next_cursor:
+            kwargs["next_cursor"] = next_cursor
+        page = cloudinary.api.resources_by_tag(tag, **kwargs)
+        return page.get("resources", []), page.get("next_cursor")
 
     def list_tagged_videos(
         self, tag: str, next_cursor: str | None

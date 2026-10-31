@@ -86,6 +86,18 @@ from app.db.models.lead import Lead, LeadStatus
 from app.db.models.meeting import Meeting, MeetingStatus
 from app.db.models.quote import Quote, QuoteStatus
 from app.db.models.notification_log import NotificationLog, NotifEvent, NotifChannel, NotifStatus
+from app.db.models.offering import (
+    LeadOfferingInterest,
+    Offering,
+    OfferingActivityDay,
+    OfferingAvailability,
+    OfferingImage,
+    OfferingKind,
+    OfferingMiss,
+    OfferingPriceMode,
+    OfferingStatus,
+    TenantOfferingsSettings,
+)
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.db.models.visit_analytics import DailyVisit
 
@@ -209,6 +221,17 @@ __all__ = [
     # Quote models
     "Quote",
     "QuoteStatus",
+    # Offerings catalog
+    "Offering",
+    "OfferingImage",
+    "OfferingActivityDay",
+    "OfferingMiss",
+    "OfferingKind",
+    "OfferingPriceMode",
+    "OfferingAvailability",
+    "OfferingStatus",
+    "TenantOfferingsSettings",
+    "LeadOfferingInterest",
     # Sales agent config
     "TenantSalesAgentConfig",
     # Notification log models

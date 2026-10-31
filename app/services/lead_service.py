@@ -298,6 +298,32 @@ class LeadService:
             "created_at": meeting.created_at.isoformat() if meeting.created_at else None,
         }
 
+    def get_interests(self, tenant_id: UUID, lead: Lead) -> list[dict]:
+        """The offerings this lead chose, oldest first, as snapshotted when they chose them."""
+        from app.db.models.offering import LeadOfferingInterest
+
+        rows = (
+            self.db.query(LeadOfferingInterest)
+            .filter(
+                LeadOfferingInterest.tenant_id == tenant_id,
+                LeadOfferingInterest.lead_id == lead.id,
+            )
+            .order_by(LeadOfferingInterest.created_at, LeadOfferingInterest.ref)
+            .all()
+        )
+        return [
+            {
+                "ref": r.ref,
+                "name": r.name_snapshot,
+                "price_mode": r.price_mode_snapshot,
+                "price": r.price_snapshot,
+                "price_note": r.price_note_snapshot,
+                "qty": r.qty,
+                "offered_price": r.offered_price,
+            }
+            for r in rows
+        ]
+
     def get_quote(self, tenant_id: UUID, lead: Lead) -> dict | None:
         """Return this lead's quote details, or None if no quote generated."""
         from app.db.models.quote import Quote

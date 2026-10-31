@@ -1,0 +1,26 @@
+{
+  "scenario": "import-over-the-cap",
+  "note": "`can_add` says how many would fit; nothing is saved.",
+  "request": {
+    "method": "POST",
+    "path": "/api/v1/offerings/import",
+    "headers": {
+      "Authorization": "Bearer <jwt-placeholder>"
+    },
+    "body": {
+      "format": "lines",
+      "content": "Extra 1 - 1001\nExtra 2 - 1002\nExtra 3 - 1003\n",
+      "mode": "add"
+    }
+  },
+  "response": {
+    "status": 409,
+    "body": {
+      "code": "offering_limit",
+      "message": "Your plan allows 25 items and you have 25. This import would add 3; only 0 fit.",
+      "limit": 25,
+      "used": 25,
+      "can_add": 0
+    }
+  }
+}
