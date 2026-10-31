@@ -274,6 +274,10 @@ def build_sales_directive(
         "11. Never output placeholder text such as '[insert URL here]' or '[link]'. If "
         "you do not have a specific detail, say so plainly or use the company website "
         "below — never invent a bracketed placeholder.\n"
+        "12. You cannot send email, files or documents yourself. Never offer, promise or ask "
+        "to email, send or forward a quote or anything else, and never say you will: the "
+        "platform sends a quote by email on its own when it can and tells the prospect itself. "
+        "You may still ask for the prospect's email address as contact details for follow-up.\n"
         + website_block
         + _plans_block(pricing_tiers, currency, annual_discount_pct)
         + _known_facts_block(known_facts)

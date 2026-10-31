@@ -424,12 +424,17 @@ def test_the_tier_quote_is_off_on_a_catalog_cart(client, db):
 
 
 def test_slack_text_is_escaped():
-    from app.workers.sales_notifications import _slack_blocks
+    """`_slack_body` escapes every value once (the owner's alert text included); the Block Kit
+    wrapper adds no second layer."""
+    from app.workers.sales_notifications import _slack_blocks, _slack_escape
 
-    body = _slack_blocks("T", "Ada <!channel> & <http://x|click> offered", "")["blocks"][1]["text"][
-        "text"
-    ]
+    body = _slack_escape("Ada <!channel> & <http://x|click> offered")
     assert "<!channel>" not in body and "&lt;!channel&gt;" in body and "&amp;" in body
+    from app.workers.sales_notifications import SlackSafe
+
+    assert _slack_blocks("T", SlackSafe(body), "")["blocks"][1]["text"]["text"] == body  # once
+    raw = "Ada <!channel>"  # a caller that passes plain text still gets it escaped at the sink
+    assert "<!channel>" not in _slack_blocks("T", raw, "")["blocks"][1]["text"]["text"]
 
 
 def test_first_cart_alert_carries_prices_and_the_offer(client, db):
@@ -451,7 +456,7 @@ def test_rep_email_amounts_carry_the_currency_symbol(client, db):
     tid = _shop(db)
     _run(client, db, tid, Model((GOOD, _cart((1, 2)))))
     log = next(x for x in _logs(db, tid, NotifEvent.OFFERING_REQUEST) if x.entity_type == "lead")
-    assert _entity_context(db, log)["items"] == ["2 × Canvas sneaker black (listed ₦12,000)"]
+    assert _entity_context(db, log)["wanted"] == ["2 × Canvas sneaker black (listed ₦12,000)"]
 
 
 def test_crm_payload_lists_the_wanted_items(client, db):

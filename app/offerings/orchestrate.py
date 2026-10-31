@@ -168,6 +168,7 @@ def _same_as_latest(db: Session, lead: Lead, quote: dict) -> bool:
 @dataclass
 class QuoteOutcome:
     quote: dict | None = None
+    created: object | None = None  # the stored Quote row (the visitor's quote email needs it)
     note: str | None = None  # a sentence code adds when the customer should hear why
     overflow: bool = False
     handover: bool = False
@@ -222,4 +223,4 @@ async def issue_quote(
         total=quote["total"],
     )
     await _notify(db, lead.tenant_id, NotifEvent.QUOTE_GENERATED, "quote", created.id)
-    return QuoteOutcome(quote=quote)
+    return QuoteOutcome(quote=quote, created=created)

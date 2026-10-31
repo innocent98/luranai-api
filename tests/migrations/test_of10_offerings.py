@@ -80,7 +80,7 @@ def _snapshot(engine):
 def test_single_head_and_of10_sits_on_wa40():
     scripts = ScriptDirectory.from_config(_cfg())
     assert len(scripts.get_heads()) == 1
-    assert scripts.get_revision("of10offerings").down_revision == "wa40contactexclusion"
+    assert scripts.get_revision("of10offerings").down_revision == "qv10quotevisitoremail"
     assert scripts.get_heads() == ["of10offerings"]
 
 
@@ -96,7 +96,7 @@ def test_migrated_tables_are_identical_to_the_models_and_downgrade_reverses(scra
         for table in ("subscription_plans", "tenant_capabilities"):
             assert col in {c["name"] for c in insp.get_columns(table)}, (table, col)
 
-    command.downgrade(cfg, "wa40contactexclusion")  # exactly one step back
+    command.downgrade(cfg, "qv10quotevisitoremail")  # exactly one step back
     insp = inspect(scratch_db)
     for table in TABLES:
         assert not insp.has_table(table), table
@@ -115,7 +115,7 @@ def test_migrated_tables_are_identical_to_the_models_and_downgrade_reverses(scra
 def test_round_trip_up_down_up(scratch_db):
     cfg = _cfg()
     command.upgrade(cfg, "head")
-    command.downgrade(cfg, "wa40contactexclusion")
+    command.downgrade(cfg, "qv10quotevisitoremail")
     command.upgrade(cfg, "head")
     insp = inspect(scratch_db)
     for table in TABLES:
@@ -137,7 +137,7 @@ def test_round_trip_up_down_up(scratch_db):
 def test_upgrade_is_idempotent_over_tables_built_from_the_models(scratch_db):
     """create_all-built databases run alembic from an older revision: nothing may raise."""
     cfg = _cfg()
-    command.upgrade(cfg, "wa40contactexclusion")
+    command.upgrade(cfg, "qv10quotevisitoremail")
     Base.metadata.create_all(bind=scratch_db)  # the six tables already exist
     with scratch_db.begin() as conn:  # create_all does not alter old tables: add the columns too
         for table in ("subscription_plans", "tenant_capabilities"):
@@ -150,8 +150,8 @@ def test_upgrade_is_idempotent_over_tables_built_from_the_models(scratch_db):
     assert inspect(scratch_db).has_table("offerings")
     command.upgrade(cfg, "head")  # would raise DuplicateTable / DuplicateColumn if not idempotent
     command.upgrade(cfg, "head")
-    command.downgrade(cfg, "wa40contactexclusion")
-    command.downgrade(cfg, "wa40contactexclusion")  # a second downgrade is a no-op
+    command.downgrade(cfg, "qv10quotevisitoremail")
+    command.downgrade(cfg, "qv10quotevisitoremail")  # a second downgrade is a no-op
     assert not inspect(scratch_db).has_table("offerings")
 
 

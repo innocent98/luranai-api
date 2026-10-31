@@ -1,0 +1,22 @@
+[
+  {
+    "attempt": 1,
+    "status": 200,
+    "reply": "Thanks! For 58 people the Growth plan fits. Your quote is below.\n\nI've sent the quote to v***@example.com. If it doesn't arrive in a few minutes, please check your spam folder."
+  },
+  {
+    "attempt": 2,
+    "status": 200,
+    "reply": "Thanks! For 58 people the Growth plan fits. Your quote is below.\n\nI've sent the quote to v***@example.com. If it doesn't arrive in a few minutes, please check your spam folder."
+  },
+  {
+    "attempt": 3,
+    "status": 200,
+    "reply": "Thanks! For 58 people the Growth plan fits. Your quote is below.\n\nI've sent the quote to v***@example.com. If it doesn't arrive in a few minutes, please check your spam folder."
+  },
+  {
+    "attempt": 4,
+    "status": 200,
+    "reply": "Thanks! For 58 people the Growth plan fits. Your quote is below.\n\nI couldn't email the quote just now, but it's right here in our chat."
+  }
+]

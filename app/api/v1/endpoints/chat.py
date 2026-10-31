@@ -159,7 +159,7 @@ from app.utils.datetime import ensure_utc_aware, utcnow_aware, utcnow_naive
 from app.utils.email import send_ticket_escalation_email
 from app.services.image_moderation import moderate_image
 from app.utils.cloudinary_client import cloudinary_manager
-from app.utils.http_rate_limiter import chat_rate_limit, chat_upload_rate_limit
+from app.utils.http_rate_limiter import bind_client_ip, chat_rate_limit, chat_upload_rate_limit
 from starlette.concurrency import run_in_threadpool
 
 from app.services.customer_presence import read_presence, read_presence_many
@@ -1004,7 +1004,7 @@ async def create_session(
     "/message",
     response_model=ChatResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(chat_rate_limit)],
+    dependencies=[Depends(chat_rate_limit), Depends(bind_client_ip)],
 )
 async def post_chat_message(
     message_data: MessageRequest,
@@ -3298,6 +3298,8 @@ async def _send_message_impl(
             )
             if _offerings.mode == "none":
                 record_miss(db, session.tenant_id, message_data.message)
+        # a catalog quote goes through the same visitor-email path as a plan-tier quote
+        _new_quote = _quote_outcome.created if _offerings is not None else None
         if _sales_mode and _sales_meta is not None:
             _signals = _sales_meta.get("signals") or {}
             if (
@@ -3343,6 +3345,7 @@ async def _send_message_impl(
                                 line_items=_q["line_items"],
                                 total=_q["total"],
                             )
+                            _new_quote = _created_quote
                             _message_meta["quote"] = _q
                             try:
                                 from app.services.notification_service import NotificationService
@@ -3364,6 +3367,18 @@ async def _send_message_impl(
                 except Exception as _quote_exc:
                     db.rollback()
                     logger.error(f"Quote orchestration error (non-fatal): {_quote_exc}")
+
+        # Quote email to the visitor (docs/sop/sales_quote_visitor_email.md): code decides, sends
+        # and words it; any "I'll email it" the model wrote is removed from the reply.
+        from app.services.quote_email_service import finalize_turn_reply
+
+        ai_response_text = await finalize_turn_reply(
+            db,
+            ai_response_text,
+            lead=lead,
+            new_quote=_new_quote,
+            email_just_captured=_lead_captured_meta is not None,
+        )
 
         assistant_message = conversation_service.add_message(
             session_id=session_id,
