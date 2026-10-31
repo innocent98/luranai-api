@@ -391,7 +391,7 @@ def test_rep_email_context_lists_items_with_listed_and_offered_prices(client, db
         Model((NEG_REPLY, _cart((3, 1)), {"ref": "#3", "amount": 30000})),
         text="₦30,000 for the bag?",
     )
-    log = _logs(db, tid, NotifEvent.OFFERING_REQUEST)[0]
+    log = next(x for x in _logs(db, tid, NotifEvent.OFFERING_REQUEST) if x.entity_type == "lead")
     ctx = _entity_context(db, log)
     assert ctx["kind"] == "offering_request"
     assert ctx["items"] == ["1 × Leather bag (listed ₦45,000), customer offered ₦30,000"]
