@@ -742,3 +742,14 @@ def test_a_plain_okay_beside_only_a_valid_token_passes_during_the_countdown():
         offer_watch=True,
     )
     assert not still.ok
+
+
+def test_the_plain_okay_exemption_needs_the_token_to_be_the_only_price_reference():
+    kw = dict(customer_texts=("abeg 9000", "ok", "where is your shop?"), offer_watch=True)
+    g = _grounding(matched=(1,))
+    # another price word or a second item beside the token keeps the sentence judged
+    for reply in (
+        f"Okay, your price is noted and the Canvas sneaker black is {T(1)}.",
+        f"Okay, the Canvas sneaker black is {T(1)} and the Silver wristwatch is on offer too.",
+    ):
+        assert not check_reply(reply, g, **kw).ok, reply

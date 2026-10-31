@@ -649,6 +649,7 @@ def check_reply(
     small_ok = any(p < 1000 for p in all_prices)
     catalog_names = list({*grounding.catalog_names, *(i.name for i in items)})
     by_seq = {i.seq: i for i in items}
+    outside_names = [n for n in catalog_names if n.lower() not in {i.name.lower() for i in items}]
     sold_words = {
         singular(w) for n in catalog_names for w in re.findall(r"[a-z]+", n.lower()) if len(w) >= 3
     }
@@ -785,7 +786,14 @@ def check_reply(
                 violations.append(Violation(sentence, "discount_wording"))
             # during the countdown a plain yes/okay beside nothing but a valid token of the item
             # ("Okay, the Black sneaker is [[price:#1]]. Shall I prepare your quote?") is fine
-            only_a_token = (not offer_now) and bool(seqs) and not amounts
+            only_a_token = (
+                (not offer_now)
+                and bool(seqs)
+                and not amounts
+                and not _names_catalog_strongly(plain, outside_names)
+                and _top_mentions(sentence, items) <= set(seqs)
+                and not _PRICE_TALK.search(tokens.TOKEN.sub(" ", sentence))
+            )
             talks_price = offer_now or (
                 not only_a_token
                 and bool(

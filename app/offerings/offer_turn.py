@@ -82,7 +82,7 @@ def is_offer_turn(
 
 def _quotes_the_list(text: str, figures: list, grounding: GroundingResult) -> bool:
     listed = {i.price for i in grounding.items if i.price is not None}
-    counts = {int(n) for n in re.findall(r"\b\d{1,3}\b", text)}
+    counts = {int(n) for n in re.findall(r"\b\d{1,3}\b", text) if int(n) >= 2}
     return any(f in listed or any(n * p == f for n in counts for p in listed) for f in figures)
 
 

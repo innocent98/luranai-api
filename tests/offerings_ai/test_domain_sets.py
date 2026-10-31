@@ -191,13 +191,13 @@ def test_the_guard_stays_fast_with_a_large_catalog(count, limit):
     long_reply = ("The Gadget aax1 pro is [[price:#1]]. It is in stock and ships today. " * 120)[
         :7500
     ]
-    start = time.perf_counter()
+    start = time.process_time()  # CPU time: a busy machine must not fail it
     for text in (reply, long_reply):
         check_reply(
             text, g, customer_texts=["how much is gadget aax1", "ok"], kb_text="Delivery is ₦2,000."
         )
         is_offer_turn("how much is gadget aax1", g, False)
-    assert time.perf_counter() - start < limit
+    assert time.process_time() - start < limit
 
 
 def test_a_sold_out_item_called_available_without_a_token_is_blocked():
