@@ -212,3 +212,15 @@ def test_a_sold_out_item_called_available_without_a_token_is_blocked():
         customer_texts=["corolla?"],
     )
     assert fine.ok, [(v.reason, v.sentence) for v in fine.violations]
+
+
+def test_a_variant_word_picks_the_right_item_for_the_sold_out_claim():
+    items = [
+        item(1, "Black sneaker size 44", 12000),
+        item(2, "Black sneaker size 45", 12000, av=A.OUT_OF_STOCK),
+    ]
+    g = grounding(items, [1])
+    ok = check_reply("The Black sneaker is available in size 44.", g, customer_texts=["size 44?"])
+    assert ok.ok, [(v.reason, v.sentence) for v in ok.violations]
+    bad = check_reply("The Black sneaker is available in size 45.", g, customer_texts=["size 45?"])
+    assert not bad.ok

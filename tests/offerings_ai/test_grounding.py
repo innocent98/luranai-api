@@ -352,3 +352,13 @@ def test_a_broken_gate_fails_closed_for_a_tenant_recently_seen_with_items(db):
     with patch.object(db, "execute", side_effect=RuntimeError("db down")):
         res = ground(db, tid, "black sneaker", now=NOW)
     assert res.mode == "unavailable" and res.strict is True
+
+
+def test_a_tenant_with_the_catalog_switched_off_is_not_remembered_as_having_items(db):
+    tid = _shop(db)
+    set_settings(db, tid, enabled=False, next_seq=6)
+    grounding._SEEN_ITEMS.pop(tid, None)
+    assert ground(db, tid, "black sneaker", now=NOW) is None
+    assert tid not in grounding._SEEN_ITEMS
+    with patch.object(db, "execute", side_effect=RuntimeError("db down")):
+        assert ground(db, tid, "black sneaker", now=NOW) is None  # nothing said to them

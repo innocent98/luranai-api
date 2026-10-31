@@ -370,13 +370,14 @@ def ground(
             strict=True,
             token_count=count_tokens(block),
         )
-    _remember_items(tenant_id, has_items is not None)
     if has_items is None:
+        _remember_items(tenant_id, False)
         return None
 
     try:
         with db.begin_nested():
             enabled, currency, confirmed_at, stale_days = _settings(db, tenant_id)
+            _remember_items(tenant_id, bool(enabled))  # only a tenant whose catalog is ON is cached
             if not enabled:
                 return None
             total = _count_active(db, tenant_id)
