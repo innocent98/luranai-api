@@ -50,8 +50,8 @@ The tenant and per-address caps count database rows, so a Redis flush or outage 
 ## What's involved
 | Path | Change |
 |---|---|
-| `app/sales/quote_email.py` (new) | `mask_email`, `strip_email_promises`, `SentOutcome`, `finalize_reply` (pure, tested) |
-| `app/services/quote_email_service.py` (new) | `email_quote_to_visitor` (all checks + log + enqueue), `outcome_for_turn`, `finalize_turn_reply` (the one call `chat.py` makes), `can_email_quote`, `recipient_key` |
+| `app/sales/quote_email.py` (new) | `mask_email`, `scrub_addresses`, `asks_for_email`, `strip_email_promises`, `SentOutcome` (kinds `queued`/`capped`/`invite`/`already`), `quote_card_fields`, `finalize_reply` (pure, tested) |
+| `app/services/quote_email_service.py` (new) | `email_quote_to_visitor` (all checks + log + enqueue), `outcome_for_turn`, `finalize_turn_reply` (the one call `chat.py` makes; returns `TurnReply(text, outcome)`), `mark_cards_emailed`, `close_earlier_offers`, `can_email_quote`, `recipient_key` |
 | `app/workers/sales_notifications.py` | `send_visitor_quote_email` job + template; `_entity_fields`/`_entity_context`/`_lead_contact`/`_quote_items` (rep alert fields), `_slack_body`/`_slack_escape` (Slack gets the details, `& < >` escaped so a name cannot `@channel`) |
 | `app/workers/document_processor.py` | job registered in `WorkerSettings.functions` |
 | `app/templates/emails/sales_quote_visitor.html` (new), `sales_rep_alert.html` | plain visitor email (no `base.html`, no links/images); rep alert rows |
@@ -61,7 +61,7 @@ The tenant and per-address caps count database rows, so a Redis flush or outage 
 | `app/utils/http_rate_limiter.py` | two limiters, `request_client_ip` contextvar + `bind_client_ip` dependency |
 | `app/core/config.py` | five `QUOTE_VISITOR_EMAIL_*` settings |
 | `app/sales/intent.py` | prompt rule 12 |
-| `app/api/v1/endpoints/chat.py` (**kept minimal for Offerings S2**) | 1 import name, `Depends(bind_client_ip)` on `/message`, `_new_quote = None` + `_new_quote = _created_quote`, and one call `ai_response_text = await finalize_turn_reply(...)` right before the assistant message is saved (~13 lines in two places) |
+| `app/api/v1/endpoints/chat.py` (**kept minimal for Offerings S2**) | 1 import name, `Depends(bind_client_ip)` on `/message`, `_new_quote = None` + `_new_quote = _created_quote`, and one call `await finalize_turn_reply(...)` right before the assistant message is saved, then the card fields / `quote_emailed_to` are written into the message meta (~25 lines in two places) |
 
 Offerings (S2) quotes: they are ordinary `Quote` rows, so the helper works for them, but S2's own quote path (`app/offerings/orchestrate.py::issue_quote`, which calls `QuoteService.create_quote` then `_notify(... QUOTE_GENERATED ...)`) does not go through `chat.py`'s quote block. **Lines for the lead to hand to S2** (after `created = QuoteService(db).create_quote(...)` and the `_notify`): `outcome = await email_quote_to_visitor(db, created, client_ip=request_client_ip.get())` and map it into the `QuoteOutcome.note` S2 already adds to the reply (`SentOutcome.note` is the sentence; imports `from app.services.quote_email_service import email_quote_to_visitor` and `from app.utils.http_rate_limiter import request_client_ip`). S2's reply path must also keep calling `finalize_turn_reply` (or at least `strip_email_promises`) so the guard covers catalog replies. Until then S2's quotes are not emailed to the visitor and the guard still strips promises in the shared reply path.
 
@@ -87,4 +87,46 @@ Offerings (S2) quotes: they are ordinary `Quote` rows, so the helper works for t
 - In-app notification body for quotes still shows total and company only (not the visitor's name or email, which would put PII in `notification_logs.body`).
 - "Wanted items" on lead/meeting alerts come from the lead's quote; catalog (`LeadOfferingInterest`) items will appear once S1/S2 merge.
 - `notification_logs.recipient` stores the visitor's address in plaintext (the same as the existing meeting-confirmation rows, and it is deleted with the tenant); the per-address cap key is a hash. Encrypt or hash the column platform-wide if that is ever required.
-- `lead_captured.email` in the chat response `meta` (existing, the visitor's own address in their own session) is unchanged; only the reply text is masked.
+- `lead_captured.email` in the chat response `meta` (existing, the visitor's own address in their own session) is unchanged; only the reply text is masked (see the storage note in the follow-up section).
+
+## Follow-up (2026-10-31, found on staging by the owner): card state and masked-only wording
+**What shipped.** Branch `fix/sales-quote-email-followup` (PR to `develop`), with `luran-chat` branch `fix/quote-card-emailed-state` (PR to `stage`). Two defects from the staging test of #200:
+
+| # | Defect | Cause | Fix |
+|---|---|---|---|
+| 1 | The quote card kept showing "Shall I email this to you as a PDF?" after the reply said the quote was sent | The card is static text drawn from `meta.quote`; the backend never told it an email had gone out | Additive keys on `meta.quote`: `emailed`, `emailed_to` (masked), `email_offer`. The card shows `Sent to a***@x.com`, nothing, or (as before) the prompt. See the FE guide section 8 |
+| 2 | The reply to a second "Yes, email me" printed the **full** address ("...previously marked as sent to adevictor98@gmail.com...") | That sentence was written by the **model** (it sees the lead's address) and has no email word, so the promise filter let it through; the duplicate request itself had no code-written answer | (a) `scrub_addresses`: the lead's address (and any address in the visitor's own message) is replaced by its masked form in **every** reply that goes through `finalize_turn_reply`, whatever the model wrote; (b) a duplicate request now gets a code-written `already` sentence, the model's email/inbox/@ sentences are dropped, and nothing is queued |
+
+**Card rule (decided here, simplest consistent):** the prompt is shown only while asking can lead to an email.
+| Situation | `emailed` | `emailed_to` | `email_offer` |
+|---|---|---|---|
+| Send queued (this turn) | true | masked | false |
+| Same quote already emailed earlier (new identical card) | true | masked | false |
+| Visitor has no address yet, send possible | false | absent | **true** (asking leads to the capture flow, which then sends) |
+| Cap hit, kill switch off, no reply address, WhatsApp, invalid address | false | absent | false |
+| History from before this change | absent | absent | absent (renders as before) |
+
+Other card moves: the address arrives **after** the card (production flow): the latest saved card is flipped to emailed (`mark_cards_emailed`) and the reply carries `meta.quote_emailed_to` so the open chat flips it too; a **new** card makes older cards drop `email_offer` (`close_earlier_offers`, mirrored in the chat): only the newest card may offer an email. Only the latest card is flipped to "sent" because "sent" is true for the latest quote only.
+
+**Duplicate request.** A message that asks for the quote by email (`asks_for_email`: email/PDF/resend/"send it"...) for a lead whose quote has an address now goes through `email_quote_to_visitor`: a quote that never went out (cap, failure) is retried under the usual caps; a quote that did go out gets `I already emailed this quote to a***@example.com. Please check your inbox and spam folder; if it still hasn't arrived in a few minutes, ask the team to resend it.` **Why "ask the team" and not "tell me a different address":** a second send to a typed address would let anyone point the platform at an inbox with one more message each; the per-address (3/24 h) and per-conversation (3/24 h) caps bound that, but a rep resending from the conversation is safe, free of caps and the rep alert already shows the visitor's contact. Rejected for v1; a verified resend belongs with the verified/paid-only follow-up.
+
+**Every place the visitor's address is put in a reply (audited with grep).**
+| Path | Result |
+|---|---|
+| Code-written quote sentences (`SentOutcome.note`) | masked only (tests) |
+| Model reply text on the main path (sales and plain), through `finalize_turn_reply` | scrubbed to the masked form (`test_any_reply_that_repeats_the_address_is_masked`, `test_the_plain_support_path_masks_the_visitors_address_too`, live `followup/11_`) |
+| Contact-capture prompts and "Thanks. Connecting you with our support team now." (`chat.py` early returns) | code-written, contain no address |
+| Flow `ai_action`/button replies, human-agent messages | not model replies of the sales/plain path; out of scope (the agent is a staff member). Flow templates are tenant-authored text |
+| `meta.lead_captured.email` (the "Details saved" chip) | full address, by design: it echoes the visitor's own typed address to the same visitor |
+
+**Is the "Details saved" card stored where a later, different visitor could read it?** It is part of the saved assistant message `meta` (`messages.meta`, encrypted at rest with `EncryptedJSON`). Readers: (1) the response to the visitor's own `POST /chat/message`; (2) the visitor's own history via `POST /public/visitor/bootstrap`, which is looked up by that visitor's secret `visitor_token`; (3) staff of the same tenant through the authenticated session endpoints (`get_current_tenant_admin` + tenant check). The chat page keeps it in that browser's localStorage. A different visitor has a different token and session and cannot read it. Residual: two people on the **same browser profile** share the visitor token and the localStorage (the same as every other piece of the chat history); there is nothing address-specific to add. The reply *text* (what is also copied to the transcript staff see) is masked.
+
+**Verification.**
+- Tests first: `tests/sales/test_quote_email_text.py` (scrub; `already` note; model email talk replaced; silent `already`; `quote_card_fields` for queued/already/invite/capped/None), `tests/sales/test_quote_visitor_email.py` (asking again gives `already` and queues nothing; a non-email message is left alone; the same quote shown again marks the card silently; a request retries a quote that never went out), `tests/api/v1/test_chat_quote_visitor_email.py` (card fields for queued, no address, switch off, no reply address, cap; address later flips the earlier stored card and sets `quote_emailed_to`; a newer card closes the older offer; the second "Yes, email me" masked; any model reply repeating the address masked; plain path masked). 368 passed in `tests/sales tests/workers tests/api/v1/test_chat_quote_visitor_email.py tests/api/v1/test_chat_quote.py tests/services/test_email_reply_to.py` (separate scratch database, because the live run shares nothing with it). `ruff check app/` and `black --check app/` clean.
+- **Live run** (same stack as above; the stand-in model now writes the improvised duplicate reply with the full address, as production did): `docs/fe-integration-captures/sales-quote-email/followup/` (README there). One email each to the two visitors, none for the second "Yes, email me".
+- Found by the live run, not by the unit tests: with the stand-in always re-offering a quote, the address-later turn produced a second card and left the first card's prompt up. That gave the "newer card closes older offers" rule. The stand-in now offers a quote only on pricing messages, like the model.
+- **Not proven**: a real browser on mobile (the chat repo has component and hook tests only); a real model's duplicate-request phrasing; the card fields for WhatsApp/caps/switch-off live (tests only).
+
+**Operate / roll back.** No migration, no new env. Revert the PR; the extra keys on already-saved cards are ignored by the old chat (it reads only `currency`, `line_items`, `total`). Deploy order: backend first (the new chat tolerates absent keys); the old chat with the new backend still shows the prompt on emailed cards until the chat PR is deployed.
+
+**Follow-ups.** The chat (`luran-chat`) has no CI: its checks were run locally (Node 24, not 20: only 24 was installed); a verified resend flow; Offerings (S2) cards carry no email keys yet.
