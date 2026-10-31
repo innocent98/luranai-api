@@ -48,3 +48,10 @@ def test_the_model_signal_alone_makes_it_an_offer_turn(grounding):
 def test_figures_next_to_units_are_never_offers(grounding):
     for m in ("size 9000", "order number is 10021", "I need 12 pieces", "for 150 guests", "x 3"):
         assert not is_offer_turn(m, grounding, False), m
+
+
+def test_the_guard_reads_figures_next_to_units_as_money_so_nothing_hides_an_offer():
+    from app.offerings.amounts import customer_amounts
+
+    assert customer_amounts("size 9000") == []
+    assert [a.value for a in customer_amounts("size 9000", strict=True)] == [9000]

@@ -139,6 +139,58 @@ _UNIT_AFTER = {
     "pm",
     "of",
     "x",
+    "guest",
+    "guests",
+    "pax",
+    "portion",
+    "portions",
+    "serving",
+    "servings",
+    "plate",
+    "plates",
+    "slice",
+    "slices",
+    "km",
+    "hr",
+    "room",
+    "rooms",
+    "seat",
+    "seats",
+    "customer",
+    "customers",
+    "order",
+    "orders",
+    "kid",
+    "kids",
+    "child",
+    "children",
+    "adult",
+    "adults",
+    "staff",
+    "members",
+    "workers",
+    "litre",
+    "litres",
+    "liter",
+    "liters",
+    "gb",
+    "mb",
+    "bag",
+    "bags",
+    "box",
+    "boxes",
+    "pack",
+    "packs",
+    "carton",
+    "cartons",
+    "dozen",
+    "metres",
+    "meters",
+    "bedroom",
+    "bedrooms",
+    "floor",
+    "floors",
+    "years-old",
 }
 _PRICE_CUE = re.compile(
     r"(?:cost|costs|costing|price|prices|priced|pay|paying|total|fee|fees|charge|charged|worth"
@@ -456,22 +508,28 @@ _UNITS = (
 )
 _NOT_AN_OFFER = re.compile(
     r"\b(?:size|sizes|no\.|number|order(?:\s+(?:number|no\.?|id))?|ref|invoice|ticket|account"
-    r"|acct|room|flat|house|apt|plot|block|code|pin|otp)\b\s*(?:is\s*)?[:#]?\s*\d[\d\s-]*"
+    r"|acct|room|flat|house|apt|plot|block|code|pin|otp)\b\s*(?:is\s*)?[:#]?\s*\d+(?:-\d+)?"
     rf"|\b\d[\d,.]*\s*(?:{_UNITS})\b(?:\s*old)?"
     r"|\b(?:x|qty|quantity)\s*\d+|\b\d+\s*x\b"
     r"|\b\d+\s+(?:in\s+stock|available|left|remaining)\b"
-    r"|\b(?:paid|payment|deposit(?:ed)?|transferred)\b\s*(?:of\s+)?[\w₦#]*\s*\d[\d,.]*k?"
-    r"|\b\d[\d,.]*k?\s+(?:deposit|paid|payment)\b"
+    r"|\b(?:paid|deposited|transferred)\b\s*(?:of\s+)?[\w₦#]*\s*\d[\d,.]*k?"
     r"|\b(?:at|by|on|before|after|around)\s+\d{1,2}(?::\d\d)?\s*(?:am|pm)?\b"
     r"|\b\d+\s+[a-z]+\s+(?:avenue|ave|street|st|road|rd|close|crescent|way|drive|lane|estate|layout)\b",
     re.IGNORECASE,
 )
 
 
-def customer_amounts(text: str | None, *, small_ok: bool = True) -> list[Amount]:
+def customer_amounts(
+    text: str | None, *, small_ok: bool = True, strict: bool = False
+) -> list[Amount]:
     """The money figures in something a customer wrote, once a catalog item is in play: a bare
-    "abeg 9000" is an amount, "size 44", "order 10021", "150 guests" and phone numbers are not."""
-    masked = _NOT_AN_OFFER.sub(lambda m: " " * len(m.group(0)), mask_non_money(text))
+    "abeg 9000" is an amount, "size 44", "order 10021", "150 guests" and phone numbers are not.
+
+    `strict` keeps the figures next to units and identifiers too (only phones and dates are
+    dropped): the guard reads the customer that way, so a masked figure can never hide an offer
+    from the agreement rules; only the code-only reply decision uses the masked reading."""
+    base = mask_non_money(text)
+    masked = base if strict else _NOT_AN_OFFER.sub(lambda m: " " * len(m.group(0)), base)
     return [
         a for a in extract_amounts(masked, small_ok=small_ok, anchored=True) if a.kind == "money"
     ]

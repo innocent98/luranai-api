@@ -88,13 +88,37 @@ _QTY = (
 )
 # a sentence that carries a token and speaks of several units or a total prices something the token
 # does not: the token is one item's unit price
-_BUNDLE = re.compile(
-    rf"{_QTY}"
-    r"|\b(?:total|altogether|comes?\s+(?:up\s+)?to|combined|in\s+all|sum|pair|set|bundle|both"
-    r"|all\s+(?:of\s+)?our|together|package|the\s+two|those\s+two|second|third|every\s+other"
-    r"|add(?:s|ed|ing)?\s+up)\b",
+_TOTAL = re.compile(
+    r"\b(?:total|altogether|comes?\s+(?:up\s+)?to|combined|in\s+all|sum|add(?:s|ed|ing)?\s+up)\b",
     re.IGNORECASE,
 )
+# words that group items under one price; several distinct tokens in a sentence are separate prices
+_GROUP = re.compile(
+    r"\b(?:pair|set|bundle|both|all\s+(?:of\s+)?our|together|package|the\s+two|those\s+two"
+    r"|second|third|every\s+other)\b",
+    re.IGNORECASE,
+)
+_QTY_RE = re.compile(_QTY, re.IGNORECASE)
+# "serves about 10 people", "has 50 pieces", "up to 500 guests": a count that describes the item
+_DESCRIBES = re.compile(
+    r"\b(?:has|have|contains?|includes?|serves?|seats?|fits?|holds?|about|around|approximately"
+    r"|roughly|up\s+to|over|within|under|than|of)\s+(?:about\s+|around\s+)?$",
+    re.IGNORECASE,
+)
+
+
+def _bundle_hit(plain: str, distinct_tokens: int) -> bool:
+    """A token sentence that quantifies, groups or totals what the token prices."""
+    if _TOTAL.search(plain):
+        return True
+    if distinct_tokens < 2 and _GROUP.search(plain):
+        return True
+    return any(
+        not _DESCRIBES.search(plain[max(0, m.start() - 24) : m.start()])
+        for m in _QTY_RE.finditer(plain)
+    )
+
+
 _PER = re.compile(r"\b(?:each|per|apiece|every|a\s+pair|one|unit)\b", re.IGNORECASE)
 # a freebie word is only a problem next to a catalog item ("a free Leather Wallet", "the Red Bag as a
 # gift"); "feel free", "free size" and "a free dust bag" are ordinary words
@@ -308,6 +332,13 @@ def _names_catalog_strongly(sentence: str, names: list[str]) -> bool:
 _BREAK = re.compile(r"[.!?;,:\n]")
 
 
+def _without_names(text: str, names: list[str]) -> str:
+    """Item names blanked out: "Catering Package" and "Party Pair" are not groupings."""
+    for name in sorted({n for n in names if n}, key=len, reverse=True):
+        text = re.sub(re.escape(name), " " * len(name), text, flags=re.IGNORECASE)
+    return text
+
+
 def _free_beside_item(sentence: str, names: list[str]) -> bool:
     """A freebie word right beside a catalog item's full name or #ref ("a free Leather Wallet",
     "the Red Bag as a gift"): at most two words between, no clause break, not negated."""
@@ -381,7 +412,7 @@ def _unnegated(pattern: re.Pattern, sentence: str) -> bool:
 
 def _values(texts: Iterable[str], small_ok: bool = False) -> set[Decimal]:
     """The money figures in the customer's messages, read as anchored (a catalog item is in play)."""
-    return {a.value for t in texts for a in customer_amounts(t, small_ok=small_ok)}
+    return {a.value for t in texts for a in customer_amounts(t, small_ok=small_ok, strict=True)}
 
 
 def _has(values: Iterable, v: Decimal) -> bool:
@@ -511,7 +542,11 @@ def check_reply(
                 carried = last if last else named_seqs
             elif named_seqs:
                 carried = named_seqs
-            if seqs and _BUNDLE.search(plain) and not _PER.search(plain):
+            if (
+                seqs
+                and _bundle_hit(_without_names(plain, catalog_names), len(set(seqs)))
+                and not _PER.search(plain)
+            ):
                 violations.append(Violation(sentence, "bundle_price"))
             if (anchored or seqs) and (
                 _unnegated(_FREE_PHRASE, sentence) or _free_beside_item(sentence, catalog_names)
@@ -519,7 +554,7 @@ def check_reply(
                 violations.append(Violation(sentence, "freebie_wording"))
             if (seqs or named) and _SAME.search(plain):
                 violations.append(Violation(sentence, "same_price_claim"))
-            if len(seqs) > 0 and len(named_seqs) > 1 and re.search(r"\bboth\b", plain, re.I):
+            if len(set(seqs)) == 1 and len(named_seqs) > 1 and re.search(r"\bboth\b", plain, re.I):
                 violations.append(Violation(sentence, "same_price_claim"))
             if (anchored or amounts or offer or _names_any(plain, catalog_names)) and _unnegated(
                 _DISCOUNT_WORDS, sentence
