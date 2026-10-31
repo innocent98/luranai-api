@@ -62,17 +62,17 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
     "items": [
       {
         "ref": "#1",
-        "offering_id": "44f64f8e-eba1-4725-9e08-da43c9c1a8ea",
+        "offering_id": "091fff84-9e60-48aa-9372-514f62f9b8eb",
         "name": "Canvas sneaker black",
         "price_text": "₦12,000",
         "availability": "in_stock",
-        "cover_image_id": "449c0b61-3063-4868-9570-2d97a4d3f3a7",
-        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/88473ebd-06f0-4486-bee6-d3a8630e8331/25e530b7fc514a20965dba46136dbbb3.jpg",
+        "cover_image_id": "98e477cd-c428-43de-828b-0ab70d098feb",
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/3ea71d88-0c4f-4502-92cd-00a2ba818eca/4a4d6cadda58434a9aecde2615e2316e.jpg",
         "photo_count": 2
       },
       {
         "ref": "#2",
-        "offering_id": "dae1bae2-73b6-4cf0-946a-5c6fe6871972",
+        "offering_id": "3056fcaa-ecc4-4ff9-853a-a666d0d0eb9f",
         "name": "Canvas sneaker white",
         "price_text": "₦13,500",
         "availability": "in_stock",
@@ -82,7 +82,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
       },
       {
         "ref": "#3",
-        "offering_id": "97b9e4ca-c3f7-4efe-9c8f-fd9aaa342ced",
+        "offering_id": "1730df2f-2ac6-4e46-83bd-72aea856d96e",
         "name": "Leather bag",
         "price_text": "₦45,000",
         "availability": "in_stock",
@@ -92,7 +92,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
       },
       {
         "ref": "#4",
-        "offering_id": "e8ae3c13-3e86-43bf-8c34-aceeba878bf9",
+        "offering_id": "b3ef93c6-2eae-42c1-a642-426d4f7da0cd",
         "name": "Phone repair",
         "price_text": "from ₦5,000 per phone",
         "availability": "in_stock",
@@ -102,7 +102,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
       },
       {
         "ref": "#5",
-        "offering_id": "02c087f8-d565-422d-ae06-ab23eca252a2",
+        "offering_id": "53ac4613-bdd8-4168-bdb9-04fa1337b978",
         "name": "Beach sandals",
         "price_text": "₦8,000",
         "availability": "out_of_stock",
@@ -111,7 +111,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
         "photo_count": 0
       }
     ],
-    "shown_at": "2026-10-31T00:03:06.787502+00:00",
+    "shown_at": "2026-10-31T00:25:02.359284+00:00",
     "guard": {
       "checked": true,
       "blocked": false,
@@ -130,16 +130,16 @@ A single item with two photos (capture `02`; the reply text is `"The Canvas snea
   "items": [
     {
       "ref": "#1",
-      "offering_id": "44f64f8e-eba1-4725-9e08-da43c9c1a8ea",
+      "offering_id": "091fff84-9e60-48aa-9372-514f62f9b8eb",
       "name": "Canvas sneaker black",
       "price_text": "₦12,000",
       "availability": "in_stock",
-      "cover_image_id": "449c0b61-3063-4868-9570-2d97a4d3f3a7",
-      "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/88473ebd-06f0-4486-bee6-d3a8630e8331/25e530b7fc514a20965dba46136dbbb3.jpg",
+      "cover_image_id": "98e477cd-c428-43de-828b-0ab70d098feb",
+      "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/3ea71d88-0c4f-4502-92cd-00a2ba818eca/4a4d6cadda58434a9aecde2615e2316e.jpg",
       "photo_count": 2
     }
   ],
-  "shown_at": "2026-10-31T00:03:07.094404+00:00",
+  "shown_at": "2026-10-31T00:25:02.647717+00:00",
   "guard": {
     "checked": true,
     "blocked": false,
@@ -155,7 +155,7 @@ Not listed (capture `04`; reply `"I don't have that listed. Would you like me to
 {
   "mode": "none",
   "items": [],
-  "shown_at": "2026-10-31T00:03:07.227243+00:00",
+  "shown_at": "2026-10-31T00:25:02.779890+00:00",
   "guard": {
     "checked": true,
     "blocked": false,
@@ -201,7 +201,7 @@ Fell back to the code reply (capture `07`):
     "items": [
       {
         "ref": "#2",
-        "offering_id": "dae1bae2-73b6-4cf0-946a-5c6fe6871972",
+        "offering_id": "3056fcaa-ecc4-4ff9-853a-a666d0d0eb9f",
         "name": "Canvas sneaker white",
         "price_text": "₦13,500",
         "availability": "in_stock",
@@ -211,16 +211,16 @@ Fell back to the code reply (capture `07`):
       },
       {
         "ref": "#1",
-        "offering_id": "44f64f8e-eba1-4725-9e08-da43c9c1a8ea",
+        "offering_id": "091fff84-9e60-48aa-9372-514f62f9b8eb",
         "name": "Canvas sneaker black",
         "price_text": "₦12,000",
         "availability": "in_stock",
-        "cover_image_id": "449c0b61-3063-4868-9570-2d97a4d3f3a7",
-        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/88473ebd-06f0-4486-bee6-d3a8630e8331/25e530b7fc514a20965dba46136dbbb3.jpg",
+        "cover_image_id": "98e477cd-c428-43de-828b-0ab70d098feb",
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/3ea71d88-0c4f-4502-92cd-00a2ba818eca/4a4d6cadda58434a9aecde2615e2316e.jpg",
         "photo_count": 2
       }
     ],
-    "shown_at": "2026-10-31T00:03:07.411860+00:00",
+    "shown_at": "2026-10-31T00:25:02.953752+00:00",
     "guard": {
       "checked": true,
       "blocked": true,
@@ -244,10 +244,14 @@ The listed price for the Canvas sneaker white is ₦13,500 and it is firm.
 
 ## 5. Price offers (the AI never agrees to a lower price)
 
-The AI never agrees to, counters or hints at a price below the listed one. For a **negotiable** item it says the owner is open to offers, records the customer's figure on the lead, and offers a human. Capture `08` (customer: "I'll pay 30k for the leather bag"; the reply ends with a line written **by code**, never by the model: `I've noted your offer of ₦30,000 for the Leather bag.`, after the model's own wording and the offer of the team). The model may not repeat the customer's figure beside an item name, nor agree, accept or discount: the guard blocks it. Code only says "noted your offer" when a human will pick it up (a negotiable item, or the customer insists); for a first offer on a non-negotiable item it states the firm price instead (`The listed price for the Canvas sneaker black is ₦12,000 and it is firm.`, captures `06` and `07`). The escalation action of capture `08`:
+The AI never agrees to, counters or hints at a price below the listed one. For a **negotiable** item it says the owner is open to offers, records the customer's figure on the lead, and hands the conversation to a human. Capture `08` (customer: "I'll pay 30k for the leather bag"; the reply ends with a line written **by code**, never by the model: `I've noted your offer of ₦30,000 for the Leather bag.`, after the model's own wording and the offer of the team). The model may not repeat the customer's figure beside an item name, nor agree, accept or discount: the guard blocks it. Code only says "noted your offer" when a human will pick it up (a negotiable item, or the customer insists); for a first offer on a non-negotiable item it states the firm price instead (`The listed price for the Canvas sneaker black is ₦12,000 and it is firm.`, captures `06` and `07`). The response of capture `08` also hands the conversation to a human **now**: `should_escalate` is `true`, `ticket_id` is set and `escalation_action` is `auto_escalate`; from then on the existing escalated-conversation behaviour applies (covered by `tests/api/v1/test_chat_escalated_suppression.py`; a later customer message was not sent in the live run). The model's text says `Would you like me to connect you with the team?` only because the stand-in wrote it; the line after it, `I'm handing this to the team now; they'll take it from here.`, is added by code:
 
 ```json
-"offer_escalation"
+"Customer made a price offer"
+```
+
+```json
+true
 ```
 
 The stored offer, as the owner sees it on the lead (capture `09`, `data.interests`):
@@ -266,11 +270,28 @@ The stored offer, as the owner sees it on the lead (capture `09`, `data.interest
 ]
 ```
 
-For a **non-negotiable** item the first offer is also stored but the listed price stands and no human is forced; if the customer insists on the same item again, a human is offered. **No quote is made while an offer is pending** (a human prices it).
+For a **non-negotiable** item the first offer is also stored but the listed price stands and no human is forced; if the customer insists on the same item again, the conversation is handed over like above. **No quote is made while an offer is pending, on this turn or any later one** (a human prices it): a later turn with the same cart gets no quote card and the reply ends with `A team member will confirm the price.` The figure must be one the customer wrote in their **current** message; an offer the model invents, a sold-out item, or an amount above ₦10,000,000,000 is ignored.
+
+An offer made **after** the first cart (capture `23`) is recorded, hands over, makes no new quote, and raises its own owner alert titled `Price offer` (capture `24`, newest first), because the once-per-lead cart alert would otherwise swallow it:
+
+```json
+"The owner is open to offers on the Leather bag. I've noted your offer; the team will follow up. Would you like me to connect you with the team?\n\nI've noted your offer of ₦30,000 for the Leather bag.\n\nI'm handing this to the team now; they'll take it from here."
+```
+
+```json
+{
+  "id": "f57d1709-39da-4575-8cff-57a2d35a03b2",
+  "event": "offering_request",
+  "title": "Price offer",
+  "body": "A customer offered ₦30,000 for Leather bag (listed ₦45,000). 2 × Canvas sneaker black (listed ₦12,000); 1 × Canvas sneaker white (listed ₦13,500); 1 × Leather bag (listed ₦45,000), customer offered ₦30,000",
+  "read_at": null,
+  "created_at": "2026-10-31T00:25:08.144117+00:00"
+}
+```
 
 ## 6. Wanted items, the quote card and the owner alert
 
-When the Sales Agent is on and a customer chooses items, the backend writes the lead's wanted items and alerts the owner once. The quote card appears only when **all** of these hold: the plan includes quotes (`sales_close`), the tenant has quotes switched on, every chosen item has a **fixed** price, and no price offer is pending. A `from` or `on request` item gives wanted items and the alert but **no quote card** (a person prices it).
+When the Sales Agent is on and a customer chooses items, the backend writes the lead's wanted items and alerts the owner once. The quote card appears only when **all** of these hold: the plan includes quotes (`sales_close`), the tenant has quotes switched on, every chosen item has a **fixed** price, no price offer is pending on the lead, every line of the cart could be resolved, and the total fits the quote column (about ₦2.1 billion). A cart over that limit makes no quote, and code adds `This order is too large for me to total; a team member will confirm the price.` and hands the conversation over. A `from` or `on request` item gives wanted items and the alert but **no quote card** (a person prices it).
 
 First cart (capture `10`, "I want 2 black sneakers"):
 
@@ -321,7 +342,7 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
     "items": [
       {
         "ref": "#4",
-        "offering_id": "e8ae3c13-3e86-43bf-8c34-aceeba878bf9",
+        "offering_id": "b3ef93c6-2eae-42c1-a642-426d4f7da0cd",
         "name": "Phone repair",
         "price_text": "from ₦5,000 per phone",
         "availability": "in_stock",
@@ -330,7 +351,7 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
         "photo_count": 0
       }
     ],
-    "shown_at": "2026-10-31T00:03:07.902847+00:00",
+    "shown_at": "2026-10-31T00:25:03.495384+00:00",
     "guard": {
       "checked": true,
       "blocked": false,
@@ -340,6 +361,8 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
   }
 }
 ```
+
+**A cart line that cannot be found never disappears silently.** Items must have been shown or chosen earlier in this conversation (or be in this turn's list) and still be active. When a line cannot be resolved (unknown, removed, or sold out), the earlier wanted items are kept, no quote is made, and code adds a sentence such as `I couldn't add Beach sandals: it is sold out.` or `I couldn't add #99: it isn't something I can find in this chat's list.`
 
 **Totals are computed by code** as the sum of quantity times the price read from the database after the reply; the model never states a total. The detail text of each line is `"<qty> × <price>"` (a price note such as `per cut` is appended when the item has one).
 
@@ -390,7 +413,7 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
   "landing_page": "whatsapp",
   "utm": null,
   "channel": null,
-  "first_seen": "2026-10-31T00:03:09.089474+00:00"
+  "first_seen": "2026-10-31T00:25:04.948838+00:00"
 }
 ```
 
@@ -400,25 +423,27 @@ The first committed cart of a conversation raises the new event `offering_reques
 
 ```json
 {
-  "id": "aee083a5-de4e-410b-800f-0a312b38b1cf",
+  "id": "4b60e94b-4211-4cc8-ab0f-85f233f24780",
   "event": "offering_request",
   "title": "New item request",
-  "body": "A customer · 1 × Phone repair",
+  "body": "A customer · 1 × Phone repair (listed ₦5,000)",
   "read_at": null,
-  "created_at": "2026-10-31T00:03:07.939524+00:00"
+  "created_at": "2026-10-31T00:25:03.539985+00:00"
 }
 ```
 
 ```json
 {
-  "id": "35dea04e-b89a-4169-bfcf-2e0d28dbda4a",
+  "id": "324fcdb4-88f9-4582-95fc-7b87ce3fb5a4",
   "event": "quote_generated",
   "title": "New quote",
   "body": "₦37,500 · a prospect",
   "read_at": null,
-  "created_at": "2026-10-31T00:03:07.764798+00:00"
+  "created_at": "2026-10-31T00:25:03.333173+00:00"
 }
 ```
+
+In-app and Slack bodies carry the items with their listed prices and any figure the customer offered, in the tenant's currency (`A customer · 2 × Canvas sneaker black (listed ₦12,000)`). Slack text is escaped (`<!channel>` and links in a customer's name cannot fire). The CRM payload gets an `interests` list (`ref, name, qty, price, offered_price`). The conversation link of spec 8.5 is the existing dashboard link; a per-conversation deep link was not built (route unknown).
 
 The e-mail (when the tenant's alert e-mail is on) lists the wanted items with the listed price and any figure the customer offered; Slack and CRM follow the same plan gate as quote alerts. The in-app text names the customer only when the lead already has a name (here the stand-in captured none, hence "A customer").
 
@@ -461,16 +486,16 @@ The conversation as an agent sees it (capture `21`, last assistant message): `me
     "items": [
       {
         "ref": "#1",
-        "offering_id": "44f64f8e-eba1-4725-9e08-da43c9c1a8ea",
+        "offering_id": "091fff84-9e60-48aa-9372-514f62f9b8eb",
         "name": "Canvas sneaker black",
         "price_text": "₦12,000",
         "availability": "in_stock",
-        "cover_image_id": "449c0b61-3063-4868-9570-2d97a4d3f3a7",
-        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/88473ebd-06f0-4486-bee6-d3a8630e8331/25e530b7fc514a20965dba46136dbbb3.jpg",
+        "cover_image_id": "98e477cd-c428-43de-828b-0ab70d098feb",
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/3ea71d88-0c4f-4502-92cd-00a2ba818eca/4a4d6cadda58434a9aecde2615e2316e.jpg",
         "photo_count": 2
       }
     ],
-    "shown_at": "2026-10-31T00:03:10.036379+00:00",
+    "shown_at": "2026-10-31T00:25:05.845851+00:00",
     "guard": {
       "checked": true,
       "blocked": false,
@@ -502,7 +527,10 @@ Catalog **photos** and the **quote as a second text message** on WhatsApp belong
 | Shape of `meta.offerings` (browse, detail with photos, none) | **Live** (captures 01, 02, 04), model stand-in |
 | `cover_url` is the 400 px rendition | **Live** (capture 02; a first run showed the stored original, fixed and re-captured) |
 | Guard regeneration and code fallback, `guard` flags, `offer_escalation` | **Live** with a stand-in that misbehaves on cue (06, 07). Behaviour against the real model: **not verified** (the eval gate on staging does that) |
-| Offer on a negotiable item stored, human offered, no quote | **Live** (08, 09) |
+| Offer on a negotiable item stored, conversation handed over (`auto_escalate`, ticket), no quote | **Live** (08, 09) |
+| Offer after the cart: separate `Price offer` alert, no new quote | **Live** (23, 24) |
+| Overflow past the quote column, rollback of every non-fatal step, dropped/unresolved lines, pending-offer quote block, lead row lock | Unit and endpoint tests; the lock was checked against real Postgres (`tests/offerings_ai/test_lead_lock.py`). Not run live |
+| Two parallel turns on one lead | Row lock proven on Postgres; a true concurrent chat run was **not** done |
 | Cart to lead, `interests`, quote totals, no second quote when unchanged, new quote when changed | **Live** (10, 11, 12, 14) |
 | `from` line gives no quote | **Live** (13) |
 | Lite plan or quotes-off gives wanted items and no quote | Unit tests only (no second plan tenant in the live run) |

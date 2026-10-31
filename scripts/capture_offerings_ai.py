@@ -495,6 +495,25 @@ def main():
         token=token,
         note="`source` is `whatsapp` (it used to be hard-coded `chat_widget`).",
     )
+    # --- an offer made after the cart: a human takes over and the owner is alerted per offer ---
+    after = chat(
+        "web-offer-after-cart",
+        tenant_id,
+        "I'll pay 30k for the leather bag",
+        user="web-8",
+        session_id=sid,
+        note="The cart already exists. The offer is recorded, no new quote is made while it is "
+        "pending, a human takes over (`should_escalate`, `ticket_id`) and the owner gets a "
+        "separate `Price offer` alert (the once-per-lead cart alert would have swallowed it).",
+    )
+    record(
+        "staff-notifications-after-offer",
+        "GET",
+        "/api/v1/notifications",
+        token=token,
+        note="Newest first: the `Price offer` alert for the offer made after the cart.",
+    )
+    assert after["should_escalate"] is True
     print("done:", _n["i"], "captures in", OUT)
 
 

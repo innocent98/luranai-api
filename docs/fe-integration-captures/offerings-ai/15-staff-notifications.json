@@ -15,63 +15,71 @@
       "data": {
         "items": [
           {
-            "id": "aee083a5-de4e-410b-800f-0a312b38b1cf",
+            "id": "4b60e94b-4211-4cc8-ab0f-85f233f24780",
             "event": "offering_request",
             "title": "New item request",
-            "body": "A customer · 1 × Phone repair",
+            "body": "A customer · 1 × Phone repair (listed ₦5,000)",
             "read_at": null,
-            "created_at": "2026-10-31T00:03:07.939524+00:00"
+            "created_at": "2026-10-31T00:25:03.539985+00:00"
           },
           {
-            "id": "35dea04e-b89a-4169-bfcf-2e0d28dbda4a",
+            "id": "324fcdb4-88f9-4582-95fc-7b87ce3fb5a4",
             "event": "quote_generated",
             "title": "New quote",
             "body": "₦37,500 · a prospect",
             "read_at": null,
-            "created_at": "2026-10-31T00:03:07.764798+00:00"
+            "created_at": "2026-10-31T00:25:03.333173+00:00"
           },
           {
-            "id": "4589794c-c4e5-4363-8d53-3fc223aa17b6",
+            "id": "516119e8-f54b-4974-aaea-e131490dd6c1",
+            "event": "offering_request",
+            "title": "New item request",
+            "body": "A customer · 2 × Canvas sneaker black (listed ₦12,000)",
+            "read_at": null,
+            "created_at": "2026-10-31T00:25:03.230496+00:00"
+          },
+          {
+            "id": "4790d67e-4446-4312-8d35-26b32f0907e5",
             "event": "quote_generated",
             "title": "New quote",
             "body": "₦24,000 · a prospect",
             "read_at": null,
-            "created_at": "2026-10-31T00:03:07.668390+00:00"
+            "created_at": "2026-10-31T00:25:03.217906+00:00"
           },
           {
-            "id": "8f3690c3-7b5f-4911-92f4-e37a75e9cb2e",
+            "id": "750e35e1-2491-412d-9575-4d76bbdb4ee6",
             "event": "offering_request",
-            "title": "New item request",
-            "body": "A customer · 2 × Canvas sneaker black",
+            "title": "Price offer",
+            "body": "A customer offered ₦30,000 for Leather bag (listed ₦45,000). 1 × Leather bag (listed ₦45,000), customer offered ₦30,000",
             "read_at": null,
-            "created_at": "2026-10-31T00:03:07.653109+00:00"
+            "created_at": "2026-10-31T00:25:03.078294+00:00"
           },
           {
-            "id": "70990ec3-726e-4c26-808b-ecd62195e875",
+            "id": "b8e45452-4705-4cb2-962c-526dbc597e36",
             "event": "offering_request",
             "title": "New item request",
-            "body": "A customer · 1 × Leather bag",
+            "body": "A customer · 1 × Leather bag (listed ₦45,000), customer offered ₦30,000",
             "read_at": null,
-            "created_at": "2026-10-31T00:03:07.542845+00:00"
+            "created_at": "2026-10-31T00:25:03.070676+00:00"
           },
           {
-            "id": "5661b731-67d9-474c-8012-369044a3e10a",
+            "id": "1aa72a98-a4b7-4bde-8d04-5dcb7968ab54",
             "event": "offering_request",
             "title": "New item request",
-            "body": "A customer · 1 × Canvas sneaker white",
+            "body": "A customer · 1 × Canvas sneaker white (listed ₦13,500), customer offered ₦9,000",
             "read_at": null,
-            "created_at": "2026-10-31T00:03:07.448744+00:00"
+            "created_at": "2026-10-31T00:25:02.989618+00:00"
           },
           {
-            "id": "4f5dfc69-46b8-43a7-997d-2d039b1d8668",
+            "id": "6a619d86-a8da-4573-8753-3859f34c1807",
             "event": "offering_request",
             "title": "New item request",
-            "body": "A customer · 1 × Canvas sneaker black",
+            "body": "A customer · 1 × Canvas sneaker black (listed ₦12,000), customer offered ₦10,000",
             "read_at": null,
-            "created_at": "2026-10-31T00:03:07.344011+00:00"
+            "created_at": "2026-10-31T00:25:02.895627+00:00"
           }
         ],
-        "total": 7,
+        "total": 8,
         "limit": 20,
         "offset": 0
       }

@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "I'll pay 30k for the leather bag",
-      "tenant_id": "88473ebd-06f0-4486-bee6-d3a8630e8331",
+      "tenant_id": "3ea71d88-0c4f-4502-92cd-00a2ba818eca",
       "user_identifier": "web-7"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "7a778840-1d74-468d-8dac-04fac3caaf94",
+      "session_id": "e366aa08-ca12-4475-be8c-e6d46efc2ae0",
       "message": {
         "role": "assistant",
-        "content": "The owner is open to offers on the Leather bag. I've noted your offer; the team will follow up. Would you like me to connect you with the team?\n\nI've noted your offer of ₦30,000 for the Leather bag.",
-        "id": "0983cb97-dbe7-4ec7-8b87-31e36fb42c05",
-        "session_id": "7a778840-1d74-468d-8dac-04fac3caaf94",
+        "content": "The owner is open to offers on the Leather bag. I've noted your offer; the team will follow up. Would you like me to connect you with the team?\n\nI've noted your offer of ₦30,000 for the Leather bag.\n\nI'm handing this to the team now; they'll take it from here.",
+        "id": "b859cd3a-3c1d-461d-99ef-8fa3ccc3698e",
+        "session_id": "e366aa08-ca12-4475-be8c-e6d46efc2ae0",
         "retrieved_chunk_ids": [],
         "token_count": 300,
         "attachments": [],
@@ -28,7 +28,7 @@
           "chunks_used": 0,
           "avg_similarity": 0.0,
           "retrieval_hit": false,
-          "escalation_action": "offer_escalation",
+          "escalation_action": "auto_escalate",
           "response_quality": {
             "is_substantial": true,
             "has_uncertainty": false,
@@ -45,7 +45,7 @@
             "items": [
               {
                 "ref": "#3",
-                "offering_id": "97b9e4ca-c3f7-4efe-9c8f-fd9aaa342ced",
+                "offering_id": "1730df2f-2ac6-4e46-83bd-72aea856d96e",
                 "name": "Leather bag",
                 "price_text": "₦45,000",
                 "availability": "in_stock",
@@ -54,7 +54,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T00:03:07.507223+00:00",
+            "shown_at": "2026-10-31T00:25:03.040918+00:00",
             "guard": {
               "checked": true,
               "blocked": true,
@@ -63,12 +63,12 @@
             }
           }
         },
-        "created_at": "2026-10-31T00:03:07.558636Z"
+        "created_at": "2026-10-31T00:25:03.092170Z"
       },
       "user_message_attachments": [],
-      "should_escalate": false,
-      "escalation_reason": null,
-      "ticket_id": null
+      "should_escalate": true,
+      "escalation_reason": "Customer made a price offer",
+      "ticket_id": "67638461-c6d4-42e5-86cf-0eeb1afb3b42"
     }
   }
 }

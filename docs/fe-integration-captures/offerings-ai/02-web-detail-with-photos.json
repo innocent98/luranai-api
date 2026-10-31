@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "how much is the black sneaker?",
-      "tenant_id": "88473ebd-06f0-4486-bee6-d3a8630e8331",
+      "tenant_id": "3ea71d88-0c4f-4502-92cd-00a2ba818eca",
       "user_identifier": "web-2"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "a7286843-116e-4991-a061-5b38bc313eaf",
+      "session_id": "6a72260d-c50e-4507-8d31-5494bfa5332e",
       "message": {
         "role": "assistant",
         "content": "The Canvas sneaker black is ₦12,000, in stock.",
-        "id": "3762296a-2b70-462e-9752-1de54999fcbb",
-        "session_id": "a7286843-116e-4991-a061-5b38bc313eaf",
+        "id": "4112af55-46c7-4780-bf87-699a509da805",
+        "session_id": "6a72260d-c50e-4507-8d31-5494bfa5332e",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -45,16 +45,16 @@
             "items": [
               {
                 "ref": "#1",
-                "offering_id": "44f64f8e-eba1-4725-9e08-da43c9c1a8ea",
+                "offering_id": "091fff84-9e60-48aa-9372-514f62f9b8eb",
                 "name": "Canvas sneaker black",
                 "price_text": "₦12,000",
                 "availability": "in_stock",
-                "cover_image_id": "449c0b61-3063-4868-9570-2d97a4d3f3a7",
-                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/88473ebd-06f0-4486-bee6-d3a8630e8331/25e530b7fc514a20965dba46136dbbb3.jpg",
+                "cover_image_id": "98e477cd-c428-43de-828b-0ab70d098feb",
+                "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/3ea71d88-0c4f-4502-92cd-00a2ba818eca/4a4d6cadda58434a9aecde2615e2316e.jpg",
                 "photo_count": 2
               }
             ],
-            "shown_at": "2026-10-31T00:03:07.094404+00:00",
+            "shown_at": "2026-10-31T00:25:02.647717+00:00",
             "guard": {
               "checked": true,
               "blocked": false,
@@ -63,7 +63,7 @@
             }
           }
         },
-        "created_at": "2026-10-31T00:03:07.124248Z"
+        "created_at": "2026-10-31T00:25:02.678131Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,
