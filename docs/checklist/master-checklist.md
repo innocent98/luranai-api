@@ -194,6 +194,7 @@ Why: plans differed only by volume plus five flags; the sales agent, Slack/CRM, 
 - [x] FE guide with live captures; SOP
 - [ ] Paystack: create the Lite 15,000 monthly/annual plans and point the env at them BEFORE the new price reaches prod (owner action, see SOP)
 - [ ] Chat sales branch and the queued-worker paths verified with a real LLM / real Slack (unit/integration tests only)
+  - 2026-10-30: re-run end to end locally on the real code with a stand-in LLM, local Slack/CRM receivers and a mail stub: 69/69 live checks + 396 tests pass (SOP `docs/sop/sales_agent_smoke_2026-10-30.md`). Still open: real model, real Slack/CRM/inbox, staging/prod. Defects from it: quote PDF naira box, lead score not sticky and rep-email CTA `#` are fixed in PR #194 (pending merge, SOP `docs/sop/sales_quote_pdf_score_link_fixes.md`); still open: WhatsApp does not carry the quote card/picker (catalog plan).
 - [ ] Dashboard: lock badges, upgrade prompts, 403 `feature_not_in_plan` handling (separate track)
 - [ ] Docs site and public pricing page copy (after prod promotion)
 - [ ] Prod promotion (migration + seed review) — lead / Adebayo
@@ -252,6 +253,11 @@ Why: Luran wants marketers and influencers to bring businesses, paid a one-time 
 - [x] Marketer page follows R44: a `void` reward shows `not_converted`; capture 69's `signed_up` is explained by a failed upgrade in the scratch run (FE guide 6.2, SOP)
 - [x] Unmatched dispute logs an ERROR with Paystack's dispute id; SMTP socket timeout raised to 30 s; exception text no longer logged in the new referral code
 - [ ] PR opened to `develop`, reviewed and merged (lead)
+
+### Bank picker on the marketer forms (2026-10-30)
+- [x] Backend: `GET /platform/referrals/banks` (any platform admin, cached 24 h, `{name, code}` only, stale copy up to 7 days) and `POST /platform/referrals/banks/resolve` (super admin, per-admin 10/min, holder name only); errors `bank_provider_unavailable` / `account_not_resolved`; tests with a fake Paystack; 23 live captures against a FAKE Paystack; FE guide section 15; SOP `docs/sop/referral_bank_picker_backend.md` (PR `feature/referral-bank-picker-backend` to `develop`)
+- [ ] Dashboard: searchable bank select + Verify step on `MarketerForm` and `MarketerBankForm` (PR `feature/referral-bank-picker-dashboard` to `staging`)
+- [ ] Owner: one real call of both endpoints with the live Paystack key to confirm the real shapes (never exercised; no key was available)
 
 ### Not done: frontend and owner items
 - [ ] Dashboard: marketer page `/marketer`, admin screens (marketers, review queue, payout batches, settings) against `docs/fe-integration-guide-referral.md`
@@ -332,17 +338,18 @@ Idea (owner): businesses keep a live list of what they sell (name, description, 
   - [x] T6 `POST /offerings/confirm`, settings GET/PATCH, Not-found list/dismiss, 90-day sweep job (`4f8bbef`)
   - [x] T7 lead detail `interests[]` (additive; verified on detail, patch and score) (`55b0d13`)
   - [x] T8 live run (API + arq worker + Postgres + Redis; 76 captures, no 5xx), FE guide part 1 with verification table, SOP, this checklist
+  - [x] Review hardening 2026-10-31 (independent review of #195): linear lines parser + line cap, null/overflow 422s, clean-before-compare import, formula guard on CRUD, archived-upload refusal, row ceiling, per-tenant upload limiter, upload off the event loop, sweep page budget (tests only, not re-captured live; EXIF stripping still unverified on real Cloudinary)
   - [ ] Not exercised: real Cloudinary optimisation/EXIF on real photos, real moderation, upload limiter 429, `image_storage_unavailable` live; Not-found and lead-interest rows were inserted by SQL (writer is S2)
   - [ ] PR #195 CI green, reviewed (single Opus pass at the end of the phase), merged by the lead
 - [ ] **S2 Backend AI path** `feature/offerings-ai-grounding` (draft PR #197, stacked on #195, not merged; SOP `docs/sop/offerings_ai_grounding.md`; FE guide part 2 `docs/fe-integration-guide-offerings-part2.md`; captures `docs/fe-integration-captures/offerings-ai/`; eval `scripts/offerings_eval.py`). Ticks are the plan's T1-T8; the stream box stays open until merged:
   - [x] T1 lookup, block (1,000-token hard cap, 5,000-item test), freshness, stub and fail-closed blocks, tenant isolation (`c5e04a5`)
   - [x] T2 injection in `send_message` for every channel; a catalog hit counts as grounded; byte-identical prompt pinned by a golden for tenants without active items (`1e2327e`)
   - [x] T3 `SALES_RESPONSE_SCHEMA_OFFERINGS` + signal parsing; existing schema untouched; no consumer broke (`971cdd2`)
-  - [x] T4 price guard, now **structural (price tokens `[[price:#N]]` resolved by code after the guard; any literal amount outside a token is a violation; 223 reply strings, 100 extraction strings)**, one regeneration, code fallback, `meta.offerings.guard`; **4th review pass (Opus) fixes DONE, lead's 5th pass pending** (`d9f561b`, fixes `cd97bf9`, `9463ddd`, pass 3 `e71cdd6`, `3038194`, `70ddba0`)
+  - [x] T4 price guard, now **structural (price tokens `[[price:#N]]` resolved by code after the guard; any literal amount outside a token is a violation; 274 reply strings, 100 extraction strings)**, one regeneration, code fallback, `meta.offerings.guard`; **4th and 5th review pass (Opus) fixes DONE, lead's final focused pass pending** (`d9f561b`, fixes `cd97bf9`, `9463ddd`, pass 3 `e71cdd6`, `3038194`, `70ddba0`)
   - [x] T5 `meta.offerings` cards (400 px cover), shown-items session memory, not-found log (`b86ec20`)
   - [x] T6 cart to interests, catalog quote (all-`fixed` carts, code totals), `offered_price` + handover, `OFFERING_REQUEST` alert, lead `source` by channel, fired-only score rows, `render_quote_text`; pass 3: bargaining turns are code-only, quote derived from stored rows under the lead lock; **lead's 4th review pass: NOT done** (`0a13530`)
   - [x] T7 `scripts/offerings_eval.py`, 63 adversarial cases incl. token and bargaining cases; stand-in run 63/63. **Real-model run on staging by the lead: NOT done (pilot gate)**
-  - [x] T8 live run (28 captures re-run for the token regime, stand-in model, fake sidecar), FE guide part 2, SOP; full unit suite 4,266 passed / 33 skipped
+  - [x] T8 live run (29 captures re-run for the token regime, stand-in model, fake sidecar), FE guide part 2, SOP; full unit suite 4,445 passed / 33 skipped
   - [ ] Not exercised: the real model's behaviour, voice, strict (fail-closed) mode live, real sidecar, SMTP; WhatsApp photos and quote text message are S4b; the real-model eval on staging and how often the real model writes tokens correctly (lead, pilot gate)
 - [ ] **S3 Dashboard** `luran-dashboard` `feature/offerings-dashboard`: Today list, add/edit sheet with photos, import wizard, plan meter, Not-found tab, lead "Wanted items"
 - [ ] **S4a** `luran-chat` `feature/offerings-item-cards`: `meta.offerings` mapping + `ItemCard`

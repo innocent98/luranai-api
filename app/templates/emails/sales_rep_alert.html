@@ -58,9 +58,11 @@
   {% endif %}
 </div>
 
+{% if dashboard_url %}
 <center style="margin: 32px 0;">
-  <a href="{{ dashboard_url | default('#') }}" class="button">View in Dashboard</a>
+  <a href="{{ dashboard_url }}" class="button">View in Dashboard</a>
 </center>
+{% endif %}
 
 <p style="color: #6b7280; font-size: 14px; text-align: center;">
   Log in to your Luran dashboard to respond to this lead.

@@ -1,6 +1,10 @@
 <!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
-  body { font-family: Helvetica, Arial, sans-serif; color: #1a1a2e; font-size: 12px; }
+  {% if font_regular %}
+  @font-face { font-family: LuranSans; src: url("{{ font_regular }}"); }
+  @font-face { font-family: LuranSans; font-weight: bold; src: url("{{ font_bold }}"); }
+  {% endif %}
+  body { font-family: {% if font_regular %}LuranSans, {% endif %}Helvetica, Arial, sans-serif; color: #1a1a2e; font-size: 12px; }
   h1 { font-size: 18px; margin: 0 0 4px; }
   .muted { color: #6b7280; }
   table { width: 100%; border-collapse: collapse; margin-top: 16px; }

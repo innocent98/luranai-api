@@ -1,0 +1,82 @@
+[
+ {
+  "To": [
+   "sales-rep@example.com"
+  ],
+  "Subject": "New quote generated",
+  "hrefs": [
+   "http://localhost:3000/dashboard/grow/leads/7986d982-1c76-4631-93a8-cd067463aa02",
+   "mailto:support@luranai.com"
+  ]
+ },
+ {
+  "To": [
+   "sales-rep@example.com"
+  ],
+  "Subject": "New sales-ready lead",
+  "hrefs": [
+   "http://localhost:3000/dashboard/grow/leads/7986d982-1c76-4631-93a8-cd067463aa02",
+   "mailto:support@luranai.com"
+  ]
+ },
+ {
+  "To": [
+   "lite-rep@example.com"
+  ],
+  "Subject": "New sales-ready lead",
+  "hrefs": [
+   "http://localhost:3000/dashboard/grow/leads/2c59ccdc-2117-4ff9-85cb-8574410c9867",
+   "mailto:support@luranai.com"
+  ]
+ },
+ {
+  "To": [
+   "sales-rep@example.com"
+  ],
+  "Subject": "New quote generated",
+  "hrefs": [
+   "http://localhost:3000/dashboard/grow/leads/fcd0d6c2-4f3e-4b7a-8be7-f13f11aea0a1",
+   "mailto:support@luranai.com"
+  ]
+ },
+ {
+  "To": [
+   "sales-rep@example.com"
+  ],
+  "Subject": "New sales-ready lead",
+  "hrefs": [
+   "http://localhost:3000/dashboard/grow/leads/fcd0d6c2-4f3e-4b7a-8be7-f13f11aea0a1",
+   "mailto:support@luranai.com"
+  ]
+ },
+ {
+  "To": [
+   "sales-rep@example.com"
+  ],
+  "Subject": "New meeting booked",
+  "hrefs": [
+   "http://localhost:3000/dashboard/grow/leads/a40f052f-acfd-4907-be3e-b5b9fe18196f",
+   "mailto:support@luranai.com"
+  ]
+ },
+ {
+  "To": [
+   "sales-rep@example.com"
+  ],
+  "Subject": "New quote generated",
+  "hrefs": [
+   "http://localhost:3000/dashboard/grow/leads/a40f052f-acfd-4907-be3e-b5b9fe18196f",
+   "mailto:support@luranai.com"
+  ]
+ },
+ {
+  "To": [
+   "sales-rep@example.com"
+  ],
+  "Subject": "New sales-ready lead",
+  "hrefs": [
+   "http://localhost:3000/dashboard/grow/leads/a40f052f-acfd-4907-be3e-b5b9fe18196f",
+   "mailto:support@luranai.com"
+  ]
+ }
+]

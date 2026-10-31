@@ -71,13 +71,27 @@ def sales_kwargs(result: GroundingResult | None) -> dict:
 
 
 def customer_texts(history: list, current: str) -> list[str]:
-    """Everything the customer has written in this conversation (they may be quoted back)."""
+    """What the customer has written in this conversation (they may quote it back): the last few
+    messages, each bounded, so an adversarial wall of digits costs a bounded amount of work."""
+    from app.offerings.bargain import cap
+
     texts = [
         m.content
         for m in history
         if str(getattr(m.role, "value", m.role)).lower() == "user" and m.content
     ]
-    return [*texts, current]
+    return cap([*texts, current])
+
+
+def context_prices(db: Session, tenant_id: UUID, session_meta: dict | None, session_id) -> list:
+    """Prices of the items already in play in this conversation (shown, or wanted on its lead), for
+    a figure-only message that matched nothing by itself ("I fit pay 18k")."""
+    seqs = [*shown_seqs(session_meta), *wanted_seqs(db, session_id)]
+    if not seqs:
+        return []
+    from app.offerings.grounding import _by_seqs
+
+    return [r.price for r in _by_seqs(db, tenant_id, seqs[-10:])]
 
 
 def kb_text_from_prompt(prompt: str) -> str:
@@ -135,7 +149,7 @@ def build_offerings_turn(
 
 
 OFFER_WATCH_KEY = "offer_watch"
-OFFER_WATCH_TURNS = 3  # replies after a bargaining turn that still answer under the offer rules
+OFFER_WATCH_TURNS = 5  # replies after a bargaining turn that still answer under the offer rules
 
 
 def offer_watch(session_meta: dict | None) -> int:
@@ -157,10 +171,17 @@ def remember_shown(
     if not seqs and watch is None:
         return
     try:
-        row = db.get(ConversationSession, session_id)
+        from sqlalchemy import select
+
+        # the row lock keeps two concurrent messages (WhatsApp) from losing each other's write
+        row = db.execute(
+            select(ConversationSession)
+            .where(ConversationSession.id == session_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
         if row is None:
             return
-        db.refresh(row)
         meta = dict(row.meta or {})
         changed = False
         if seqs:
@@ -248,10 +269,11 @@ def offered_signal(sales_meta: dict | None) -> bool:
 
 
 def strip_token_text(text: str) -> str:
-    """Prompt text with any token-like markup removed; byte-identical when it has none."""
-    from app.offerings import tokens
+    """Prompt text with exact tokens and bracketed look-alikes removed (catalog tenants only);
+    byte-identical when it has none."""
+    from app.offerings import markup
 
-    return tokens.strip(text) if tokens.has_markup(text) else text
+    return markup.strip_price_markup(text)
 
 
 def finalize_reply(
@@ -259,7 +281,7 @@ def finalize_reply(
 ) -> tuple[str, list[int]]:
     """Resolve price tokens to the live price text of their own row (never a token on the wire).
 
-    Without a catalog block nothing legitimate can be a token, so anything token-like is removed.
+    A tenant without a catalog block (result None) gets its reply back untouched: no scan at all.
     A token that cannot be resolved (the item vanished since the block) gives the code fallback.
     Returns the final text and the item seqs the tokens named.
     """
@@ -267,17 +289,21 @@ def finalize_reply(
     from app.offerings.fallback import fallback_reply
     from app.offerings.grounding import _by_seqs
 
+    if result is None:
+        return reply, []  # no catalog for this tenant: the reply is never touched, not even read
     if not tokens.has_markup(reply):
         return reply, []  # byte-identical: an ordinary reply is never touched
-    if result is None:
-        return tokens.strip(reply), []
-    seqs = tokens.token_seqs(tokens.fold(reply))
+    seqs = tokens.token_seqs(reply)
     live = {
         row.seq: facts_from_row(row).price_text(result.currency)
         for row in _by_seqs(db, tenant_id, seqs)
     }
     resolved = tokens.resolve(reply, live.get)
+    if resolved is not None:
+        resolved = tokens.collapse_mode_words(resolved)
     final = fallback_reply(result) if resolved is None else resolved
     if tokens.has_markup(final):  # last scan: tenant text or a price note cannot smuggle one out
         final = tokens.strip(final)
+        if tokens.has_markup(final):  # still there (an entity-disguised one): the code reply
+            final = tokens.strip(fallback_reply(result))
     return final, seqs

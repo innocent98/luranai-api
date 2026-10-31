@@ -1,0 +1,43 @@
+{
+  "scenario": "human-chat-1",
+  "note": "Buying intent on a tenant still at first_responder=human",
+  "request": {
+    "method": "POST",
+    "path": "/chat/message",
+    "headers": {},
+    "body": {
+      "session_id": "35484213-1347-4edd-a754-447722752de0",
+      "tenant_id": "c1975fbc-866e-4747-8d68-328db7c963b6",
+      "user_identifier": "smoke-visitor-human",
+      "message": "How much does it cost? We run a logistics company.",
+      "metadata": {
+        "utm_source": "google_ads",
+        "utm_medium": "cpc"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "35484213-1347-4edd-a754-447722752de0",
+      "message": {
+        "role": "assistant",
+        "content": "Thanks for reaching out — connecting you with someone from our team now.",
+        "id": "ecffe184-2988-486c-a398-6b0f55de9115",
+        "session_id": "35484213-1347-4edd-a754-447722752de0",
+        "retrieved_chunk_ids": null,
+        "token_count": null,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "human_first": true
+        },
+        "created_at": "2026-10-30T22:06:45.349521Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": true,
+      "escalation_reason": "Human-only mode",
+      "ticket_id": "9d4893b2-986c-4146-8e71-0135a14dd3bd"
+    }
+  }
+}

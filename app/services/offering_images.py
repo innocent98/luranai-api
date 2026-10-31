@@ -1,7 +1,7 @@
 """Offering photos: validate, moderate (fail-closed), optimise on ingest, cap, order, delete.
 
-Order of work for an upload, cheapest first: write gate, per-item cap (read), size, real-format
-check, moderation, Cloudinary upload. The cap is re-checked under a row lock on the parent item
+Order of work for an upload, cheapest first: write gate, archived check, per-item cap (read),
+size, real-format check, then (connection released) moderation, Cloudinary upload. The cap is re-checked under a row lock on the parent item
 just before the insert; if a concurrent upload took the last slot meanwhile, the asset just
 uploaded is destroyed, so nothing leaks. Positions are rewritten in two steps because the
 `(offering_id, position)` unique constraint is not deferrable (see the model).
@@ -19,7 +19,7 @@ from PIL import Image
 from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
-from app.db.models.offering import OfferingImage
+from app.db.models.offering import OfferingImage, OfferingStatus
 from app.services.image_moderation import moderate_image
 from app.services.offering_media import destroy_assets
 from app.services.offering_service import OfferingError, OfferingService, image_to_dict
@@ -44,6 +44,14 @@ def _storage_unavailable() -> OfferingError:
         503,
         "image_storage_unavailable",
         "Photo storage is unavailable right now. Try again in a moment.",
+    )
+
+
+def _item_archived() -> OfferingError:
+    return OfferingError(
+        409,
+        "offering_archived",
+        "This item is archived. Restore it before adding photos.",
     )
 
 
@@ -97,9 +105,17 @@ class OfferingImageService:
             ).scalars()
         )
 
-    async def upload(self, tenant_id: UUID, offering_id: UUID, content: bytes) -> dict[str, Any]:
+    def _admit(self, tenant_id: UUID, offering_id: UUID, content: bytes) -> tuple[UUID, int, str]:
+        """Everything that is blocking and needs the database, up to the point of moderation.
+
+        Returns (item id, per-item photo limit, content type) and releases the connection, so no
+        transaction is held open while the image is moderated and uploaded.
+        """
         entitlements = self.offerings.require_write(tenant_id)
-        item_id = self.offerings.get_row(tenant_id, offering_id).id
+        item = self.offerings.get_row(tenant_id, offering_id)
+        if item.status == OfferingStatus.ARCHIVED:
+            raise _item_archived()
+        item_id = item.id
         limit = int(entitlements.value("max_offering_images") or 0)
         used = self._count(item_id)
         if used >= limit:
@@ -128,32 +144,34 @@ class OfferingImageService:
 
         with Image.open(io.BytesIO(content)) as probe:
             content_type = _CONTENT_TYPES.get(probe.format or "", "image/jpeg")
+        self.db.commit()
+        return item_id, limit, content_type
 
-        # Moderation precedes storage: a flagged image is never uploaded. Fail closed, and never
-        # tell the caller why.
+    def _store(
+        self, tenant_id: UUID, offering_id: UUID, limit: int, info: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Serialise on the parent item, re-check the cap and the item, take the next position.
+
+        If the photo cannot be stored (cap filled meanwhile, item archived or deleted meanwhile), the
+        asset just uploaded is destroyed so nothing leaks.
+        """
         try:
-            allowed, _reason = await moderate_image(content, content_type)
-        except Exception as exc:  # noqa: BLE001 - fail-closed
-            logger.error("Offering image moderation raised (fail-closed): {}", type(exc).__name__)
-            allowed = False
-        if not allowed:
-            raise OfferingError(422, "image_blocked", BLOCKED_MESSAGE)
-
-        self.db.commit()  # release the connection while we wait on Cloudinary
-        info, upload_error = await run_in_threadpool(
-            cloudinary_manager.upload_offering_image, content, tenant_id
-        )
-        if info is None or not info.get("url") or not info.get("public_id"):
-            logger.error("Offering image upload failed: {}", upload_error)
-            raise _storage_unavailable()
-
-        # Serialise on the parent item, re-check the cap, take the next position.
-        locked = self.offerings.get_row_locked(tenant_id, offering_id)
+            locked = self.offerings.get_row_locked(tenant_id, offering_id)
+        except OfferingError:
+            # Deleted while the photo uploaded: nothing to attach it to. Destroy it right away.
+            self.db.commit()
+            destroy_assets([info["public_id"]])
+            raise
         used = self._count(locked.id)
-        if used >= limit:
+        refusal = None
+        if locked.status == OfferingStatus.ARCHIVED:
+            refusal = _item_archived()
+        elif used >= limit:
+            refusal = _image_limit(limit, used)
+        if refusal is not None:
             self.db.commit()  # nothing written: just release the row lock
-            await run_in_threadpool(destroy_assets, [info["public_id"]])
-            raise _image_limit(limit, used)
+            destroy_assets([info["public_id"]])
+            raise refusal
         position = int(
             self.db.execute(
                 select(func.coalesce(func.max(OfferingImage.position), -1)).where(
@@ -177,10 +195,35 @@ class OfferingImageService:
             self.db.commit()
         except Exception:
             self.db.rollback()
-            await run_in_threadpool(destroy_assets, [info["public_id"]])
+            destroy_assets([info["public_id"]])
             raise
         self.db.refresh(image)
         return image_to_dict(image)
+
+    async def upload(self, tenant_id: UUID, offering_id: UUID, content: bytes) -> dict[str, Any]:
+        """Runs on the event loop, so every blocking step (database, Pillow, Cloudinary) is handed
+        to the thread pool and only the moderation call, which is itself async, awaits here."""
+        item_id, limit, content_type = await run_in_threadpool(
+            self._admit, tenant_id, offering_id, content
+        )
+
+        # Moderation precedes storage: a flagged image is never uploaded. Fail closed, and never
+        # tell the caller why.
+        try:
+            allowed, _reason = await moderate_image(content, content_type)
+        except Exception as exc:  # noqa: BLE001 - fail-closed
+            logger.error("Offering image moderation raised (fail-closed): {}", type(exc).__name__)
+            allowed = False
+        if not allowed:
+            raise OfferingError(422, "image_blocked", BLOCKED_MESSAGE)
+
+        info, upload_error = await run_in_threadpool(
+            cloudinary_manager.upload_offering_image, content, tenant_id
+        )
+        if info is None or not info.get("url") or not info.get("public_id"):
+            logger.error("Offering image upload failed: {}", upload_error)
+            raise _storage_unavailable()
+        return await run_in_threadpool(self._store, tenant_id, item_id, limit, info)
 
     def reorder(self, tenant_id: UUID, offering_id: UUID, image_ids: list[UUID]) -> dict[str, Any]:
         self.offerings.require_write(tenant_id)

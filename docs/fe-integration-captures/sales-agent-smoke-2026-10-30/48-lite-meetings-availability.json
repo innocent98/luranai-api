@@ -1,0 +1,19 @@
+{
+  "scenario": "lite-meetings-availability",
+  "note": "Stored booking switch ON but plan lacks sales_close",
+  "request": {
+    "method": "GET",
+    "path": "/chat/meetings/availability?conversation_id=0e519190-f0fa-402c-82b7-6185cfebd29b&days=3",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "success": true,
+      "data": {
+        "slots": []
+      }
+    }
+  }
+}

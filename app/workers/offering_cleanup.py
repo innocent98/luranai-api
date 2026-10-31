@@ -19,6 +19,10 @@ from app.db.session import SessionLocal
 from app.utils.cloudinary_client import cloudinary_manager, offering_sweep_tag
 
 ORPHAN_MAX_AGE = timedelta(hours=24)
+# Listing a tag costs one Cloudinary Admin API call per 100 assets, and that quota (about 500 an
+# hour) is shared with the video sweep. A run reads at most this many pages (2,000 assets); a bigger
+# backlog is finished by the following nights, oldest listings first.
+MAX_SWEEP_PAGES = 20
 
 
 def _created(asset: dict) -> datetime | None:
@@ -38,7 +42,9 @@ async def sweep_orphan_offering_images(ctx: dict) -> int:
         cutoff = datetime.now(UTC) - ORPHAN_MAX_AGE
         destroyed = 0
         cursor: str | None = None
+        pages = 0
         while True:
+            pages += 1
             assets, cursor = await asyncio.to_thread(
                 cloudinary_manager.list_tagged_images, offering_sweep_tag(), cursor
             )
@@ -71,6 +77,13 @@ async def sweep_orphan_offering_images(ctx: dict) -> int:
                             "Orphan offering asset destroy failed ({}); retry next run", err
                         )
             if not cursor:
+                break
+            if pages >= MAX_SWEEP_PAGES:
+                logger.warning(
+                    "Orphan offering image sweep stopped at its {}-page budget; the rest waits "
+                    "for the next run",
+                    MAX_SWEEP_PAGES,
+                )
                 break
         logger.info("Orphan offering image sweep: {} destroyed", destroyed)
         return destroyed

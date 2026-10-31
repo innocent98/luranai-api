@@ -1,0 +1,35 @@
+{
+  "scenario": "health",
+  "note": "API up on the local stack",
+  "request": {
+    "method": "GET",
+    "path": "/health",
+    "headers": {},
+    "body": null
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "status": "healthy",
+      "timestamp": "2026-10-30T22:06:22.698060+00:00",
+      "environment": "development",
+      "version": "0.1.0",
+      "checks": {
+        "database": {
+          "status": "healthy",
+          "version": "PostgreSQL",
+          "active_connections": 7
+        },
+        "redis": {
+          "status": "healthy",
+          "version": "7.4.12"
+        },
+        "qdrant": {
+          "status": "healthy",
+          "collections_count": 0,
+          "collection_exists": false
+        }
+      }
+    }
+  }
+}

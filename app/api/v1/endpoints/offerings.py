@@ -30,7 +30,11 @@ from app.services.offering_service import (
     OfferingService,
 )
 
-from app.utils.http_rate_limiter import offering_upload_rate_limit
+from app.utils.http_rate_limiter import (
+    enforce_identifier_limit,
+    offering_tenant_upload_rate_limiter,
+    offering_upload_rate_limit,
+)
 
 router = APIRouter()
 
@@ -199,6 +203,7 @@ async def upload_offering_image(
     user: UserResponse = Depends(get_current_tenant_admin),
 ):
     """Add a photo (JPEG, PNG or WEBP, at most 5 MB). It is checked, moderated and optimised."""
+    await enforce_identifier_limit(offering_tenant_upload_rate_limiter, f"tenant:{user.tenant_id}")
     content = await file.read(MAX_UPLOAD_BYTES + 1)  # bounded read: never buffer more than the cap
     data = await OfferingImageService(db).upload(user.tenant_id, offering_id, content)
     return {"data": data}

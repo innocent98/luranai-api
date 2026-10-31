@@ -90,6 +90,7 @@ class Case:
     strict: bool = False
     currency: str = "NGN"
     matched: tuple = ()
+    watch: bool = False  # the offer countdown is running (an offer on an earlier turn)
     block: str = ""  # the injected block text (item descriptions the model may repeat)
     offer: bool = False  # the customer is bargaining / the model returned an offered_price
 
@@ -107,7 +108,8 @@ CASES = [
     C(f"Phone repair starts from {T(4)}.", True),
     C(f"The custom portrait is {T(6)}; I can connect you with the team.", True),
     C(f"The black sneaker is {T(1)}, cheaper than the white one at {T(2)}.", True),
-    C(f"1. **Black sneaker**\n - Price: {T(1)}", True),
+    C(f"1. **Canvas sneaker black**\n - Price: {T(1)}", True),
+    C(f"1. **Black sneaker**\n - Price: {T(1)}", False, "token_mismatch"),  # base or pro?
     C(f"| Item | Price |\n|---|---|\n| Black sneaker | {T(1)} |\n| Leather bag | {T(3)} |", True),
     C("Which size do you need, 41 or 42?", True),
     C("We have 2 pairs of the white sneaker in size 42.", True),
@@ -377,6 +379,216 @@ CASES += [
     C("A 7.5% VAT applies to all orders.", False, "percent_claim"),
 ]
 
+CASES += [
+    # review pass 5: carried binding names only the most specific item, never two candidates
+    C(f"The Canvas sneaker black is a classic.\nIt costs {T(10)}.", False, "token_mismatch"),
+    C(f"The Canvas sneaker black is a classic.\nIt costs {T(1)}.", True),
+    C(f"*Canvas sneaker black*\nPrice: {T(10)}", False, "token_mismatch"),
+    C(f"The sneaker is a classic.\nIt costs {T(1)}.", False, "token_mismatch"),
+    # concessions with no offer in play, and wording the old patterns missed
+    C("For you, I can go a little lower on the Red bag.", False, "discount_wording"),
+    C("Sure, the Red bag can be yours for less.", False, "discount_wording"),
+    C(f"The least we can do is a little below {T(11)}.", False, "discount_wording"),
+    C(f"I can manage something on the Red bag, {T(11)} is not final.", False, "discount_wording"),
+    # ordinary replies during an offer countdown: only sentences about an item or price are judged
+    C(
+        "Yes, we deliver to Lekki within 2 days.",
+        True,
+        customer=("abeg 9000", "ok", "do you deliver to Lekki?"),
+        offer=False,
+    ),
+    C(
+        "Sure, we are open from 9am to 5pm.",
+        True,
+        customer=("abeg 9000", "ok", "when do you open?"),
+    ),
+    C(
+        "Of course, we accept bank transfer.",
+        True,
+        customer=("abeg 9000", "ok", "can I pay by transfer?"),
+    ),
+    C(
+        "Okay, the team can book Saturday.",
+        True,
+        customer=("abeg 9000", "ok", "can I pick up Saturday?"),
+    ),
+    C("Yes, we deliver to Lekki within 2 days.", True, customer=("my order number is 10021",)),
+    C("Yes, we deliver.", True, customer=("I paid 5000 deposit yesterday",)),
+    C(
+        "Deal! I'll let the team know.",
+        False,
+        customer=("how much is the red bag", "I fit pay 18k"),
+    ),
+    C(
+        "Sure, we can do that for you!",
+        False,
+        customer=("how much is the red bag", "Pls sell for 18,000"),
+    ),
+    # spec shorthand and descriptive numbers are not money, bundles or percent claims
+    C("The Samsung TV is 4K UHD and supports 4K.", True),
+    C("It charges to 50% in 30 minutes.", True),
+    C("The phone is 100% original with battery health 90%.", True),
+    C(f"The Canvas sneaker black is {T(1)} and comes with 2 SIM slots.", True),
+    C(f"The Canvas sneaker black is {T(1)} with a 14 inch screen.", True),
+    C(f"The Canvas sneaker black is {T(1)}; parking for 2 cars, 5 toilets.", True),
+    C(f"The Canvas sneaker black is {T(1)}; it takes 5 to 6 hours.", True),
+    C(
+        f"The Canvas sneaker black is {T(1)} and a deposit of 50% secures it.",
+        False,
+        "percent_claim",
+    ),
+    C(f"The Canvas sneaker black is {T(1)} with a 20% discount.", False),
+]
+
+
+CASES += [
+    C(
+        "Sure! The Red bag comes in red and wine.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Yes, we deliver to Lekki within 2 days.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Of course, you can pick it up at our Ikeja shop.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Okay, the team will reach you shortly.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Fine, I've noted your address.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Yes, it's original leather.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "No problem, I'll let the team know.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Delivery is possible on Saturday.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Done! Your details are saved.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Absolutely, we accept bank transfer.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "We can do delivery to Ajah on Friday.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Great news, it's in stock.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Alright, anything else I can help with?",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Perfect, thanks for your patience.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "That works, the team will call you.",
+        True,
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    # during the countdown a sentence about an item, a price or an offer is still judged
+    C(
+        "Okay, deal on the Red bag.",
+        False,
+        "agreement_after_offer",
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Yes, we agree to your price.",
+        False,
+        "agreement_after_offer",
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    C(
+        "Yes, we accept your offer.",
+        False,
+        "agreement_after_offer",
+        customer=("abeg 9000", "ok", "where is your shop?"),
+        watch=True,
+    ),
+    # an asking turn after the countdown ended is itself bargaining wording
+    C(
+        "Yes, we agree.",
+        False,
+        "agreement_after_offer",
+        customer=(
+            "how much is the red bag",
+            "abeg 18k",
+            "ok",
+            "when can you deliver",
+            "so you agree to my price?",
+        ),
+        matched=(11,),
+    ),
+    C(
+        "Since you're a returning customer, the team will sort you out with something nice on the Red bag.",
+        False,
+        "discount_wording",
+    ),
+]
+
+
+CASES += [
+    # a sold-out item's token next to "available" is a claim the shop cannot honour
+    C(f"The Sold out sandals are {T(5)} and available now.", False, "sold_out_claim"),
+    C(f"The Sold out sandals are {T(5)}, but they are sold out right now.", True),
+]
+
+
+CASES += [
+    C(f"The Canvas sneaker black is {T(1)} and it is 100% original.", True),
+    C(f"The Canvas sneaker black is {T(1)} with 2 parking spaces.", True),
+    C(f"The Canvas sneaker black is {T(1)} with a 20% discount.", False),
+]
+
 BARE = ("how much is the red bag", "abeg 9000")
 CASES += [
     # an offer written as a bare number still puts the reply under the agreement rules
@@ -477,6 +689,7 @@ def test_guard_verdict(case: Case):
         kb_text=case.kb,
         tier_amounts=case.tiers,
         offer_in_play=case.offer,
+        offer_watch=case.watch,
     )
     assert verdict.ok is case.ok, [(v.reason, v.sentence) for v in verdict.violations]
     if not case.ok and case.reason is not None:

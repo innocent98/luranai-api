@@ -1,0 +1,77 @@
+{
+  "scenario": "chat-3-contact-and-ready-to-buy",
+  "note": "Contact details + ready to buy + competitor + feature question: crosses sales-ready",
+  "request": {
+    "method": "POST",
+    "path": "/chat/message",
+    "headers": {},
+    "body": {
+      "session_id": "f992cb12-92b3-488b-8d43-85dc5b7eec14",
+      "tenant_id": "75f5397b-6762-483a-bfdd-dcbbc38099f5",
+      "user_identifier": "smoke-visitor-1",
+      "message": "I'm Ada Okafor, ada.okafor@example.com, Acme Group Logistics, team of 40. We're comparing you with Intercom and I'd like to buy the Professional plan.",
+      "metadata": {
+        "utm_source": "google_ads",
+        "utm_medium": "cpc"
+      }
+    }
+  },
+  "response": {
+    "status": 200,
+    "body": {
+      "session_id": "f992cb12-92b3-488b-8d43-85dc5b7eec14",
+      "message": {
+        "role": "assistant",
+        "content": "Thanks Ada. Here is your quotation for the Professional plan.",
+        "id": "a406373c-09a7-4847-8551-162ea02529c0",
+        "session_id": "f992cb12-92b3-488b-8d43-85dc5b7eec14",
+        "retrieved_chunk_ids": [],
+        "token_count": 150,
+        "attachments": [],
+        "reply_to": null,
+        "meta": {
+          "chunks_used": 0,
+          "avg_similarity": 0.0,
+          "retrieval_hit": false,
+          "escalation_action": "no_escalation",
+          "response_quality": {
+            "is_substantial": true,
+            "has_uncertainty": false,
+            "word_count": 10,
+            "char_count": 61
+          },
+          "token_breakdown": {
+            "prompt_tokens": 310,
+            "completion_tokens": -160,
+            "total_tokens": 150
+          },
+          "lead_captured": {
+            "name": "Ada Okafor",
+            "email": "ada.okafor@example.com"
+          },
+          "quote": {
+            "currency": "NGN",
+            "line_items": [
+              {
+                "label": "Professional",
+                "detail": "11–50 users",
+                "amount": 150000
+              },
+              {
+                "label": "Annual discount",
+                "detail": "−20%",
+                "amount": -30000
+              }
+            ],
+            "total": 120000
+          }
+        },
+        "created_at": "2026-10-30T22:06:28.347396Z"
+      },
+      "user_message_attachments": [],
+      "should_escalate": false,
+      "escalation_reason": null,
+      "ticket_id": null
+    }
+  }
+}

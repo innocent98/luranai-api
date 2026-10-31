@@ -91,6 +91,14 @@ offering_upload_rate_limiter = RedisRateLimiter(
     window_seconds=3600,
 )
 
+# ...and the same budget per tenant (keyed by the endpoint after sign-in), so a tenant cannot
+# multiply it by changing address.
+offering_tenant_upload_rate_limiter = RedisRateLimiter(
+    key_prefix="http_offering_upload_tenant",
+    max_calls=300,
+    window_seconds=3600,
+)
+
 video_sign_rate_limiter = RedisRateLimiter(
     key_prefix="http_video", max_calls=5, window_seconds=3600
 )
@@ -163,6 +171,15 @@ subscription_read_rate_limiter = RedisRateLimiter(
 platform_admin_rate_limiter = RedisRateLimiter(
     key_prefix="http_platform_admin",
     max_calls=60,
+    window_seconds=60,
+)
+
+# Referral bank-account name lookups (keyed per platform admin id by the endpoint itself): each
+# call is a Paystack API call that also reveals the holder name of any account number, so it gets
+# its own tight budget on top of the general platform-admin one.
+bank_resolve_rate_limiter = RedisRateLimiter(
+    key_prefix="http_bank_resolve",
+    max_calls=100 if _is_relaxed else 10,
     window_seconds=60,
 )
 

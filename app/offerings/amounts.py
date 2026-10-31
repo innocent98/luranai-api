@@ -27,6 +27,13 @@ _AMOUNT = re.compile(
     """,
     re.VERBOSE | re.IGNORECASE,
 )
+_SPEC_AFTER = {
+    "uhd", "hd", "ultra", "resolution", "video", "videos", "display", "screen", "tv", "monitor",
+    "hdr", "oled", "qled", "fps", "camera", "panel", "projector",
+}  # fmt: skip
+_SPEC_BEFORE = re.compile(
+    r"\b(?:supports?|supporting|plays?|records?|resolution|ultra|uhd)\s+$", re.IGNORECASE
+)
 _MULT = {
     "k": 10**3,
     "thousand": 10**3,
@@ -250,10 +257,19 @@ def _digit_amounts(text: str, small_ok: bool, ref_seqs: frozenset, anchored: boo
         pre = (m.group("pre") or "").strip().lower()
         tail = (m.group("tail") or "").strip().lower().replace(" ", "")
         cur = (m.group("cur") or "").strip().lower()
-        before = text[: m.start()]
+        before = text[max(0, m.start() - 80) : m.start()]  # a window: never rescan the prefix
+        if len(digits) > 15:  # not an amount of money, and too long to be worth parsing
+            found.append((Amount(Decimal(0), "skip", None, m.start(), m.end()), False))
+            continue
         value = Decimal(digits)
         grouped = bool(re.search(r"[,   ]", raw_num))
         end = m.end()
+
+        if tail == "k" and re.fullmatch(r"[2-8]", digits) and not pre and not cur:
+            nxt = _next_word(text, m.end())
+            if nxt in _SPEC_AFTER or _SPEC_BEFORE.search(before):
+                found.append((Amount(Decimal(0), "skip", None, m.start(), m.end()), False))
+                continue  # "4K UHD", "supports 4K": a resolution, not four thousand naira
 
         if tail == "%" or re.fullmatch(r"per\s?cent|percent", tail):
             found.append((Amount(value, "percent", None, m.start(), end), False))
@@ -364,10 +380,13 @@ def _digit_amounts(text: str, small_ok: bool, ref_seqs: frozenset, anchored: boo
 
 
 def _word_amounts(text: str, taken: list[Amount]) -> list[Amount]:
+    covered = bytearray(len(text) + 1)  # one pass: which characters a digit amount already owns
+    for t in taken:
+        covered[max(t.start, 0) : t.end] = b"\x01" * max(t.end - max(t.start, 0), 0)
     words = [
         (m.group().lower(), m.start(), m.end())
         for m in _WORD.finditer(text)
-        if not any(t.start <= m.start() and m.end() <= t.end for t in taken)
+        if not all(covered[m.start() : m.end()])
     ]
     out: list[Amount] = []
     i = 0
@@ -506,14 +525,14 @@ _UNITS = (
     r"|cartons?|dozens?|metres?|meters?|inches|inch|yards?|bedrooms?|floors?|staff|workers|members"
 )
 _NOT_AN_OFFER = re.compile(
-    r"\b(?:size|sizes|no\.|number|order(?:\s+(?:number|no\.?|id))?|ref|invoice|ticket|account"
-    r"|acct|room|flat|house|apt|plot|block|code|pin|otp)\b\s*(?:is\s*)?[:#]?\s*\d+(?:-\d+)?"
-    rf"|\b\d[\d,.]*\s*(?:{_UNITS})\b(?:\s*old)?"
-    r"|\b(?:x|qty|quantity)\s*\d+|\b\d+\s*x\b"
-    r"|\b\d+\s+(?:in\s+stock|available|left|remaining)\b"
-    r"|\b(?:paid|deposited|transferred)\b\s*(?:of\s+)?[\w₦#]*\s*\d[\d,.]*k?"
-    r"|\b(?:at|by|on|before|after|around)\s+\d{1,2}(?::\d\d)?\s*(?:am|pm)?\b"
-    r"|\b\d+\s+[a-z]+\s+(?:avenue|ave|street|st|road|rd|close|crescent|way|drive|lane|estate|layout)\b",
+    r"\b(?:size|sizes|no\.|number|order(?:\s{1,3}(?:number|no\.?|id))?|ref|invoice|ticket|account"
+    r"|acct|room|flat|house|apt|plot|block|code|pin|otp)\b\s{0,3}(?:is\s{0,3})?[:#]?\s{0,3}\d{1,15}(?:-\d{1,15})?"
+    rf"|\b\d[\d,.]{{0,12}}\s{{0,3}}(?:{_UNITS})\b(?:\s{{0,3}}old)?"
+    r"|\b(?:x|qty|quantity)\s{0,3}\d{1,15}|\b\d{1,15}\s{0,3}x\b"
+    r"|\b\d{1,15}\s{1,3}(?:in\s{1,3}stock|available|left|remaining)\b"
+    r"|\b(?:paid|deposited|transferred)\b\s{0,3}(?:of\s{1,3})?[\w₦#]{0,10}\s{0,3}\d[\d,.]{0,12}k?"
+    r"|\b(?:at|by|around|before|after)\s{1,3}\d{1,2}(?:(?::\d\d)\s{0,3}(?:am|pm)?|\s{0,3}(?:am|pm|o'clock|hours))\b"
+    r"|\b\d{1,15}\s{1,3}[a-z]{1,20}\s{1,3}(?:avenue|ave|street|st|road|rd|close|crescent|way|drive|lane|estate|layout)\b",
     re.IGNORECASE,
 )
 

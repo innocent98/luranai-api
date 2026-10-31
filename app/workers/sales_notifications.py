@@ -5,7 +5,6 @@ import uuid
 
 from sqlalchemy import select
 
-from app.core.config import settings
 from app.db.session import SessionLocal
 from app.db.models.lead import Lead
 from app.db.models.meeting import Meeting
@@ -14,6 +13,7 @@ from app.db.models.notification_log import NotificationLog, NotifEvent, NotifSta
 from app.db.models.sales_agent_config import TenantSalesAgentConfig
 from app.services.email_service import EmailService
 from app.services.entitlements import tenant_has
+from app.sales.links import lead_dashboard_url
 from app.services.quote_pdf_service import render_quote_pdf
 from app.utils.pinned_http import ResponseRejectedError, UnsafeOutboundURLError, apinned_request
 
@@ -37,8 +37,25 @@ _REP_SUBJECT = {
 }
 
 
+def _lead_id_for(db, log: NotificationLog):
+    """The lead a notification is about, whatever its entity (lead, meeting or quote)."""
+    if log.entity_type == "lead":
+        return log.entity_id
+    if log.entity_type == "meeting":
+        m = db.get(Meeting, log.entity_id)
+        return m.lead_id if m else None
+    q = db.get(Quote, log.entity_id)
+    return q.lead_id if q else None
+
+
 def _entity_context(db, log: NotificationLog) -> dict:
     """Build the template context for the rep alert from the log's entity."""
+    context = _entity_fields(db, log)
+    context["dashboard_url"] = lead_dashboard_url(_lead_id_for(db, log))
+    return context
+
+
+def _entity_fields(db, log: NotificationLog) -> dict:
     if log.entity_type == "offering_offer":  # a later offer: the alert text was written at the time
         return {"kind": "offering_request", "name": None, "company": None, "items": [log.body]}
     if log.entity_type == "lead" and log.event == NotifEvent.OFFERING_REQUEST:
@@ -275,7 +292,7 @@ async def send_slack_notification(ctx, notification_log_id: str) -> None:
             db.commit()
             return
 
-        dashboard_url = f"{settings.FRONTEND_URL}/sales/leads"
+        dashboard_url = lead_dashboard_url(_lead_id_for(db, log)) or ""
         try:
             resp = await apinned_request(
                 "POST", url, json=_slack_blocks(log.title, log.body, dashboard_url), timeout=10

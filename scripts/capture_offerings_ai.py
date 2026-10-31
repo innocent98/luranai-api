@@ -546,6 +546,14 @@ def main():
         user="web-14",
         note="Looks like 'can you do' but names no figure: the model answers, the guard checks it.",
     )
+    chat(
+        "web-figure-only-offer",
+        tenant_id,
+        "I fit pay 18k",
+        user="web-15",
+        note="A figure with no item named and nothing in play: an offer candidate for a human "
+        "(consent step, `escalation_action` `offer_escalation`), never agreed by the model.",
+    )
     print("done:", _n["i"], "captures in", OUT)
 
 

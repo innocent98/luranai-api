@@ -68,9 +68,18 @@ def test_upload_offering_image_sends_the_optimising_incoming_transformation(mgr)
     assert up.call_count == 1
     kwargs = up.call_args.kwargs
     assert kwargs["folder"] == f"{settings.CLOUDINARY_OFFERINGS_FOLDER}/{tenant_id}"
-    assert kwargs["format"] == "jpg" and kwargs["image_metadata"] is False  # EXIF/GPS stripped
+    # `image_metadata=False` only keeps metadata out of the upload RESPONSE; it strips nothing.
+    assert kwargs["format"] == "jpg" and kwargs["image_metadata"] is False
+    # What is asked of Cloudinary: shrink, re-encode and `strip_profile`. That EXIF/GPS really
+    # disappears is Cloudinary's doing and is NOT verified here (see the SOP's staging checks).
     assert kwargs["transformation"] == [
-        {"width": 1600, "height": 1600, "crop": "limit", "quality": "auto"}
+        {
+            "width": 1600,
+            "height": 1600,
+            "crop": "limit",
+            "quality": "auto",
+            "flags": "strip_profile",
+        }
     ]
     assert kwargs["resource_type"] == "image" and kwargs["overwrite"] is False
     assert "offering" in kwargs["tags"] and offering_sweep_tag() in kwargs["tags"]

@@ -61,8 +61,16 @@ class LeadService:
     # apply_score
     # ------------------------------------------------------------------
 
-    def apply_score(self, lead: Lead, signals: dict | None = None) -> None:
+    def apply_score(
+        self, lead: Lead, signals: dict | None = None, *, hold_peak: bool = False
+    ) -> None:
         """Score the lead in-place, writing lead_score and score_breakdown.
+
+        `hold_peak` is for automatic re-scoring from a chat turn. The engine only sees the signals
+        of the CURRENT turn, so a plain follow-up would otherwise lower a lead that already
+        reached sales-ready (and already alerted the rep). With it set the stored score and its
+        breakdown are kept unless the new score is at least as high. Explicit human rescoring
+        (`recompute`) leaves it off, so a rep's rescore still replaces the figure.
 
         team_size is stored as String on the Lead model but the scoring engine
         compares it numerically (> 50).  We coerce here so real Lead rows work
@@ -87,6 +95,8 @@ class LeadService:
                 return getattr(self._lead, name)
 
         result = score_lead(_LeadProxy(lead), signals)
+        if hold_peak and (lead.lead_score or 0) > result["score"]:
+            return
         lead.lead_score = result["score"]
         lead.score_breakdown = result["breakdown"]
 
@@ -168,7 +178,7 @@ class LeadService:
                     setattr(lead, field, incoming)
 
         lead.intent = normalize_intent(intent)
-        self.apply_score(lead, signals=signals)
+        self.apply_score(lead, signals=signals, hold_peak=True)
         self.db.commit()
         self.db.refresh(lead)
         return lead

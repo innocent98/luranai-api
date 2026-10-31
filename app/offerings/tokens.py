@@ -7,25 +7,11 @@ token for an item in the block is a violation, and no token ever leaves the back
 """
 
 import re
-import unicodedata
 from collections.abc import Callable, Iterable
 
+from app.offerings import markup
 from app.offerings.facts import OfferingFacts
-
-TOKEN = re.compile(r"\[\[\s*price\s*:\s*#?(\d{1,9})\s*\]\]", re.IGNORECASE)
-_BRACKETS = re.compile(r"\[\[|\]\]")
-_INVISIBLE = re.compile("[\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]")
-# a token-like leftover in any bracket style: `price:#3` anywhere, `price: 3` only inside a bracket
-_LOOSE = re.compile(r"price\s*[:：]\s*#|[\[\{<(【「『]\s*price\s*[:：]\s*\d", re.IGNORECASE)
-_TOKEN_SPAN = re.compile(
-    r"[\[\{<(【「『]{0,3}\s*price\s*[:：]\s*#?\s*\d{0,9}\s*[\]\}>)】」』]{0,3}|\[\[[^\]\n]*\]\]|\[\[|\]\]",
-    re.IGNORECASE,
-)
-
-
-def fold(text: str | None) -> str:
-    """Width/compat forms folded and invisible characters dropped: what the guard reads."""
-    return _INVISIBLE.sub("", unicodedata.normalize("NFKC", text or ""))
+from app.offerings.markup import TOKEN, fold
 
 
 def token(seq: int) -> str:
@@ -37,15 +23,20 @@ def token_seqs(text: str) -> list[int]:
 
 
 def has_stray_markup(text: str) -> bool:
-    """`[[`, `]]` or a `price:#N` look-alike (any bracket style) left once the valid tokens are
-    removed: a malformed or foreign token. Reads the folded text, like the guard."""
-    rest = TOKEN.sub("", fold(text))
-    return bool(_BRACKETS.search(rest) or _LOOSE.search(rest))
+    """Something token-like left once the exact tokens are removed: a bracketed look-alike
+    (`[price:#3]`, `{{price:#3}}`, fullwidth, zero-width) or a stray `[[` / `]]` (catalog replies
+    only). Bare prose such as `price: #5,000` is not markup."""
+    rest = TOKEN.sub("", text or "")
+    return bool(
+        markup.has_price_markup(rest)
+        or markup.has_generic_brackets(fold(rest))
+        or markup.has_generic_brackets(fold(markup._unescaped(rest)))
+    )
 
 
 def has_markup(text: str) -> bool:
     """Anything token-like at all, valid or not."""
-    return bool(TOKEN.search(fold(text))) or has_stray_markup(text)
+    return bool(TOKEN.search(text or "")) or has_stray_markup(text)
 
 
 def mask(text: str, replacement: str = "PRICE") -> str:
@@ -54,17 +45,9 @@ def mask(text: str, replacement: str = "PRICE") -> str:
 
 
 def strip(text: str) -> str:
-    """Remove the token text and nothing else: spaces and line breaks around it stay as written
-    (no catalog block was injected, so this must never reshape an ordinary reply)."""
-    out = fold(text)
-    for _ in range(8):  # removing one token can join the halves of another: go until stable
-        cleaned = _TOKEN_SPAN.sub("", out)
-        if cleaned == out:
-            break
-        out = cleaned
-    if has_stray_markup(out):  # still something after eight passes: drop every bracket
-        out = re.sub(r"[\[\]{}]", "", out)
-    return out
+    """Remove the token text (exact tokens and bracketed look-alikes, and `[[...]]` leftovers) and
+    nothing else. Only ever called for a tenant with catalog items."""
+    return markup.strip_brackets(text)
 
 
 def resolve(text: str, price_text: Callable[[int], str | None]) -> str | None:
@@ -79,10 +62,20 @@ def resolve(text: str, price_text: Callable[[int], str | None]) -> str | None:
             return ""
         return value
 
-    out = TOKEN.sub(sub, fold(text))
+    out = TOKEN.sub(sub, text or "")
     if failed or has_stray_markup(out):
         return None
     return out
+
+
+_FROM_FROM = re.compile(r"\b(from)\s+from\b", re.IGNORECASE)
+_PER_PER = re.compile(r"\b(per\s+[^\W\d_]+)\s+\1\b", re.IGNORECASE)
+
+
+def collapse_mode_words(text: str) -> str:
+    """The resolved price text carries its own mode ("from ₦25,000", "₦4.5m per annum"); the model
+    cannot see it, so it may write "starts from [[price]]": the doubled word is removed."""
+    return _PER_PER.sub(r"\1", _FROM_FROM.sub(r"\1", text))
 
 
 def price_order_line(items: Iterable[OfferingFacts]) -> str:

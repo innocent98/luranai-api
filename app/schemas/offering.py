@@ -8,7 +8,7 @@ from typing import Literal
 
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 Kind = Literal["product", "service"]
 PriceMode = Literal["fixed", "from", "on_request"]
@@ -57,7 +57,9 @@ class ImportRequest(BaseModel):
     """Preview and apply share this body (`skip_errors` only matters to apply)."""
 
     format: Literal["csv", "lines"]
-    content: str
+    # The service enforces the real 256 KB cap with its own message; this only stops an absurd body
+    # from being scanned at all (a request over it gets the framework's 422 `detail` shape).
+    content: str = Field(max_length=1_048_576)
     mode: Literal["add", "upsert"] = "add"
     skip_errors: bool = False
 
