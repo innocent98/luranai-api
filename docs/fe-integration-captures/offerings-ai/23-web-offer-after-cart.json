@@ -7,20 +7,20 @@
     "headers": {},
     "body": {
       "message": "I'll pay 30k for the leather bag",
-      "tenant_id": "2cda0a18-8efa-4fbe-8be5-e8540f00733e",
+      "tenant_id": "0c6d57b8-ec60-483b-9e39-69acc17cb182",
       "user_identifier": "web-8",
-      "session_id": "3caa560a-1971-48fd-b9dc-0ca1e6afbb53"
+      "session_id": "342a04e5-5d35-4638-9646-000d7956da46"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "3caa560a-1971-48fd-b9dc-0ca1e6afbb53",
+      "session_id": "342a04e5-5d35-4638-9646-000d7956da46",
       "message": {
         "role": "assistant",
         "content": "I've noted your offer of ₦30,000 for the Leather bag.\n\nI'm handing this to the team now; they'll take it from here.\n\nA team member will confirm the price.",
-        "id": "da11ae73-7ce7-4974-9fab-b6977bd571bc",
-        "session_id": "3caa560a-1971-48fd-b9dc-0ca1e6afbb53",
+        "id": "d63e2e41-e211-45f4-a4fd-e0564d6caffe",
+        "session_id": "342a04e5-5d35-4638-9646-000d7956da46",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -46,7 +46,7 @@
             "items": [
               {
                 "ref": "#3",
-                "offering_id": "af8218b2-1ec2-45b3-827f-98b308f54986",
+                "offering_id": "67a437b1-db4a-41ee-a64d-3bae176f70e2",
                 "name": "Leather bag",
                 "price_text": "₦45,000",
                 "availability": "in_stock",
@@ -55,7 +55,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T02:03:02.610140+00:00",
+            "shown_at": "2026-10-31T08:11:12.779209+00:00",
             "guard": {
               "checked": false,
               "blocked": false,
@@ -64,12 +64,12 @@
             }
           }
         },
-        "created_at": "2026-10-31T02:03:02.709598Z"
+        "created_at": "2026-10-31T08:11:12.872773Z"
       },
       "user_message_attachments": [],
       "should_escalate": true,
       "escalation_reason": "Customer made a price offer",
-      "ticket_id": "85bfbab0-6902-49b2-bded-a5eab138257f"
+      "ticket_id": "1e586b9d-8ee1-4319-9318-661517e20a7b"
     }
   }
 }

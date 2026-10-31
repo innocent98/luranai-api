@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "Do you have the beach sandals?",
-      "tenant_id": "2cda0a18-8efa-4fbe-8be5-e8540f00733e",
+      "tenant_id": "0c6d57b8-ec60-483b-9e39-69acc17cb182",
       "user_identifier": "web-3"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "ad7135af-dcdd-4172-83e4-d2ab0ef0e8b8",
+      "session_id": "480d8281-f7fd-4fc4-8970-ce20c76139f3",
       "message": {
         "role": "assistant",
         "content": "The Beach sandals is sold out right now. Would you like me to connect you with the team?",
-        "id": "c89f736b-4a19-4434-a10e-0062c5d96d95",
-        "session_id": "ad7135af-dcdd-4172-83e4-d2ab0ef0e8b8",
+        "id": "8e1f60e0-e9e9-420e-bf4f-cb285b7386da",
+        "session_id": "480d8281-f7fd-4fc4-8970-ce20c76139f3",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -45,7 +45,7 @@
             "items": [
               {
                 "ref": "#5",
-                "offering_id": "0bb319fa-8943-4d8f-ae9d-5bf71bd0da17",
+                "offering_id": "39b697da-28d5-472f-a27f-fe59386bb2dc",
                 "name": "Beach sandals",
                 "price_text": "₦8,000",
                 "availability": "out_of_stock",
@@ -54,7 +54,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T02:02:56.322942+00:00",
+            "shown_at": "2026-10-31T08:11:06.506896+00:00",
             "guard": {
               "checked": true,
               "blocked": false,
@@ -63,7 +63,7 @@
             }
           }
         },
-        "created_at": "2026-10-31T02:02:56.355448Z"
+        "created_at": "2026-10-31T08:11:06.535844Z"
       },
       "user_message_attachments": [],
       "should_escalate": false,
