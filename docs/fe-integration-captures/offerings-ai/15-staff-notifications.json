@@ -15,68 +15,68 @@
       "data": {
         "items": [
           {
-            "id": "5479ce63-7f74-4d01-9128-d56cc98fb55f",
+            "id": "4f206bcc-7800-4442-b608-f75f3c087a1c",
             "event": "offering_request",
             "title": "New item request",
             "body": "A customer · 1 × Phone repair (listed ₦5,000)",
             "read_at": null,
-            "created_at": "2026-10-31T08:11:07.734603+00:00"
+            "created_at": "2026-10-31T09:06:38.464417+00:00"
           },
           {
-            "id": "9a886664-79cd-47af-bb07-3b60a551600f",
+            "id": "676c1c9d-b192-4043-8d04-ff077934c9ef",
             "event": "quote_generated",
             "title": "New quote",
             "body": "₦37,500 · a prospect",
             "read_at": null,
-            "created_at": "2026-10-31T08:11:07.434210+00:00"
+            "created_at": "2026-10-31T09:06:38.325015+00:00"
           },
           {
-            "id": "afca6ccd-174a-4331-846a-d31030aa97a7",
+            "id": "18a82a79-b735-4c4a-9534-2e94f45dd650",
             "event": "offering_request",
             "title": "New item request",
             "body": "A customer · 2 × Canvas sneaker black (listed ₦12,000)",
             "read_at": null,
-            "created_at": "2026-10-31T08:11:07.230673+00:00"
+            "created_at": "2026-10-31T09:06:38.248098+00:00"
           },
           {
-            "id": "04110708-9b69-44b8-a81d-0c075a77c0b8",
+            "id": "9ac744ec-5dd0-419b-a6ec-ebc85124a0e4",
             "event": "quote_generated",
             "title": "New quote",
             "body": "₦24,000 · a prospect",
             "read_at": null,
-            "created_at": "2026-10-31T08:11:07.205672+00:00"
+            "created_at": "2026-10-31T09:06:38.239235+00:00"
           },
           {
-            "id": "b9060d84-0ad7-4e6a-8f3c-a9b94f193ff4",
+            "id": "16176a79-8f35-49a4-bb82-dd8ee71442de",
             "event": "offering_request",
             "title": "Price offer",
             "body": "A customer offered ₦30,000 for Leather bag (listed ₦45,000). 1 × Leather bag (listed ₦45,000), customer offered ₦30,000",
             "read_at": null,
-            "created_at": "2026-10-31T08:11:06.943028+00:00"
+            "created_at": "2026-10-31T09:06:38.132092+00:00"
           },
           {
-            "id": "9ede818b-ab14-4d35-8ff5-f70cd0dd76c8",
+            "id": "a5410c0e-99eb-4a35-aa80-217e61cef7cf",
             "event": "offering_request",
             "title": "New item request",
             "body": "A customer · 1 × Leather bag (listed ₦45,000), customer offered ₦30,000",
             "read_at": null,
-            "created_at": "2026-10-31T08:11:06.928819+00:00"
+            "created_at": "2026-10-31T09:06:38.125623+00:00"
           },
           {
-            "id": "1a1b2e64-dab4-4b17-a638-916c7861d740",
+            "id": "ba599bf1-caed-4c54-a2d4-c2708239b59a",
             "event": "offering_request",
             "title": "New item request",
             "body": "A customer · 1 × Canvas sneaker white (listed ₦13,500), customer offered ₦9,000",
             "read_at": null,
-            "created_at": "2026-10-31T08:11:06.809451+00:00"
+            "created_at": "2026-10-31T09:06:38.055026+00:00"
           },
           {
-            "id": "17bc2c42-500c-4101-b1b7-da63a9b2d313",
+            "id": "643ab355-95b1-4a34-a72f-4f58ed136c3c",
             "event": "offering_request",
             "title": "New item request",
             "body": "A customer · 1 × Canvas sneaker black (listed ₦12,000), customer offered ₦10,000",
             "read_at": null,
-            "created_at": "2026-10-31T08:11:06.699366+00:00"
+            "created_at": "2026-10-31T09:06:37.981277+00:00"
           }
         ],
         "total": 8,

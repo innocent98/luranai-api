@@ -3,7 +3,7 @@
   "note": "Per-message `meta.channel` is `whatsapp`; the assistant messages carry `meta.offerings` (and `meta.quote`) as on the web.",
   "request": {
     "method": "GET",
-    "path": "/api/v1/chat/sessions/4d116cbf-a60d-4691-b6d3-0b65ca9998aa",
+    "path": "/api/v1/chat/sessions/8a950fc6-1736-4363-a93f-f6bfde650c53",
     "headers": {
       "Authorization": "Bearer <jwt-placeholder>"
     }
@@ -15,8 +15,8 @@
         {
           "role": "user",
           "content": "What do you have?",
-          "id": "7967dc86-2ec7-4c1a-9567-30c0fded35f6",
-          "session_id": "4d116cbf-a60d-4691-b6d3-0b65ca9998aa",
+          "id": "f8a2f94f-1763-440d-8196-75d8b2d97215",
+          "session_id": "8a950fc6-1736-4363-a93f-f6bfde650c53",
           "retrieved_chunk_ids": null,
           "token_count": null,
           "attachments": [],
@@ -24,13 +24,13 @@
           "meta": {
             "channel": "whatsapp"
           },
-          "created_at": "2026-10-31T08:11:09.223940Z"
+          "created_at": "2026-10-31T09:06:39.737946Z"
         },
         {
           "role": "assistant",
           "content": "Here is what we have:\n#1 Canvas sneaker black - ₦12,000\n#2 Canvas sneaker white - ₦13,500\n#3 Leather bag - ₦45,000\n#4 Phone repair - from ₦5,000 per phone\n#5 Beach sandals - ₦8,000",
-          "id": "8ffaf024-280b-42ab-9fe6-fc190c04b8c5",
-          "session_id": "4d116cbf-a60d-4691-b6d3-0b65ca9998aa",
+          "id": "ed8667f5-d059-45b6-8bed-36daa7bdb56c",
+          "session_id": "8a950fc6-1736-4363-a93f-f6bfde650c53",
           "retrieved_chunk_ids": [],
           "token_count": 150,
           "attachments": [],
@@ -56,17 +56,17 @@
               "items": [
                 {
                   "ref": "#1",
-                  "offering_id": "a35c8ccc-8666-4fd6-bdf3-e956f9fd9d9b",
+                  "offering_id": "bb364582-8136-4c3b-9b26-03c1f0cf9038",
                   "name": "Canvas sneaker black",
                   "price_text": "₦12,000",
                   "availability": "in_stock",
-                  "cover_image_id": "747e4873-dcd8-4fc4-aedf-aa7b01b71384",
-                  "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/0c6d57b8-ec60-483b-9e39-69acc17cb182/3c1b5095aa554f11bb276cfe36fd6fe5.jpg",
+                  "cover_image_id": "89633d73-01cb-4744-b6f8-fa4873a9f3fa",
+                  "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/e8acedc8-2256-45b2-852b-a8b8c47ac710/137859e15eba4f438116030056ee4698.jpg",
                   "photo_count": 2
                 },
                 {
                   "ref": "#2",
-                  "offering_id": "30efefb0-b55e-4d3e-9208-b42f0a2f03f0",
+                  "offering_id": "579cdaca-b707-47a9-a7f7-37d778660a9f",
                   "name": "Canvas sneaker white",
                   "price_text": "₦13,500",
                   "availability": "in_stock",
@@ -76,7 +76,7 @@
                 },
                 {
                   "ref": "#3",
-                  "offering_id": "67a437b1-db4a-41ee-a64d-3bae176f70e2",
+                  "offering_id": "4e05db42-f2a7-40dd-a9ab-bef4255ea62e",
                   "name": "Leather bag",
                   "price_text": "₦45,000",
                   "availability": "in_stock",
@@ -86,7 +86,7 @@
                 },
                 {
                   "ref": "#4",
-                  "offering_id": "d0b2bd8b-9089-4e52-b76a-dda449c9e549",
+                  "offering_id": "a178e8be-2f1b-4556-9019-ceffc4113237",
                   "name": "Phone repair",
                   "price_text": "from ₦5,000 per phone",
                   "availability": "in_stock",
@@ -96,7 +96,7 @@
                 },
                 {
                   "ref": "#5",
-                  "offering_id": "39b697da-28d5-472f-a27f-fe59386bb2dc",
+                  "offering_id": "c4d56dc1-c8e9-4467-b335-8b515bf50702",
                   "name": "Beach sandals",
                   "price_text": "₦8,000",
                   "availability": "out_of_stock",
@@ -105,7 +105,7 @@
                   "photo_count": 0
                 }
               ],
-              "shown_at": "2026-10-31T08:11:09.238234+00:00",
+              "shown_at": "2026-10-31T09:06:39.751623+00:00",
               "guard": {
                 "checked": true,
                 "blocked": false,
@@ -115,13 +115,13 @@
             },
             "channel": "whatsapp"
           },
-          "created_at": "2026-10-31T08:11:09.450411Z"
+          "created_at": "2026-10-31T09:06:40.078930Z"
         },
         {
           "role": "user",
           "content": "I want 2 black sneakers",
-          "id": "718b1587-a32a-476b-be24-4eb39af3eab1",
-          "session_id": "4d116cbf-a60d-4691-b6d3-0b65ca9998aa",
+          "id": "d0ed53bc-8b37-42e5-85ee-e623c04e64cb",
+          "session_id": "8a950fc6-1736-4363-a93f-f6bfde650c53",
           "retrieved_chunk_ids": null,
           "token_count": null,
           "attachments": [],
@@ -129,13 +129,13 @@
           "meta": {
             "channel": "whatsapp"
           },
-          "created_at": "2026-10-31T08:11:10.575496Z"
+          "created_at": "2026-10-31T09:06:40.752303Z"
         },
         {
           "role": "assistant",
           "content": "Noted: 2 × Canvas sneaker black. What name should I put down?",
-          "id": "1b53a990-e47f-4ec3-bfd1-71fb7ac21aaf",
-          "session_id": "4d116cbf-a60d-4691-b6d3-0b65ca9998aa",
+          "id": "f59b6aeb-cd5d-4f55-adca-9ef76705c09c",
+          "session_id": "8a950fc6-1736-4363-a93f-f6bfde650c53",
           "retrieved_chunk_ids": [],
           "token_count": 150,
           "attachments": [],
@@ -161,16 +161,16 @@
               "items": [
                 {
                   "ref": "#1",
-                  "offering_id": "a35c8ccc-8666-4fd6-bdf3-e956f9fd9d9b",
+                  "offering_id": "bb364582-8136-4c3b-9b26-03c1f0cf9038",
                   "name": "Canvas sneaker black",
                   "price_text": "₦12,000",
                   "availability": "in_stock",
-                  "cover_image_id": "747e4873-dcd8-4fc4-aedf-aa7b01b71384",
-                  "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/0c6d57b8-ec60-483b-9e39-69acc17cb182/3c1b5095aa554f11bb276cfe36fd6fe5.jpg",
+                  "cover_image_id": "89633d73-01cb-4744-b6f8-fa4873a9f3fa",
+                  "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/e8acedc8-2256-45b2-852b-a8b8c47ac710/137859e15eba4f438116030056ee4698.jpg",
                   "photo_count": 2
                 }
               ],
-              "shown_at": "2026-10-31T08:11:10.603848+00:00",
+              "shown_at": "2026-10-31T09:06:40.759236+00:00",
               "guard": {
                 "checked": true,
                 "blocked": false,
@@ -191,7 +191,7 @@
             },
             "channel": "whatsapp"
           },
-          "created_at": "2026-10-31T08:11:10.776067Z"
+          "created_at": "2026-10-31T09:06:40.823007Z"
         }
       ],
       "ticket_id": null,
@@ -200,18 +200,18 @@
         "entry_point": "whatsapp",
         "contact_name": "Ada"
       },
-      "id": "4d116cbf-a60d-4691-b6d3-0b65ca9998aa",
-      "tenant_id": "0c6d57b8-ec60-483b-9e39-69acc17cb182",
-      "visitor_id": "353f5173-2d3a-4b2e-88e3-1bfa81bd5416",
+      "id": "8a950fc6-1736-4363-a93f-f6bfde650c53",
+      "tenant_id": "e8acedc8-2256-45b2-852b-a8b8c47ac710",
+      "visitor_id": "33588a81-2af0-466d-a542-41fc725b0c32",
       "visitor_session_id": null,
       "customer_user_id": null,
       "visitor": {
-        "id": "353f5173-2d3a-4b2e-88e3-1bfa81bd5416",
+        "id": "33588a81-2af0-466d-a542-41fc725b0c32",
         "name": "Ada",
         "email": null,
         "phone": null,
-        "first_seen_at": "2026-10-31T08:11:09.034453Z",
-        "last_seen_at": "2026-10-31T08:11:09.034453Z",
+        "first_seen_at": "2026-10-31T09:06:39.693526Z",
+        "last_seen_at": "2026-10-31T09:06:39.693526Z",
         "is_blocked": false
       },
       "source": "whatsapp",
@@ -220,9 +220,9 @@
       "escalated_at": null,
       "agent_id": null,
       "agent_joined_at": null,
-      "last_message_at": "2026-10-31T08:11:10.774348Z",
-      "created_at": "2026-10-31T08:11:09.046792Z",
-      "updated_at": "2026-10-31T08:11:10.778609Z",
+      "last_message_at": "2026-10-31T09:06:40.822338Z",
+      "created_at": "2026-10-31T09:06:39.698276Z",
+      "updated_at": "2026-10-31T09:06:40.824757Z",
       "customer_label": "Ada",
       "customer_presence": {
         "state": "offline",

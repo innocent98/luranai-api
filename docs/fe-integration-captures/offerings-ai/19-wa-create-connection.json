@@ -8,7 +8,7 @@
       "Authorization": "Bearer <jwt-placeholder>"
     },
     "body": {
-      "phone_number": "2348002954093",
+      "phone_number": "2348002080220",
       "label": "Shop line",
       "consent": {
         "version": "2026-10-30",
@@ -19,9 +19,9 @@
   "response": {
     "status": 201,
     "body": {
-      "id": "06501639-f415-4f1c-a033-369caee0aa68",
+      "id": "ff72a06c-f423-45ad-96e6-a728e4903d2c",
       "status": "awaiting_pair",
-      "pairing_code": "FAKE4724",
+      "pairing_code": "FAKE4496",
       "expires_in_s": 180
     }
   }

@@ -62,17 +62,17 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
     "items": [
       {
         "ref": "#1",
-        "offering_id": "a35c8ccc-8666-4fd6-bdf3-e956f9fd9d9b",
+        "offering_id": "bb364582-8136-4c3b-9b26-03c1f0cf9038",
         "name": "Canvas sneaker black",
         "price_text": "₦12,000",
         "availability": "in_stock",
-        "cover_image_id": "747e4873-dcd8-4fc4-aedf-aa7b01b71384",
-        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/0c6d57b8-ec60-483b-9e39-69acc17cb182/3c1b5095aa554f11bb276cfe36fd6fe5.jpg",
+        "cover_image_id": "89633d73-01cb-4744-b6f8-fa4873a9f3fa",
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/e8acedc8-2256-45b2-852b-a8b8c47ac710/137859e15eba4f438116030056ee4698.jpg",
         "photo_count": 2
       },
       {
         "ref": "#2",
-        "offering_id": "30efefb0-b55e-4d3e-9208-b42f0a2f03f0",
+        "offering_id": "579cdaca-b707-47a9-a7f7-37d778660a9f",
         "name": "Canvas sneaker white",
         "price_text": "₦13,500",
         "availability": "in_stock",
@@ -82,7 +82,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
       },
       {
         "ref": "#3",
-        "offering_id": "67a437b1-db4a-41ee-a64d-3bae176f70e2",
+        "offering_id": "4e05db42-f2a7-40dd-a9ab-bef4255ea62e",
         "name": "Leather bag",
         "price_text": "₦45,000",
         "availability": "in_stock",
@@ -92,7 +92,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
       },
       {
         "ref": "#4",
-        "offering_id": "d0b2bd8b-9089-4e52-b76a-dda449c9e549",
+        "offering_id": "a178e8be-2f1b-4556-9019-ceffc4113237",
         "name": "Phone repair",
         "price_text": "from ₦5,000 per phone",
         "availability": "in_stock",
@@ -102,7 +102,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
       },
       {
         "ref": "#5",
-        "offering_id": "39b697da-28d5-472f-a27f-fe59386bb2dc",
+        "offering_id": "c4d56dc1-c8e9-4467-b335-8b515bf50702",
         "name": "Beach sandals",
         "price_text": "₦8,000",
         "availability": "out_of_stock",
@@ -111,7 +111,7 @@ Browse (capture `01`, `meta` shown without the unchanged retrieval and token fie
         "photo_count": 0
       }
     ],
-    "shown_at": "2026-10-31T08:11:06.154790+00:00",
+    "shown_at": "2026-10-31T09:06:37.413703+00:00",
     "guard": {
       "checked": true,
       "blocked": false,
@@ -130,16 +130,16 @@ A single item with two photos (capture `02`; the reply text is `"The Canvas snea
   "items": [
     {
       "ref": "#1",
-      "offering_id": "a35c8ccc-8666-4fd6-bdf3-e956f9fd9d9b",
+      "offering_id": "bb364582-8136-4c3b-9b26-03c1f0cf9038",
       "name": "Canvas sneaker black",
       "price_text": "₦12,000",
       "availability": "in_stock",
-      "cover_image_id": "747e4873-dcd8-4fc4-aedf-aa7b01b71384",
-      "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/0c6d57b8-ec60-483b-9e39-69acc17cb182/3c1b5095aa554f11bb276cfe36fd6fe5.jpg",
+      "cover_image_id": "89633d73-01cb-4744-b6f8-fa4873a9f3fa",
+      "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/e8acedc8-2256-45b2-852b-a8b8c47ac710/137859e15eba4f438116030056ee4698.jpg",
       "photo_count": 2
     }
   ],
-  "shown_at": "2026-10-31T08:11:06.439205+00:00",
+  "shown_at": "2026-10-31T09:06:37.736079+00:00",
   "guard": {
     "checked": true,
     "blocked": false,
@@ -155,7 +155,7 @@ Not listed (capture `04`; reply `"I don't have that listed. Would you like me to
 {
   "mode": "none",
   "items": [],
-  "shown_at": "2026-10-31T08:11:06.571339+00:00",
+  "shown_at": "2026-10-31T09:06:37.868586+00:00",
   "guard": {
     "checked": true,
     "blocked": false,
@@ -213,17 +213,17 @@ and the response carries:
     "items": [
       {
         "ref": "#1",
-        "offering_id": "a35c8ccc-8666-4fd6-bdf3-e956f9fd9d9b",
+        "offering_id": "bb364582-8136-4c3b-9b26-03c1f0cf9038",
         "name": "Canvas sneaker black",
         "price_text": "₦12,000",
         "availability": "in_stock",
-        "cover_image_id": "747e4873-dcd8-4fc4-aedf-aa7b01b71384",
-        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/0c6d57b8-ec60-483b-9e39-69acc17cb182/3c1b5095aa554f11bb276cfe36fd6fe5.jpg",
+        "cover_image_id": "89633d73-01cb-4744-b6f8-fa4873a9f3fa",
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/e8acedc8-2256-45b2-852b-a8b8c47ac710/137859e15eba4f438116030056ee4698.jpg",
         "photo_count": 2
       },
       {
         "ref": "#2",
-        "offering_id": "30efefb0-b55e-4d3e-9208-b42f0a2f03f0",
+        "offering_id": "579cdaca-b707-47a9-a7f7-37d778660a9f",
         "name": "Canvas sneaker white",
         "price_text": "₦13,500",
         "availability": "in_stock",
@@ -232,7 +232,7 @@ and the response carries:
         "photo_count": 0
       }
     ],
-    "shown_at": "2026-10-31T08:11:13.098100+00:00",
+    "shown_at": "2026-10-31T09:06:43.335150+00:00",
     "guard": {
       "checked": true,
       "blocked": true,
@@ -264,7 +264,7 @@ and the response carries:
 true
 ```
 
-A message with a figure and **no item named** ("I fit pay 18k", "Pls sell for 18,000") is also an offer when the conversation already has items in play (shown or wanted earlier); with none in play it is an offer candidate for a human: the reply is `I can't change prices myself, but the team can discuss it with you.` followed by `Would you like me to connect you with the team?` (a consent step, `escalation_action` `offer_escalation`, capture `29` below). Payment arrangements ("12,500 now and the balance on delivery") are not offers.
+A message with a figure and **no item named** ("I fit pay 18k", "Pls sell for 18,000") is also an offer when the conversation already has items in play (shown or wanted earlier); with none in play it is an offer candidate for a human: the reply is `I can't change prices myself, but the team can discuss it with you.` followed by `Would you like me to connect you with the team?` (a consent step, `escalation_action` `offer_escalation`, capture `29` below). Payment arrangements ("12,500 now and the balance on delivery"), years and model numbers ("a 2016 Camry", "MacBook Air M2 2022"), numbers inside an item's name and counts before an item noun ("50 sausage rolls") are not offers. An offer stays "pending" (no quote is made) until a human has joined the conversation after it; a quote is made again on the next cart once a human has taken it up.
 
 Two tiers keep ordinary questions out of this path: a **strong** signal (above) gets the code-only reply; wording that is only a bargain beside a figure ("can you do", "how about", "make it") and numbers next to units or identifiers (`size 44`, `order number is 10021`, `150 guests`, a phone number) are **not** offers, so "can you do delivery to Lekki?" is answered by the model as usual (capture `28`; the guard still checks it). A bare figure below the price in capture `27` ("black sneaker abeg 9000") gets the firm-price line:
 
@@ -312,12 +312,12 @@ An offer made **after** the first cart (capture `23`) is recorded, hands over, m
 
 ```json
 {
-  "id": "5ab716ee-0d45-4c5b-aedf-aefb96aa20c2",
+  "id": "7facec5e-f954-4331-a306-cf60d45550d2",
   "event": "offering_request",
   "title": "Price offer",
   "body": "A customer offered ₦30,000 for Leather bag (listed ₦45,000). 3 × Leather bag (listed ₦45,000), customer offered ₦30,000",
   "read_at": null,
-  "created_at": "2026-10-31T08:11:12.846986+00:00"
+  "created_at": "2026-10-31T09:06:43.209959+00:00"
 }
 ```
 
@@ -374,7 +374,7 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
     "items": [
       {
         "ref": "#4",
-        "offering_id": "d0b2bd8b-9089-4e52-b76a-dda449c9e549",
+        "offering_id": "a178e8be-2f1b-4556-9019-ceffc4113237",
         "name": "Phone repair",
         "price_text": "from ₦5,000 per phone",
         "availability": "in_stock",
@@ -383,7 +383,7 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
         "photo_count": 0
       }
     ],
-    "shown_at": "2026-10-31T08:11:07.665027+00:00",
+    "shown_at": "2026-10-31T09:06:38.434127+00:00",
     "guard": {
       "checked": true,
       "blocked": false,
@@ -445,7 +445,7 @@ A `from`-priced line (capture `13`, "I'll take the phone repair"): wanted items 
   "landing_page": "whatsapp",
   "utm": null,
   "channel": null,
-  "first_seen": "2026-10-31T08:11:09.226552+00:00"
+  "first_seen": "2026-10-31T09:06:39.740995+00:00"
 }
 ```
 
@@ -455,23 +455,23 @@ The first committed cart of a conversation raises the new event `offering_reques
 
 ```json
 {
-  "id": "5479ce63-7f74-4d01-9128-d56cc98fb55f",
+  "id": "4f206bcc-7800-4442-b608-f75f3c087a1c",
   "event": "offering_request",
   "title": "New item request",
   "body": "A customer · 1 × Phone repair (listed ₦5,000)",
   "read_at": null,
-  "created_at": "2026-10-31T08:11:07.734603+00:00"
+  "created_at": "2026-10-31T09:06:38.464417+00:00"
 }
 ```
 
 ```json
 {
-  "id": "9a886664-79cd-47af-bb07-3b60a551600f",
+  "id": "676c1c9d-b192-4043-8d04-ff077934c9ef",
   "event": "quote_generated",
   "title": "New quote",
   "body": "₦37,500 · a prospect",
   "read_at": null,
-  "created_at": "2026-10-31T08:11:07.434210+00:00"
+  "created_at": "2026-10-31T09:06:38.325015+00:00"
 }
 ```
 
@@ -518,16 +518,16 @@ The conversation as an agent sees it (capture `21`, last assistant message): `me
     "items": [
       {
         "ref": "#1",
-        "offering_id": "a35c8ccc-8666-4fd6-bdf3-e956f9fd9d9b",
+        "offering_id": "bb364582-8136-4c3b-9b26-03c1f0cf9038",
         "name": "Canvas sneaker black",
         "price_text": "₦12,000",
         "availability": "in_stock",
-        "cover_image_id": "747e4873-dcd8-4fc4-aedf-aa7b01b71384",
-        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/0c6d57b8-ec60-483b-9e39-69acc17cb182/3c1b5095aa554f11bb276cfe36fd6fe5.jpg",
+        "cover_image_id": "89633d73-01cb-4744-b6f8-fa4873a9f3fa",
+        "cover_url": "https://res.cloudinary.com/demo/image/upload/c_limit,w_400,q_auto,f_jpg/v1730000000/luran/offerings/e8acedc8-2256-45b2-852b-a8b8c47ac710/137859e15eba4f438116030056ee4698.jpg",
         "photo_count": 2
       }
     ],
-    "shown_at": "2026-10-31T08:11:10.603848+00:00",
+    "shown_at": "2026-10-31T09:06:40.759236+00:00",
     "guard": {
       "checked": true,
       "blocked": false,
@@ -560,6 +560,7 @@ Catalog **photos** and the **quote as a second text message** on WhatsApp belong
 | `cover_url` is the 400 px rendition | **Live** (capture 02; a first run showed the stored original, fixed and re-captured) |
 | Token resolution: the customer sees live `price_text`, no token in any response | **Live** (every capture with a price; 25) with the stand-in. The real model's habit of writing tokens: **not verified** (staging eval) |
 | Guard regeneration and code fallback, `guard` flags, `message.meta.escalation_action: offer_escalation` | **Live** with a stand-in that types a literal price on cue (25, 26). Behaviour against the real model: **not verified** (the eval gate on staging does that) |
+| Lead `source` follows the channel (whatsapp, voice, hosted_page) **only for tenants with catalog items**; every other sales tenant keeps `chat_widget` as before | Unit test (`test_a_tenant_without_a_catalog_keeps_todays_lead_source_on_whatsapp`) |
 | Bargaining turns answered by code (firm price / noted offer + handover), `guard.checked` false | **Live** (06, 07, 08, 23, 27, 29); ordinary question not intercepted (28). Detection rates (the reviewer's sets: haggling 40/40, ordinary 0/40, also with nothing matched; earlier sets 49/49 and 0/28) are unit tests |
 | Offer at or above the list price ignored; unknown/foreign token rejected; token resolved on WhatsApp and voice paths; false-block rates (n40 fashion set 0 unexpected blocks, 40-reply clinic/law set 0) | Unit tests only (`tests/offerings_ai/`) |
 | Offer on a negotiable item stored, conversation handed over (`auto_escalate`, ticket), no quote | **Live** (08, 09). On voice the handover is a consent step (`offer_escalation`): unit test only |

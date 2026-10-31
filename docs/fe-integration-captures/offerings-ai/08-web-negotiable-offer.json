@@ -7,19 +7,19 @@
     "headers": {},
     "body": {
       "message": "I'll pay 30k for the leather bag",
-      "tenant_id": "0c6d57b8-ec60-483b-9e39-69acc17cb182",
+      "tenant_id": "e8acedc8-2256-45b2-852b-a8b8c47ac710",
       "user_identifier": "web-7"
     }
   },
   "response": {
     "status": 200,
     "body": {
-      "session_id": "9d388fe8-b9c7-4c81-b867-f748218e845c",
+      "session_id": "3d5d05cf-028d-46bc-9fe5-d4f98ec150d3",
       "message": {
         "role": "assistant",
         "content": "I've noted your offer of ₦30,000 for the Leather bag.\n\nI'm handing this to the team now; they'll take it from here.",
-        "id": "341b45cf-0d31-479c-9cf1-577c5d30347f",
-        "session_id": "9d388fe8-b9c7-4c81-b867-f748218e845c",
+        "id": "df691304-32b5-49f3-a74b-89b326d85b64",
+        "session_id": "3d5d05cf-028d-46bc-9fe5-d4f98ec150d3",
         "retrieved_chunk_ids": [],
         "token_count": 150,
         "attachments": [],
@@ -45,7 +45,7 @@
             "items": [
               {
                 "ref": "#3",
-                "offering_id": "67a437b1-db4a-41ee-a64d-3bae176f70e2",
+                "offering_id": "4e05db42-f2a7-40dd-a9ab-bef4255ea62e",
                 "name": "Leather bag",
                 "price_text": "₦45,000",
                 "availability": "in_stock",
@@ -54,7 +54,7 @@
                 "photo_count": 0
               }
             ],
-            "shown_at": "2026-10-31T08:11:06.879183+00:00",
+            "shown_at": "2026-10-31T09:06:38.097189+00:00",
             "guard": {
               "checked": false,
               "blocked": false,
@@ -63,12 +63,12 @@
             }
           }
         },
-        "created_at": "2026-10-31T08:11:06.964516Z"
+        "created_at": "2026-10-31T09:06:38.140926Z"
       },
       "user_message_attachments": [],
       "should_escalate": true,
       "escalation_reason": "Customer made a price offer",
-      "ticket_id": "e3f8c4e7-f0b1-40e6-8388-9f2884db424a"
+      "ticket_id": "f74f9a39-2731-4332-8d59-d2c103d9ce4a"
     }
   }
 }
