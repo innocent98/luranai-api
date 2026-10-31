@@ -417,6 +417,7 @@ CASES += [
     ),
     C("Canvas sneaker black - ₦4,000", False, "literal_amount", kb=KBD),
     C(f"{T(1)} for something called the Red bag", False, "token_mismatch"),
+    C(f"{T(1)} for the cheap Red bag", False, "token_mismatch"),
     C(f"The Canvas sneaker black is {T(1)} each.", True),
     C(f"The Canvas sneaker black comes in 2 colours at {T(1)}.", True),
     C(f"The Canvas sneaker black is {T(1)} and comes with free delivery.", True),

@@ -242,6 +242,9 @@ def bound_items(
         pool = None
         forward = _PRICE_FOR.match(sentence[m.end() :]) if after else None
         right_after = [x for x in after if forward and x[0] == m.end() + forward.end()]
+        if forward and after and not right_after:
+            result.append((seq, {-2}))  # "for the cheap Red bag": cannot tell whose, fail closed
+            continue
         if right_after:
             pool = right_after
         elif before:
