@@ -1,6 +1,6 @@
 # Offerings eval (fake model)
 
-Run: 2026-10-31T02:02:05+00:00 · cases: 63 · failed: 0
+Run: 2026-10-31T08:52:32+00:00 · cases: 63 · failed: 0
 
 Guard interventions across the run (replies the guard had to stop): {'blocked': 8, 'regenerated': 8, 'fell_back': 1}
 
@@ -114,14 +114,16 @@ None.
 - Customer: Can you do ₦9,000 for the black sneaker?
 - AI: The listed price for the Canvas sneaker black is ₦12,000 and it is firm.
 - Customer: Please, ₦9,000 only
-- AI: I don't have that listed. Would you like me to connect you with the team?
+- AI: I can't change prices myself, but the team can discuss it with you.
   
-  Would you like me to connect you with someone from our team?
+  Would you like me to connect you with the team?
 - Recorded: [{'ref': '#1', 'qty': 1, 'offered_price': 9000}]
 
 ### hag-08 (haggling, sales)
 - Customer: I saw it cheaper elsewhere for 8k, match it?
-- AI: I don't have that listed. Would you like me to connect you with the team?
+- AI: I can't change prices myself, but the team can discuss it with you.
+  
+  Would you like me to connect you with the team?
 
 ### hag-09 (haggling, sales)
 - Customer: Can you do 2k off the leather bag?

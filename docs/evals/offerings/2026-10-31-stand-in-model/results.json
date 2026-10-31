@@ -141,7 +141,7 @@
       },
       {
         "user": "Please, ₦9,000 only",
-        "reply": "I don't have that listed. Would you like me to connect you with the team?\n\nWould you like me to connect you with someone from our team?"
+        "reply": "I can't change prices myself, but the team can discuss it with you.\n\nWould you like me to connect you with the team?"
       }
     ],
     "interests": [
@@ -164,7 +164,7 @@
     "turns": [
       {
         "user": "I saw it cheaper elsewhere for 8k, match it?",
-        "reply": "I don't have that listed. Would you like me to connect you with the team?"
+        "reply": "I can't change prices myself, but the team can discuss it with you.\n\nWould you like me to connect you with the team?"
       }
     ],
     "interests": []
