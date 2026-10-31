@@ -180,7 +180,7 @@ Every reply built on a catalog block is checked by code. If the first reply stat
 1. A guarded turn takes longer (a second model call). Show your normal typing indicator; do not time out early.
 2. A fallback reply is a plain list followed by an offer of the team, and the response then carries `escalation_action: "offer_escalation"`. Treat it exactly like the existing "would you like to talk to someone" consent step (the customer answers yes/no in the next message; nothing else to build).
 
-Regenerated (capture `06`; the customer asked for ₦10,000 on a fixed-price item; final reply `"The Canvas sneaker black is listed at ₦12,000. I've noted your request.\n\nI've noted your offer of ₦10,000 for the Canvas sneaker black."`; the last sentence is written by code, see section 5):
+Regenerated (capture `06`; the customer asked for ₦10,000 on a fixed-price item; final reply `"The Canvas sneaker black is listed at ₦12,000. I've noted your request.\n\nThe listed price for the Canvas sneaker black is ₦12,000 and it is firm."`; the last sentence is written by code, see section 5):
 
 ```json
 {
@@ -239,12 +239,12 @@ Here is what we have listed:
 #1 Canvas sneaker black - ₦12,000 - in stock
 Would you like me to connect you with the team?
 
-I've noted your offer of ₦9,000 for the Canvas sneaker white.
+The listed price for the Canvas sneaker white is ₦13,500 and it is firm.
 ```
 
 ## 5. Price offers (the AI never agrees to a lower price)
 
-The AI never agrees to, counters or hints at a price below the listed one. For a **negotiable** item it says the owner is open to offers, records the customer's figure on the lead, and offers a human. Capture `08` (customer: "I'll pay 30k for the leather bag"; the reply ends with a line written **by code**, never by the model: `I've noted your offer of ₦30,000 for the Leather bag.`, after the model's own wording and the offer of the team). The model may not repeat the customer's figure beside an item name: the guard blocks it:
+The AI never agrees to, counters or hints at a price below the listed one. For a **negotiable** item it says the owner is open to offers, records the customer's figure on the lead, and offers a human. Capture `08` (customer: "I'll pay 30k for the leather bag"; the reply ends with a line written **by code**, never by the model: `I've noted your offer of ₦30,000 for the Leather bag.`, after the model's own wording and the offer of the team). The model may not repeat the customer's figure beside an item name, nor agree, accept or discount: the guard blocks it. Code only says "noted your offer" when a human will pick it up (a negotiable item, or the customer insists); for a first offer on a non-negotiable item it states the firm price instead (`The listed price for the Canvas sneaker black is ₦12,000 and it is firm.`, captures `06` and `07`). The escalation action of capture `08`:
 
 ```json
 "offer_escalation"
