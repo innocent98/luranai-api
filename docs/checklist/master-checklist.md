@@ -365,7 +365,7 @@ Idea (owner): businesses keep a live list of what they sell (name, description, 
   - [x] T5 `meta.offerings` cards (400 px cover), shown-items session memory, not-found log (`b86ec20`)
   - [x] T6 cart to interests, catalog quote (all-`fixed` carts, code totals), `offered_price` + handover, `OFFERING_REQUEST` alert, lead `source` by channel, fired-only score rows, `render_quote_text`; pass 3: bargaining turns are code-only, quote derived from stored rows under the lead lock; **lead's 4th review pass: NOT done** (`0a13530`)
   - [x] T7 `scripts/offerings_eval.py`, 63 adversarial cases incl. token and bargaining cases; stand-in run 63/63. **Real-model run on staging by the lead: NOT done (pilot gate)**
-  - [x] T8 live run (29 captures re-run for the token regime, stand-in model, fake sidecar), FE guide part 2, SOP; full unit suite 4,683 passed / 33 skipped
+  - [x] T8 live run (29 captures re-run for the token regime, stand-in model, fake sidecar), FE guide part 2, SOP; full unit suite 4,711 passed / 33 skipped
   - [ ] Not exercised: the real model's behaviour, voice, strict (fail-closed) mode live, real sidecar, SMTP; WhatsApp photos and quote text message are S4b; the real-model eval on staging and how often the real model writes tokens correctly (lead, pilot gate)
 - [ ] **S3 Dashboard** `luran-dashboard` `feature/offerings-dashboard`: Today list, add/edit sheet with photos, import wizard, plan meter, Not-found tab, lead "Wanted items"
 - [ ] **S4a** `luran-chat` `feature/offerings-item-cards`: `meta.offerings` mapping + `ItemCard`
