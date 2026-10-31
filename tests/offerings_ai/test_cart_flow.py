@@ -38,8 +38,9 @@ def _shop(db, **kw):
 class Model:
     """Scripted structured sales model: each step is (reply, cart, offered_price, side_effect)."""
 
-    def __init__(self, *steps):
+    def __init__(self, *steps, email=None):
         self.steps = list(steps)
+        self.email = email
 
     def patch(self):
         async def fake(_self, prompt, config, **kwargs):
@@ -63,7 +64,7 @@ class Model:
                     "intent": "PURCHASE_INTENT",
                     "captured": {
                         "name": "Ada",
-                        "email": None,
+                        "email": self.email,
                         "company": None,
                         "team_size": None,
                         "industry": None,
@@ -665,3 +666,52 @@ def test_a_taken_up_offer_stays_resolved_when_the_customer_names_the_item_again(
         select(LeadOfferingInterest).where(LeadOfferingInterest.lead_id == lead.id)
     ).scalar_one()
     assert row.offered_price == 28000
+
+
+def test_a_catalog_quote_is_emailed_to_the_visitor_once_in_code_words(client, db):
+    """A catalog quote takes the same visitor-email path as a plan-tier quote (#200): one queued
+    send, the masked address in the reply, the model's own "I'll email it" removed, the quote card
+    and the code-written lines unchanged."""
+    from sqlalchemy import select as _select
+
+    from app.db.models.notification_log import NotificationLog, NotifEvent
+    from app.db.models.sales_agent_config import TenantSalesAgentConfig
+    from tests.api.v1.test_chat_quote_visitor_email import _allow, _noop, _visitor_logs, jobs_seen
+
+    jobs_seen.clear()
+    tid = _shop(db)
+    cfg = db.execute(
+        _select(TenantSalesAgentConfig).where(TenantSalesAgentConfig.tenant_id == tid)
+    ).scalar_one()
+    cfg.notification_email = "rep@example.com"
+    cfg.notify_channels = {"email": True}
+    db.commit()
+    reply = "Noted: 2 black sneakers. I'll email you the quote."
+    model = Model((reply, _cart((1, 2))), email="alice@example.com")
+    with (
+        model.patch(),
+        retrieval_patch(),
+        automation_patch(),
+        patch("app.services.notification_enqueue.enqueue_jobs_async", _noop),
+        patch("app.services.quote_email_service.enforce_identifier_limit", _allow),
+    ):
+        r = send(client, tid, "I want two black sneakers, my email is alice@example.com")
+    content = r.json()["message"]["content"]
+    assert "I've sent the quote to a***@example.com" in content
+    assert "alice@example.com" not in content and "email you the quote" not in content
+    assert _meta(r)["quote"]["total"] == 24000  # the catalog quote card is unchanged
+    (log,) = _visitor_logs(db, tid)
+    assert log.recipient == "alice@example.com"
+    assert [n for _id, n in jobs_seen if n == "send_visitor_quote_email"]
+    # the owner's quote alert still fired for the catalog quote
+    alerts = (
+        db.execute(
+            _select(NotificationLog).where(
+                NotificationLog.tenant_id == tid,
+                NotificationLog.event == NotifEvent.QUOTE_GENERATED,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert alerts
